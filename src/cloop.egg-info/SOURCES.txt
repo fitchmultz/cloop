@@ -13,3 +13,4 @@ src/cloop.egg-info/dependency_links.txt
 src/cloop.egg-info/requires.txt
 src/cloop.egg-info/top_level.txt
 tests/test_app.py
+tests/test_rag.py

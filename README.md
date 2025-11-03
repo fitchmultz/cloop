@@ -20,11 +20,12 @@ Key variables:
 - `CLOOP_LLM_MODEL` / `CLOOP_EMBED_MODEL`: LiteLLM model aliases (defaults target local Ollama/LM Studio routes).
 - `CLOOP_DATA_DIR`: folder where `core.db` and `rag.db` are created; override with the explicit path variables if needed.
 - `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a compiled SQLite vector extension; loading errors fall back to Python cosine search.
+- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`; `sqlite` uses an in-database cosine query plan, `auto` prefers SQLite when an extension is loaded.
 - Standard LiteLLM credentials (e.g., `LITELLM_API_KEY`) unlock hosted providers.
 
 ## Development
 - Type check: `uv run basedpyright`.
 - Lint/format: `uv run ruff check .`.
-- Tests: `uv run pytest`.
+- Tests: `uv run pytest` (includes property-based checks via Hypothesis).
 
 The MVP intentionally avoids auth, background jobs, external vector stores, and Docker. Extend the FastAPI app and the SQLite schema as the next iteration demands.
