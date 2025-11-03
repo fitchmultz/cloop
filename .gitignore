@@ -1,4 +1,5 @@
 **/.hypothesis
+**.pytest_cache
 **/.repoprompt
 **/.ruff_cache
 **/.venv
