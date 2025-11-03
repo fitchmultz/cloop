@@ -19,6 +19,7 @@ class Settings:
     ingest_timeout: float
     embedding_timeout: float
     sqlite_vector_extension: str | None
+    vector_search_mode: str
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -49,4 +50,12 @@ def get_settings() -> Settings:
         ingest_timeout=float(os.getenv("CLOOP_INGEST_TIMEOUT", "60.0")),
         embedding_timeout=float(os.getenv("CLOOP_EMBED_TIMEOUT", "30.0")),
         sqlite_vector_extension=os.getenv("CLOOP_SQLITE_VECTOR_EXTENSION"),
+        vector_search_mode=_resolve_vector_mode(os.getenv("CLOOP_VECTOR_MODE")),
     )
+
+
+def _resolve_vector_mode(raw: str | None) -> str:
+    mode = (raw or "python").strip().lower()
+    if mode not in {"python", "sqlite", "auto"}:
+        return "python"
+    return mode

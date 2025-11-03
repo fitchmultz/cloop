@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, Iterator, Optional
 from .settings import Settings, get_settings
 
 _VECTOR_EXTENSION_ATTEMPTED = False
+_VECTOR_EXTENSION_AVAILABLE = False
 
 PRAGMAS = [
     ("journal_mode", "WAL"),
@@ -53,7 +54,7 @@ def rag_connection(settings: Optional[Settings] = None) -> Iterator[sqlite3.Conn
 
 
 def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -> None:
-    global _VECTOR_EXTENSION_ATTEMPTED
+    global _VECTOR_EXTENSION_ATTEMPTED, _VECTOR_EXTENSION_AVAILABLE
     if _VECTOR_EXTENSION_ATTEMPTED:
         return
     _VECTOR_EXTENSION_ATTEMPTED = True
@@ -63,10 +64,15 @@ def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -
     try:
         conn.enable_load_extension(True)
         conn.load_extension(extension_path)
+        _VECTOR_EXTENSION_AVAILABLE = True
     except sqlite3.Error:
-        pass
+        _VECTOR_EXTENSION_AVAILABLE = False
     finally:
         conn.enable_load_extension(False)
+
+
+def vector_extension_available() -> bool:
+    return _VECTOR_EXTENSION_AVAILABLE
 
 
 def init_core_db(settings: Optional[Settings] = None) -> None:
