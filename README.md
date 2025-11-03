@@ -1,0 +1,30 @@
+# Cloop LLM Service
+
+Local-first FastAPI API that wraps LiteLLM for chat plus a lightweight RAG workflow backed by SQLite.
+
+## Quickstart
+- Install `uv` and ensure Python 3.13 is available.
+- Copy `.env.example` to `.env` and tweak any paths or model names.
+- Sync dependencies: `uv sync --dev`.
+- Run the API: `uv run uvicorn cloop.main:app --reload`.
+
+## Endpoints
+- `POST /chat`: send chat messages; optionally include a `tool_call` to read or write notes stored in `core.db`.
+- `POST /ingest`: provide a list of local file paths (`txt`, `md`, `pdf`) to chunk, embed, and persist under `rag.db`.
+- `GET /ask`: basic RAG flow; computes cosine similarity in Python and answers with the configured LLM.
+
+All interactions are logged inside the `interactions` table with request, response, model, latency, and selected chunks for reproducibility.
+
+## Environment
+Key variables:
+- `CLOOP_LLM_MODEL` / `CLOOP_EMBED_MODEL`: LiteLLM model aliases (defaults target local Ollama/LM Studio routes).
+- `CLOOP_DATA_DIR`: folder where `core.db` and `rag.db` are created; override with the explicit path variables if needed.
+- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a compiled SQLite vector extension; loading errors fall back to Python cosine search.
+- Standard LiteLLM credentials (e.g., `LITELLM_API_KEY`) unlock hosted providers.
+
+## Development
+- Type check: `uv run basedpyright`.
+- Lint/format: `uv run ruff check .`.
+- Tests: `uv run pytest`.
+
+The MVP intentionally avoids auth, background jobs, external vector stores, and Docker. Extend the FastAPI app and the SQLite schema as the next iteration demands.

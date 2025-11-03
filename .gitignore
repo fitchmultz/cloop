@@ -1,0 +1,6 @@
+**/.repoprompt
+**/.ruff_cache
+**/.venv
+
+# Commit .env since the repo is private
+!**/.env
