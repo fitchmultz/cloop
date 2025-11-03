@@ -1,3 +1,22 @@
+Metadata-Version: 2.4
+Name: cloop
+Version: 0.1.0
+Summary: Local-first FastAPI service for chat and RAG.
+Author: Cloop
+Requires-Python: <3.14,>=3.13
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: pydantic>=2.9.0
+Requires-Dist: numpy>=2.0.0
+Requires-Dist: litellm>=1.41.0
+Requires-Dist: pypdf>=4.1.0
+Provides-Extra: dev
+Requires-Dist: basedpyright>=1.17.0; extra == "dev"
+Requires-Dist: ruff>=0.6.0; extra == "dev"
+Requires-Dist: pytest>=8.3.0; extra == "dev"
+Requires-Dist: httpx>=0.27.0; extra == "dev"
+
 # Cloop LLM Service
 
 Local-first FastAPI API that wraps LiteLLM for chat plus a lightweight RAG workflow backed by SQLite.

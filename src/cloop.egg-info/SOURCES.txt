@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/cloop/__init__.py
+src/cloop/db.py
+src/cloop/embeddings.py
+src/cloop/llm.py
+src/cloop/main.py
+src/cloop/rag.py
+src/cloop/settings.py
+src/cloop.egg-info/PKG-INFO
+src/cloop.egg-info/SOURCES.txt
+src/cloop.egg-info/dependency_links.txt
+src/cloop.egg-info/requires.txt
+src/cloop.egg-info/top_level.txt
+tests/test_app.py
