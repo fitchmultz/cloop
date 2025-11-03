@@ -3,20 +3,29 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 import numpy as np
 from pypdf import PdfReader
 
-from .db import rag_connection, vector_extension_available
-from .embeddings import cosine_similarities, embed_texts
+from . import typingx
+from .db import (
+    get_vector_backend,
+    rag_connection,
+    reset_vector_backend,
+    vector_extension_available,
+)
+from .embeddings import embed_texts
 from .settings import Settings, get_settings
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 PDF_EXTENSIONS = {".pdf"}
+SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS
+SUPPORTED_INGEST_MODES = {"add", "reindex", "purge", "sync"}
 
 
 def _read_text_file(path: Path) -> str:
@@ -49,43 +58,445 @@ def chunk_text(text: str, *, chunk_size: int) -> List[str]:
     return chunks
 
 
+def _normalize_path(value: Path) -> Path:
+    return value.expanduser().resolve(strict=False)
+
+
+def _is_supported_file(path: Path) -> bool:
+    return path.suffix.lower() in SUPPORTED_EXTENSIONS
+
+
+def _iter_candidate_files(targets: Sequence[Path], recursive: bool) -> Iterable[Path]:
+    seen: Set[str] = set()
+    for target in targets:
+        normalized = _normalize_path(target)
+        if normalized.exists() and normalized.is_dir():
+            iterator = normalized.rglob("*") if recursive else normalized.iterdir()
+            for entry in iterator:
+                if entry.is_file() and _is_supported_file(entry):
+                    resolved = _normalize_path(entry)
+                    key = str(resolved)
+                    if key not in seen:
+                        seen.add(key)
+                        yield resolved
+        elif normalized.exists() and normalized.is_file():
+            if _is_supported_file(normalized):
+                key = str(normalized)
+                if key not in seen:
+                    seen.add(key)
+                    yield normalized
+
+
+def _document_file_metadata(path: Path) -> Dict[str, Any]:
+    stat = path.stat()
+    file_bytes = path.read_bytes()
+    return {
+        "path": str(_normalize_path(path)),
+        "mtime_ns": int(stat.st_mtime_ns),
+        "size_bytes": int(stat.st_size),
+        "sha256": hashlib.sha256(file_bytes).hexdigest(),
+    }
+
+
+def upsert_document_record(
+    path: Path,
+    *,
+    metadata: Dict[str, Any],
+    conn: sqlite3.Connection,
+) -> Tuple[int, bool]:
+    normalized = _normalize_path(path)
+    doc_path = str(normalized)
+    row_obj = conn.execute(
+        "SELECT id, mtime_ns, size_bytes, sha256 FROM documents WHERE document_path = ?",
+        (doc_path,),
+    ).fetchone()
+    if row_obj:
+        row = typingx.as_type(dict[str, Any], dict(row_obj))
+        changed = (
+            int(row["mtime_ns"]) != int(metadata["mtime_ns"])
+            or int(row["size_bytes"]) != int(metadata["size_bytes"])
+            or str(row["sha256"]) != str(metadata["sha256"])
+        )
+        if changed:
+            conn.execute(
+                """
+                UPDATE documents
+                SET mtime_ns = ?, size_bytes = ?, sha256 = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    metadata["mtime_ns"],
+                    metadata["size_bytes"],
+                    metadata["sha256"],
+                    row["id"],
+                ),
+            )
+        return int(row["id"]), changed
+
+    cursor = conn.execute(
+        """
+        INSERT INTO documents (document_path, mtime_ns, size_bytes, sha256)
+        VALUES (?, ?, ?, ?)
+        """,
+        (doc_path, metadata["mtime_ns"], metadata["size_bytes"], metadata["sha256"]),
+    )
+    new_id = cursor.lastrowid
+    if new_id is None:
+        raise RuntimeError("Failed to insert document record")
+    return int(new_id), True
+
+
+def _directory_like_pattern(path_str: str) -> str:
+    normalized = path_str.rstrip(os.sep)
+    return f"{normalized}{os.sep}%"
+
+
+def _select_document_ids_for_target(
+    conn: sqlite3.Connection,
+    target: Path,
+) -> Set[int]:
+    doc_path = str(_normalize_path(target))
+    rows = []
+    potential_dir = conn.execute(
+        "SELECT COUNT(*) FROM documents WHERE document_path LIKE ?",
+        (_directory_like_pattern(doc_path),),
+    ).fetchone()[0]
+    if target.exists() and target.is_dir():
+        rows = conn.execute(
+            "SELECT id FROM documents WHERE document_path LIKE ?",
+            (_directory_like_pattern(doc_path),),
+        ).fetchall()
+    elif potential_dir and not target.exists():
+        rows = conn.execute(
+            "SELECT id FROM documents WHERE document_path LIKE ?",
+            (_directory_like_pattern(doc_path),),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT id FROM documents WHERE document_path = ?",
+            (doc_path,),
+        ).fetchall()
+    return {int(typingx.as_type(dict[str, Any], dict(row))["id"]) for row in rows}
+
+
+def purge_documents(
+    paths: List[Path],
+    *,
+    conn: sqlite3.Connection,
+    backend: str,
+) -> Tuple[int, int]:
+    unique_targets = list(
+        {str(_normalize_path(path)): _normalize_path(path) for path in paths}.values()
+    )
+    doc_ids: Set[int] = set()
+    for target in unique_targets:
+        doc_ids.update(_select_document_ids_for_target(conn, target))
+
+    if not doc_ids:
+        return 0, 0
+
+    placeholders = ",".join("?" for _ in doc_ids)
+    id_params = tuple(doc_ids)
+    if backend in {"vec", "vss"}:
+        chunk_rows = conn.execute(
+            f"SELECT id FROM chunks WHERE doc_id IN ({placeholders})",
+            id_params,
+        ).fetchall()
+        chunk_ids = [int(row["id"]) for row in chunk_rows]
+        delete_vector_rows(conn, chunk_ids, backend)
+    chunks_removed = conn.execute(
+        f"SELECT COUNT(*) FROM chunks WHERE doc_id IN ({placeholders})",
+        id_params,
+    ).fetchone()[0]
+    conn.execute(
+        f"DELETE FROM chunks WHERE doc_id IN ({placeholders})",
+        id_params,
+    )
+    conn.execute(
+        f"DELETE FROM documents WHERE id IN ({placeholders})",
+        id_params,
+    )
+    return len(doc_ids), int(chunks_removed)
+
+
+def _collect_missing_documents(
+    targets: Sequence[Path],
+    *,
+    conn: sqlite3.Connection,
+) -> List[Path]:
+    normalized_targets = [_normalize_path(target) for target in targets]
+    target_files = {path for path in normalized_targets if not path.is_dir()}
+    target_dirs = [path for path in normalized_targets if path.is_dir()]
+    rows = conn.execute("SELECT document_path FROM documents").fetchall()
+    missing: List[Path] = []
+    for row in rows:
+        doc_map = typingx.as_type(dict[str, Any], dict(row))
+        doc_path = _normalize_path(Path(doc_map["document_path"]))
+        if doc_path.exists():
+            continue
+        if doc_path in target_files:
+            missing.append(doc_path)
+            continue
+        for directory in target_dirs:
+            if doc_path.is_relative_to(directory):
+                missing.append(doc_path)
+                break
+    return list(dict.fromkeys(missing))
+
+
+def _filter_rows_by_scope(rows: List[Dict[str, Any]], scope: str) -> List[Dict[str, Any]]:
+    if not scope:
+        return rows
+    scope = scope.strip()
+    if scope.startswith("doc:"):
+        try:
+            doc_id = int(scope.split(":", 1)[1])
+        except ValueError:
+            return []
+        return [row for row in rows if int(row.get("doc_id") or 0) == doc_id]
+    return [row for row in rows if scope in str(row.get("document_path", ""))]
+
+
+def ensure_vector_index(conn: sqlite3.Connection, dim: int, backend: str) -> None:
+    match backend:
+        case "vec":
+            try:
+                conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[%d])"
+                    % dim
+                )
+            except sqlite3.Error:
+                reset_vector_backend()
+        case "vss":
+            try:
+                conn.execute(
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS vss_chunks USING vss0(embedding(%d))"
+                    % dim
+                )
+            except sqlite3.Error:
+                reset_vector_backend()
+        case _:
+            return
+
+
+def upsert_vector(conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, backend: str) -> None:
+    vector = np.asarray(vec, dtype=np.float32)
+    match backend:
+        case "vec":
+            try:
+                conn.execute("DELETE FROM vec_chunks WHERE rowid = ?", (chunk_id,))
+                conn.execute(
+                    "INSERT INTO vec_chunks(rowid, embedding) VALUES (?, ?)",
+                    (chunk_id, json.dumps(vector.astype(float).tolist())),
+                )
+            except sqlite3.Error:
+                reset_vector_backend()
+        case "vss":
+            try:
+                conn.execute("DELETE FROM vss_chunks WHERE rowid = ?", (chunk_id,))
+                conn.execute(
+                    "INSERT INTO vss_chunks(rowid, embedding) VALUES (?, ?)",
+                    (chunk_id, vector.tobytes()),
+                )
+            except sqlite3.Error:
+                reset_vector_backend()
+        case _:
+            return
+
+
+def delete_vector_rows(
+    conn: sqlite3.Connection,
+    chunk_ids: Sequence[int],
+    backend: str,
+) -> None:
+    if not chunk_ids:
+        return
+    placeholders = ",".join("?" for _ in chunk_ids)
+    params = tuple(int(chunk_id) for chunk_id in chunk_ids)
+    match backend:
+        case "vec":
+            try:
+                conn.execute(f"DELETE FROM vec_chunks WHERE rowid IN ({placeholders})", params)
+            except sqlite3.Error:
+                reset_vector_backend()
+        case "vss":
+            try:
+                conn.execute(f"DELETE FROM vss_chunks WHERE rowid IN ({placeholders})", params)
+            except sqlite3.Error:
+                reset_vector_backend()
+        case _:
+            return
+
+
+def vec_backend_search(
+    conn: sqlite3.Connection,
+    query: np.ndarray,
+    top_k: int,
+    backend: str,
+) -> List[Dict[str, Any]] | None:
+    match backend:
+        case "vec":
+            return _vec_extension_search(conn, query, top_k)
+        case "vss":
+            return _vss_extension_search(conn, query, top_k)
+        case _:
+            return None
+
+
+def _vec_extension_search(
+    conn: sqlite3.Connection,
+    query: np.ndarray,
+    top_k: int,
+) -> List[Dict[str, Any]] | None:
+    try:
+        payload = json.dumps(np.asarray(query, dtype=float).tolist())
+        matches = conn.execute(
+            (
+                "SELECT rowid, distance FROM vec_chunks "
+                "WHERE embedding MATCH ? ORDER BY distance LIMIT ?"
+            ),
+            (payload, top_k),
+        ).fetchall()
+    except sqlite3.Error:
+        reset_vector_backend()
+        return None
+
+    return _chunk_rows_with_scores(conn, matches)
+
+
+def _vss_extension_search(
+    conn: sqlite3.Connection,
+    query: np.ndarray,
+    top_k: int,
+) -> List[Dict[str, Any]] | None:
+    try:
+        payload = np.asarray(query, dtype=np.float32).tobytes()
+        matches = conn.execute(
+            (
+                "SELECT rowid, distance FROM vss_chunks "
+                "WHERE embedding MATCH ? ORDER BY distance LIMIT ?"
+            ),
+            (payload, top_k),
+        ).fetchall()
+    except sqlite3.Error:
+        reset_vector_backend()
+        return None
+
+    return _chunk_rows_with_scores(conn, matches)
+
+
+def _chunk_rows_with_scores(
+    conn: sqlite3.Connection,
+    matches: Iterable[sqlite3.Row],
+) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    for row in matches:
+        chunk_id = int(row["rowid"])
+        chunk_row = conn.execute(
+            """
+            SELECT
+                id,
+                document_path,
+                chunk_index,
+                content,
+                embedding,
+                embedding_dim,
+                metadata,
+                embedding_blob,
+                embedding_norm,
+                doc_id
+            FROM chunks
+            WHERE id = ?
+            """,
+            (chunk_id,),
+        ).fetchone()
+        if chunk_row is None:
+            continue
+        chunk = typingx.as_type(dict[str, Any], dict(chunk_row))
+        chunk.pop("embedding_blob", None)
+        distance = float(row["distance"])
+        chunk["score"] = 1.0 / (1.0 + distance)
+        results.append(chunk)
+    return results
+
+
 def ingest_paths(
     paths: Sequence[str],
     *,
+    mode: str = "add",
+    recursive: bool = True,
     settings: Settings | None = None,
 ) -> Dict[str, int]:
     settings = settings or get_settings()
-    ingested_files = 0
-    ingested_chunks = 0
+    normalized_targets = [_normalize_path(Path(path)) for path in paths]
+    ingestion_mode = (mode or "add").strip().lower()
+    if ingestion_mode not in SUPPORTED_INGEST_MODES:
+        raise ValueError(f"Unsupported ingestion mode: {mode}")
+
+    files_processed = 0
+    chunks_processed = 0
+
+    vector_backend = get_vector_backend()
 
     with rag_connection(settings) as conn:
-        for raw_path in paths:
-            path = Path(raw_path).expanduser()
-            if not path.exists():
+        if ingestion_mode == "purge":
+            docs_removed, chunks_removed = purge_documents(
+                normalized_targets, conn=conn, backend=vector_backend
+            )
+            conn.commit()
+            return {"files": int(docs_removed), "chunks": int(chunks_removed)}
+
+        candidate_files = list(_iter_candidate_files(normalized_targets, recursive))
+        for file_path in candidate_files:
+            metadata = _document_file_metadata(file_path)
+            doc_id, is_changed = upsert_document_record(file_path, metadata=metadata, conn=conn)
+            should_process = is_changed or ingestion_mode == "reindex"
+            if not should_process:
                 continue
+
             try:
-                text = load_document(path)
+                text = load_document(file_path)
             except ValueError:
                 continue
-            file_bytes = path.read_bytes()
+
             chunks = chunk_text(text, chunk_size=settings.chunk_size)
             if not chunks:
+                purge_documents([file_path], conn=conn, backend=vector_backend)
                 continue
+
             embeddings = embed_texts(chunks, settings=settings)
+            if vector_backend in {"vec", "vss"}:
+                existing_rows = conn.execute(
+                    "SELECT id FROM chunks WHERE doc_id = ?",
+                    (doc_id,),
+                ).fetchall()
+                delete_vector_rows(conn, [int(row["id"]) for row in existing_rows], vector_backend)
+            conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
             metadata_base = {
-                "size_bytes": len(file_bytes),
-                "sha256": hashlib.sha256(file_bytes).hexdigest(),
+                "size_bytes": metadata["size_bytes"],
+                "sha256": metadata["sha256"],
             }
+            should_store_blob = settings.embed_storage_mode in {"blob", "dual"}
+            vector_index_ready = False
             for idx, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=True)):
+                vector = np.asarray(vector, dtype=np.float32)
+                if vector_backend in {"vec", "vss"} and not vector_index_ready:
+                    ensure_vector_index(conn, vector.shape[0], vector_backend)
+                    vector_index_ready = True
+                embedding_blob = vector.tobytes() if should_store_blob else None
+                embedding_norm = float(np.linalg.norm(vector)) if should_store_blob else None
                 payload = {
-                    "document_path": str(path),
+                    "document_path": metadata["path"],
                     "chunk_index": idx,
                     "content": chunk,
                     "embedding": json.dumps(vector.tolist()),
                     "embedding_dim": int(vector.shape[0]),
                     "metadata": json.dumps({**metadata_base, "chunk_length": len(chunk)}),
+                    "doc_id": doc_id,
+                    "embedding_blob": embedding_blob,
+                    "embedding_norm": embedding_norm,
                 }
-                conn.execute(
+                cursor = conn.execute(
                     """
                     INSERT INTO chunks (
                         document_path,
@@ -93,7 +504,10 @@ def ingest_paths(
                         content,
                         embedding,
                         embedding_dim,
-                        metadata
+                        metadata,
+                        doc_id,
+                        embedding_blob,
+                        embedding_norm
                     )
                     VALUES (
                         :document_path,
@@ -101,16 +515,32 @@ def ingest_paths(
                         :content,
                         :embedding,
                         :embedding_dim,
-                        :metadata
+                        :metadata,
+                        :doc_id,
+                        :embedding_blob,
+                        :embedding_norm
                     )
                     """,
                     payload,
                 )
-                ingested_chunks += 1
-            ingested_files += 1
+                chunk_id = cursor.lastrowid
+                if chunk_id is not None and vector_backend in {"vec", "vss"}:
+                    upsert_vector(conn, int(chunk_id), vector, vector_backend)
+                chunks_processed += 1
+            files_processed += 1
+
+        if ingestion_mode == "sync":
+            missing_targets = _collect_missing_documents(normalized_targets, conn=conn)
+            if missing_targets:
+                docs_removed, removed_chunks = purge_documents(
+                    missing_targets, conn=conn, backend=vector_backend
+                )
+                files_processed += docs_removed
+                chunks_processed += removed_chunks
+
         conn.commit()
 
-    return {"files": ingested_files, "chunks": ingested_chunks}
+    return {"files": int(files_processed), "chunks": int(chunks_processed)}
 
 
 def fetch_all_chunks(settings: Settings | None = None) -> List[Dict[str, Any]]:
@@ -118,17 +548,28 @@ def fetch_all_chunks(settings: Settings | None = None) -> List[Dict[str, Any]]:
     with rag_connection(settings) as conn:
         rows = conn.execute(
             """
-            SELECT id, document_path, chunk_index, content, embedding, embedding_dim, metadata
+            SELECT
+                id,
+                document_path,
+                chunk_index,
+                content,
+                embedding,
+                embedding_dim,
+                metadata,
+                embedding_blob,
+                embedding_norm,
+                doc_id
             FROM chunks
             """
         ).fetchall()
-    return [dict(row) for row in rows]
+    return [typingx.as_type(dict[str, Any], dict(row)) for row in rows]
 
 
 def retrieve_similar_chunks(
     query: str,
     *,
     top_k: int,
+    scope: str | None = None,
     settings: Settings | None = None,
 ) -> List[Dict[str, Any]]:
     settings = settings or get_settings()
@@ -139,8 +580,24 @@ def retrieve_similar_chunks(
     if top_k <= 0:
         raise ValueError("top_k must be positive")
 
-    should_try_sqlite = settings.vector_search_mode == "sqlite" or (
-        settings.vector_search_mode == "auto" and vector_extension_available()
+    vector_backend = get_vector_backend()
+    use_vector_backend = (
+        scope is None
+        and vector_backend in {"vec", "vss"}
+        and settings.vector_search_mode in {"sqlite", "auto"}
+    )
+    if use_vector_backend:
+        with rag_connection(settings) as conn:
+            backend_rows = vec_backend_search(conn, query_vec, top_k, vector_backend)
+        if backend_rows:
+            return backend_rows
+
+    should_try_sqlite = (
+        scope is None
+        and (
+            settings.vector_search_mode == "sqlite"
+            or (settings.vector_search_mode == "auto" and vector_extension_available())
+        )
     )
     if should_try_sqlite:
         try:
@@ -151,6 +608,8 @@ def retrieve_similar_chunks(
             pass
 
     rows = fetch_all_chunks(settings=settings)
+    if scope:
+        rows = _filter_rows_by_scope(rows, scope)
     if not rows:
         return []
 
@@ -162,19 +621,38 @@ def _python_similar_chunks(
     rows: List[Dict[str, Any]],
     top_k: int,
 ) -> List[Dict[str, Any]]:
-    embeddings = [np.array(json.loads(row["embedding"]), dtype=np.float32) for row in rows]
-    similarities = cosine_similarities(query_vec, embeddings)
-    ranked = sorted(
-        zip(rows, similarities, strict=True),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    top_rows = []
-    for row, score in ranked[:top_k]:
-        row = dict(row)
-        row["score"] = float(score)
-        top_rows.append(row)
-    return top_rows
+    query_norm = float(np.linalg.norm(query_vec))
+    if query_norm <= 1e-12:
+        return []
+
+    scored_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        vector = _row_embedding(row)
+        if vector.size == 0:
+            continue
+        doc_norm = row.get("embedding_norm")
+        norm_value = float(doc_norm) if doc_norm is not None else float(np.linalg.norm(vector))
+        denominator = (norm_value * query_norm) + 1e-12
+        score = float(np.dot(query_vec, vector) / denominator)
+        row_with_score = dict(row)
+        row_with_score["score"] = score
+        row_with_score.pop("embedding_blob", None)
+        scored_rows.append(row_with_score)
+
+    scored_rows.sort(key=lambda item: item["score"], reverse=True)
+    return scored_rows[:top_k]
+
+
+def _row_embedding(row: Dict[str, Any]) -> np.ndarray:
+    blob = row.get("embedding_blob")
+    if blob is not None:
+        buffer = memoryview(blob)
+        dim = int(row.get("embedding_dim", len(buffer) // 4))
+        return np.frombuffer(buffer, dtype=np.float32, count=dim)
+    embedding_text = row.get("embedding")
+    if not embedding_text:
+        return np.array([], dtype=np.float32)
+    return np.array(json.loads(embedding_text), dtype=np.float32)
 
 
 def _sqlite_similar_chunks(

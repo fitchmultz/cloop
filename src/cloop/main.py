@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.requests import Request
 
 from . import db
-from .llm import chat_completion, estimate_tokens
+from .llm import chat_completion, chat_with_tools, estimate_tokens, stream_completion
 from .rag import ingest_paths, retrieve_similar_chunks
 from .settings import Settings, get_settings
+from .tools import EXECUTORS, TOOL_SPECS
 
 
 @asynccontextmanager
@@ -47,15 +52,29 @@ class ChatRequest(BaseModel):
     tool_call: Optional[ToolCall] = Field(
         default=None, description="Optional instruction to interact with notes"
     )
+    tool_mode: Optional[str] = Field(
+        default=None,
+        description="Tool orchestration mode: manual, llm, or none. Defaults to settings.",
+    )
 
 
 class ChatResponse(BaseModel):
     message: str
     tool_result: Optional[Dict[str, Any]] = None
+    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    model: Optional[str] = None
 
 
 class IngestRequest(BaseModel):
     paths: List[str]
+    mode: Optional[str] = Field(
+        default=None,
+        description="Ingestion mode: add, reindex, purge, or sync. Defaults to add.",
+    )
+    recursive: Optional[bool] = Field(
+        default=None,
+        description="Recurse into directories when true (default).",
+    )
 
 
 class IngestResponse(BaseModel):
@@ -66,33 +85,122 @@ class IngestResponse(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     chunks: List[Dict[str, Any]]
+    model: Optional[str] = None
+    sources: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class HealthResponse(BaseModel):
+    ok: bool
+    model: str
+    vector_mode: str
+    vector_backend: str
+    core_db: str
+    rag_db: str
+
+
+def _http_error(detail: Any, *, status_code: int, error_type: str) -> JSONResponse:
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("detail") or "Request failed"
+        details = detail
+    else:
+        message = str(detail)
+        details = {}
+    return JSONResponse(
+        status_code=status_code,
+        content={"error": {"type": error_type, "message": message, "details": details}},
+    )
+
+
+@app.exception_handler(HTTPException)
+def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
+    return _http_error(exc.detail, status_code=exc.status_code, error_type="http_error")
+
+
+@app.exception_handler(RequestValidationError)
+def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:
+    return _http_error(
+        {"message": "Validation failed", "errors": exc.errors()},
+        status_code=422,
+        error_type="validation_error",
+    )
+
+
+@app.exception_handler(Exception)
+def handle_generic_exception(_: Request, exc: Exception) -> JSONResponse:
+    return _http_error(
+        {"message": "Unexpected server error", "exception": exc.__class__.__name__},
+        status_code=500,
+        error_type="server_error",
+    )
 
 
 def handle_tool_call(tool_call: ToolCall) -> Dict[str, Any]:
-    if tool_call.name == "read_note":
-        if tool_call.note_id is None:
-            raise HTTPException(status_code=400, detail="note_id required for read_note")
-        note = db.read_note(tool_call.note_id)
-        if note is None:
-            raise HTTPException(status_code=404, detail="Note not found")
-        return {"action": "read_note", "note": note}
-    if tool_call.name == "write_note":
-        if not tool_call.title or not tool_call.body:
-            raise HTTPException(status_code=400, detail="title and body required for write_note")
-        note = db.upsert_note(title=tool_call.title, body=tool_call.body, note_id=tool_call.note_id)
-        return {"action": "write_note", "note": note}
-    raise HTTPException(status_code=400, detail="Unsupported tool name")
+    executor = EXECUTORS.get(tool_call.name)
+    if executor is None:
+        raise HTTPException(status_code=400, detail="Unsupported tool name")
+    payload = tool_call.model_dump(exclude_none=True, exclude={"name"})
+    try:
+        return executor(**payload)
+    except ValueError as exc:  # Surface validation issues as 4xx for manual mode
+        detail = str(exc)
+        status = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status, detail=detail) from exc
+
+
+def _sse_event(event: str, payload: Dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
+
+
+def _sanitize_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(chunk)
+    sanitized.pop("embedding_blob", None)
+    return sanitized
+
+
+def _format_sources(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    sources: List[Dict[str, Any]] = []
+    for chunk in chunks:
+        sources.append(
+            {
+                "id": chunk.get("id"),
+                "document_path": chunk.get("document_path"),
+                "chunk_index": chunk.get("chunk_index"),
+                "score": chunk.get("score"),
+            }
+        )
+    return sources
+
+
+@app.get("/health", response_model=HealthResponse)
+def health_endpoint(settings: SettingsDep) -> HealthResponse:
+    return HealthResponse(
+        ok=True,
+        model=settings.llm_model,
+        vector_mode=settings.vector_search_mode,
+        vector_backend=db.get_vector_backend(),
+        core_db=str(settings.core_db_path),
+        rag_db=str(settings.rag_db_path),
+    )
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat_endpoint(
     request: ChatRequest,
     settings: SettingsDep,
-) -> ChatResponse:
+    stream: Optional[bool] = Query(None, description="Stream Server-Sent Events when true"),
+) -> Any:
     messages = [message.model_dump() for message in request.messages]
     tool_result: Optional[Dict[str, Any]] = None
+    tool_calls: List[Dict[str, Any]] = []
 
-    if request.tool_call:
+    tool_mode = (request.tool_mode or settings.tool_mode_default).lower()
+    if tool_mode not in {"manual", "llm", "none"}:
+        raise HTTPException(status_code=400, detail="Invalid tool_mode")
+
+    if request.tool_call and tool_mode != "manual":
+        raise HTTPException(status_code=400, detail="tool_call is only supported in manual mode")
+
+    if tool_mode == "manual" and request.tool_call:
         tool_result = handle_tool_call(request.tool_call)
         messages.append(
             {
@@ -105,9 +213,69 @@ def chat_endpoint(
         raise HTTPException(status_code=400, detail="messages cannot be empty")
 
     token_estimate = estimate_tokens(messages)
-    content, metadata = chat_completion(messages, settings=settings)
+    stream_enabled = stream if stream is not None else settings.stream_default
+    if stream_enabled and tool_mode == "llm":
+        raise HTTPException(status_code=400, detail="Streaming not supported for llm tool_mode")
 
-    response_payload = {"message": content, "tool_result": tool_result, "metadata": metadata}
+    if stream_enabled:
+        request_payload = request.model_dump()
+        request_payload["stream"] = True
+
+        def event_stream() -> Iterator[str]:
+            start = time.monotonic()
+            tokens: List[str] = []
+            for token in stream_completion(messages, settings=settings):
+                if not token:
+                    continue
+                tokens.append(token)
+                yield _sse_event("token", {"token": token})
+            final_message = "".join(tokens)
+            metadata = {
+                "model": settings.llm_model,
+                "latency_ms": (time.monotonic() - start) * 1000,
+                "usage": {},
+            }
+            response_payload = {
+                "message": final_message,
+                "tool_result": tool_result,
+                "metadata": metadata,
+                "tool_calls": tool_calls,
+            }
+            db.record_interaction(
+                endpoint="/chat",
+                request_payload=request_payload,
+                response_payload=response_payload,
+                model=metadata["model"],
+                latency_ms=metadata["latency_ms"],
+                token_estimate=token_estimate,
+                tool_calls=tool_calls,
+                settings=settings,
+            )
+            yield _sse_event(
+                "done",
+                {
+                    "message": final_message,
+                    "model": metadata["model"],
+                    "tool_result": tool_result,
+                    "tool_calls": tool_calls,
+                },
+            )
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+    if tool_mode == "llm":
+        content, metadata, tool_calls = chat_with_tools(messages, TOOL_SPECS, settings=settings)
+        outputs = metadata.get("tool_outputs") or []
+        tool_result = outputs[0] if outputs else None
+    else:
+        content, metadata = chat_completion(messages, settings=settings)
+
+    response_payload = {
+        "message": content,
+        "tool_result": tool_result,
+        "metadata": metadata,
+        "tool_calls": tool_calls,
+    }
     db.record_interaction(
         endpoint="/chat",
         request_payload=request.model_dump(),
@@ -115,10 +283,16 @@ def chat_endpoint(
         model=metadata.get("model"),
         latency_ms=metadata.get("latency_ms"),
         token_estimate=token_estimate,
+        tool_calls=tool_calls,
         settings=settings,
     )
 
-    return ChatResponse(message=content, tool_result=tool_result)
+    return ChatResponse(
+        message=content,
+        tool_result=tool_result,
+        tool_calls=tool_calls,
+        model=metadata.get("model"),
+    )
 
 
 @app.post("/ingest", response_model=IngestResponse)
@@ -128,7 +302,12 @@ def ingest_endpoint(
 ) -> IngestResponse:
     if not request.paths:
         raise HTTPException(status_code=400, detail="paths cannot be empty")
-    result = ingest_paths(request.paths, settings=settings)
+    mode = request.mode or "add"
+    recursive = True if request.recursive is None else bool(request.recursive)
+    try:
+        result = ingest_paths(request.paths, mode=mode, recursive=recursive, settings=settings)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     db.record_interaction(
         endpoint="/ingest",
         request_payload=request.model_dump(),
@@ -136,6 +315,7 @@ def ingest_endpoint(
         model=settings.embed_model,
         latency_ms=None,
         token_estimate=None,
+        tool_calls=[],
         settings=settings,
     )
     return IngestResponse(**result)
@@ -146,13 +326,31 @@ def ask_endpoint(
     settings: SettingsDep,
     q: str = Query(..., description="Question to run against the knowledge base"),
     k: Optional[int] = Query(None, description="Override number of chunks to return"),
-) -> AskResponse:
+    stream: Optional[bool] = Query(None, description="Stream Server-Sent Events when true"),
+    scope: Optional[str] = Query(
+        None,
+        description="Restrict retrieval by path substring or doc:ID",
+    ),
+) -> Any:
     top_k = k or settings.default_top_k
     if top_k <= 0:
         raise HTTPException(status_code=400, detail="k must be positive")
 
-    chunks = retrieve_similar_chunks(q, top_k=top_k, settings=settings)
+    chunks = retrieve_similar_chunks(q, top_k=top_k, scope=scope, settings=settings)
+    stream_enabled = stream if stream is not None else settings.stream_default
     if not chunks:
+        if stream_enabled:
+            def empty_stream() -> Iterator[str]:
+                yield _sse_event(
+                    "done",
+                    {
+                        "answer": "No knowledge available. Ingest documents first.",
+                        "model": settings.llm_model,
+                        "chunks": [],
+                    },
+                )
+
+            return StreamingResponse(empty_stream(), media_type="text/event-stream")
         return AskResponse(answer="No knowledge available. Ingest documents first.", chunks=[])
 
     context = "\n\n".join(
@@ -169,17 +367,79 @@ def ask_endpoint(
         },
     ]
     token_estimate = estimate_tokens(messages)
+
+    if stream_enabled:
+        request_payload = {"q": q, "k": top_k, "stream": True}
+        if scope:
+            request_payload["scope"] = scope
+        sanitized_chunks = [_sanitize_chunk(chunk) for chunk in chunks]
+        sources = _format_sources(sanitized_chunks)
+
+        def event_stream() -> Iterator[str]:
+            start = time.monotonic()
+            tokens: List[str] = []
+            for token in stream_completion(messages, settings=settings):
+                if not token:
+                    continue
+                tokens.append(token)
+                yield _sse_event("token", {"token": token})
+            final_answer = "".join(tokens)
+            metadata = {
+                "model": settings.llm_model,
+                "latency_ms": (time.monotonic() - start) * 1000,
+                "usage": {},
+            }
+            response_payload = {
+                "answer": final_answer,
+                "metadata": metadata,
+                "sources": sources,
+            }
+            db.record_interaction(
+                endpoint="/ask",
+                request_payload=request_payload,
+                response_payload=response_payload,
+                model=metadata["model"],
+                latency_ms=metadata["latency_ms"],
+                token_estimate=token_estimate,
+                selected_chunks=sanitized_chunks,
+                tool_calls=[],
+                settings=settings,
+            )
+            yield _sse_event(
+                "done",
+                {
+                    "answer": final_answer,
+                    "model": metadata["model"],
+                    "chunks": sanitized_chunks,
+                    "sources": sources,
+                },
+            )
+
+        return StreamingResponse(event_stream(), media_type="text/event-stream")
+
     content, metadata = chat_completion(messages, settings=settings)
+    sanitized_chunks = [_sanitize_chunk(chunk) for chunk in chunks]
+    sources = _format_sources(sanitized_chunks)
 
     db.record_interaction(
         endpoint="/ask",
-        request_payload={"q": q, "k": top_k},
-        response_payload={"answer": content},
+        request_payload={
+            key: value
+            for key, value in {"q": q, "k": top_k, "scope": scope}.items()
+            if value is not None
+        },
+        response_payload={"answer": content, "sources": sources},
         model=metadata.get("model"),
         latency_ms=metadata.get("latency_ms"),
         token_estimate=token_estimate,
-        selected_chunks=chunks,
+        selected_chunks=sanitized_chunks,
+        tool_calls=[],
         settings=settings,
     )
 
-    return AskResponse(answer=content, chunks=chunks)
+    return AskResponse(
+        answer=content,
+        chunks=sanitized_chunks,
+        model=metadata.get("model"),
+        sources=sources,
+    )

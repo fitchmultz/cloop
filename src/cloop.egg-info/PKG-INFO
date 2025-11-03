@@ -23,24 +23,32 @@ Requires-Dist: hypothesis>=6.108.0; extra == "dev"
 Local-first FastAPI API that wraps LiteLLM for chat plus a lightweight RAG workflow backed by SQLite.
 
 ## Quickstart
-- Install `uv` and ensure Python 3.13 is available.
+- Install `uv` and ensure Python 3.14 is available.
 - Copy `.env.example` to `.env` and tweak any paths or model names.
 - Sync dependencies: `uv sync --dev`.
 - Run the API: `uv run uvicorn cloop.main:app --reload`.
 
-## Endpoints
-- `POST /chat`: send chat messages; optionally include a `tool_call` to read or write notes stored in `core.db`.
-- `POST /ingest`: provide a list of local file paths (`txt`, `md`, `pdf`) to chunk, embed, and persist under `rag.db`.
-- `GET /ask`: basic RAG flow; computes cosine similarity in Python and answers with the configured LLM.
+- `POST /chat`: send chat messages; optionally include a `tool_call` to read or write notes stored in `core.db`. Pass `tool_mode=llm` for automatic tool use or `stream=true` for Server-Sent Events.
+- `POST /ingest`: provide local file paths (`txt`, `md`, `pdf`) to chunk, embed, and persist under `rag.db`. Supports modes `add`, `reindex`, `purge`, and `sync`.
+- `GET /ask`: RAG question answering. Accepts `k`, `scope` (substring or `doc:<id>`), and `stream=true` for SSE responses. The payload includes `sources` identifying cited chunks.
+- `GET /health`: readiness probe that reports configured model, vector backend, and database paths.
 
 All interactions are logged inside the `interactions` table with request, response, model, latency, and selected chunks for reproducibility.
 
 ## Environment
 Key variables:
-- `CLOOP_LLM_MODEL` / `CLOOP_EMBED_MODEL`: LiteLLM model aliases (defaults target local Ollama/LM Studio routes).
-- `CLOOP_DATA_DIR`: folder where `core.db` and `rag.db` are created; override with the explicit path variables if needed.
-- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a compiled SQLite vector extension; loading errors fall back to Python cosine search.
-- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`; `sqlite` uses an in-database cosine query plan, `auto` prefers SQLite when an extension is loaded.
+- `CLOOP_LLM_MODEL` / `CLOOP_EMBED_MODEL`: LiteLLM model aliases.
+- `CLOOP_DATA_DIR`: folder where `core.db` and `rag.db` are created; override with `CLOOP_CORE_DB_PATH` / `CLOOP_RAG_DB_PATH` if needed.
+- `CLOOP_TOOL_MODE`: default tool orchestration (`manual`, `llm`, or `none`).
+- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`; `sqlite` uses an in-database cosine plan, `auto` prefers SQLite/vec backends when available.
+- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a compiled SQLite extension.
+- `CLOOP_EMBED_STORAGE`: `json`, `blob`, or `dual` (default) to control embedding persistence.
+- `CLOOP_STREAM_DEFAULT`: enable SSE responses by default when set truthy.
+- Provider routing knobs:
+  - `CLOOP_OPENAI_API_BASE`, `CLOOP_OPENAI_API_KEY`
+  - `CLOOP_OLLAMA_API_BASE`
+  - `CLOOP_LMSTUDIO_API_BASE`
+  - `CLOOP_OPENROUTER_API_BASE`
 - Standard LiteLLM credentials (e.g., `LITELLM_API_KEY`) unlock hosted providers.
 
 ## Development

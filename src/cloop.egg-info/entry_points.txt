@@ -1,0 +1,2 @@
+[console_scripts]
+cloop = cloop.cli:main

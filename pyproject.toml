@@ -27,6 +27,9 @@ dev = [
     "hypothesis>=6.108.0",
 ]
 
+[project.scripts]
+cloop = "cloop.cli:main"
+
 
 
 [tool.ruff]

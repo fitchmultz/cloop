@@ -4,6 +4,9 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal, cast
+
+from . import typingx
 
 
 @dataclass(frozen=True)
@@ -20,6 +23,14 @@ class Settings:
     embedding_timeout: float
     sqlite_vector_extension: str | None
     vector_search_mode: str
+    tool_mode_default: str
+    embed_storage_mode: Literal["json", "blob", "dual"]
+    openai_api_base: str | None
+    openai_api_key: str | None
+    ollama_api_base: str | None
+    lmstudio_api_base: str | None
+    openrouter_api_base: str | None
+    stream_default: bool
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -51,6 +62,14 @@ def get_settings() -> Settings:
         embedding_timeout=float(os.getenv("CLOOP_EMBED_TIMEOUT", "30.0")),
         sqlite_vector_extension=os.getenv("CLOOP_SQLITE_VECTOR_EXTENSION"),
         vector_search_mode=_resolve_vector_mode(os.getenv("CLOOP_VECTOR_MODE")),
+        tool_mode_default=_resolve_tool_mode(os.getenv("CLOOP_TOOL_MODE")),
+        embed_storage_mode=_resolve_embed_storage(os.getenv("CLOOP_EMBED_STORAGE")),
+        openai_api_base=os.getenv("CLOOP_OPENAI_API_BASE"),
+        openai_api_key=os.getenv("CLOOP_OPENAI_API_KEY"),
+        ollama_api_base=os.getenv("CLOOP_OLLAMA_API_BASE"),
+        lmstudio_api_base=os.getenv("CLOOP_LMSTUDIO_API_BASE"),
+        openrouter_api_base=os.getenv("CLOOP_OPENROUTER_API_BASE"),
+        stream_default=_resolve_stream_default(os.getenv("CLOOP_STREAM_DEFAULT")),
     )
 
 
@@ -59,3 +78,25 @@ def _resolve_vector_mode(raw: str | None) -> str:
     if mode not in {"python", "sqlite", "auto"}:
         return "python"
     return mode
+
+
+def _resolve_tool_mode(raw: str | None) -> str:
+    mode = (raw or "manual").strip().lower()
+    if mode not in {"manual", "llm", "none"}:
+        return "manual"
+    return mode
+
+
+def _resolve_embed_storage(raw: str | None) -> Literal["json", "blob", "dual"]:
+    value = (raw or "dual").strip().lower()
+    if value not in {"json", "blob", "dual"}:
+        value = "dual"
+    typed_value = typingx.as_type(str, value)
+    return cast(Literal["json", "blob", "dual"], typed_value)
+
+
+def _resolve_stream_default(raw: str | None) -> bool:
+    if raw is None:
+        return False
+    normalized = raw.strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
