@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 import json
 import sqlite3
 from contextlib import contextmanager
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Optional
 
@@ -10,7 +9,16 @@ from .settings import Settings, get_settings
 
 _VECTOR_EXTENSION_ATTEMPTED = False
 _VECTOR_EXTENSION_AVAILABLE = False
-_VECTOR_BACKEND = "none"
+
+
+class VectorBackend(StrEnum):
+    NONE = "none"
+    VEC = "vec"
+    VSS = "vss"
+
+
+SCHEMA_VERSION: int = 1
+_VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
 PRAGMAS = [
     ("journal_mode", "WAL"),
@@ -20,27 +28,112 @@ PRAGMAS = [
     ("temp_store", "MEMORY"),
 ]
 
+_CORE_SCHEMA = """
+CREATE TABLE notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE interactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT NOT NULL,
+    model TEXT,
+    latency_ms REAL,
+    request_payload TEXT,
+    response_payload TEXT,
+    tool_calls TEXT,
+    selected_chunks TEXT,
+    token_estimate INTEGER,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+"""
+
+_RAG_SCHEMA = """
+CREATE TABLE documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_path TEXT UNIQUE NOT NULL,
+    mtime_ns INTEGER NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_documents_path ON documents(document_path);
+
+CREATE TABLE chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_path TEXT NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding TEXT NOT NULL,
+    embedding_dim INTEGER NOT NULL,
+    metadata TEXT,
+    doc_id INTEGER,
+    embedding_blob BLOB,
+    embedding_norm REAL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_chunks_document_path ON chunks(document_path);
+CREATE INDEX idx_chunks_docid ON chunks(doc_id);
+"""
+
 
 def _apply_pragmas(conn: sqlite3.Connection) -> None:
     for pragma, value in PRAGMAS:
         conn.execute(f"PRAGMA {pragma}={value}")
 
 
-def _detect_vector_backend(conn: sqlite3.Connection) -> str:
+def _user_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute("PRAGMA user_version").fetchone()
+    return int(row[0])
+
+
+def _has_application_tables(conn: sqlite3.Connection) -> bool:
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    return bool(rows)
+
+
+def _assert_schema(conn: sqlite3.Connection, expected: int) -> None:
+    found = _user_version(conn)
+    if found != expected:
+        raise RuntimeError(f"schema_mismatch: expected={expected} found={found}")
+
+
+def _initialize_schema_if_needed(conn: sqlite3.Connection, schema_sql: str) -> None:
+    version = _user_version(conn)
+    if version == 0:
+        if _has_application_tables(conn):
+            raise RuntimeError("schema_mismatch: detected unversioned tables")
+        conn.executescript(schema_sql)
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
+        return
+    if version != SCHEMA_VERSION:
+        raise RuntimeError(f"schema_mismatch: expected={SCHEMA_VERSION} found={version}")
+
+
+def _detect_vector_backend(conn: sqlite3.Connection) -> VectorBackend:
     try:
         conn.execute("DROP TABLE IF EXISTS temp_vec_probe")
         conn.execute("CREATE VIRTUAL TABLE temp_vec_probe USING vec0(embedding float[1])")
         conn.execute("DROP TABLE temp_vec_probe")
-        return "vec"
+        return VectorBackend.VEC
     except sqlite3.Error:
         pass
     try:
         conn.execute("DROP TABLE IF EXISTS temp_vss_probe")
         conn.execute("CREATE VIRTUAL TABLE temp_vss_probe USING vss0(embedding(1))")
         conn.execute("DROP TABLE temp_vss_probe")
-        return "vss"
+        return VectorBackend.VSS
     except sqlite3.Error:
-        return "none"
+        return VectorBackend.NONE
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -83,10 +176,10 @@ def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -
         conn.enable_load_extension(True)
         conn.load_extension(extension_path)
         _VECTOR_BACKEND = _detect_vector_backend(conn)
-        _VECTOR_EXTENSION_AVAILABLE = _VECTOR_BACKEND != "none"
+        _VECTOR_EXTENSION_AVAILABLE = _VECTOR_BACKEND is not VectorBackend.NONE
     except sqlite3.Error:
         _VECTOR_EXTENSION_AVAILABLE = False
-        _VECTOR_BACKEND = "none"
+        _VECTOR_BACKEND = VectorBackend.NONE
     finally:
         conn.enable_load_extension(False)
 
@@ -95,13 +188,13 @@ def vector_extension_available() -> bool:
     return _VECTOR_EXTENSION_AVAILABLE
 
 
-def get_vector_backend() -> str:
+def get_vector_backend() -> VectorBackend:
     return _VECTOR_BACKEND
 
 
 def reset_vector_backend() -> None:
     global _VECTOR_BACKEND, _VECTOR_EXTENSION_AVAILABLE, _VECTOR_EXTENSION_ATTEMPTED
-    _VECTOR_BACKEND = "none"
+    _VECTOR_BACKEND = VectorBackend.NONE
     _VECTOR_EXTENSION_AVAILABLE = False
     _VECTOR_EXTENSION_ATTEMPTED = False
 
@@ -109,93 +202,23 @@ def reset_vector_backend() -> None:
 def init_core_db(settings: Optional[Settings] = None) -> None:
     settings = settings or get_settings()
     with core_connection(settings) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS interactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                endpoint TEXT NOT NULL,
-                model TEXT,
-                latency_ms REAL,
-                request_payload TEXT,
-                response_payload TEXT,
-                tool_calls TEXT,
-                selected_chunks TEXT,
-                token_estimate INTEGER,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-        try:
-            conn.execute("ALTER TABLE interactions ADD COLUMN tool_calls TEXT")
-        except sqlite3.OperationalError:
-            pass
-        conn.commit()
+        _initialize_schema_if_needed(conn, _CORE_SCHEMA)
 
 
 def init_rag_db(settings: Optional[Settings] = None) -> None:
     settings = settings or get_settings()
     with rag_connection(settings) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS documents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                document_path TEXT UNIQUE NOT NULL,
-                mtime_ns INTEGER NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                sha256 TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_documents_path ON documents(document_path);
-
-            CREATE TABLE IF NOT EXISTS chunks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                document_path TEXT NOT NULL,
-                chunk_index INTEGER NOT NULL,
-                content TEXT NOT NULL,
-                embedding TEXT NOT NULL,
-                embedding_dim INTEGER NOT NULL,
-                metadata TEXT,
-                doc_id INTEGER,
-                embedding_blob BLOB,
-                embedding_norm REAL,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            CREATE INDEX IF NOT EXISTS idx_chunks_document_path ON chunks(document_path);
-            CREATE INDEX IF NOT EXISTS idx_chunks_docid ON chunks(doc_id);
-            """
-        )
-        try:
-            conn.execute("ALTER TABLE chunks ADD COLUMN doc_id INTEGER")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE chunks ADD COLUMN embedding_blob BLOB")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE chunks ADD COLUMN embedding_norm REAL")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("CREATE INDEX idx_chunks_docid ON chunks(doc_id)")
-        except sqlite3.OperationalError:
-            pass
-        conn.commit()
+        _initialize_schema_if_needed(conn, _RAG_SCHEMA)
 
 
 def init_databases(settings: Optional[Settings] = None) -> None:
     settings = settings or get_settings()
     init_core_db(settings)
     init_rag_db(settings)
+    with core_connection(settings) as core_conn:
+        _assert_schema(core_conn, SCHEMA_VERSION)
+    with rag_connection(settings) as rag_conn:
+        _assert_schema(rag_conn, SCHEMA_VERSION)
 
 
 def record_interaction(

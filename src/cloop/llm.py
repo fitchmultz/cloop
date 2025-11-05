@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import time
 from copy import deepcopy
@@ -12,6 +10,10 @@ from .settings import Settings, get_settings
 from .tools import EXECUTORS, TOOL_SPECS, normalize_tool_arguments
 
 Message = Dict[str, Any]
+
+
+class ToolCallError(ValueError):
+    """Raised when LLM-specified tool calls are invalid."""
 
 
 def estimate_tokens(messages: List[Message]) -> int:
@@ -137,11 +139,14 @@ def chat_with_tools(
         try:
             arguments = normalize_tool_arguments(function_payload.get("arguments", {}))
         except ValueError as exc:
-            raise ValueError(f"Invalid arguments for tool '{name}'") from exc
+            raise ToolCallError(f"Invalid arguments for tool '{name}'") from exc
         executor = EXECUTORS.get(name)
         if executor is None:
-            raise ValueError(f"Unsupported tool: {name}")
-        result = executor(**arguments)
+            raise ToolCallError(f"Unsupported tool: {name}")
+        try:
+            result = executor(**arguments)
+        except ValueError as exc:
+            raise ToolCallError(str(exc)) from exc
         normalized_calls.append({"name": name, "arguments": arguments})
         tool_outputs.append(result)
         augmented_messages.append(

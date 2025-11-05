@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import math
 import os
 import sqlite3
@@ -13,8 +11,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from cloop import db
+from cloop.db import VectorBackend
 from cloop.rag import chunk_text, ingest_paths, retrieve_similar_chunks
-from cloop.settings import Settings, get_settings
+from cloop.settings import Settings, VectorSearchMode, get_settings
 
 token_strategy = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
@@ -33,9 +32,9 @@ def test_chunk_text_preserves_token_order(tokens: List[str]) -> None:
     assert regenerated == tokens
 
 
-def make_settings(tmp_path: Path, *, vector_mode: str) -> Settings:
+def make_settings(tmp_path: Path, *, vector_mode: VectorSearchMode) -> Settings:
     os.environ["CLOOP_DATA_DIR"] = str(tmp_path)
-    os.environ["CLOOP_VECTOR_MODE"] = vector_mode
+    os.environ["CLOOP_VECTOR_MODE"] = vector_mode.value
     get_settings.cache_clear()  # type: ignore[attr-defined]
     settings = get_settings()
     db.init_databases(settings)
@@ -43,7 +42,7 @@ def make_settings(tmp_path: Path, *, vector_mode: str) -> Settings:
 
 
 def test_sqlite_vector_mode_matches_python(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings_sqlite = make_settings(tmp_path, vector_mode="sqlite")
+    settings_sqlite = make_settings(tmp_path, vector_mode=VectorSearchMode.SQLITE)
 
     monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
@@ -59,7 +58,7 @@ def test_sqlite_vector_mode_matches_python(tmp_path: Path, monkeypatch: pytest.M
     ingest_paths([str(doc)], settings=settings_sqlite)
 
     sqlite_results = retrieve_similar_chunks("alpha question", top_k=3, settings=settings_sqlite)
-    python_settings = replace(settings_sqlite, vector_search_mode="python")
+    python_settings = replace(settings_sqlite, vector_search_mode=VectorSearchMode.PYTHON)
     python_results = retrieve_similar_chunks("alpha question", top_k=3, settings=python_settings)
 
     assert [row["id"] for row in sqlite_results] == [row["id"] for row in python_results]
@@ -76,7 +75,7 @@ def _count_rows(table: str, *, settings: Settings) -> int:
 
 
 def test_ingest_skips_unchanged_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
         return [np.ones(3, dtype=np.float32) for _ in chunks]
@@ -98,7 +97,7 @@ def test_ingest_skips_unchanged_documents(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_reindex_forces_reingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
     calls: List[List[str]] = []
 
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
@@ -121,7 +120,7 @@ def test_reindex_forces_reingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_purge_removes_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
         return [np.ones(3, dtype=np.float32) for _ in chunks]
@@ -141,7 +140,7 @@ def test_purge_removes_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_sync_purges_missing_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
         return [np.ones(3, dtype=np.float32) for _ in chunks]
@@ -167,7 +166,7 @@ def test_sync_purges_missing_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_embeddings_dual_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     vector = np.array([1.0, 2.0, 2.0], dtype=np.float32)
 
@@ -194,7 +193,7 @@ def test_embeddings_dual_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_retrieve_prefers_blob_over_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     vector = np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32)
 
@@ -218,7 +217,7 @@ def test_retrieve_prefers_blob_over_json(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_retrieve_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
@@ -238,7 +237,7 @@ def test_retrieve_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 
 def test_retrieve_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="python")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
         return [np.ones(3, dtype=np.float32) for _ in chunks]
@@ -266,7 +265,7 @@ def test_retrieve_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.Monke
 
 
 def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = make_settings(tmp_path, vector_mode="auto")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.AUTO)
 
     vector = np.array([0.25, 0.75], dtype=np.float32)
 
@@ -274,26 +273,28 @@ def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
-    monkeypatch.setattr("cloop.rag.get_vector_backend", lambda: "vec")
+    monkeypatch.setattr("cloop.rag.get_vector_backend", lambda: VectorBackend.VEC)
 
     ensure_calls: List[int] = []
     upsert_calls: List[int] = []
     delete_calls: List[List[int]] = []
 
-    def fake_ensure(conn: sqlite3.Connection, dim: int, backend: str) -> None:
+    def fake_ensure(conn: sqlite3.Connection, dim: int, backend: VectorBackend) -> None:
         ensure_calls.append(dim)
 
-    def fake_upsert(conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, backend: str) -> None:
+    def fake_upsert(
+        conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, backend: VectorBackend
+    ) -> None:
         upsert_calls.append(chunk_id)
 
-    def fake_delete(conn: sqlite3.Connection, chunk_ids: List[int], backend: str) -> None:
+    def fake_delete(conn: sqlite3.Connection, chunk_ids: List[int], backend: VectorBackend) -> None:
         delete_calls.append(chunk_ids)
 
     def fake_search(
         conn: sqlite3.Connection,
         query: np.ndarray,
         top_k: int,
-        backend: str,
+        backend: VectorBackend,
     ) -> List[dict[str, Any]]:
         row = conn.execute("SELECT * FROM chunks LIMIT 1").fetchone()
         assert row is not None

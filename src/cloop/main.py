@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 import json
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from enum import StrEnum
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -13,9 +12,15 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 
 from . import db
-from .llm import chat_completion, chat_with_tools, estimate_tokens, stream_completion
+from .llm import (
+    ToolCallError,
+    chat_completion,
+    chat_with_tools,
+    estimate_tokens,
+    stream_completion,
+)
 from .rag import ingest_paths, retrieve_similar_chunks
-from .settings import Settings, get_settings
+from .settings import Settings, ToolMode, get_settings
 from .tools import EXECUTORS, TOOL_SPECS
 
 
@@ -52,10 +57,17 @@ class ChatRequest(BaseModel):
     tool_call: Optional[ToolCall] = Field(
         default=None, description="Optional instruction to interact with notes"
     )
-    tool_mode: Optional[str] = Field(
+    tool_mode: Optional[ToolMode] = Field(
         default=None,
         description="Tool orchestration mode: manual, llm, or none. Defaults to settings.",
     )
+
+
+class IngestMode(StrEnum):
+    ADD = "add"
+    REINDEX = "reindex"
+    PURGE = "purge"
+    SYNC = "sync"
 
 
 class ChatResponse(BaseModel):
@@ -67,7 +79,7 @@ class ChatResponse(BaseModel):
 
 class IngestRequest(BaseModel):
     paths: List[str]
-    mode: Optional[str] = Field(
+    mode: Optional[IngestMode] = Field(
         default=None,
         description="Ingestion mode: add, reindex, purge, or sync. Defaults to add.",
     )
@@ -96,6 +108,9 @@ class HealthResponse(BaseModel):
     vector_backend: str
     core_db: str
     rag_db: str
+    schema_version: int
+    embed_storage: str
+    tool_mode_default: str
 
 
 def _http_error(detail: Any, *, status_code: int, error_type: str) -> JSONResponse:
@@ -176,10 +191,13 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
     return HealthResponse(
         ok=True,
         model=settings.llm_model,
-        vector_mode=settings.vector_search_mode,
-        vector_backend=db.get_vector_backend(),
+        vector_mode=settings.vector_search_mode.value,
+        vector_backend=db.get_vector_backend().value,
         core_db=str(settings.core_db_path),
         rag_db=str(settings.rag_db_path),
+        schema_version=db.SCHEMA_VERSION,
+        embed_storage=settings.embed_storage_mode.value,
+        tool_mode_default=settings.tool_mode_default.value,
     )
 
 
@@ -193,14 +211,14 @@ def chat_endpoint(
     tool_result: Optional[Dict[str, Any]] = None
     tool_calls: List[Dict[str, Any]] = []
 
-    tool_mode = (request.tool_mode or settings.tool_mode_default).lower()
-    if tool_mode not in {"manual", "llm", "none"}:
-        raise HTTPException(status_code=400, detail="Invalid tool_mode")
+    tool_mode = request.tool_mode or settings.tool_mode_default
 
-    if request.tool_call and tool_mode != "manual":
+    if request.tool_call and tool_mode is not ToolMode.MANUAL:
         raise HTTPException(status_code=400, detail="tool_call is only supported in manual mode")
 
-    if tool_mode == "manual" and request.tool_call:
+    if tool_mode is ToolMode.MANUAL:
+        if request.tool_call is None:
+            raise HTTPException(status_code=400, detail="tool_call required in manual mode")
         tool_result = handle_tool_call(request.tool_call)
         messages.append(
             {
@@ -214,7 +232,7 @@ def chat_endpoint(
 
     token_estimate = estimate_tokens(messages)
     stream_enabled = stream if stream is not None else settings.stream_default
-    if stream_enabled and tool_mode == "llm":
+    if stream_enabled and tool_mode is ToolMode.LLM:
         raise HTTPException(status_code=400, detail="Streaming not supported for llm tool_mode")
 
     if stream_enabled:
@@ -263,8 +281,11 @@ def chat_endpoint(
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    if tool_mode == "llm":
-        content, metadata, tool_calls = chat_with_tools(messages, TOOL_SPECS, settings=settings)
+    if tool_mode is ToolMode.LLM:
+        try:
+            content, metadata, tool_calls = chat_with_tools(messages, TOOL_SPECS, settings=settings)
+        except ToolCallError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         outputs = metadata.get("tool_outputs") or []
         tool_result = outputs[0] if outputs else None
     else:
@@ -302,7 +323,7 @@ def ingest_endpoint(
 ) -> IngestResponse:
     if not request.paths:
         raise HTTPException(status_code=400, detail="paths cannot be empty")
-    mode = request.mode or "add"
+    mode = (request.mode or IngestMode.ADD).value
     recursive = True if request.recursive is None else bool(request.recursive)
     try:
         result = ingest_paths(request.paths, mode=mode, recursive=recursive, settings=settings)
@@ -340,6 +361,7 @@ def ask_endpoint(
     stream_enabled = stream if stream is not None else settings.stream_default
     if not chunks:
         if stream_enabled:
+
             def empty_stream() -> Iterator[str]:
                 yield _sse_event(
                     "done",
