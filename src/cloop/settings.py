@@ -25,7 +25,7 @@ class EmbedStorageMode(StrEnum):
     DUAL = "dual"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Settings:
     root_dir: Path
     core_db_path: Path

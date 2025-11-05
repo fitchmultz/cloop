@@ -212,6 +212,7 @@ def test_chat_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert row is not None
     recorded = json.loads(row["response_payload"])
     assert recorded["message"] == "".join(STREAM_TOKENS)
+    assert recorded["context"]["embed_model"] == get_settings().embed_model
 
 
 def test_ask_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -240,6 +241,7 @@ def test_ask_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert row is not None
     recorded = json.loads(row["response_payload"])
     assert recorded["answer"] == "".join(STREAM_TOKENS)
+    assert recorded["context"]["vector_search_mode"] == get_settings().vector_search_mode.value
 
 
 def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,6 +256,22 @@ def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert payload["schema_version"] == db.SCHEMA_VERSION
     assert payload["embed_storage"] in {"json", "blob", "dual"}
     assert payload["tool_mode_default"] in {"manual", "llm", "none"}
+    assert payload["retrieval_order"]
+    assert payload["retrieval_metric"] in {"1_over_1_plus_distance", "cosine"}
+
+
+def test_chat_manual_requires_tool_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(tmp_path, monkeypatch)
+    response = client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "tool_mode": "manual",
+        },
+    )
+    assert response.status_code == 422
+    payload = response.json()
+    assert payload["error"]["type"] == "validation_error"
 
 
 def test_chat_invalid_tool_mode_returns_error(
@@ -339,3 +357,23 @@ def test_ask_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     payload = scoped.json()
     assert payload["sources"]
     assert all(source["document_path"] == str(doc_b) for source in payload["sources"])
+
+
+def test_ask_returns_400_on_embedding_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = make_client(tmp_path, monkeypatch)
+    doc = tmp_path / "drift.txt"
+    doc.write_text("guard", encoding="utf-8")
+    ingest = client.post("/ingest", json={"paths": [str(doc)]})
+    assert ingest.status_code == 200
+
+    with db.rag_connection(get_settings()) as conn:
+        conn.execute("UPDATE chunks SET embedding_dim = embedding_dim + 1")
+        conn.commit()
+
+    response = client.get("/ask", params={"q": "drift?"})
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["type"] == "http_error"
+    assert "embedding_dim mismatch" in payload["error"]["message"]

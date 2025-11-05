@@ -27,6 +27,9 @@ PDF_EXTENSIONS = {".pdf"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS
 SUPPORTED_INGEST_MODES = {"add", "reindex", "purge", "sync"}
 
+_VECLIKE_METRIC = "1_over_1_plus_distance"
+_SQL_PY_METRIC = "cosine"
+
 
 def _read_text_file(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -244,6 +247,53 @@ def _collect_missing_documents(
     return list(dict.fromkeys(missing))
 
 
+def _assert_embedding_dimension_consistency(
+    *, settings: Settings, expected_dim: int, scope: str | None
+) -> None:
+    with rag_connection(settings) as conn:
+        if scope and scope.startswith("doc:"):
+            try:
+                doc_id = int(scope.split(":", 1)[1])
+            except ValueError:
+                rows: list[sqlite3.Row] = []
+            else:
+                rows = conn.execute(
+                    "SELECT DISTINCT embedding_dim FROM chunks WHERE doc_id = ?",
+                    (doc_id,),
+                ).fetchall()
+        elif scope:
+            rows = conn.execute(
+                "SELECT DISTINCT embedding_dim FROM chunks WHERE document_path LIKE ?",
+                (f"%{scope}%",),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT DISTINCT embedding_dim FROM chunks").fetchall()
+    dims = {int(row[0]) for row in rows}
+    if not dims:
+        return
+    if len(dims) != 1 or expected_dim not in dims:
+        raise RuntimeError(
+            f"embedding_dim mismatch: query={expected_dim}, db={sorted(dims)}; "
+            "re-ingest with the current embed model"
+        )
+
+
+def _assert_embedding_model_alignment(*, settings: Settings) -> None:
+    with rag_connection(settings) as conn:
+        row = conn.execute("SELECT metadata FROM chunks LIMIT 1").fetchone()
+    if not row:
+        return
+    try:
+        metadata = json.loads(row["metadata"] or "{}")
+    except Exception:
+        return
+    stored = metadata.get("embed_model")
+    if stored and stored != settings.embed_model:
+        raise RuntimeError(
+            f"Stored embed_model={stored} != configured={settings.embed_model}; re-ingest required"
+        )
+
+
 def _filter_rows_by_scope(rows: List[Dict[str, Any]], scope: str) -> List[Dict[str, Any]]:
     if not scope:
         return rows
@@ -362,6 +412,7 @@ def _vec_extension_search(
         reset_vector_backend()
         return None
 
+    # Map extension distance to similarity using _VECLIKE_METRIC semantics.
     return _chunk_rows_with_scores(conn, matches)
 
 
@@ -383,6 +434,7 @@ def _vss_extension_search(
         reset_vector_backend()
         return None
 
+    # Map extension distance to similarity using _VECLIKE_METRIC semantics.
     return _chunk_rows_with_scores(conn, matches)
 
 
@@ -416,6 +468,7 @@ def _chunk_rows_with_scores(
         chunk = typingx.as_type(dict[str, Any], dict(chunk_row))
         chunk.pop("embedding_blob", None)
         distance = float(row["distance"])
+        # Extensions return a distance metric; map to similarity as documented by _VECLIKE_METRIC.
         chunk["score"] = 1.0 / (1.0 + distance)
         results.append(chunk)
     return results
@@ -450,10 +503,6 @@ def ingest_paths(
         candidate_files = list(_iter_candidate_files(normalized_targets, recursive))
         for file_path in candidate_files:
             metadata = _document_file_metadata(file_path)
-            doc_id, is_changed = upsert_document_record(file_path, metadata=metadata, conn=conn)
-            should_process = is_changed or ingestion_mode == "reindex"
-            if not should_process:
-                continue
 
             try:
                 text = load_document(file_path)
@@ -461,21 +510,11 @@ def ingest_paths(
                 continue
 
             chunks = chunk_text(text, chunk_size=settings.chunk_size)
-            if not chunks:
-                purge_documents([file_path], conn=conn, backend=vector_backend)
-                continue
-
-            embeddings = embed_texts(chunks, settings=settings)
-            if vector_backend in {VectorBackend.VEC, VectorBackend.VSS}:
-                existing_rows = conn.execute(
-                    "SELECT id FROM chunks WHERE doc_id = ?",
-                    (doc_id,),
-                ).fetchall()
-                delete_vector_rows(conn, [int(row["id"]) for row in existing_rows], vector_backend)
-            conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+            embeddings = embed_texts(chunks, settings=settings) if chunks else []
             metadata_base = {
                 "size_bytes": metadata["size_bytes"],
                 "sha256": metadata["sha256"],
+                "embed_model": settings.embed_model,
             }
             should_store_blob = settings.embed_storage_mode in {
                 EmbedStorageMode.BLOB,
@@ -486,61 +525,93 @@ def ingest_paths(
                 EmbedStorageMode.DUAL,
             }
             vector_index_ready = False
-            for idx, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=True)):
-                vector = np.asarray(vector, dtype=np.float32)
-                if (
-                    vector_backend in {VectorBackend.VEC, VectorBackend.VSS}
-                    and not vector_index_ready
-                ):
-                    ensure_vector_index(conn, vector.shape[0], vector_backend)
-                    vector_index_ready = True
-                embedding_blob = vector.tobytes() if should_store_blob else None
-                embedding_norm = float(np.linalg.norm(vector)) if should_store_blob else None
-                payload = {
-                    "document_path": metadata["path"],
-                    "chunk_index": idx,
-                    "content": chunk,
-                    "embedding": json.dumps(vector.tolist()) if should_store_json else "[]",
-                    "embedding_dim": int(vector.shape[0]),
-                    "metadata": json.dumps({**metadata_base, "chunk_length": len(chunk)}),
-                    "doc_id": doc_id,
-                    "embedding_blob": embedding_blob,
-                    "embedding_norm": embedding_norm,
-                }
-                cursor = conn.execute(
-                    """
-                    INSERT INTO chunks (
-                        document_path,
-                        chunk_index,
-                        content,
-                        embedding,
-                        embedding_dim,
-                        metadata,
-                        doc_id,
-                        embedding_blob,
-                        embedding_norm
+            inserted_chunks = 0
+
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                doc_id, is_changed = upsert_document_record(file_path, metadata=metadata, conn=conn)
+
+                if not chunks:
+                    purge_documents([file_path], conn=conn, backend=vector_backend)
+                    conn.commit()
+                    continue
+
+                should_process = is_changed or ingestion_mode == "reindex"
+                if not should_process:
+                    conn.commit()
+                    continue
+
+                if vector_backend in {VectorBackend.VEC, VectorBackend.VSS}:
+                    existing_rows = conn.execute(
+                        "SELECT id FROM chunks WHERE doc_id = ?",
+                        (doc_id,),
+                    ).fetchall()
+                    delete_vector_rows(
+                        conn, [int(row["id"]) for row in existing_rows], vector_backend
                     )
-                    VALUES (
-                        :document_path,
-                        :chunk_index,
-                        :content,
-                        :embedding,
-                        :embedding_dim,
-                        :metadata,
-                        :doc_id,
-                        :embedding_blob,
-                        :embedding_norm
+                conn.execute("DELETE FROM chunks WHERE doc_id = ?", (doc_id,))
+
+                for idx, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=True)):
+                    vector = np.asarray(vector, dtype=np.float32)
+                    if (
+                        vector_backend in {VectorBackend.VEC, VectorBackend.VSS}
+                        and not vector_index_ready
+                    ):
+                        ensure_vector_index(conn, vector.shape[0], vector_backend)
+                        vector_index_ready = True
+                    embedding_blob = vector.tobytes() if should_store_blob else None
+                    embedding_norm = float(np.linalg.norm(vector))
+                    payload = {
+                        "document_path": metadata["path"],
+                        "chunk_index": idx,
+                        "content": chunk,
+                        "embedding": json.dumps(vector.tolist()) if should_store_json else "[]",
+                        "embedding_dim": int(vector.shape[0]),
+                        "metadata": json.dumps({**metadata_base, "chunk_length": len(chunk)}),
+                        "doc_id": doc_id,
+                        "embedding_blob": embedding_blob,
+                        "embedding_norm": embedding_norm,
+                    }
+                    cursor = conn.execute(
+                        """
+                        INSERT INTO chunks (
+                            document_path,
+                            chunk_index,
+                            content,
+                            embedding,
+                            embedding_dim,
+                            metadata,
+                            doc_id,
+                            embedding_blob,
+                            embedding_norm
+                        )
+                        VALUES (
+                            :document_path,
+                            :chunk_index,
+                            :content,
+                            :embedding,
+                            :embedding_dim,
+                            :metadata,
+                            :doc_id,
+                            :embedding_blob,
+                            :embedding_norm
+                        )
+                        """,
+                        payload,
                     )
-                    """,
-                    payload,
-                )
-                chunk_id = cursor.lastrowid
-                if chunk_id is not None and vector_backend in {
-                    VectorBackend.VEC,
-                    VectorBackend.VSS,
-                }:
-                    upsert_vector(conn, int(chunk_id), vector, vector_backend)
-                chunks_processed += 1
+                    chunk_id = cursor.lastrowid
+                    if chunk_id is not None and vector_backend in {
+                        VectorBackend.VEC,
+                        VectorBackend.VSS,
+                    }:
+                        upsert_vector(conn, int(chunk_id), vector, vector_backend)
+                    inserted_chunks += 1
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+            chunks_processed += inserted_chunks
             files_processed += 1
 
         if ingestion_mode == "sync":
@@ -590,7 +661,11 @@ def retrieve_similar_chunks(
     vectors = embed_texts([query], settings=settings)
     if not vectors:
         return []
-    query_vec = vectors[0]
+    query_vec = np.asarray(vectors[0], dtype=np.float32)
+    _assert_embedding_model_alignment(settings=settings)
+    _assert_embedding_dimension_consistency(
+        settings=settings, expected_dim=int(query_vec.shape[0]), scope=scope
+    )
     if top_k <= 0:
         raise ValueError("top_k must be positive")
 
@@ -598,35 +673,37 @@ def retrieve_similar_chunks(
     paths = _select_retrieval_order(backend=vector_backend, scope=scope, settings=settings)
 
     for path in paths:
-        if path is RetrievalPath.VEC:
-            with rag_connection(settings) as conn:
-                rows = vec_backend_search(conn, query_vec, top_k, VectorBackend.VEC)
-            if rows:
-                return rows
-            continue
-        if path is RetrievalPath.VSS:
-            with rag_connection(settings) as conn:
-                rows = vec_backend_search(conn, query_vec, top_k, VectorBackend.VSS)
-            if rows:
-                return rows
-            continue
-        if path is RetrievalPath.SQLITE:
-            try:
-                rows = _sqlite_similar_chunks(query_vec, top_k, settings=settings)
-            except sqlite3.Error:
-                if settings.vector_search_mode is VectorSearchMode.SQLITE:
-                    raise
+        try:
+            if path is RetrievalPath.VEC:
+                with rag_connection(settings) as conn:
+                    rows = vec_backend_search(conn, query_vec, top_k, VectorBackend.VEC)
+                if rows:
+                    return rows
                 continue
-            if rows is not None:
-                return rows
+            if path is RetrievalPath.VSS:
+                with rag_connection(settings) as conn:
+                    rows = vec_backend_search(conn, query_vec, top_k, VectorBackend.VSS)
+                if rows:
+                    return rows
+                continue
+            if path is RetrievalPath.SQLITE:
+                rows = _sqlite_similar_chunks(query_vec, top_k, settings=settings)
+                if rows is not None:
+                    return rows
+                continue
+            if path is RetrievalPath.PYTHON:
+                rows = fetch_all_chunks(settings=settings)
+                if scope:
+                    rows = _filter_rows_by_scope(rows, scope)
+                if not rows:
+                    return []
+                return _python_similar_chunks(query_vec, rows, top_k, settings.embed_storage_mode)
+        except RuntimeError:
+            raise
+        except sqlite3.Error:
+            if settings.vector_search_mode is VectorSearchMode.SQLITE:
+                raise
             continue
-        if path is RetrievalPath.PYTHON:
-            rows = fetch_all_chunks(settings=settings)
-            if scope:
-                rows = _filter_rows_by_scope(rows, scope)
-            if not rows:
-                return []
-            return _python_similar_chunks(query_vec, rows, top_k, settings.embed_storage_mode)
 
     return []
 
