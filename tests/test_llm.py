@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from pathlib import Path
 from typing import Any, Dict
 
@@ -38,9 +36,12 @@ def test_chat_completion_uses_ollama_base(tmp_path: Path, monkeypatch: pytest.Mo
 
     monkeypatch.setattr("cloop.llm.litellm.completion", fake_completion)
 
-    chat_completion([
-        {"role": "user", "content": "Hello"},
-    ], settings=get_settings())
+    chat_completion(
+        [
+            {"role": "user", "content": "Hello"},
+        ],
+        settings=get_settings(),
+    )
 
     assert captured.get("api_base") == "http://localhost:11434/v1"
 
@@ -68,9 +69,12 @@ def test_chat_completion_uses_openai_credentials(
 
     monkeypatch.setattr("cloop.llm.litellm.completion", fake_completion)
 
-    chat_completion([
-        {"role": "user", "content": "Hello"},
-    ], settings=get_settings())
+    chat_completion(
+        [
+            {"role": "user", "content": "Hello"},
+        ],
+        settings=get_settings(),
+    )
 
     assert captured.get("api_base") == "https://custom.openai/v1"
     assert captured.get("api_key") == "secret-key"

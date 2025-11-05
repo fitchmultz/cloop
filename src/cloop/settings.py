@@ -1,12 +1,28 @@
-from __future__ import annotations
-
 import os
 from dataclasses import dataclass
+from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, cast
 
 from . import typingx
+
+
+class VectorSearchMode(StrEnum):
+    PYTHON = "python"
+    SQLITE = "sqlite"
+    AUTO = "auto"
+
+
+class ToolMode(StrEnum):
+    MANUAL = "manual"
+    LLM = "llm"
+    NONE = "none"
+
+
+class EmbedStorageMode(StrEnum):
+    JSON = "json"
+    BLOB = "blob"
+    DUAL = "dual"
 
 
 @dataclass(frozen=True)
@@ -22,9 +38,9 @@ class Settings:
     ingest_timeout: float
     embedding_timeout: float
     sqlite_vector_extension: str | None
-    vector_search_mode: str
-    tool_mode_default: str
-    embed_storage_mode: Literal["json", "blob", "dual"]
+    vector_search_mode: VectorSearchMode
+    tool_mode_default: ToolMode
+    embed_storage_mode: EmbedStorageMode
     openai_api_base: str | None
     openai_api_key: str | None
     ollama_api_base: str | None
@@ -49,7 +65,7 @@ def get_settings() -> Settings:
     core_db_path = _resolve_path(os.getenv("CLOOP_CORE_DB_PATH"), default_data_dir / "core.db")
     rag_db_path = _resolve_path(os.getenv("CLOOP_RAG_DB_PATH"), default_data_dir / "rag.db")
 
-    return Settings(
+    settings = Settings(
         root_dir=root_dir,
         core_db_path=core_db_path,
         rag_db_path=rag_db_path,
@@ -71,28 +87,32 @@ def get_settings() -> Settings:
         openrouter_api_base=os.getenv("CLOOP_OPENROUTER_API_BASE"),
         stream_default=_resolve_stream_default(os.getenv("CLOOP_STREAM_DEFAULT")),
     )
+    return _validate_settings(settings)
 
 
-def _resolve_vector_mode(raw: str | None) -> str:
-    mode = (raw or "python").strip().lower()
-    if mode not in {"python", "sqlite", "auto"}:
-        return "python"
-    return mode
+def _resolve_vector_mode(raw: str | None) -> VectorSearchMode:
+    value = (raw or VectorSearchMode.PYTHON.value).strip().lower()
+    try:
+        return VectorSearchMode(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid CLOOP_VECTOR_MODE: {raw}") from exc
 
 
-def _resolve_tool_mode(raw: str | None) -> str:
-    mode = (raw or "manual").strip().lower()
-    if mode not in {"manual", "llm", "none"}:
-        return "manual"
-    return mode
+def _resolve_tool_mode(raw: str | None) -> ToolMode:
+    value = (raw or ToolMode.MANUAL.value).strip().lower()
+    try:
+        return ToolMode(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid CLOOP_TOOL_MODE: {raw}") from exc
 
 
-def _resolve_embed_storage(raw: str | None) -> Literal["json", "blob", "dual"]:
-    value = (raw or "dual").strip().lower()
-    if value not in {"json", "blob", "dual"}:
-        value = "dual"
+def _resolve_embed_storage(raw: str | None) -> EmbedStorageMode:
+    value = (raw or EmbedStorageMode.DUAL.value).strip().lower()
     typed_value = typingx.as_type(str, value)
-    return cast(Literal["json", "blob", "dual"], typed_value)
+    try:
+        return EmbedStorageMode(typed_value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid CLOOP_EMBED_STORAGE: {raw}") from exc
 
 
 def _resolve_stream_default(raw: str | None) -> bool:
@@ -100,3 +120,14 @@ def _resolve_stream_default(raw: str | None) -> bool:
         return False
     normalized = raw.strip().lower()
     return normalized in {"1", "true", "yes", "on"}
+
+
+def _validate_settings(settings: Settings) -> Settings:
+    if (
+        settings.vector_search_mode is VectorSearchMode.SQLITE
+        and settings.embed_storage_mode is EmbedStorageMode.BLOB
+    ):
+        raise ValueError("CLOOP_VECTOR_MODE=sqlite requires CLOOP_EMBED_STORAGE of json or dual")
+    if settings.tool_mode_default is ToolMode.LLM and settings.stream_default:
+        raise ValueError("Streaming default cannot be enabled when default tool mode is llm")
+    return settings

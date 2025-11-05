@@ -1,11 +1,10 @@
-from __future__ import annotations
-
 import hashlib
 import json
 import math
 import os
 import re
 import sqlite3
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
@@ -14,13 +13,14 @@ from pypdf import PdfReader
 
 from . import typingx
 from .db import (
+    VectorBackend,
     get_vector_backend,
     rag_connection,
     reset_vector_backend,
     vector_extension_available,
 )
 from .embeddings import embed_texts
-from .settings import Settings, get_settings
+from .settings import EmbedStorageMode, Settings, VectorSearchMode, get_settings
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 PDF_EXTENSIONS = {".pdf"}
@@ -183,7 +183,7 @@ def purge_documents(
     paths: List[Path],
     *,
     conn: sqlite3.Connection,
-    backend: str,
+    backend: VectorBackend,
 ) -> Tuple[int, int]:
     unique_targets = list(
         {str(_normalize_path(path)): _normalize_path(path) for path in paths}.values()
@@ -197,7 +197,7 @@ def purge_documents(
 
     placeholders = ",".join("?" for _ in doc_ids)
     id_params = tuple(doc_ids)
-    if backend in {"vec", "vss"}:
+    if backend in {VectorBackend.VEC, VectorBackend.VSS}:
         chunk_rows = conn.execute(
             f"SELECT id FROM chunks WHERE doc_id IN ({placeholders})",
             id_params,
@@ -257,9 +257,9 @@ def _filter_rows_by_scope(rows: List[Dict[str, Any]], scope: str) -> List[Dict[s
     return [row for row in rows if scope in str(row.get("document_path", ""))]
 
 
-def ensure_vector_index(conn: sqlite3.Connection, dim: int, backend: str) -> None:
+def ensure_vector_index(conn: sqlite3.Connection, dim: int, backend: VectorBackend) -> None:
     match backend:
-        case "vec":
+        case VectorBackend.VEC:
             try:
                 conn.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[%d])"
@@ -267,11 +267,10 @@ def ensure_vector_index(conn: sqlite3.Connection, dim: int, backend: str) -> Non
                 )
             except sqlite3.Error:
                 reset_vector_backend()
-        case "vss":
+        case VectorBackend.VSS:
             try:
                 conn.execute(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS vss_chunks USING vss0(embedding(%d))"
-                    % dim
+                    "CREATE VIRTUAL TABLE IF NOT EXISTS vss_chunks USING vss0(embedding(%d))" % dim
                 )
             except sqlite3.Error:
                 reset_vector_backend()
@@ -279,10 +278,12 @@ def ensure_vector_index(conn: sqlite3.Connection, dim: int, backend: str) -> Non
             return
 
 
-def upsert_vector(conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, backend: str) -> None:
+def upsert_vector(
+    conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, backend: VectorBackend
+) -> None:
     vector = np.asarray(vec, dtype=np.float32)
     match backend:
-        case "vec":
+        case VectorBackend.VEC:
             try:
                 conn.execute("DELETE FROM vec_chunks WHERE rowid = ?", (chunk_id,))
                 conn.execute(
@@ -291,7 +292,7 @@ def upsert_vector(conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, back
                 )
             except sqlite3.Error:
                 reset_vector_backend()
-        case "vss":
+        case VectorBackend.VSS:
             try:
                 conn.execute("DELETE FROM vss_chunks WHERE rowid = ?", (chunk_id,))
                 conn.execute(
@@ -307,19 +308,19 @@ def upsert_vector(conn: sqlite3.Connection, chunk_id: int, vec: np.ndarray, back
 def delete_vector_rows(
     conn: sqlite3.Connection,
     chunk_ids: Sequence[int],
-    backend: str,
+    backend: VectorBackend,
 ) -> None:
     if not chunk_ids:
         return
     placeholders = ",".join("?" for _ in chunk_ids)
     params = tuple(int(chunk_id) for chunk_id in chunk_ids)
     match backend:
-        case "vec":
+        case VectorBackend.VEC:
             try:
                 conn.execute(f"DELETE FROM vec_chunks WHERE rowid IN ({placeholders})", params)
             except sqlite3.Error:
                 reset_vector_backend()
-        case "vss":
+        case VectorBackend.VSS:
             try:
                 conn.execute(f"DELETE FROM vss_chunks WHERE rowid IN ({placeholders})", params)
             except sqlite3.Error:
@@ -332,12 +333,12 @@ def vec_backend_search(
     conn: sqlite3.Connection,
     query: np.ndarray,
     top_k: int,
-    backend: str,
+    backend: VectorBackend,
 ) -> List[Dict[str, Any]] | None:
     match backend:
-        case "vec":
+        case VectorBackend.VEC:
             return _vec_extension_search(conn, query, top_k)
-        case "vss":
+        case VectorBackend.VSS:
             return _vss_extension_search(conn, query, top_k)
         case _:
             return None
@@ -465,7 +466,7 @@ def ingest_paths(
                 continue
 
             embeddings = embed_texts(chunks, settings=settings)
-            if vector_backend in {"vec", "vss"}:
+            if vector_backend in {VectorBackend.VEC, VectorBackend.VSS}:
                 existing_rows = conn.execute(
                     "SELECT id FROM chunks WHERE doc_id = ?",
                     (doc_id,),
@@ -476,11 +477,21 @@ def ingest_paths(
                 "size_bytes": metadata["size_bytes"],
                 "sha256": metadata["sha256"],
             }
-            should_store_blob = settings.embed_storage_mode in {"blob", "dual"}
+            should_store_blob = settings.embed_storage_mode in {
+                EmbedStorageMode.BLOB,
+                EmbedStorageMode.DUAL,
+            }
+            should_store_json = settings.embed_storage_mode in {
+                EmbedStorageMode.JSON,
+                EmbedStorageMode.DUAL,
+            }
             vector_index_ready = False
             for idx, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=True)):
                 vector = np.asarray(vector, dtype=np.float32)
-                if vector_backend in {"vec", "vss"} and not vector_index_ready:
+                if (
+                    vector_backend in {VectorBackend.VEC, VectorBackend.VSS}
+                    and not vector_index_ready
+                ):
                     ensure_vector_index(conn, vector.shape[0], vector_backend)
                     vector_index_ready = True
                 embedding_blob = vector.tobytes() if should_store_blob else None
@@ -489,7 +500,7 @@ def ingest_paths(
                     "document_path": metadata["path"],
                     "chunk_index": idx,
                     "content": chunk,
-                    "embedding": json.dumps(vector.tolist()),
+                    "embedding": json.dumps(vector.tolist()) if should_store_json else "[]",
                     "embedding_dim": int(vector.shape[0]),
                     "metadata": json.dumps({**metadata_base, "chunk_length": len(chunk)}),
                     "doc_id": doc_id,
@@ -524,7 +535,10 @@ def ingest_paths(
                     payload,
                 )
                 chunk_id = cursor.lastrowid
-                if chunk_id is not None and vector_backend in {"vec", "vss"}:
+                if chunk_id is not None and vector_backend in {
+                    VectorBackend.VEC,
+                    VectorBackend.VSS,
+                }:
                     upsert_vector(conn, int(chunk_id), vector, vector_backend)
                 chunks_processed += 1
             files_processed += 1
@@ -581,45 +595,47 @@ def retrieve_similar_chunks(
         raise ValueError("top_k must be positive")
 
     vector_backend = get_vector_backend()
-    use_vector_backend = (
-        scope is None
-        and vector_backend in {"vec", "vss"}
-        and settings.vector_search_mode in {"sqlite", "auto"}
-    )
-    if use_vector_backend:
-        with rag_connection(settings) as conn:
-            backend_rows = vec_backend_search(conn, query_vec, top_k, vector_backend)
-        if backend_rows:
-            return backend_rows
+    paths = _select_retrieval_order(backend=vector_backend, scope=scope, settings=settings)
 
-    should_try_sqlite = (
-        scope is None
-        and (
-            settings.vector_search_mode == "sqlite"
-            or (settings.vector_search_mode == "auto" and vector_extension_available())
-        )
-    )
-    if should_try_sqlite:
-        try:
-            sqlite_rows = _sqlite_similar_chunks(query_vec, top_k, settings=settings)
-            if sqlite_rows is not None:
-                return sqlite_rows
-        except sqlite3.Error:
-            pass
+    for path in paths:
+        if path is RetrievalPath.VEC:
+            with rag_connection(settings) as conn:
+                rows = vec_backend_search(conn, query_vec, top_k, VectorBackend.VEC)
+            if rows:
+                return rows
+            continue
+        if path is RetrievalPath.VSS:
+            with rag_connection(settings) as conn:
+                rows = vec_backend_search(conn, query_vec, top_k, VectorBackend.VSS)
+            if rows:
+                return rows
+            continue
+        if path is RetrievalPath.SQLITE:
+            try:
+                rows = _sqlite_similar_chunks(query_vec, top_k, settings=settings)
+            except sqlite3.Error:
+                if settings.vector_search_mode is VectorSearchMode.SQLITE:
+                    raise
+                continue
+            if rows is not None:
+                return rows
+            continue
+        if path is RetrievalPath.PYTHON:
+            rows = fetch_all_chunks(settings=settings)
+            if scope:
+                rows = _filter_rows_by_scope(rows, scope)
+            if not rows:
+                return []
+            return _python_similar_chunks(query_vec, rows, top_k, settings.embed_storage_mode)
 
-    rows = fetch_all_chunks(settings=settings)
-    if scope:
-        rows = _filter_rows_by_scope(rows, scope)
-    if not rows:
-        return []
-
-    return _python_similar_chunks(query_vec, rows, top_k)
+    return []
 
 
 def _python_similar_chunks(
     query_vec: np.ndarray,
     rows: List[Dict[str, Any]],
     top_k: int,
+    mode: EmbedStorageMode,
 ) -> List[Dict[str, Any]]:
     query_norm = float(np.linalg.norm(query_vec))
     if query_norm <= 1e-12:
@@ -627,7 +643,7 @@ def _python_similar_chunks(
 
     scored_rows: List[Dict[str, Any]] = []
     for row in rows:
-        vector = _row_embedding(row)
+        vector = _row_embedding(row, mode=mode)
         if vector.size == 0:
             continue
         doc_norm = row.get("embedding_norm")
@@ -643,16 +659,28 @@ def _python_similar_chunks(
     return scored_rows[:top_k]
 
 
-def _row_embedding(row: Dict[str, Any]) -> np.ndarray:
-    blob = row.get("embedding_blob")
-    if blob is not None:
-        buffer = memoryview(blob)
-        dim = int(row.get("embedding_dim", len(buffer) // 4))
-        return np.frombuffer(buffer, dtype=np.float32, count=dim)
-    embedding_text = row.get("embedding")
-    if not embedding_text:
-        return np.array([], dtype=np.float32)
-    return np.array(json.loads(embedding_text), dtype=np.float32)
+def _row_embedding(row: Dict[str, Any], *, mode: EmbedStorageMode) -> np.ndarray:
+    match mode:
+        case EmbedStorageMode.BLOB:
+            blob = row.get("embedding_blob")
+            if blob is None:
+                raise RuntimeError("embedding_blob missing for blob storage mode")
+            buffer = memoryview(blob)
+            dim = int(row.get("embedding_dim", len(buffer) // 4))
+            return np.frombuffer(buffer, dtype=np.float32, count=dim)
+        case EmbedStorageMode.JSON:
+            embedding_text = row.get("embedding")
+            if not embedding_text:
+                raise RuntimeError("embedding text missing for json storage mode")
+            return np.array(json.loads(embedding_text), dtype=np.float32)
+        case EmbedStorageMode.DUAL:
+            blob = row.get("embedding_blob")
+            if blob is None:
+                raise RuntimeError("embedding_blob missing for dual storage mode")
+            buffer = memoryview(blob)
+            dim = int(row.get("embedding_dim", len(buffer) // 4))
+            return np.frombuffer(buffer, dtype=np.float32, count=dim)
+    raise RuntimeError(f"Unsupported embed storage mode: {mode}")
 
 
 def _sqlite_similar_chunks(
@@ -661,7 +689,9 @@ def _sqlite_similar_chunks(
     *,
     settings: Settings,
 ) -> List[Dict[str, Any]] | None:
-    if not vector_extension_available() and settings.vector_search_mode == "sqlite":
+    if settings.embed_storage_mode is EmbedStorageMode.BLOB:
+        raise RuntimeError("SQL retrieval requires json or dual embedding storage")
+    if not vector_extension_available() and settings.vector_search_mode is VectorSearchMode.SQLITE:
         # Even without an external extension we can run the SQL implementation.
         pass
     query_norm = float(np.linalg.norm(query_vec))
@@ -729,3 +759,39 @@ def _sqlite_similar_chunks(
         chunk["score"] = dot / denom if denom > 0 else 0.0
         results.append(chunk)
     return results
+
+
+class RetrievalPath(StrEnum):
+    VEC = "vec"
+    VSS = "vss"
+    SQLITE = "sqlite"
+    PYTHON = "python"
+
+
+def _select_retrieval_order(
+    *,
+    backend: VectorBackend,
+    scope: str | None,
+    settings: Settings,
+) -> List[RetrievalPath]:
+    if scope:
+        return [RetrievalPath.PYTHON]
+
+    match settings.vector_search_mode:
+        case VectorSearchMode.PYTHON:
+            return [RetrievalPath.PYTHON]
+        case VectorSearchMode.SQLITE:
+            if settings.embed_storage_mode not in {EmbedStorageMode.JSON, EmbedStorageMode.DUAL}:
+                raise RuntimeError("SQLITE retrieval requires json or dual embedding storage")
+            return [RetrievalPath.SQLITE]
+        case VectorSearchMode.AUTO:
+            order: List[RetrievalPath] = []
+            if backend is VectorBackend.VEC:
+                order.append(RetrievalPath.VEC)
+            elif backend is VectorBackend.VSS:
+                order.append(RetrievalPath.VSS)
+            if settings.embed_storage_mode in {EmbedStorageMode.JSON, EmbedStorageMode.DUAL}:
+                order.append(RetrievalPath.SQLITE)
+            order.append(RetrievalPath.PYTHON)
+            return order
+    raise RuntimeError(f"Unsupported vector search mode: {settings.vector_search_mode}")

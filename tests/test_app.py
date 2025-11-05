@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 import os
 from pathlib import Path
@@ -188,7 +186,10 @@ def _read_sse(response: Any) -> List[Tuple[str, Dict[str, Any]]]:
 def test_chat_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = make_client(tmp_path, monkeypatch)
 
-    payload = {"messages": [{"role": "user", "content": "Stream please."}]}
+    payload = {
+        "messages": [{"role": "user", "content": "Stream please."}],
+        "tool_mode": "none",
+    }
 
     with client.stream("POST", "/chat?stream=true", json=payload) as response:
         assert response.status_code == 200
@@ -250,6 +251,9 @@ def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert payload["model"] == "mock-llm"
     assert payload["core_db"].endswith("core.db")
     assert payload["rag_db"].endswith("rag.db")
+    assert payload["schema_version"] == db.SCHEMA_VERSION
+    assert payload["embed_storage"] in {"json", "blob", "dual"}
+    assert payload["tool_mode_default"] in {"manual", "llm", "none"}
 
 
 def test_chat_invalid_tool_mode_returns_error(
@@ -263,10 +267,10 @@ def test_chat_invalid_tool_mode_returns_error(
             "tool_mode": "unsupported",
         },
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     payload = response.json()
-    assert payload["error"]["type"] == "http_error"
-    assert "Invalid" in payload["error"]["message"]
+    assert payload["error"]["type"] == "validation_error"
+    assert payload["error"]["message"] == "Validation failed"
 
 
 def test_validation_error_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
