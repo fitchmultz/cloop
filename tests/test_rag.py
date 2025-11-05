@@ -192,6 +192,32 @@ def test_embeddings_dual_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert row["embedding"]
 
 
+def test_embedding_norm_persisted_for_json_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLOOP_EMBED_STORAGE", "json")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    vector = np.array([3.0, 4.0, 0.0], dtype=np.float32)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [vector for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    doc = tmp_path / "json.txt"
+    doc.write_text("json storage", encoding="utf-8")
+
+    result = ingest_paths([str(doc)], settings=settings)
+    assert result == {"files": 1, "chunks": 1}
+
+    with db.rag_connection(settings) as conn:
+        row = conn.execute("SELECT embedding_blob, embedding_norm FROM chunks").fetchone()
+    assert row is not None
+    assert row["embedding_blob"] is None
+    assert math.isclose(float(row["embedding_norm"]), float(np.linalg.norm(vector)), rel_tol=1e-6)
+
+
 def test_retrieve_prefers_blob_over_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
 
@@ -262,6 +288,61 @@ def test_retrieve_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.Monke
     scoped = retrieve_similar_chunks("beta", top_k=5, scope=f"doc:{doc_id}", settings=settings)
     assert scoped
     assert all(row["document_path"] == str(doc_b) for row in scoped)
+
+
+def test_retrieve_raises_on_embedding_dimension_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    vector = np.ones(3, dtype=np.float32)
+
+    def ingest_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [vector for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", ingest_embed)
+
+    doc = tmp_path / "drift.txt"
+    doc.write_text("drift guard", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+
+    with db.rag_connection(settings) as conn:
+        conn.execute("UPDATE chunks SET embedding_dim = ?", (vector.size + 1,))
+        conn.commit()
+
+    def query_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [vector]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", query_embed)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        retrieve_similar_chunks("guard", top_k=1, settings=settings)
+    assert "embedding_dim mismatch" in str(excinfo.value)
+
+
+def test_retrieve_raises_on_embedding_model_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    vector = np.ones(2, dtype=np.float32)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [vector for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    doc = tmp_path / "model.txt"
+    doc.write_text("model guard", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+
+    alternate = replace(settings, embed_model="new-model")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        retrieve_similar_chunks("guard", top_k=1, settings=alternate)
+    assert "Stored embed_model" in str(excinfo.value)
 
 
 def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

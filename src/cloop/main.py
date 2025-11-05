@@ -3,12 +3,12 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
-from typing import Annotated, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conlist, model_validator
 from starlette.requests import Request
 
 from . import db
@@ -19,7 +19,13 @@ from .llm import (
     estimate_tokens,
     stream_completion,
 )
-from .rag import ingest_paths, retrieve_similar_chunks
+from .rag import (
+    _SQL_PY_METRIC,
+    _VECLIKE_METRIC,
+    _select_retrieval_order,
+    ingest_paths,
+    retrieve_similar_chunks,
+)
 from .settings import Settings, ToolMode, get_settings
 from .tools import EXECUTORS, TOOL_SPECS
 
@@ -52,8 +58,14 @@ class ToolCall(BaseModel):
     body: Optional[str] = None
 
 
+if TYPE_CHECKING:
+    ChatMessageList = List[ChatMessage]
+else:
+    ChatMessageList = conlist(ChatMessage, min_length=1)
+
+
 class ChatRequest(BaseModel):
-    messages: List[ChatMessage]
+    messages: ChatMessageList
     tool_call: Optional[ToolCall] = Field(
         default=None, description="Optional instruction to interact with notes"
     )
@@ -61,6 +73,12 @@ class ChatRequest(BaseModel):
         default=None,
         description="Tool orchestration mode: manual, llm, or none. Defaults to settings.",
     )
+
+    @model_validator(mode="after")
+    def _manual_requires_tool(self) -> "ChatRequest":
+        if self.tool_mode is ToolMode.MANUAL and self.tool_call is None:
+            raise ValueError("tool_call required in manual mode")
+        return self
 
 
 class IngestMode(StrEnum):
@@ -111,6 +129,8 @@ class HealthResponse(BaseModel):
     schema_version: int
     embed_storage: str
     tool_mode_default: str
+    retrieval_order: List[str]
+    retrieval_metric: str
 
 
 def _http_error(detail: Any, *, status_code: int, error_type: str) -> JSONResponse:
@@ -133,8 +153,18 @@ def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
 
 @app.exception_handler(RequestValidationError)
 def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:
+    serialized_errors: List[Dict[str, Any]] = []
+    for error in exc.errors():
+        normalized = dict(error)
+        ctx = normalized.get("ctx")
+        if isinstance(ctx, dict):
+            normalized["ctx"] = {
+                key: (str(value) if isinstance(value, Exception) else value)
+                for key, value in ctx.items()
+            }
+        serialized_errors.append(normalized)
     return _http_error(
-        {"message": "Validation failed", "errors": exc.errors()},
+        {"message": "Validation failed", "errors": serialized_errors},
         status_code=422,
         error_type="validation_error",
     )
@@ -186,18 +216,40 @@ def _format_sources(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sources
 
 
+def _interaction_context(settings: Settings) -> Dict[str, str]:
+    backend = db.get_vector_backend()
+    return {
+        "embed_model": settings.embed_model,
+        "vector_search_mode": settings.vector_search_mode.value,
+        "embed_storage_mode": settings.embed_storage_mode.value,
+        "vector_backend": backend.value,
+    }
+
+
 @app.get("/health", response_model=HealthResponse)
 def health_endpoint(settings: SettingsDep) -> HealthResponse:
+    backend = db.get_vector_backend()
+    order = [
+        path.value
+        for path in _select_retrieval_order(backend=backend, scope=None, settings=settings)
+    ]
+    metric = (
+        _VECLIKE_METRIC
+        if backend in {db.VectorBackend.VEC, db.VectorBackend.VSS}
+        else _SQL_PY_METRIC
+    )
     return HealthResponse(
         ok=True,
         model=settings.llm_model,
         vector_mode=settings.vector_search_mode.value,
-        vector_backend=db.get_vector_backend().value,
+        vector_backend=backend.value,
         core_db=str(settings.core_db_path),
         rag_db=str(settings.rag_db_path),
         schema_version=db.SCHEMA_VERSION,
         embed_storage=settings.embed_storage_mode.value,
         tool_mode_default=settings.tool_mode_default.value,
+        retrieval_order=order,
+        retrieval_metric=metric,
     )
 
 
@@ -217,9 +269,10 @@ def chat_endpoint(
         raise HTTPException(status_code=400, detail="tool_call is only supported in manual mode")
 
     if tool_mode is ToolMode.MANUAL:
-        if request.tool_call is None:
-            raise HTTPException(status_code=400, detail="tool_call required in manual mode")
-        tool_result = handle_tool_call(request.tool_call)
+        tool_call = request.tool_call
+        if tool_call is None:
+            raise HTTPException(status_code=422, detail="tool_call required in manual mode")
+        tool_result = handle_tool_call(tool_call)
         messages.append(
             {
                 "role": "system",
@@ -227,13 +280,12 @@ def chat_endpoint(
             }
         )
 
-    if not messages:
-        raise HTTPException(status_code=400, detail="messages cannot be empty")
-
     token_estimate = estimate_tokens(messages)
     stream_enabled = stream if stream is not None else settings.stream_default
     if stream_enabled and tool_mode is ToolMode.LLM:
         raise HTTPException(status_code=400, detail="Streaming not supported for llm tool_mode")
+
+    context_snapshot = _interaction_context(settings)
 
     if stream_enabled:
         request_payload = request.model_dump()
@@ -258,6 +310,7 @@ def chat_endpoint(
                 "tool_result": tool_result,
                 "metadata": metadata,
                 "tool_calls": tool_calls,
+                "context": context_snapshot,
             }
             db.record_interaction(
                 endpoint="/chat",
@@ -296,6 +349,7 @@ def chat_endpoint(
         "tool_result": tool_result,
         "metadata": metadata,
         "tool_calls": tool_calls,
+        "context": context_snapshot,
     }
     db.record_interaction(
         endpoint="/chat",
@@ -357,7 +411,11 @@ def ask_endpoint(
     if top_k <= 0:
         raise HTTPException(status_code=400, detail="k must be positive")
 
-    chunks = retrieve_similar_chunks(q, top_k=top_k, scope=scope, settings=settings)
+    context_snapshot = _interaction_context(settings)
+    try:
+        chunks = retrieve_similar_chunks(q, top_k=top_k, scope=scope, settings=settings)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     stream_enabled = stream if stream is not None else settings.stream_default
     if not chunks:
         if stream_enabled:
@@ -415,6 +473,7 @@ def ask_endpoint(
                 "answer": final_answer,
                 "metadata": metadata,
                 "sources": sources,
+                "context": context_snapshot,
             }
             db.record_interaction(
                 endpoint="/ask",
@@ -450,7 +509,11 @@ def ask_endpoint(
             for key, value in {"q": q, "k": top_k, "scope": scope}.items()
             if value is not None
         },
-        response_payload={"answer": content, "sources": sources},
+        response_payload={
+            "answer": content,
+            "sources": sources,
+            "context": context_snapshot,
+        },
         model=metadata.get("model"),
         latency_ms=metadata.get("latency_ms"),
         token_estimate=token_estimate,
