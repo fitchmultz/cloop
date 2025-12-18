@@ -1,43 +1,134 @@
-# Cloop LLM Service
+# Cloop: Your Private, Local-First AI Knowledge Base
 
-Local-first FastAPI API that wraps LiteLLM for chat plus a lightweight RAG workflow backed by SQLite.
+Cloop turns a folder of documents into a private, searchable knowledge base on your machine.
+Ingest local files into a lightweight SQLite database, then ask questions with answers grounded in
+the exact chunks that were retrieved.
 
-## Quickstart
-- Install `uv` and ensure Python 3.14 is available.
-- Copy `.env.example` to `.env` and tweak any paths or model names.
-- Sync dependencies: `uv sync --dev`.
-- Run the API: `uv run uvicorn cloop.main:app --reload`.
+No Docker. No external vector database. Your data stays in local SQLite files (`core.db`, `rag.db`).
 
-- `POST /chat`: send chat messages; optionally include a `tool_call` to read or write notes stored in `core.db`. Pass `tool_mode=llm` for automatic tool use or `stream=true` for Server-Sent Events.
-- `POST /ingest`: provide local file paths (`txt`, `md`, `pdf`) to chunk, embed, and persist under `rag.db`. Supports modes `add`, `reindex`, `purge`, and `sync`.
-- `GET /ask`: RAG question answering. Accepts `k`, `scope` (substring or `doc:<id>`), and `stream=true` for SSE responses. The payload includes `sources` identifying cited chunks.
-- `GET /health`: readiness probe that reports configured model, vector backend, and database paths.
+## Features
 
-### CLI
+- **Local chat**: Talk to an LLM using local runtimes (Ollama / LM Studio) or hosted providers.
+- **Private RAG**: Recursively ingest files → chunk → embed → store in SQLite → retrieve relevant context.
+- **No heavy infrastructure**: Pure Python + SQLite; optional SQLite vector extensions if you have them.
+- **CLI + API**: Use it from the terminal or run a local HTTP server.
+- **Persistent “memory”**: Optional `read_note` / `write_note` tools backed by `core.db`.
+- **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
 
-`uv run cloop ingest <paths...>` and `uv run cloop ask "question" [--k 5] [--scope ...]` expose the same primitives without running the HTTP service. Output is JSON for easy piping.
+Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 
-All interactions are logged inside the `interactions` table with request, response, model, latency, and selected chunks for reproducibility.
+## Installation
 
-## Environment
-Key variables:
-- `CLOOP_LLM_MODEL` / `CLOOP_EMBED_MODEL`: LiteLLM model aliases.
-- `CLOOP_DATA_DIR`: folder where `core.db` and `rag.db` are created; override with `CLOOP_CORE_DB_PATH` / `CLOOP_RAG_DB_PATH` if needed.
-- `CLOOP_TOOL_MODE`: default tool orchestration (`manual`, `llm`, or `none`).
-- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`; `sqlite` uses an in-database cosine plan, `auto` prefers SQLite/vec backends when available.
-- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a compiled SQLite extension.
-- `CLOOP_EMBED_STORAGE`: `json`, `blob`, or `dual` (default) to control embedding persistence.
-- `CLOOP_STREAM_DEFAULT`: enable SSE responses by default when set truthy.
-- Provider routing knobs:
-  - `CLOOP_OPENAI_API_BASE`, `CLOOP_OPENAI_API_KEY`
-  - `CLOOP_OLLAMA_API_BASE`
-  - `CLOOP_LMSTUDIO_API_BASE`
-  - `CLOOP_OPENROUTER_API_BASE`
-- Standard LiteLLM credentials (e.g., `LITELLM_API_KEY`) unlock hosted providers.
+### Prerequisites
+
+- Python 3.14+
+- `uv` (recommended): https://docs.astral.sh/uv/
+
+### Setup
+
+```bash
+uv sync --all-groups --all-extras
+cp .env.example .env
+```
+
+Then edit `.env` to point at your model runtime (see Configuration).
+
+## Quick Start (CLI)
+
+Ingest a folder of documents:
+
+```bash
+uv run cloop ingest ./my-docs
+```
+
+Retrieve the most relevant chunks for a question:
+
+```bash
+uv run cloop ask "What does the onboarding process say about PTO?" --k 5
+```
+
+Notes:
+
+- `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
+- For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
+
+## Running the Server
+
+Start the local service:
+
+```bash
+uv run uvicorn cloop.main:app --reload
+```
+
+Endpoints:
+
+- `POST /chat`: chat completion (optionally with tools); `?stream=true` for SSE streaming.
+- `POST /ingest`: ingest local files/folders into `rag.db`.
+- `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
+- `GET /health`: shows current model + storage configuration.
+
+Example requests:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ingest \
+  -H 'content-type: application/json' \
+  -d '{"paths":["./my-docs"],"mode":"add","recursive":true}'
+
+curl 'http://127.0.0.1:8000/ask?q=What%20is%20Cloop%3F&k=5'
+```
+
+## Configuration
+
+Cloop reads configuration from environment variables (a `.env` file works well).
+
+### Choose your models
+
+- `CLOOP_LLM_MODEL`: chat model (default: `ollama/llama3`)
+- `CLOOP_EMBED_MODEL`: embedding model used for RAG (default: `ollama/nomic-embed-text`)
+
+### Local models (recommended)
+
+Ollama:
+
+- `CLOOP_OLLAMA_API_BASE` (required when using `ollama/...`, e.g. `http://localhost:11434`)
+
+LM Studio:
+
+- `CLOOP_LMSTUDIO_API_BASE` (e.g. `http://localhost:1234/v1`)
+
+### Hosted providers
+
+OpenAI-compatible:
+
+- `CLOOP_OPENAI_API_KEY` (required for `CLOOP_LLM_MODEL` values like `gpt-...` / `openai/...`)
+- `CLOOP_OPENAI_API_BASE` (optional; for compatible gateways)
+
+OpenRouter:
+
+- `CLOOP_OPENROUTER_API_BASE` (optional; for OpenRouter routing)
+
+### Where your data lives
+
+- `CLOOP_DATA_DIR`: directory for `core.db` and `rag.db` (default: `./data`)
+- `CLOOP_CORE_DB_PATH`, `CLOOP_RAG_DB_PATH`: override individual DB paths
+
+### RAG behavior
+
+- `CLOOP_DEFAULT_TOP_K`: number of chunks to retrieve (default: `5`)
+- `CLOOP_CHUNK_SIZE`: chunk size in tokens/words-ish units (default: `800`)
+- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`
+- `CLOOP_EMBED_STORAGE`: `json`, `blob`, or `dual` (default: `dual`)
+  - Note: `CLOOP_VECTOR_MODE=sqlite` requires `CLOOP_EMBED_STORAGE=json` or `dual`.
+- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a SQLite vector extension, if you have one.
+
+### Tools (“memory” notes)
+
+- `CLOOP_TOOL_MODE`: `manual`, `llm`, or `none` (default: `manual`)
+  - `manual`: you must send a `tool_call` to `/chat` (e.g., `read_note`, `write_note`)
+  - `llm`: the model can call tools automatically
+  - `none`: tools disabled
+- `CLOOP_STREAM_DEFAULT`: set to `true` to stream by default (note: streaming is disallowed when tool mode is `llm`)
 
 ## Development
-- Type check: `uv run basedpyright`.
-- Lint/format: `uv run ruff check .`.
-- Tests: `uv run pytest` (includes property-based checks via Hypothesis).
 
-The MVP intentionally avoids auth, background jobs, external vector stores, and Docker. Extend the FastAPI app and the SQLite schema as the next iteration demands.
+- `make sync` (upgrade deps), `make check` (format-check, lint, type, tests)

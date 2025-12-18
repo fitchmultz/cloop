@@ -3,7 +3,7 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
-from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Optional, TypedDict
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -44,6 +44,12 @@ def get_app_settings() -> Settings:
 
 
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
+
+
+class _InteractionMetadata(TypedDict):
+    model: str
+    latency_ms: float
+    usage: dict[str, Any]
 
 
 class ChatMessage(BaseModel):
@@ -300,7 +306,7 @@ def chat_endpoint(
                 tokens.append(token)
                 yield _sse_event("token", {"token": token})
             final_message = "".join(tokens)
-            metadata = {
+            metadata: _InteractionMetadata = {
                 "model": settings.llm_model,
                 "latency_ms": (time.monotonic() - start) * 1000,
                 "usage": {},
@@ -464,7 +470,7 @@ def ask_endpoint(
                 tokens.append(token)
                 yield _sse_event("token", {"token": token})
             final_answer = "".join(tokens)
-            metadata = {
+            metadata: _InteractionMetadata = {
                 "model": settings.llm_model,
                 "latency_ms": (time.monotonic() - start) * 1000,
                 "usage": {},
