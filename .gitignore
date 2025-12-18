@@ -7,3 +7,4 @@
 # Commit .env since the repo is private
 !**/.env
 
+.claude/settings.local.json
