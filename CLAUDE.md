@@ -1,1 +1,0 @@
-Keep it as simple as possible. DON'T REPEAT YOURSELF. `uv` and `pyproject.toml` for python management. Python 3.14.0. `uv run ty check` and `uv run ruff` for type checking and linting/formatting.
