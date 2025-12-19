@@ -13,6 +13,7 @@ from .models import (
     LoopStatus,
     format_utc_datetime,
     parse_client_datetime,
+    parse_utc_datetime,
     utc_now,
 )
 from .prioritization import PriorityWeights, bucketize, compute_priority_score
@@ -229,6 +230,114 @@ def list_loops_by_tag(
 @typingx.validate_io()
 def list_tags(*, conn: sqlite3.Connection) -> list[str]:
     return repo.list_tags(conn=conn)
+
+
+@typingx.validate_io()
+def export_loops(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    records = repo.list_all_loops(conn=conn)
+    payloads: list[dict[str, Any]] = []
+    for record in records:
+        project = repo.read_project_name(project_id=record.project_id, conn=conn)
+        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+        payloads.append(
+            {
+                "id": record.id,
+                "raw_text": record.raw_text,
+                "title": record.title,
+                "summary": record.summary,
+                "definition_of_done": record.definition_of_done,
+                "next_action": record.next_action,
+                "status": record.status.value,
+                "captured_at_utc": format_utc_datetime(record.captured_at_utc),
+                "captured_tz_offset_min": record.captured_tz_offset_min,
+                "due_at_utc": (
+                    format_utc_datetime(record.due_at_utc) if record.due_at_utc else None
+                ),
+                "snooze_until_utc": (
+                    format_utc_datetime(record.snooze_until_utc)
+                    if record.snooze_until_utc
+                    else None
+                ),
+                "time_minutes": record.time_minutes,
+                "activation_energy": record.activation_energy,
+                "urgency": record.urgency,
+                "importance": record.importance,
+                "project": project,
+                "tags": tags,
+                "user_locks": list(record.user_locks),
+                "provenance": dict(record.provenance),
+                "enrichment_state": record.enrichment_state.value,
+                "created_at_utc": format_utc_datetime(record.created_at_utc),
+                "updated_at_utc": format_utc_datetime(record.updated_at_utc),
+                "closed_at_utc": (
+                    format_utc_datetime(record.closed_at_utc) if record.closed_at_utc else None
+                ),
+            }
+        )
+    return payloads
+
+
+@typingx.validate_io()
+def import_loops(
+    *,
+    loops: list[Mapping[str, Any]],
+    conn: sqlite3.Connection,
+) -> int:
+    imported = 0
+    now = utc_now()
+    with conn:
+        for item in loops:
+            status = LoopStatus(typingx.as_type(str, item.get("status", "inbox")))
+            captured_at = item.get("captured_at_utc")
+            if captured_at:
+                captured_at = format_utc_datetime(parse_utc_datetime(captured_at))
+            else:
+                captured_at = format_utc_datetime(now)
+            created_at = item.get("created_at_utc") or captured_at
+            created_at = format_utc_datetime(parse_utc_datetime(created_at))
+            updated_at = item.get("updated_at_utc") or created_at
+            updated_at = format_utc_datetime(parse_utc_datetime(updated_at))
+            closed_at = item.get("closed_at_utc")
+            closed_at = format_utc_datetime(parse_utc_datetime(closed_at)) if closed_at else None
+            project_name = item.get("project")
+            project_id = None
+            if project_name:
+                project_id = repo.upsert_project(name=str(project_name).strip(), conn=conn)
+            payload = {
+                "raw_text": typingx.as_type(str, item.get("raw_text", "")),
+                "title": item.get("title"),
+                "summary": item.get("summary"),
+                "definition_of_done": item.get("definition_of_done"),
+                "next_action": item.get("next_action"),
+                "status": status.value,
+                "captured_at_utc": captured_at,
+                "captured_tz_offset_min": int(item.get("captured_tz_offset_min", 0)),
+                "due_at_utc": item.get("due_at_utc"),
+                "snooze_until_utc": item.get("snooze_until_utc"),
+                "time_minutes": item.get("time_minutes"),
+                "activation_energy": item.get("activation_energy"),
+                "urgency": item.get("urgency"),
+                "importance": item.get("importance"),
+                "user_locks_json": json.dumps(item.get("user_locks") or []),
+                "provenance_json": json.dumps(item.get("provenance") or {}),
+                "enrichment_state": item.get("enrichment_state") or EnrichmentState.IDLE.value,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "closed_at": closed_at,
+            }
+            loop_id = repo.insert_loop_from_export(
+                payload=payload,
+                project_id=project_id,
+                conn=conn,
+            )
+            tags = item.get("tags") or []
+            if tags:
+                normalized_tags = [
+                    str(tag).strip().lower() for tag in tags if str(tag).strip()
+                ]
+                repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
+            imported += 1
+    return imported
 
 
 @typingx.validate_io()
