@@ -158,15 +158,23 @@ def list_loops(
 def list_loops_by_statuses(
     *,
     statuses: list[LoopStatus],
+    limit: int | None = None,
+    offset: int | None = None,
     conn: sqlite3.Connection,
 ) -> list[LoopRecord]:
     if not statuses:
         return []
     placeholders = ", ".join("?" for _ in statuses)
-    rows = conn.execute(
-        f"SELECT * FROM loops WHERE status IN ({placeholders})",
-        [status.value for status in statuses],
-    ).fetchall()
+    sql = f"SELECT * FROM loops WHERE status IN ({placeholders})"
+    params: list[Any] = [status.value for status in statuses]
+    sql += " ORDER BY captured_at_utc DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+        if offset is not None:
+            sql += " OFFSET ?"
+            params.append(offset)
+    rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
 
 

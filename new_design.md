@@ -24,7 +24,7 @@ Every loop is the same object whether personal or professional. No separate silo
 * **Definition of done**: what “closed” means in plain terms
 * **Next action**: the smallest next step
 * **Due date**: optional, but parsed when implied
-* **Status**: inbox, active, waiting, scheduled, done, dropped
+* **Status**: inbox, actionable, blocked, scheduled, completed, dropped
 * **Effort** (2 dimensions):
 
   * **Time estimate** (minutes)

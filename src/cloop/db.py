@@ -17,7 +17,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 4
+SCHEMA_VERSION: int = 5
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -259,6 +259,11 @@ _CORE_MIGRATIONS: dict[int, str] = {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
     );
+    """,
+    5: """
+    UPDATE loops SET status = 'actionable' WHERE status = 'active';
+    UPDATE loops SET status = 'blocked' WHERE status = 'waiting';
+    UPDATE loops SET status = 'completed' WHERE status = 'done';
     """,
 }
 

@@ -133,9 +133,9 @@ class LoopCaptureRequest(BaseModel):
     raw_text: str = Field(..., min_length=1)
     captured_at: str = Field(..., description="Client ISO8601 timestamp (local or offset)")
     client_tz_offset_min: int = Field(..., description="Minutes offset from UTC at capture time")
-    urgent: bool = False
+    actionable: bool = False
     scheduled: bool = False
-    waiting: bool = False
+    blocked: bool = False
 
 
 class LoopUpdateRequest(BaseModel):
@@ -155,7 +155,7 @@ class LoopUpdateRequest(BaseModel):
 
 
 class LoopCloseRequest(BaseModel):
-    status: LoopStatus = LoopStatus.DONE
+    status: LoopStatus = LoopStatus.COMPLETED
     note: str | None = None
 
 
@@ -479,10 +479,10 @@ def ingest_endpoint(
 def _resolve_loop_status(request: LoopCaptureRequest) -> LoopStatus:
     if request.scheduled:
         return LoopStatus.SCHEDULED
-    if request.waiting:
-        return LoopStatus.WAITING
-    if request.urgent:
-        return LoopStatus.ACTIVE
+    if request.blocked:
+        return LoopStatus.BLOCKED
+    if request.actionable:
+        return LoopStatus.ACTIONABLE
     return LoopStatus.INBOX
 
 
@@ -519,17 +519,30 @@ def loop_capture_endpoint(
 def loop_list_endpoint(
     settings: SettingsDep,
     status: Annotated[
-        LoopStatus | Literal["all"] | None,
-        Query(description="Filter by loop status or 'all'"),
-    ] = LoopStatus.INBOX,
+        LoopStatus | Literal["all", "open"] | None,
+        Query(description="Filter by loop status, 'open', or 'all'"),
+    ] = "open",
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> List[LoopResponse]:
-    resolved_status = None if status is None or status == "all" else status
     with db.core_connection(settings) as conn:
-        loops = loop_service.list_loops(
-            status=resolved_status, limit=limit, offset=offset, conn=conn
-        )
+        if status == "open":
+            loops = loop_service.list_loops_by_statuses(
+                statuses=[
+                    LoopStatus.INBOX,
+                    LoopStatus.ACTIONABLE,
+                    LoopStatus.BLOCKED,
+                    LoopStatus.SCHEDULED,
+                ],
+                limit=limit,
+                offset=offset,
+                conn=conn,
+            )
+        else:
+            resolved_status = None if status is None or status == "all" else status
+            loops = loop_service.list_loops(
+                status=resolved_status, limit=limit, offset=offset, conn=conn
+            )
     return [LoopResponse(**loop_item) for loop_item in loops]
 
 
@@ -571,8 +584,8 @@ def loop_close_endpoint(
     request: LoopCloseRequest,
     settings: SettingsDep,
 ) -> LoopResponse:
-    if request.status not in {LoopStatus.DONE, LoopStatus.DROPPED}:
-        raise HTTPException(status_code=400, detail="status must be done or dropped")
+    if request.status not in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
+        raise HTTPException(status_code=400, detail="status must be completed or dropped")
     with db.core_connection(settings) as conn:
         try:
             record = loop_service.transition_status(

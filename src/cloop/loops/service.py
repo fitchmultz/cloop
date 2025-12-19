@@ -19,43 +19,43 @@ from .prioritization import PriorityWeights, bucketize, compute_priority_score
 
 _ALLOWED_TRANSITIONS: dict[LoopStatus, set[LoopStatus]] = {
     LoopStatus.INBOX: {
-        LoopStatus.ACTIVE,
-        LoopStatus.WAITING,
+        LoopStatus.ACTIONABLE,
+        LoopStatus.BLOCKED,
         LoopStatus.SCHEDULED,
-        LoopStatus.DONE,
+        LoopStatus.COMPLETED,
         LoopStatus.DROPPED,
     },
-    LoopStatus.ACTIVE: {
-        LoopStatus.WAITING,
+    LoopStatus.ACTIONABLE: {
+        LoopStatus.BLOCKED,
         LoopStatus.SCHEDULED,
-        LoopStatus.DONE,
+        LoopStatus.COMPLETED,
         LoopStatus.DROPPED,
     },
-    LoopStatus.WAITING: {
-        LoopStatus.ACTIVE,
+    LoopStatus.BLOCKED: {
+        LoopStatus.ACTIONABLE,
         LoopStatus.SCHEDULED,
-        LoopStatus.DONE,
+        LoopStatus.COMPLETED,
         LoopStatus.DROPPED,
     },
     LoopStatus.SCHEDULED: {
-        LoopStatus.ACTIVE,
-        LoopStatus.WAITING,
-        LoopStatus.DONE,
+        LoopStatus.ACTIONABLE,
+        LoopStatus.BLOCKED,
+        LoopStatus.COMPLETED,
         LoopStatus.DROPPED,
     },
-    LoopStatus.DONE: {
+    LoopStatus.COMPLETED: {
         LoopStatus.INBOX,
-        LoopStatus.ACTIVE,
-        LoopStatus.WAITING,
+        LoopStatus.ACTIONABLE,
+        LoopStatus.BLOCKED,
         LoopStatus.SCHEDULED,
         LoopStatus.DROPPED,
     },
     LoopStatus.DROPPED: {
         LoopStatus.INBOX,
-        LoopStatus.ACTIVE,
-        LoopStatus.WAITING,
+        LoopStatus.ACTIONABLE,
+        LoopStatus.BLOCKED,
         LoopStatus.SCHEDULED,
-        LoopStatus.DONE,
+        LoopStatus.COMPLETED,
     },
 }
 
@@ -180,6 +180,28 @@ def list_loops(
 
 
 @typingx.validate_io()
+def list_loops_by_statuses(
+    *,
+    statuses: list[LoopStatus],
+    limit: int,
+    offset: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    records = repo.list_loops_by_statuses(
+        statuses=statuses,
+        limit=limit,
+        offset=offset,
+        conn=conn,
+    )
+    payloads: list[dict[str, Any]] = []
+    for record in records:
+        project = repo.read_project_name(project_id=record.project_id, conn=conn)
+        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+        payloads.append(_record_to_dict(record, project=project, tags=tags))
+    return payloads
+
+
+@typingx.validate_io()
 def update_loop(
     *,
     loop_id: int,
@@ -250,7 +272,7 @@ def transition_status(
     if to_status not in allowed:
         raise ValueError("invalid_status_transition")
     closed_at = None
-    if to_status in {LoopStatus.DONE, LoopStatus.DROPPED}:
+    if to_status in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
         closed_at = format_utc_datetime(utc_now())
     with conn:
         updated = repo.update_loop_fields(
@@ -260,7 +282,7 @@ def transition_status(
         )
         event_type = (
             LoopEventType.CLOSE.value
-            if to_status in {LoopStatus.DONE, LoopStatus.DROPPED}
+            if to_status in {LoopStatus.COMPLETED, LoopStatus.DROPPED}
             else LoopEventType.STATUS_CHANGE.value
         )
         payload: dict[str, Any] = {"from": record.status.value, "to": to_status.value}
@@ -322,7 +344,7 @@ def next_loops(
     conn: sqlite3.Connection,
 ) -> dict[str, list[dict[str, Any]]]:
     candidates = repo.list_loops_by_statuses(
-        statuses=[LoopStatus.INBOX, LoopStatus.ACTIVE],
+        statuses=[LoopStatus.INBOX, LoopStatus.ACTIONABLE],
         conn=conn,
     )
     now = utc_now()

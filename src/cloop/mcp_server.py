@@ -44,12 +44,16 @@ def loop_update(loop_id: int, fields: dict[str, Any]) -> dict[str, Any]:
 
 
 @mcp.tool(name="loop.close")
-def loop_close(loop_id: int, status: str = "done", note: str | None = None) -> dict[str, Any]:
+def loop_close(
+    loop_id: int,
+    status: str = "completed",
+    note: str | None = None,
+) -> dict[str, Any]:
     settings = get_settings()
     db.init_databases(settings)
     loop_status = LoopStatus(status)
-    if loop_status not in {LoopStatus.DONE, LoopStatus.DROPPED}:
-        raise ValueError("status must be done or dropped")
+    if loop_status not in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
+        raise ValueError("status must be completed or dropped")
     with db.core_connection(settings) as conn:
         return loop_service.transition_status(
             loop_id=loop_id,
