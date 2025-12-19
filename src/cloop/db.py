@@ -17,7 +17,8 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 4
+RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
 PRAGMAS = [
@@ -49,7 +50,217 @@ CREATE TABLE interactions (
     token_estimate INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE loops (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    raw_text TEXT NOT NULL,
+    title TEXT,
+    summary TEXT,
+    definition_of_done TEXT,
+    next_action TEXT,
+    status TEXT NOT NULL,
+    captured_at_utc TEXT NOT NULL,
+    captured_tz_offset_min INTEGER NOT NULL,
+    due_at_utc TEXT,
+    snooze_until_utc TEXT,
+    time_minutes INTEGER,
+    activation_energy INTEGER,
+    urgency REAL,
+    importance REAL,
+    project_id INTEGER,
+    user_locks_json TEXT NOT NULL DEFAULT '[]',
+    provenance_json TEXT NOT NULL DEFAULT '{}',
+    enrichment_state TEXT NOT NULL DEFAULT 'idle',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    closed_at TEXT,
+    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_loops_status ON loops(status);
+CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
+
+CREATE TABLE loop_tags (
+    loop_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (loop_id, tag_id),
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_loop_tags_loop_id ON loop_tags(loop_id);
+CREATE INDEX idx_loop_tags_tag_id ON loop_tags(tag_id);
+
+CREATE TABLE loop_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    related_loop_id INTEGER NOT NULL,
+    relationship_type TEXT NOT NULL,
+    confidence REAL,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+    FOREIGN KEY(related_loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX idx_loop_links_unique
+    ON loop_links(loop_id, related_loop_id, relationship_type, source);
+
+CREATE TABLE loop_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
+
+CREATE TABLE loop_suggestions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    suggestion_json TEXT NOT NULL,
+    model TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_loop_suggestions_loop_id ON loop_suggestions(loop_id);
+
+CREATE TABLE loop_embeddings (
+    loop_id INTEGER PRIMARY KEY,
+    embedding_blob BLOB NOT NULL,
+    embedding_dim INTEGER NOT NULL,
+    embedding_norm REAL NOT NULL,
+    embed_model TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
 """
+
+_CORE_MIGRATIONS: dict[int, str] = {
+    2: """
+    CREATE TABLE loops (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        raw_text TEXT NOT NULL,
+        title TEXT,
+        status TEXT NOT NULL,
+        captured_at_utc TEXT NOT NULL,
+        captured_tz_offset_min INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        closed_at TEXT
+    );
+
+    CREATE INDEX idx_loops_status ON loops(status);
+    CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
+
+    CREATE TABLE loop_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
+    """,
+    3: """
+    ALTER TABLE loops ADD COLUMN summary TEXT;
+    ALTER TABLE loops ADD COLUMN definition_of_done TEXT;
+    ALTER TABLE loops ADD COLUMN next_action TEXT;
+    ALTER TABLE loops ADD COLUMN due_at_utc TEXT;
+    ALTER TABLE loops ADD COLUMN snooze_until_utc TEXT;
+    ALTER TABLE loops ADD COLUMN time_minutes INTEGER;
+    ALTER TABLE loops ADD COLUMN activation_energy INTEGER;
+    ALTER TABLE loops ADD COLUMN urgency REAL;
+    ALTER TABLE loops ADD COLUMN importance REAL;
+    ALTER TABLE loops ADD COLUMN project_id INTEGER;
+    ALTER TABLE loops ADD COLUMN user_locks_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE loops ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE loops ADD COLUMN enrichment_state TEXT NOT NULL DEFAULT 'idle';
+
+    CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE loop_tags (
+        loop_id INTEGER NOT NULL,
+        tag_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (loop_id, tag_id),
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_loop_tags_loop_id ON loop_tags(loop_id);
+    CREATE INDEX idx_loop_tags_tag_id ON loop_tags(tag_id);
+
+    CREATE TABLE loop_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        related_loop_id INTEGER NOT NULL,
+        relationship_type TEXT NOT NULL,
+        confidence REAL,
+        source TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY(related_loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX idx_loop_links_unique
+        ON loop_links(loop_id, related_loop_id, relationship_type, source);
+
+    CREATE TABLE loop_suggestions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        suggestion_json TEXT NOT NULL,
+        model TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_loop_suggestions_loop_id ON loop_suggestions(loop_id);
+    """,
+    4: """
+    CREATE TABLE loop_embeddings (
+        loop_id INTEGER PRIMARY KEY,
+        embedding_blob BLOB NOT NULL,
+        embedding_dim INTEGER NOT NULL,
+        embedding_norm REAL NOT NULL,
+        embed_model TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+    """,
+}
 
 _RAG_SCHEMA = """
 CREATE TABLE documents (
@@ -106,17 +317,54 @@ def _assert_schema(conn: sqlite3.Connection, expected: int) -> None:
         raise RuntimeError(f"schema_mismatch: expected={expected} found={found}")
 
 
-def _initialize_schema_if_needed(conn: sqlite3.Connection, schema_sql: str) -> None:
+def _initialize_schema_if_needed(
+    conn: sqlite3.Connection,
+    schema_sql: str,
+    *,
+    expected_version: int,
+) -> None:
     version = _user_version(conn)
     if version == 0:
         if _has_application_tables(conn):
             raise RuntimeError("schema_mismatch: detected unversioned tables")
         conn.executescript(schema_sql)
+        conn.execute(f"PRAGMA user_version = {expected_version}")
+        conn.commit()
+        return
+    if version != expected_version:
+        raise RuntimeError(f"schema_mismatch: expected={expected_version} found={version}")
+
+
+def migrate_core_db(
+    conn: sqlite3.Connection,
+    *,
+    from_version: int,
+    to_version: int,
+) -> None:
+    if from_version >= to_version:
+        return
+    for version in range(from_version + 1, to_version + 1):
+        migration = _CORE_MIGRATIONS.get(version)
+        if migration is None:
+            raise RuntimeError(f"missing core migration for version {version}")
+        conn.executescript(migration)
+        conn.execute(f"PRAGMA user_version = {version}")
+    conn.commit()
+
+
+def ensure_core_schema(conn: sqlite3.Connection) -> None:
+    version = _user_version(conn)
+    if version == 0:
+        if _has_application_tables(conn):
+            raise RuntimeError("schema_mismatch: detected unversioned tables")
+        conn.executescript(_CORE_SCHEMA)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
         return
-    if version != SCHEMA_VERSION:
+    if version > SCHEMA_VERSION:
         raise RuntimeError(f"schema_mismatch: expected={SCHEMA_VERSION} found={version}")
+    if version < SCHEMA_VERSION:
+        migrate_core_db(conn, from_version=version, to_version=SCHEMA_VERSION)
 
 
 def _detect_vector_backend(conn: sqlite3.Connection) -> VectorBackend:
@@ -202,13 +450,13 @@ def reset_vector_backend() -> None:
 def init_core_db(settings: Optional[Settings] = None) -> None:
     settings = settings or get_settings()
     with core_connection(settings) as conn:
-        _initialize_schema_if_needed(conn, _CORE_SCHEMA)
+        ensure_core_schema(conn)
 
 
 def init_rag_db(settings: Optional[Settings] = None) -> None:
     settings = settings or get_settings()
     with rag_connection(settings) as conn:
-        _initialize_schema_if_needed(conn, _RAG_SCHEMA)
+        _initialize_schema_if_needed(conn, _RAG_SCHEMA, expected_version=RAG_SCHEMA_VERSION)
 
 
 def init_databases(settings: Optional[Settings] = None) -> None:
@@ -218,7 +466,7 @@ def init_databases(settings: Optional[Settings] = None) -> None:
     with core_connection(settings) as core_conn:
         _assert_schema(core_conn, SCHEMA_VERSION)
     with rag_connection(settings) as rag_conn:
-        _assert_schema(rag_conn, SCHEMA_VERSION)
+        _assert_schema(rag_conn, RAG_SCHEMA_VERSION)
 
 
 def record_interaction(

@@ -29,6 +29,10 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **CLI + API**: Use it from the terminal or run a local HTTP server.
 - **Persistent “memory”**: Optional `read_note` / `write_note` tools backed by `core.db`.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
+- **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → active/waiting/scheduled → done).
+- **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
+- **Next 5**: Deterministic prioritization for actionable loops.
+- **MCP tools**: A purpose-built MCP server that exposes loop operations only.
 
 Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 
@@ -80,6 +84,14 @@ Retrieve the most relevant chunks for a question:
 uv run cloop ask "What does the onboarding process say about PTO?" --k 5
 ```
 
+Capture a loop and see your inbox:
+
+```bash
+uv run cloop capture "Return Amazon package by Friday" --tz-offset-min -420
+uv run cloop inbox
+uv run cloop next
+```
+
 Notes:
 
 - `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
@@ -93,12 +105,21 @@ Start the local service:
 uv run uvicorn cloop.main:app --reload
 ```
 
+Then open `http://127.0.0.1:8000/` for the Quick Capture UI.
+
 Endpoints:
 
 - `POST /chat`: chat completion (optionally with tools); `?stream=true` for SSE streaming.
 - `POST /ingest`: ingest local files/folders into `rag.db`.
 - `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
 - `GET /health`: shows current model + storage configuration.
+- `POST /loops/capture`: capture a loop (write-first).
+- `GET /loops`: list loops (default inbox).
+- `GET /loops/{id}`: fetch a loop.
+- `PATCH /loops/{id}`: update loop fields.
+- `POST /loops/{id}/close`: close a loop (done or dropped).
+- `POST /loops/{id}/enrich`: request enrichment for a loop.
+- `GET /loops/next`: deterministic “Next 5” buckets.
 
 Example requests:
 
@@ -118,6 +139,7 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 
 - `CLOOP_LLM_MODEL`: chat model (default: `ollama/llama3`)
 - `CLOOP_EMBED_MODEL`: embedding model used for RAG (default: `ollama/nomic-embed-text`)
+- `CLOOP_ORGANIZER_MODEL`: organizer model used for loop enrichment (default: `gemini/gemini-3-flash-preview`)
 
 ### Local models (recommended)
 
@@ -135,6 +157,10 @@ OpenAI-compatible:
 
 - `CLOOP_OPENAI_API_KEY` (required for `CLOOP_LLM_MODEL` values like `gpt-...` / `openai/...`)
 - `CLOOP_OPENAI_API_BASE` (optional; for compatible gateways)
+
+Gemini:
+
+- `CLOOP_GOOGLE_API_KEY` (required for `gemini/...` organizer models)
 
 OpenRouter:
 
@@ -161,6 +187,23 @@ OpenRouter:
   - `llm`: the model can call tools automatically
   - `none`: tools disabled
 - `CLOOP_STREAM_DEFAULT`: set to `true` to stream by default (note: streaming is disallowed when tool mode is `llm`)
+
+### Organizer autopilot
+
+- `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
+- `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `true`)
+- `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
+
+## MCP Server
+
+Run the MCP server (stdio transport):
+
+```bash
+uv run cloop-mcp
+```
+
+Exposed tools include `loop.create`, `loop.update`, `loop.close`, `loop.list`, `loop.search`,
+`loop.snooze`, `loop.enrich`, and `project.list`.
 
 ## Development
 
