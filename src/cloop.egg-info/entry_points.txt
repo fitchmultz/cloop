@@ -1,2 +1,3 @@
 [console_scripts]
 cloop = cloop.cli:main
+cloop-mcp = cloop.mcp_server:main

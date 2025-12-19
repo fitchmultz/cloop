@@ -11,6 +11,7 @@ Requires-Dist: pydantic>=2.9.0
 Requires-Dist: numpy>=2.0.0
 Requires-Dist: litellm>=1.41.0
 Requires-Dist: pypdf>=4.1.0
+Requires-Dist: mcp>=0.3.0
 Provides-Extra: dev
 Requires-Dist: ruff>=0.6.0; extra == "dev"
 Requires-Dist: pytest>=8.3.0; extra == "dev"
@@ -18,48 +19,213 @@ Requires-Dist: httpx>=0.27.0; extra == "dev"
 Requires-Dist: hypothesis>=6.108.0; extra == "dev"
 Requires-Dist: ty>=0.0.3; extra == "dev"
 
-# Cloop LLM Service
+# Cloop (Closed Loop): Your Private, Local-First AI Knowledge Base
 
-Local-first FastAPI API that wraps LiteLLM for chat plus a lightweight RAG workflow backed by SQLite.
+Cloop turns a folder of documents into a private, searchable knowledge base on your machine.
+Ingest local files into a lightweight SQLite database, then ask questions with answers grounded inthe exact chunks that were retrieved.
 
-## Quickstart
-- Install `uv` and ensure Python 3.14 is available.
-- Copy `.env.example` to `.env` and tweak any paths or model names.
-- Sync dependencies: `uv sync --all-groups --upgrade --all-extras` (or `make sync`).
-- Run the API: `uv run uvicorn cloop.main:app --reload`.
+No Docker. No external vector database. Your data stays in local SQLite files (`core.db`, `rag.db`).
 
-- `POST /chat`: send chat messages; optionally include a `tool_call` to read or write notes stored in `core.db`. Pass `tool_mode=llm` for automatic tool use or `stream=true` for Server-Sent Events.
-- `POST /ingest`: provide local file paths (`txt`, `md`, `pdf`) to chunk, embed, and persist under `rag.db`. Supports modes `add`, `reindex`, `purge`, and `sync`.
-- `GET /ask`: RAG question answering. Accepts `k`, `scope` (substring or `doc:<id>`), and `stream=true` for SSE responses. The payload includes `sources` identifying cited chunks.
-- `GET /health`: readiness probe that reports configured model, vector backend, and database paths.
+## Why “Closed Loop”?
 
-### CLI
+Cloop stands for **Closed Loop**.
 
-`uv run cloop ingest <paths...>` and `uv run cloop ask "question" [--k 5] [--scope ...]` expose the same primitives without running the HTTP service. Output is JSON for easy piping.
+A **loop** is anything that’s “open” in your mind:
 
-All interactions are logged inside the `interactions` table with request, response, model, latency, and selected chunks for reproducibility.
+- a task you need to do (big or small)
+- a decision you haven’t made yet
+- a thread you don’t want to forget (“follow up with…”, “figure out…”, “buy…”, “read…”)
 
-## Environment
-Key variables:
-- `CLOOP_LLM_MODEL` / `CLOOP_EMBED_MODEL`: LiteLLM model aliases.
-- `CLOOP_DATA_DIR`: folder where `core.db` and `rag.db` are created; override with `CLOOP_CORE_DB_PATH` / `CLOOP_RAG_DB_PATH` if needed.
-- `CLOOP_TOOL_MODE`: default tool orchestration (`manual`, `llm`, or `none`).
-- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`; `sqlite` uses an in-database cosine plan, `auto` prefers SQLite/vec backends when available.
-- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a compiled SQLite extension.
-- `CLOOP_EMBED_STORAGE`: `json`, `blob`, or `dual` (default) to control embedding persistence.
-- `CLOOP_STREAM_DEFAULT`: enable SSE responses by default when set truthy.
-- Provider routing knobs:
-  - `CLOOP_OPENAI_API_BASE`, `CLOOP_OPENAI_API_KEY`
-  - `CLOOP_OLLAMA_API_BASE`
-  - `CLOOP_LMSTUDIO_API_BASE`
-  - `CLOOP_OPENROUTER_API_BASE`
-- Standard LiteLLM credentials (e.g., `LITELLM_API_KEY`) unlock hosted providers.
+Keeping lots of loops in your head consumes working memory. That mental background load makes itharder to focus, easier to forget things, and more exhausting to start or finish work.
+
+The long-term goal of Cloop is simple: **get loops out of your head and into a trusted local system**that you control — so you can close them deliberately instead of carrying them around.
+
+Today, Cloop is the foundation for that: a private local knowledge base + lightweight persistentmemory you can query. The “closed loop” experience is: capture → retrieve → act → confirm → close.
+
+## Features
+
+- **Local chat**: Talk to an LLM using local runtimes (Ollama / LM Studio) or hosted providers.
+- **Private RAG**: Recursively ingest files → chunk → embed → store in SQLite → retrieve relevant context.
+- **No heavy infrastructure**: Pure Python + SQLite; optional SQLite vector extensions if you have them.
+- **CLI + API**: Use it from the terminal or run a local HTTP server.
+- **Persistent “memory”**: Optional `read_note` / `write_note` tools backed by `core.db`.
+- **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
+- **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → active/waiting/scheduled → done).
+- **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
+- **Next 5**: Deterministic prioritization for actionable loops.
+- **MCP tools**: A purpose-built MCP server that exposes loop operations only.
+
+Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
+
+## What you can use it for (now)
+
+- **Personal knowledge base**: Drop in docs, notes, PDFs; ask questions later with cited sources.
+- **Project recall**: Keep design notes, meeting notes, and decision history in a searchable store.
+- **Loop capture (lightweight)**: Use notes as a “working memory dump” so you stop rehearsing open loops.
+
+## The “loops” model (how to think about it)
+
+If you want a simple mental model, treat each loop as having:
+
+- **Trigger**: What caused it to appear? (“Email from…”, “Bug report…”, “Random idea…”)
+- **Intent**: What does “done” mean? (clear definition of closed)
+- **Next action**: The smallest step you can do next
+- **Context**: Links, filenames, snippets, and references that make it easy to resume later
+- **Review cadence**: When should you look at it again? (today, next week, someday)
+
+Cloop’s role is to keep the **context** and make retrieval effortless, so “next action” is the onlything you have to hold in your head.
+
+## Installation
+
+### Prerequisites
+
+- Python 3.14+
+- `uv` (recommended): https://docs.astral.sh/uv/
+
+### Setup
+
+```bash
+uv sync --all-groups --all-extras
+cp .env.example .env
+```
+
+Then edit `.env` to point at your model runtime (see Configuration).
+
+## Quick Start (CLI)
+
+Ingest a folder of documents:
+
+```bash
+uv run cloop ingest ./my-docs
+```
+
+Retrieve the most relevant chunks for a question:
+
+```bash
+uv run cloop ask "What does the onboarding process say about PTO?" --k 5
+```
+
+Capture a loop and see your inbox:
+
+```bash
+uv run cloop capture "Return Amazon package by Friday" --tz-offset-min -420
+uv run cloop inbox
+uv run cloop next
+```
+
+Notes:
+
+- `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
+- For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
+
+## Running the Server
+
+Start the local service:
+
+```bash
+uv run uvicorn cloop.main:app --reload
+```
+
+Then open `http://127.0.0.1:8000/` for the Quick Capture UI.
+
+Endpoints:
+
+- `POST /chat`: chat completion (optionally with tools); `?stream=true` for SSE streaming.
+- `POST /ingest`: ingest local files/folders into `rag.db`.
+- `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
+- `GET /health`: shows current model + storage configuration.
+- `POST /loops/capture`: capture a loop (write-first).
+- `GET /loops`: list loops (default inbox).
+- `GET /loops/{id}`: fetch a loop.
+- `PATCH /loops/{id}`: update loop fields.
+- `POST /loops/{id}/close`: close a loop (done or dropped).
+- `POST /loops/{id}/enrich`: request enrichment for a loop.
+- `GET /loops/next`: deterministic “Next 5” buckets.
+
+Example requests:
+
+```bash
+curl -X POST http://127.0.0.1:8000/ingest \
+  -H 'content-type: application/json' \
+  -d '{"paths":["./my-docs"],"mode":"add","recursive":true}'
+
+curl 'http://127.0.0.1:8000/ask?q=What%20is%20Cloop%3F&k=5'
+```
+
+## Configuration
+
+Cloop reads configuration from environment variables (a `.env` file works well).
+
+### Choose your models
+
+- `CLOOP_LLM_MODEL`: chat model (default: `ollama/llama3`)
+- `CLOOP_EMBED_MODEL`: embedding model used for RAG (default: `ollama/nomic-embed-text`)
+- `CLOOP_ORGANIZER_MODEL`: organizer model used for loop enrichment (default: `gemini/gemini-3-flash-preview`)
+
+### Local models (recommended)
+
+Ollama:
+
+- `CLOOP_OLLAMA_API_BASE` (required when using `ollama/...`, e.g. `http://localhost:11434`)
+
+LM Studio:
+
+- `CLOOP_LMSTUDIO_API_BASE` (e.g. `http://localhost:1234/v1`)
+
+### Hosted providers
+
+OpenAI-compatible:
+
+- `CLOOP_OPENAI_API_KEY` (required for `CLOOP_LLM_MODEL` values like `gpt-...` / `openai/...`)
+- `CLOOP_OPENAI_API_BASE` (optional; for compatible gateways)
+
+Gemini:
+
+- `CLOOP_GOOGLE_API_KEY` (required for `gemini/...` organizer models)
+
+OpenRouter:
+
+- `CLOOP_OPENROUTER_API_BASE` (optional; for OpenRouter routing)
+
+### Where your data lives
+
+- `CLOOP_DATA_DIR`: directory for `core.db` and `rag.db` (default: `./data`)
+- `CLOOP_CORE_DB_PATH`, `CLOOP_RAG_DB_PATH`: override individual DB paths
+
+### RAG behavior
+
+- `CLOOP_DEFAULT_TOP_K`: number of chunks to retrieve (default: `5`)
+- `CLOOP_CHUNK_SIZE`: chunk size in tokens/words-ish units (default: `800`)
+- `CLOOP_VECTOR_MODE`: `python` (default), `sqlite`, or `auto`
+- `CLOOP_EMBED_STORAGE`: `json`, `blob`, or `dual` (default: `dual`)
+  - Note: `CLOOP_VECTOR_MODE=sqlite` requires `CLOOP_EMBED_STORAGE=json` or `dual`.
+- `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a SQLite vector extension, if you have one.
+
+### Tools (“memory” notes)
+
+- `CLOOP_TOOL_MODE`: `manual`, `llm`, or `none` (default: `manual`)
+  - `manual`: you must send a `tool_call` to `/chat` (e.g., `read_note`, `write_note`)
+  - `llm`: the model can call tools automatically
+  - `none`: tools disabled
+- `CLOOP_STREAM_DEFAULT`: set to `true` to stream by default (note: streaming is disallowed when tool mode is `llm`)
+
+### Organizer autopilot
+
+- `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
+- `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `true`)
+- `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
+
+## MCP Server
+
+Run the MCP server (stdio transport):
+
+```bash
+uv run cloop-mcp
+```
+
+Exposed tools include `loop.create`, `loop.update`, `loop.close`, `loop.list`, `loop.search`,
+`loop.snooze`, `loop.enrich`, and `project.list`.
 
 ## Development
-- Type check: `uv run ty check` (or `make type`).
-- Format: `uv run ruff format .` (or `make fmt`).
-- Lint: `uv run ruff check .` (or `make lint`).
-- Tests: `uv run pytest` (or `make test`; includes property-based checks via Hypothesis).
-- Full suite: `make check`.
 
-The MVP intentionally avoids auth, background jobs, external vector stores, and Docker. Extend the FastAPI app and the SQLite schema as the next iteration demands.
+- `make sync` (upgrade deps), `make check` (format-check, lint, type, tests)

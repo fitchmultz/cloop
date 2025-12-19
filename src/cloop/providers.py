@@ -10,6 +10,11 @@ def resolve_provider_kwargs(model: str, settings: Settings) -> Dict[str, Any]:
     if model_lower.startswith("ollama/") and not settings.ollama_api_base:
         raise ValueError("ollama/... requires CLOOP_OLLAMA_API_BASE")
 
+    if model_lower.startswith(("gemini/", "google/")):
+        if not settings.google_api_key:
+            raise ValueError("Gemini model requires CLOOP_GOOGLE_API_KEY or LITELLM_API_KEY")
+        kwargs["api_key"] = settings.google_api_key
+
     if model_lower.startswith("ollama/"):
         if settings.ollama_api_base:
             kwargs["api_base"] = settings.ollama_api_base

@@ -1,0 +1,847 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Cloop Loops</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap");
+      :root {
+        --bg: #f7f4ef;
+        --bg-accent: #efe5d4;
+        --ink: #2f2a24;
+        --muted: #6e6357;
+        --brand: #d66b3f;
+        --card: #fffdf9;
+        --border: #e3d8c8;
+        --shadow: 0 10px 30px rgba(47, 42, 36, 0.12);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(1200px 600px at 20% -10%, var(--bg-accent), transparent),
+          radial-gradient(900px 500px at 110% 10%, #f3e6d8, transparent),
+          var(--bg);
+        min-height: 100vh;
+      }
+      header {
+        padding: 32px 20px 10px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
+      }
+      main {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 16px 20px 40px;
+        display: grid;
+        gap: 18px;
+      }
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+        animation: rise 320ms ease both;
+      }
+      .panel h2 {
+        margin: 0 0 12px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 18px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 110px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 12px 14px;
+        font-size: 16px;
+        font-family: inherit;
+        resize: vertical;
+        background: #fffefb;
+      }
+      .toggles {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 12px 0 6px;
+      }
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #fff7ed;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 10px;
+      }
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 10px 18px;
+        background: var(--brand);
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--brand);
+        border: 1px solid var(--brand);
+      }
+      .inbox-list {
+        display: grid;
+        gap: 12px;
+      }
+      .loop-card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 14px;
+        background: #fffefc;
+        display: grid;
+        gap: 6px;
+        animation: rise 360ms ease both;
+      }
+      .loop-title {
+        font-weight: 600;
+      }
+      .loop-summary {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .badges {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .badge {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #f4efe6;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .badge.pending {
+        background: #fff1dc;
+        color: #8f5a2a;
+        border-color: #f1caa0;
+      }
+      .badge.complete {
+        background: #e6f4e6;
+        color: #2d6b34;
+        border-color: #b8e0bc;
+      }
+      .badge.failed {
+        background: #ffe3e3;
+        color: #8a2a2a;
+        border-color: #f1b3b3;
+      }
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .tag {
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #f8efe3;
+        border: 1px solid var(--border);
+        cursor: default;
+      }
+      .tag-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        cursor: default;
+      }
+      .tags {
+        cursor: default;
+      }
+      .tag-text {
+        cursor: default;
+      }
+      .tag-remove {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+        padding: 0;
+        opacity: 0;
+        transition: opacity 120ms ease;
+      }
+      .tag-chip:hover .tag-remove {
+        opacity: 1;
+      }
+      .tags-edit {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        align-items: center;
+      }
+      .tags-edit .tag-input {
+        display: none;
+      }
+      .tags-edit.editing .tag-input {
+        display: inline-flex;
+        min-width: 140px;
+      }
+      .tags-edit.editing .tag-add {
+        display: none;
+      }
+      .tag-add {
+        border: 1px dashed var(--border);
+        background: #fffefb;
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .loop-meta {
+        color: var(--muted);
+        font-size: 13px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .loop-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 6px;
+      }
+      .inline-row {
+        display: grid;
+        gap: 4px;
+      }
+      .inline-label {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .inline-input {
+        border: 1px dashed transparent;
+        border-radius: 10px;
+        padding: 6px 8px;
+        font-family: inherit;
+        background: transparent;
+        font-size: 14px;
+        color: var(--ink);
+      }
+      .inline-input::placeholder {
+        color: var(--muted);
+      }
+      .inline-input:focus {
+        outline: none;
+        border-color: var(--brand);
+        background: #fffefb;
+      }
+      .badge-select {
+        appearance: none;
+        background: #f4efe6;
+        color: var(--muted);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 18px 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .badge-input {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 12px;
+        background: #f4efe6;
+        color: var(--muted);
+      }
+      .tag-input {
+        border: 1px dashed transparent;
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 12px;
+        background: #f8efe3;
+        color: var(--ink);
+      }
+      .tag-input:focus {
+        outline: none;
+        border-color: var(--brand);
+        background: #fffefb;
+      }
+      .filters {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 8px;
+      }
+      .filters label {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      select {
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        padding: 6px 12px;
+        background: #fffefb;
+        font-family: inherit;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @media (max-width: 640px) {
+        main {
+          padding: 10px 14px 30px;
+        }
+        .actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Cloop Loops</h1>
+      <p>Capture fast. Organize later.</p>
+    </header>
+    <main>
+      <section class="panel">
+        <h2>Quick capture</h2>
+        <form id="capture-form">
+          <textarea id="raw-text" placeholder="Drop a loop, idea, or task..." required></textarea>
+          <div class="toggles">
+            <label class="toggle">
+              <input type="checkbox" id="urgent">
+              Urgent
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="scheduled">
+              Scheduled
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="waiting">
+              Waiting
+            </label>
+          </div>
+          <div class="actions">
+            <span id="status" class="loop-meta">Ready.</span>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </section>
+      <section class="panel">
+        <h2>Inbox</h2>
+        <div class="filters">
+          <label for="status-filter">Show:</label>
+          <select id="status-filter">
+            <option value="inbox" selected>Inbox</option>
+            <option value="active">Active</option>
+            <option value="waiting">Waiting</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="done">Done</option>
+            <option value="dropped">Dropped</option>
+            <option value="all">All</option>
+          </select>
+        </div>
+        <div id="inbox" class="inbox-list"></div>
+      </section>
+    </main>
+    <script>
+      const inbox = document.getElementById("inbox");
+      const status = document.getElementById("status");
+      const form = document.getElementById("capture-form");
+      const rawText = document.getElementById("raw-text");
+      const urgent = document.getElementById("urgent");
+      const scheduled = document.getElementById("scheduled");
+      const waiting = document.getElementById("waiting");
+      const statusFilter = document.getElementById("status-filter");
+      const statusOptions = ["inbox", "active", "waiting", "scheduled", "done", "dropped"];
+
+      function formatTime(value) {
+        try {
+          return new Date(value).toLocaleString();
+        } catch {
+          return value;
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function toLocalInputValue(isoValue) {
+        if (!isoValue) return "";
+        const date = new Date(isoValue);
+        if (Number.isNaN(date.getTime())) return "";
+        const offsetMs = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+      }
+
+      function isoFromLocalInput(value) {
+        if (!value) return null;
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+        return date.toISOString();
+      }
+
+      function normalizeTags(value) {
+        if (!value) return [];
+        return value
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean);
+      }
+
+      function statusSelectOptions(current) {
+        return statusOptions
+          .map(
+            (status) =>
+              `<option value="${status}" ${status === current ? "selected" : ""}>${status}</option>`,
+          )
+          .join("");
+      }
+
+      function renderLoop(loop) {
+        const card = document.createElement("div");
+        card.className = "loop-card";
+        card.dataset.loopId = loop.id;
+        const title = loop.title || loop.raw_text;
+        const summary = loop.summary || loop.definition_of_done || "";
+        const nextAction = loop.next_action || "";
+        const closed = loop.closed_at_utc ? `Closed: ${formatTime(loop.closed_at_utc)}` : "";
+        const tagChips = Array.isArray(loop.tags) && loop.tags.length
+          ? loop.tags
+              .map(
+                (tag) => `
+                  <span class="tag tag-chip" data-tag="${escapeHtml(tag)}">
+                    <span class="tag-text">${escapeHtml(tag)}</span>
+                    <button
+                      class="tag-remove"
+                      type="button"
+                      data-action="remove-tag"
+                      data-tag="${escapeHtml(tag)}"
+                    >
+                      x
+                    </button>
+                  </span>
+                `,
+              )
+              .join("")
+          : "";
+        const tags = `
+          <div class="tags-edit">
+            <div class="tags tags-chips">${tagChips}</div>
+            <button class="tag-add" type="button" data-action="edit-tags">+ add</button>
+            <input
+              class="tag-input"
+              type="text"
+              data-field="tags_add"
+              placeholder="tag1, tag2"
+            >
+          </div>
+        `;
+        const enrichmentState = loop.enrichment_state || "idle";
+        const enrichmentLabel =
+          enrichmentState === "pending"
+            ? "Enrichment pending"
+            : enrichmentState === "complete"
+              ? "Enrichment complete"
+              : enrichmentState === "failed"
+                ? "Enrichment failed"
+                : "Enrichment idle";
+        card.innerHTML = `
+          <div class="loop-title">${title}</div>
+          ${summary ? `<div class="loop-summary">${summary}</div>` : ""}
+          <div class="inline-row">
+            <span class="inline-label">Next action</span>
+            <input
+              class="inline-input"
+              type="text"
+              data-field="next_action"
+              placeholder="Add next action"
+            >
+          </div>
+          <div class="badges">
+            <select class="badge-select" data-field="status">
+              ${statusSelectOptions(loop.status)}
+            </select>
+            <input
+              class="badge-input"
+              type="datetime-local"
+              data-field="due_at_utc"
+              placeholder="Due"
+            >
+            ${closed ? `<span class="badge">${closed}</span>` : ""}
+            <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+          </div>
+          <div class="loop-meta">
+            <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
+          </div>
+          ${tags}
+          <div class="loop-actions">
+            <button class="secondary" data-action="done" data-id="${loop.id}">Done</button>
+            <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich</button>
+            <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
+          </div>
+        `;
+        const tagsInput = card.querySelector('[data-field="tags_add"]');
+        const nextInput = card.querySelector('[data-field="next_action"]');
+        const dueInput = card.querySelector('[data-field="due_at_utc"]');
+        const statusSelect = card.querySelector('[data-field="status"]');
+        if (tagsInput) {
+          tagsInput.value = "";
+        }
+        if (nextInput) {
+          nextInput.value = loop.next_action || "";
+          nextInput.dataset.initial = loop.next_action || "";
+        }
+        if (dueInput) {
+          dueInput.value = toLocalInputValue(loop.due_at_utc);
+          dueInput.dataset.initial = loop.due_at_utc || "";
+        }
+        if (statusSelect) {
+          statusSelect.dataset.initial = loop.status;
+        }
+        return card;
+      }
+
+      function replaceLoop(loop) {
+        const existing = inbox.querySelector(`[data-loop-id="${loop.id}"]`);
+        const rendered = renderLoop(loop);
+        if (existing) {
+          existing.replaceWith(rendered);
+        } else {
+          inbox.prepend(rendered);
+        }
+      }
+
+      async function loadInbox() {
+        const statusValue = statusFilter.value;
+        const url = `/loops?status=${statusValue}`;
+        const response = await fetch(url);
+        if (!response.ok) {
+          status.textContent = "Failed to load inbox.";
+          return;
+        }
+        const data = await response.json();
+        inbox.innerHTML = "";
+        data.forEach((loop) => inbox.appendChild(renderLoop(loop)));
+      }
+
+      async function refreshLoop(loopId) {
+        const response = await fetch(`/loops/${loopId}`);
+        if (!response.ok) {
+          status.textContent = "Failed to refresh loop.";
+          return;
+        }
+        const loop = await response.json();
+        replaceLoop(loop);
+      }
+
+      function pollLoop(loopId, attempt = 0) {
+        if (attempt > 10) return;
+        setTimeout(async () => {
+          const response = await fetch(`/loops/${loopId}`);
+          if (!response.ok) return;
+          const loop = await response.json();
+          replaceLoop(loop);
+          if (loop.enrichment_state === "pending") {
+            pollLoop(loopId, attempt + 1);
+          }
+        }, 1500);
+      }
+
+      async function captureLoop(event) {
+        event.preventDefault();
+        status.textContent = "Saving...";
+        const now = new Date();
+        const payload = {
+          raw_text: rawText.value.trim(),
+          captured_at: now.toISOString(),
+          client_tz_offset_min: -now.getTimezoneOffset(),
+          urgent: urgent.checked,
+          scheduled: scheduled.checked,
+          waiting: waiting.checked,
+        };
+        if (!payload.raw_text) {
+          status.textContent = "Type something first.";
+          return;
+        }
+        const response = await fetch("/loops/capture", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          status.textContent = "Capture failed. Check server logs and .env.";
+          return;
+        }
+        const loop = await response.json();
+        replaceLoop(loop);
+        pollLoop(loop.id);
+        rawText.value = "";
+        urgent.checked = false;
+        scheduled.checked = false;
+        waiting.checked = false;
+        status.textContent = "Saved. Enrichment queued.";
+      }
+
+      async function markDone(loopId) {
+        const response = await fetch(`/loops/${loopId}/status`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "done" }),
+        });
+        if (!response.ok) {
+          status.textContent = "Failed to close loop.";
+          return;
+        }
+        await loadInbox();
+      }
+
+      async function transitionStatus(loopId, nextStatus) {
+        const response = await fetch(`/loops/${loopId}/status`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        if (!response.ok) {
+          status.textContent = "Failed to update status.";
+          return null;
+        }
+        return await response.json();
+      }
+
+      async function patchLoop(loopId, payload) {
+        const response = await fetch(`/loops/${loopId}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          status.textContent = "Failed to update loop.";
+          return null;
+        }
+        return await response.json();
+      }
+
+      function getTagsFromCard(card) {
+        return Array.from(card.querySelectorAll(".tag-chip"))
+          .map((chip) => chip.dataset.tag || "")
+          .filter(Boolean);
+      }
+
+      async function appendTagsFromInput(input) {
+        const card = input.closest(".loop-card");
+        const tagsWrap = input.closest(".tags-edit");
+        if (!card || !tagsWrap) return;
+        const newTags = normalizeTags(input.value);
+        input.value = "";
+        tagsWrap.classList.remove("editing");
+        if (!newTags.length) return;
+        const existing = getTagsFromCard(card);
+        const combined = [...existing];
+        newTags.forEach((tag) => {
+          if (!combined.includes(tag)) {
+            combined.push(tag);
+          }
+        });
+        if (
+          combined.length === existing.length &&
+          combined.every((tag, index) => tag === existing[index])
+        ) {
+          return;
+        }
+        const updated = await patchLoop(card.dataset.loopId, { tags: combined });
+        if (updated) {
+          replaceLoop(updated);
+        }
+      }
+
+      async function removeTag(loopId, tag, card) {
+        const existing = getTagsFromCard(card);
+        const updatedTags = existing.filter((value) => value !== tag);
+        if (updatedTags.length === existing.length) return;
+        const updated = await patchLoop(loopId, { tags: updatedTags });
+        if (updated) {
+          replaceLoop(updated);
+        }
+      }
+
+      async function applyInlineUpdate(target) {
+        const card = target.closest(".loop-card");
+        if (!card) return;
+        const loopId = card.dataset.loopId;
+        const field = target.dataset.field;
+        if (!field) return;
+        if (field === "tags_add") return;
+        if (field === "status") {
+          const nextStatus = target.value;
+          const initialStatus = target.dataset.initial || "";
+          if (nextStatus === initialStatus) return;
+          const transitioned = await transitionStatus(loopId, nextStatus);
+          if (transitioned) {
+            replaceLoop(transitioned);
+          }
+          return;
+        }
+
+        const payload = {};
+        const nextInput = card.querySelector('[data-field="next_action"]');
+        const dueInput = card.querySelector('[data-field="due_at_utc"]');
+
+        if (nextInput) {
+          const nextValue = nextInput.value.trim();
+          const initialNext = nextInput.dataset.initial || "";
+          if (nextValue !== initialNext) {
+            payload.next_action = nextValue || null;
+          }
+        }
+
+        if (dueInput) {
+          const dueIso = isoFromLocalInput(dueInput.value);
+          const initialDue = dueInput.dataset.initial || "";
+          if (!dueInput.value && initialDue) {
+            payload.due_at_utc = null;
+          } else if (dueIso && dueIso !== initialDue) {
+            payload.due_at_utc = dueIso;
+          }
+        }
+
+        if (Object.keys(payload).length) {
+          const updated = await patchLoop(loopId, payload);
+          if (updated) {
+            replaceLoop(updated);
+          }
+        }
+      }
+
+      async function enrichLoop(loopId) {
+        status.textContent = "Enrichment requested...";
+        const response = await fetch(`/loops/${loopId}/enrich`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+        });
+        if (!response.ok) {
+          status.textContent = "Enrichment request failed.";
+          return;
+        }
+        const loop = await response.json();
+        replaceLoop(loop);
+        pollLoop(loopId);
+        status.textContent = "Enrichment running...";
+      }
+
+      inbox.addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        if (button.dataset.action === "done") {
+          markDone(button.dataset.id);
+        } else if (button.dataset.action === "enrich") {
+          enrichLoop(button.dataset.id);
+        } else if (button.dataset.action === "refresh") {
+          refreshLoop(button.dataset.id);
+        } else if (button.dataset.action === "edit-tags") {
+          const tagsWrap = button.closest(".tags-edit");
+          if (tagsWrap) {
+            tagsWrap.classList.add("editing");
+            const input = tagsWrap.querySelector(".tag-input");
+            if (input) {
+              input.value = "";
+              input.focus();
+            }
+          }
+        } else if (button.dataset.action === "remove-tag") {
+          const card = button.closest(".loop-card");
+          if (card) {
+            removeTag(card.dataset.loopId, button.dataset.tag, card);
+          }
+        }
+      });
+
+      inbox.addEventListener("focusout", (event) => {
+        const target = event.target;
+        if (target && target.classList && target.classList.contains("tag-input")) {
+          appendTagsFromInput(target);
+        }
+      });
+
+      inbox.addEventListener("change", (event) => {
+        const target = event.target;
+        if (target && target.dataset && target.dataset.field) {
+          applyInlineUpdate(target);
+        }
+      });
+
+      inbox.addEventListener(
+        "keydown",
+        (event) => {
+          const target = event.target;
+          if (!target || !target.dataset || !target.dataset.field) return;
+          if (event.key === "Enter") {
+            event.preventDefault();
+            if (target.dataset.field === "tags_add") {
+              appendTagsFromInput(target);
+            } else {
+              target.blur();
+            }
+          } else if (event.key === "Escape" && target.dataset.field === "tags_add") {
+            const tagsWrap = target.closest(".tags-edit");
+            target.value = "";
+            if (tagsWrap) {
+              tagsWrap.classList.remove("editing");
+            }
+          }
+        },
+        true,
+      );
+
+      statusFilter.addEventListener("change", () => {
+        loadInbox();
+      });
+
+      form.addEventListener("submit", captureLoop);
+      loadInbox();
+    </script>
+  </body>
+</html>

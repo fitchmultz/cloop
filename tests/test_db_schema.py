@@ -20,10 +20,13 @@ def test_init_databases_sets_schema_version(
     settings = _prepare_settings(tmp_path, monkeypatch)
     db.init_databases(settings)
 
-    for path in (settings.core_db_path, settings.rag_db_path):
-        with sqlite3.connect(path) as conn:
-            version = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert int(version) == db.SCHEMA_VERSION
+    with sqlite3.connect(settings.core_db_path) as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert int(version) == db.SCHEMA_VERSION
+
+    with sqlite3.connect(settings.rag_db_path) as conn:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert int(version) == db.RAG_SCHEMA_VERSION
 
 
 def test_init_databases_errors_on_version_mismatch(

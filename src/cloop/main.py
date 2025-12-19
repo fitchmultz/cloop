@@ -3,15 +3,15 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
-from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Optional, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional, TypedDict
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, conlist, model_validator
 from starlette.requests import Request
 
-from . import db
+from . import db, web
 from .llm import (
     ToolCallError,
     chat_completion,
@@ -19,6 +19,9 @@ from .llm import (
     estimate_tokens,
     stream_completion,
 )
+from .loops import enrichment as loop_enrichment
+from .loops import service as loop_service
+from .loops.models import LoopStatus
 from .rag import (
     _SQL_PY_METRIC,
     _VECLIKE_METRIC,
@@ -37,6 +40,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Cloop LLM Service", version="0.1.0", lifespan=lifespan)
+app.include_router(web.router)
 
 
 def get_app_settings() -> Settings:
@@ -123,6 +127,74 @@ class AskResponse(BaseModel):
     chunks: List[Dict[str, Any]]
     model: Optional[str] = None
     sources: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class LoopCaptureRequest(BaseModel):
+    raw_text: str = Field(..., min_length=1)
+    captured_at: str = Field(..., description="Client ISO8601 timestamp (local or offset)")
+    client_tz_offset_min: int = Field(..., description="Minutes offset from UTC at capture time")
+    urgent: bool = False
+    scheduled: bool = False
+    waiting: bool = False
+
+
+class LoopUpdateRequest(BaseModel):
+    raw_text: str | None = Field(default=None, min_length=1)
+    title: str | None = Field(default=None, min_length=1)
+    summary: str | None = Field(default=None, min_length=1)
+    definition_of_done: str | None = Field(default=None, min_length=1)
+    next_action: str | None = Field(default=None, min_length=1)
+    due_at_utc: str | None = None
+    snooze_until_utc: str | None = None
+    time_minutes: int | None = Field(default=None, ge=1)
+    activation_energy: int | None = Field(default=None, ge=0, le=3)
+    urgency: float | None = Field(default=None, ge=0.0, le=1.0)
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    project: str | None = Field(default=None, min_length=1)
+    tags: List[str] | None = None
+
+
+class LoopCloseRequest(BaseModel):
+    status: LoopStatus = LoopStatus.DONE
+    note: str | None = None
+
+
+class LoopStatusRequest(BaseModel):
+    status: LoopStatus
+    note: str | None = None
+
+
+class LoopResponse(BaseModel):
+    id: int
+    raw_text: str
+    title: str | None
+    summary: str | None = None
+    definition_of_done: str | None = None
+    next_action: str | None = None
+    status: LoopStatus
+    captured_at_utc: str
+    captured_tz_offset_min: int
+    due_at_utc: str | None = None
+    snooze_until_utc: str | None = None
+    time_minutes: int | None = None
+    activation_energy: int | None = None
+    urgency: float | None = None
+    importance: float | None = None
+    project_id: int | None = None
+    project: str | None = None
+    tags: List[str] = Field(default_factory=list)
+    user_locks: List[str] = Field(default_factory=list)
+    provenance: Dict[str, Any] = Field(default_factory=dict)
+    enrichment_state: str | None = None
+    created_at_utc: str
+    updated_at_utc: str
+    closed_at_utc: str | None = None
+
+
+class LoopNextResponse(BaseModel):
+    due_soon: List[LoopResponse]
+    quick_wins: List[LoopResponse]
+    high_leverage: List[LoopResponse]
 
 
 class HealthResponse(BaseModel):
@@ -263,7 +335,9 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
 def chat_endpoint(
     request: ChatRequest,
     settings: SettingsDep,
-    stream: Optional[bool] = Query(None, description="Stream Server-Sent Events when true"),
+    stream: Annotated[
+        Optional[bool], Query(description="Stream Server-Sent Events when true")
+    ] = None,
 ) -> Any:
     messages = [message.model_dump() for message in request.messages]
     tool_result: Optional[Dict[str, Any]] = None
@@ -402,16 +476,182 @@ def ingest_endpoint(
     return IngestResponse(**result)
 
 
+def _resolve_loop_status(request: LoopCaptureRequest) -> LoopStatus:
+    if request.scheduled:
+        return LoopStatus.SCHEDULED
+    if request.waiting:
+        return LoopStatus.WAITING
+    if request.urgent:
+        return LoopStatus.ACTIVE
+    return LoopStatus.INBOX
+
+
+@app.post("/loops/capture", response_model=LoopResponse)
+def loop_capture_endpoint(
+    request: LoopCaptureRequest,
+    background_tasks: BackgroundTasks,
+    settings: SettingsDep,
+) -> LoopResponse:
+    status = _resolve_loop_status(request)
+    with db.core_connection(settings) as conn:
+        try:
+            record = loop_service.capture_loop(
+                raw_text=request.raw_text,
+                captured_at_iso=request.captured_at,
+                client_tz_offset_min=request.client_tz_offset_min,
+                status=status,
+                conn=conn,
+            )
+            if settings.autopilot_enabled:
+                record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if settings.autopilot_enabled:
+        background_tasks.add_task(
+            loop_enrichment.enrich_loop,
+            loop_id=record["id"],
+            settings=settings,
+        )
+    return LoopResponse(**record)
+
+
+@app.get("/loops", response_model=List[LoopResponse])
+def loop_list_endpoint(
+    settings: SettingsDep,
+    status: Annotated[
+        LoopStatus | Literal["all"] | None,
+        Query(description="Filter by loop status or 'all'"),
+    ] = LoopStatus.INBOX,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> List[LoopResponse]:
+    resolved_status = None if status is None or status == "all" else status
+    with db.core_connection(settings) as conn:
+        loops = loop_service.list_loops(
+            status=resolved_status, limit=limit, offset=offset, conn=conn
+        )
+    return [LoopResponse(**loop_item) for loop_item in loops]
+
+
+@app.get("/loops/{loop_id}", response_model=LoopResponse)
+def loop_get_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+) -> LoopResponse:
+    with db.core_connection(settings) as conn:
+        try:
+            record = loop_service.get_loop(loop_id=loop_id, conn=conn)
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return LoopResponse(**record)
+
+
+@app.patch("/loops/{loop_id}", response_model=LoopResponse)
+def loop_update_endpoint(
+    loop_id: int,
+    request: LoopUpdateRequest,
+    settings: SettingsDep,
+) -> LoopResponse:
+    fields = request.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="no_fields_to_update")
+    with db.core_connection(settings) as conn:
+        try:
+            record = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 404 if "not_found" in detail else 400
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+    return LoopResponse(**record)
+
+
+@app.post("/loops/{loop_id}/close", response_model=LoopResponse)
+def loop_close_endpoint(
+    loop_id: int,
+    request: LoopCloseRequest,
+    settings: SettingsDep,
+) -> LoopResponse:
+    if request.status not in {LoopStatus.DONE, LoopStatus.DROPPED}:
+        raise HTTPException(status_code=400, detail="status must be done or dropped")
+    with db.core_connection(settings) as conn:
+        try:
+            record = loop_service.transition_status(
+                loop_id=loop_id,
+                to_status=request.status,
+                conn=conn,
+                note=request.note,
+            )
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 404 if "not_found" in detail else 400
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+    return LoopResponse(**record)
+
+
+@app.post("/loops/{loop_id}/status", response_model=LoopResponse)
+def loop_status_endpoint(
+    loop_id: int,
+    request: LoopStatusRequest,
+    settings: SettingsDep,
+) -> LoopResponse:
+    with db.core_connection(settings) as conn:
+        try:
+            record = loop_service.transition_status(
+                loop_id=loop_id,
+                to_status=request.status,
+                conn=conn,
+                note=request.note,
+            )
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 404 if "not_found" in detail else 400
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+    return LoopResponse(**record)
+
+
+@app.post("/loops/{loop_id}/enrich", response_model=LoopResponse)
+def loop_enrich_endpoint(
+    loop_id: int,
+    background_tasks: BackgroundTasks,
+    settings: SettingsDep,
+) -> LoopResponse:
+    with db.core_connection(settings) as conn:
+        try:
+            record = loop_service.request_enrichment(loop_id=loop_id, conn=conn)
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 404 if "not_found" in detail else 400
+            raise HTTPException(status_code=status_code, detail=detail) from exc
+    background_tasks.add_task(
+        loop_enrichment.enrich_loop,
+        loop_id=loop_id,
+        settings=settings,
+    )
+    return LoopResponse(**record)
+
+
+@app.get("/loops/next", response_model=LoopNextResponse)
+def loop_next_endpoint(
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=20)] = 5,
+) -> LoopNextResponse:
+    with db.core_connection(settings) as conn:
+        payload = loop_service.next_loops(limit=limit, conn=conn)
+    return LoopNextResponse(**payload)
+
+
 @app.get("/ask", response_model=AskResponse)
 def ask_endpoint(
     settings: SettingsDep,
-    q: str = Query(..., description="Question to run against the knowledge base"),
-    k: Optional[int] = Query(None, description="Override number of chunks to return"),
-    stream: Optional[bool] = Query(None, description="Stream Server-Sent Events when true"),
-    scope: Optional[str] = Query(
-        None,
-        description="Restrict retrieval by path substring or doc:ID",
-    ),
+    q: Annotated[str, Query(description="Question to run against the knowledge base")],
+    k: Annotated[Optional[int], Query(description="Override number of chunks to return")] = None,
+    stream: Annotated[
+        Optional[bool], Query(description="Stream Server-Sent Events when true")
+    ] = None,
+    scope: Annotated[
+        Optional[str],
+        Query(description="Restrict retrieval by path substring or doc:ID"),
+    ] = None,
 ) -> Any:
     top_k = k or settings.default_top_k
     if top_k <= 0:

@@ -6,6 +6,8 @@ from pathlib import Path
 
 from . import typingx
 
+_DOTENV_LOADED = False
+
 
 class VectorSearchMode(StrEnum):
     PYTHON = "python"
@@ -43,10 +45,15 @@ class Settings:
     embed_storage_mode: EmbedStorageMode
     openai_api_base: str | None
     openai_api_key: str | None
+    google_api_key: str | None
     ollama_api_base: str | None
     lmstudio_api_base: str | None
     openrouter_api_base: str | None
     stream_default: bool
+    organizer_model: str
+    organizer_timeout: float
+    autopilot_enabled: bool
+    autopilot_autoapply_min_confidence: float
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -56,9 +63,40 @@ def _resolve_path(value: str | None, default: Path, *, create_parent: bool = Tru
     return path
 
 
+def _load_dotenv(root_dir: Path) -> None:
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+    dotenv_path = root_dir / ".env"
+    if not dotenv_path.exists():
+        return
+    _DOTENV_LOADED = True
+    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.lower().startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key or key in os.environ:
+            continue
+        if (value.startswith("'") and value.endswith("'")) or (
+            value.startswith('"') and value.endswith('"')
+        ):
+            value = value[1:-1]
+        os.environ[key] = value
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    _load_dotenv(Path.cwd())
     root_dir = Path(os.getenv("CLOOP_ROOT_DIR", Path.cwd())).resolve()
+    if root_dir != Path.cwd():
+        _load_dotenv(root_dir)
     default_data_dir = Path(os.getenv("CLOOP_DATA_DIR", root_dir / "data")).resolve()
     default_data_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,10 +120,17 @@ def get_settings() -> Settings:
         embed_storage_mode=_resolve_embed_storage(os.getenv("CLOOP_EMBED_STORAGE")),
         openai_api_base=os.getenv("CLOOP_OPENAI_API_BASE"),
         openai_api_key=os.getenv("CLOOP_OPENAI_API_KEY"),
+        google_api_key=os.getenv("CLOOP_GOOGLE_API_KEY") or os.getenv("LITELLM_API_KEY"),
         ollama_api_base=os.getenv("CLOOP_OLLAMA_API_BASE"),
         lmstudio_api_base=os.getenv("CLOOP_LMSTUDIO_API_BASE"),
         openrouter_api_base=os.getenv("CLOOP_OPENROUTER_API_BASE"),
         stream_default=_resolve_stream_default(os.getenv("CLOOP_STREAM_DEFAULT")),
+        organizer_model=os.getenv("CLOOP_ORGANIZER_MODEL", "gemini/gemini-3-flash-preview"),
+        organizer_timeout=float(os.getenv("CLOOP_ORGANIZER_TIMEOUT", "20.0")),
+        autopilot_enabled=_resolve_bool(os.getenv("CLOOP_AUTOPILOT_ENABLED", "true")),
+        autopilot_autoapply_min_confidence=float(
+            os.getenv("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE", "0.85")
+        ),
     )
     return _validate_settings(settings)
 
@@ -122,6 +167,13 @@ def _resolve_stream_default(raw: str | None) -> bool:
     return normalized in {"1", "true", "yes", "on"}
 
 
+def _resolve_bool(raw: str | None) -> bool:
+    if raw is None:
+        return False
+    normalized = raw.strip().lower()
+    return normalized in {"1", "true", "yes", "on"}
+
+
 def _validate_settings(settings: Settings) -> Settings:
     if (
         settings.vector_search_mode is VectorSearchMode.SQLITE
@@ -130,4 +182,6 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_VECTOR_MODE=sqlite requires CLOOP_EMBED_STORAGE of json or dual")
     if settings.tool_mode_default is ToolMode.LLM and settings.stream_default:
         raise ValueError("Streaming default cannot be enabled when default tool mode is llm")
+    if not 0.0 <= settings.autopilot_autoapply_min_confidence <= 1.0:
+        raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
     return settings
