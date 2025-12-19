@@ -128,6 +128,25 @@
       .loop-title {
         font-weight: 600;
       }
+      .title-input {
+        border: none;
+        background: transparent;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        font-size: 18px;
+        color: var(--ink);
+        padding: 0;
+        margin: 0;
+      }
+      .title-input::placeholder {
+        color: var(--muted);
+      }
+      .title-input:focus {
+        outline: none;
+        background: #fffefb;
+        border-radius: 8px;
+        padding: 2px 6px;
+      }
       .loop-summary {
         color: var(--muted);
         font-size: 14px;
@@ -503,7 +522,12 @@
                 ? "Enrichment failed"
                 : "Enrichment idle";
         card.innerHTML = `
-          <div class="loop-title">${title}</div>
+          <input
+            class="title-input"
+            type="text"
+            data-field="title"
+            placeholder="Untitled"
+          >
           <div class="loop-meta">
             <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
             <span>Updated: ${formatTime(loop.updated_at_utc)}</span>
@@ -540,10 +564,15 @@
             <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
           </div>
         `;
+        const titleInput = card.querySelector('[data-field="title"]');
         const tagsInput = card.querySelector('[data-field="tags_add"]');
         const nextInput = card.querySelector('[data-field="next_action"]');
         const dueInput = card.querySelector('[data-field="due_at_utc"]');
         const statusSelect = card.querySelector('[data-field="status"]');
+        if (titleInput) {
+          titleInput.value = title;
+          titleInput.dataset.initial = title;
+        }
         if (tagsInput) {
           tagsInput.value = "";
         }
@@ -757,6 +786,9 @@
         const field = target.dataset.field;
         if (!field) return;
         if (field === "tags_add") return;
+        if (field === "title" && target.dataset.initial === target.value.trim()) {
+          return;
+        }
         if (field === "status") {
           const nextStatus = target.value;
           const initialStatus = target.dataset.initial || "";
@@ -777,6 +809,15 @@
           const initialNext = nextInput.dataset.initial || "";
           if (nextValue !== initialNext) {
             payload.next_action = nextValue || null;
+          }
+        }
+
+        const titleInput = card.querySelector('[data-field="title"]');
+        if (titleInput) {
+          const titleValue = titleInput.value.trim();
+          const initialTitle = titleInput.dataset.initial || "";
+          if (titleValue !== initialTitle) {
+            payload.title = titleValue || null;
           }
         }
 
