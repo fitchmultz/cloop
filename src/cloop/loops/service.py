@@ -202,6 +202,36 @@ def list_loops_by_statuses(
 
 
 @typingx.validate_io()
+def list_loops_by_tag(
+    *,
+    tag: str,
+    statuses: list[LoopStatus] | None,
+    limit: int,
+    offset: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    normalized = tag.strip().lower()
+    records = repo.list_loops_by_tag(
+        tag=normalized,
+        statuses=statuses,
+        limit=limit,
+        offset=offset,
+        conn=conn,
+    )
+    payloads: list[dict[str, Any]] = []
+    for record in records:
+        project = repo.read_project_name(project_id=record.project_id, conn=conn)
+        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+        payloads.append(_record_to_dict(record, project=project, tags=tags))
+    return payloads
+
+
+@typingx.validate_io()
+def list_tags(*, conn: sqlite3.Connection) -> list[str]:
+    return repo.list_tags(conn=conn)
+
+
+@typingx.validate_io()
 def update_loop(
     *,
     loop_id: int,
@@ -240,7 +270,9 @@ def update_loop(
             updated_fields["project_id"] = project_id
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
         if tags is not None:
-            normalized_tags = [str(tag).strip() for tag in tags if str(tag).strip()]
+            normalized_tags = [
+                str(tag).strip().lower() for tag in tags if str(tag).strip()
+            ]
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
         repo.insert_loop_event(
             loop_id=updated.id,

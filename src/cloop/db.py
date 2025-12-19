@@ -17,7 +17,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 5
+SCHEMA_VERSION: int = 7
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -264,6 +264,31 @@ _CORE_MIGRATIONS: dict[int, str] = {
     UPDATE loops SET status = 'actionable' WHERE status = 'active';
     UPDATE loops SET status = 'blocked' WHERE status = 'waiting';
     UPDATE loops SET status = 'completed' WHERE status = 'done';
+    """,
+    6: """
+    CREATE TEMP TABLE tag_merge AS
+        SELECT LOWER(name) AS lname, MIN(id) AS keep_id
+        FROM tags
+        GROUP BY LOWER(name);
+
+    UPDATE loop_tags
+    SET tag_id = (
+        SELECT keep_id
+        FROM tag_merge
+        WHERE lname = (
+            SELECT LOWER(name) FROM tags WHERE id = loop_tags.tag_id
+        )
+    );
+
+    DELETE FROM tags WHERE id NOT IN (SELECT keep_id FROM tag_merge);
+    UPDATE tags SET name = LOWER(name);
+    DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags);
+    DROP TABLE tag_merge;
+    """,
+    7: """
+    UPDATE loops
+    SET updated_at = created_at
+    WHERE updated_at IS NULL OR updated_at = '';
     """,
 }
 

@@ -367,7 +367,7 @@
       <section class="panel">
         <h2>Inbox</h2>
         <div class="filters">
-          <label for="status-filter">Show:</label>
+          <label for="status-filter">show:</label>
           <select id="status-filter">
             <option value="open" selected>open</option>
             <option value="inbox">inbox</option>
@@ -377,6 +377,10 @@
             <option value="completed">completed</option>
             <option value="dropped">dropped</option>
             <option value="all">all</option>
+          </select>
+          <label for="tag-filter">tag:</label>
+          <select id="tag-filter">
+            <option value="" selected>all tags</option>
           </select>
         </div>
         <div id="inbox" class="inbox-list"></div>
@@ -391,6 +395,7 @@
       const scheduled = document.getElementById("scheduled");
       const blocked = document.getElementById("blocked");
       const statusFilter = document.getElementById("status-filter");
+      const tagFilter = document.getElementById("tag-filter");
       const statusOptions = [
         "inbox",
         "actionable",
@@ -499,6 +504,10 @@
                 : "Enrichment idle";
         card.innerHTML = `
           <div class="loop-title">${title}</div>
+          <div class="loop-meta">
+            <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
+            <span>Updated: ${formatTime(loop.updated_at_utc)}</span>
+          </div>
           ${summary ? `<div class="loop-summary">${summary}</div>` : ""}
           <div class="inline-row">
             <span class="inline-label">Next action</span>
@@ -521,9 +530,6 @@
             >
             ${closed ? `<span class="badge">${closed}</span>` : ""}
             <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
-          </div>
-          <div class="loop-meta">
-            <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
           </div>
           ${tags}
           <div class="loop-actions">
@@ -567,8 +573,12 @@
 
       async function loadInbox() {
         const statusValue = statusFilter.value;
-        const url = `/loops?status=${statusValue}`;
-        const response = await fetch(url);
+        const url = new URL("/loops", window.location.origin);
+        url.searchParams.set("status", statusValue);
+        if (tagFilter.value) {
+          url.searchParams.set("tag", tagFilter.value);
+        }
+        const response = await fetch(url.toString());
         if (!response.ok) {
           status.textContent = "Failed to load inbox.";
           return;
@@ -576,6 +586,7 @@
         const data = await response.json();
         inbox.innerHTML = "";
         data.forEach((loop) => inbox.appendChild(renderLoop(loop)));
+        await loadTags();
       }
 
       async function refreshLoop(loopId) {
@@ -675,6 +686,25 @@
         return await response.json();
       }
 
+      async function loadTags() {
+        const response = await fetch("/loops/tags");
+        if (!response.ok) {
+          return;
+        }
+        const tags = await response.json();
+        const selected = tagFilter.value;
+        tagFilter.innerHTML = '<option value="">all tags</option>';
+        tags.forEach((tag) => {
+          const option = document.createElement("option");
+          option.value = tag;
+          option.textContent = tag;
+          tagFilter.appendChild(option);
+        });
+        if (selected && tags.includes(selected)) {
+          tagFilter.value = selected;
+        }
+      }
+
       function getTagsFromCard(card) {
         return Array.from(card.querySelectorAll(".tag-chip"))
           .map((chip) => chip.dataset.tag || "")
@@ -705,6 +735,7 @@
         const updated = await patchLoop(card.dataset.loopId, { tags: combined });
         if (updated) {
           replaceLoop(updated);
+          await loadTags();
         }
       }
 
@@ -715,6 +746,7 @@
         const updated = await patchLoop(loopId, { tags: updatedTags });
         if (updated) {
           replaceLoop(updated);
+          await loadTags();
         }
       }
 
@@ -849,8 +881,12 @@
       statusFilter.addEventListener("change", () => {
         loadInbox();
       });
+      tagFilter.addEventListener("change", () => {
+        loadInbox();
+      });
 
       form.addEventListener("submit", captureLoop);
+      loadTags();
       loadInbox();
     </script>
   </body>
