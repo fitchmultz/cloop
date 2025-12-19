@@ -522,28 +522,56 @@ def loop_list_endpoint(
         LoopStatus | Literal["all", "open"] | None,
         Query(description="Filter by loop status, 'open', or 'all'"),
     ] = "open",
+    tag: Annotated[str | None, Query(description="Filter by tag")] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> List[LoopResponse]:
+    tag_value = tag.strip().lower() if tag else None
     with db.core_connection(settings) as conn:
         if status == "open":
-            loops = loop_service.list_loops_by_statuses(
-                statuses=[
-                    LoopStatus.INBOX,
-                    LoopStatus.ACTIONABLE,
-                    LoopStatus.BLOCKED,
-                    LoopStatus.SCHEDULED,
-                ],
-                limit=limit,
-                offset=offset,
-                conn=conn,
-            )
+            statuses = [
+                LoopStatus.INBOX,
+                LoopStatus.ACTIONABLE,
+                LoopStatus.BLOCKED,
+                LoopStatus.SCHEDULED,
+            ]
+            if tag_value:
+                loops = loop_service.list_loops_by_tag(
+                    tag=tag_value,
+                    statuses=statuses,
+                    limit=limit,
+                    offset=offset,
+                    conn=conn,
+                )
+            else:
+                loops = loop_service.list_loops_by_statuses(
+                    statuses=statuses,
+                    limit=limit,
+                    offset=offset,
+                    conn=conn,
+                )
         else:
             resolved_status = None if status is None or status == "all" else status
-            loops = loop_service.list_loops(
-                status=resolved_status, limit=limit, offset=offset, conn=conn
-            )
+            if tag_value:
+                statuses = [resolved_status] if resolved_status else None
+                loops = loop_service.list_loops_by_tag(
+                    tag=tag_value,
+                    statuses=statuses,
+                    limit=limit,
+                    offset=offset,
+                    conn=conn,
+                )
+            else:
+                loops = loop_service.list_loops(
+                    status=resolved_status, limit=limit, offset=offset, conn=conn
+                )
     return [LoopResponse(**loop_item) for loop_item in loops]
+
+
+@app.get("/loops/tags", response_model=List[str])
+def loop_tags_endpoint(settings: SettingsDep) -> List[str]:
+    with db.core_connection(settings) as conn:
+        return loop_service.list_tags(conn=conn)
 
 
 @app.get("/loops/{loop_id}", response_model=LoopResponse)

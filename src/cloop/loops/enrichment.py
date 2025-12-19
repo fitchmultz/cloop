@@ -180,7 +180,7 @@ def _apply_suggestion(
 
     if suggestion.tags and "tags" not in locked:
         if _confidence_for(suggestion, "tags") >= settings.autopilot_autoapply_min_confidence:
-            cleaned_tags = [tag.strip() for tag in suggestion.tags if tag.strip()]
+            cleaned_tags = [tag.strip().lower() for tag in suggestion.tags if tag.strip()]
             repo.replace_loop_tags(loop_id=int(loop["id"]), tag_names=cleaned_tags, conn=conn)
             provenance["tags"] = {
                 "source": "ai",

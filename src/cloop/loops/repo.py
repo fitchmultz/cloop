@@ -149,7 +149,7 @@ def list_loops(
     if status is not None:
         sql += " WHERE status = ?"
         params.append(status.value)
-    sql += " ORDER BY captured_at_utc DESC LIMIT ? OFFSET ?"
+    sql += " ORDER BY updated_at DESC, captured_at_utc DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
@@ -167,7 +167,7 @@ def list_loops_by_statuses(
     placeholders = ", ".join("?" for _ in statuses)
     sql = f"SELECT * FROM loops WHERE status IN ({placeholders})"
     params: list[Any] = [status.value for status in statuses]
-    sql += " ORDER BY captured_at_utc DESC"
+    sql += " ORDER BY updated_at DESC, captured_at_utc DESC"
     if limit is not None:
         sql += " LIMIT ?"
         params.append(limit)
@@ -176,6 +176,44 @@ def list_loops_by_statuses(
             params.append(offset)
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
+
+
+def list_loops_by_tag(
+    *,
+    tag: str,
+    statuses: list[LoopStatus] | None,
+    limit: int,
+    offset: int,
+    conn: sqlite3.Connection,
+) -> list[LoopRecord]:
+    sql = """
+        SELECT loops.*
+        FROM loops
+        JOIN loop_tags ON loop_tags.loop_id = loops.id
+        JOIN tags ON tags.id = loop_tags.tag_id
+        WHERE LOWER(tags.name) = LOWER(?)
+    """
+    params: list[Any] = [tag]
+    if statuses:
+        placeholders = ", ".join("?" for _ in statuses)
+        sql += f" AND loops.status IN ({placeholders})"
+        params.extend(status.value for status in statuses)
+    sql += " ORDER BY loops.updated_at DESC, loops.captured_at_utc DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_record(row) for row in rows]
+
+
+def list_tags(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT DISTINCT LOWER(tags.name) AS name
+        FROM tags
+        JOIN loop_tags ON loop_tags.tag_id = tags.id
+        ORDER BY name ASC
+        """
+    ).fetchall()
+    return [typingx.as_type(str, row["name"]) for row in rows]
 
 
 def search_loops(
@@ -305,10 +343,13 @@ def list_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def upsert_tag(*, name: str, conn: sqlite3.Connection) -> int:
-    row = conn.execute("SELECT id FROM tags WHERE name = ?", (name,)).fetchone()
+    normalized = name.strip().lower()
+    if not normalized:
+        raise ValueError("tag_name_empty")
+    row = conn.execute("SELECT id FROM tags WHERE name = ?", (normalized,)).fetchone()
     if row:
         return int(row["id"])
-    cursor = conn.execute("INSERT INTO tags (name) VALUES (?)", (name,))
+    cursor = conn.execute("INSERT INTO tags (name) VALUES (?)", (normalized,))
     if cursor.lastrowid is None:
         raise RuntimeError("tag_insert_failed")
     return int(cursor.lastrowid)
@@ -317,11 +358,11 @@ def upsert_tag(*, name: str, conn: sqlite3.Connection) -> int:
 def list_loop_tags(*, loop_id: int, conn: sqlite3.Connection) -> list[str]:
     rows = conn.execute(
         """
-        SELECT tags.name
+        SELECT DISTINCT LOWER(tags.name) AS name
         FROM loop_tags
         JOIN tags ON tags.id = loop_tags.tag_id
         WHERE loop_tags.loop_id = ?
-        ORDER BY tags.name ASC
+        ORDER BY name ASC
         """,
         (loop_id,),
     ).fetchall()
@@ -331,11 +372,20 @@ def list_loop_tags(*, loop_id: int, conn: sqlite3.Connection) -> list[str]:
 def replace_loop_tags(*, loop_id: int, tag_names: list[str], conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM loop_tags WHERE loop_id = ?", (loop_id,))
     for name in tag_names:
-        tag_id = upsert_tag(name=name, conn=conn)
+        normalized = name.strip().lower()
+        if not normalized:
+            continue
+        tag_id = upsert_tag(name=normalized, conn=conn)
         conn.execute(
             "INSERT OR IGNORE INTO loop_tags (loop_id, tag_id) VALUES (?, ?)",
             (loop_id, tag_id),
         )
+    conn.execute(
+        """
+        DELETE FROM tags
+        WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags)
+        """
+    )
 
 
 def insert_loop_link(
