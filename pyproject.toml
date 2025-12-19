@@ -43,3 +43,8 @@ fix = false
 select = ["E", "F", "B", "I"]
 
 [tool.ty]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction\\(\\) instead:DeprecationWarning:litellm\\.litellm_core_utils\\.logging_utils",
+]

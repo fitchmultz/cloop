@@ -287,40 +287,44 @@ def import_loops(
     now = utc_now()
     with conn:
         for item in loops:
-            status = LoopStatus(typingx.as_type(str, item.get("status", "inbox")))
-            captured_at = item.get("captured_at_utc")
+            if isinstance(item, Mapping):
+                item_map = dict(item)
+            else:
+                item_map = item.model_dump()
+            status = LoopStatus(typingx.as_type(str, item_map.get("status", "inbox")))
+            captured_at = item_map.get("captured_at_utc")
             if captured_at:
                 captured_at = format_utc_datetime(parse_utc_datetime(captured_at))
             else:
                 captured_at = format_utc_datetime(now)
-            created_at = item.get("created_at_utc") or captured_at
+            created_at = item_map.get("created_at_utc") or captured_at
             created_at = format_utc_datetime(parse_utc_datetime(created_at))
-            updated_at = item.get("updated_at_utc") or created_at
+            updated_at = item_map.get("updated_at_utc") or created_at
             updated_at = format_utc_datetime(parse_utc_datetime(updated_at))
-            closed_at = item.get("closed_at_utc")
+            closed_at = item_map.get("closed_at_utc")
             closed_at = format_utc_datetime(parse_utc_datetime(closed_at)) if closed_at else None
-            project_name = item.get("project")
+            project_name = item_map.get("project")
             project_id = None
             if project_name:
                 project_id = repo.upsert_project(name=str(project_name).strip(), conn=conn)
             payload = {
-                "raw_text": typingx.as_type(str, item.get("raw_text", "")),
-                "title": item.get("title"),
-                "summary": item.get("summary"),
-                "definition_of_done": item.get("definition_of_done"),
-                "next_action": item.get("next_action"),
+                "raw_text": typingx.as_type(str, item_map.get("raw_text", "")),
+                "title": item_map.get("title"),
+                "summary": item_map.get("summary"),
+                "definition_of_done": item_map.get("definition_of_done"),
+                "next_action": item_map.get("next_action"),
                 "status": status.value,
                 "captured_at_utc": captured_at,
-                "captured_tz_offset_min": int(item.get("captured_tz_offset_min", 0)),
-                "due_at_utc": item.get("due_at_utc"),
-                "snooze_until_utc": item.get("snooze_until_utc"),
-                "time_minutes": item.get("time_minutes"),
-                "activation_energy": item.get("activation_energy"),
-                "urgency": item.get("urgency"),
-                "importance": item.get("importance"),
-                "user_locks_json": json.dumps(item.get("user_locks") or []),
-                "provenance_json": json.dumps(item.get("provenance") or {}),
-                "enrichment_state": item.get("enrichment_state") or EnrichmentState.IDLE.value,
+                "captured_tz_offset_min": int(item_map.get("captured_tz_offset_min", 0)),
+                "due_at_utc": item_map.get("due_at_utc"),
+                "snooze_until_utc": item_map.get("snooze_until_utc"),
+                "time_minutes": item_map.get("time_minutes"),
+                "activation_energy": item_map.get("activation_energy"),
+                "urgency": item_map.get("urgency"),
+                "importance": item_map.get("importance"),
+                "user_locks_json": json.dumps(item_map.get("user_locks") or []),
+                "provenance_json": json.dumps(item_map.get("provenance") or {}),
+                "enrichment_state": item_map.get("enrichment_state") or EnrichmentState.IDLE.value,
                 "created_at": created_at,
                 "updated_at": updated_at,
                 "closed_at": closed_at,
@@ -330,11 +334,9 @@ def import_loops(
                 project_id=project_id,
                 conn=conn,
             )
-            tags = item.get("tags") or []
+            tags = item_map.get("tags") or []
             if tags:
-                normalized_tags = [
-                    str(tag).strip().lower() for tag in tags if str(tag).strip()
-                ]
+                normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
                 repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
             imported += 1
     return imported
@@ -379,9 +381,7 @@ def update_loop(
             updated_fields["project_id"] = project_id
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
         if tags is not None:
-            normalized_tags = [
-                str(tag).strip().lower() for tag in tags if str(tag).strip()
-            ]
+            normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
         repo.insert_loop_event(
             loop_id=updated.id,

@@ -271,6 +271,7 @@
         background: transparent;
         font-size: 14px;
         color: var(--ink);
+        width: 100%;
       }
       .inline-input::placeholder {
         color: var(--muted);
@@ -279,6 +280,13 @@
         outline: none;
         border-color: var(--brand);
         background: #fffefb;
+      }
+      .inline-textarea {
+        resize: none;
+        overflow: hidden;
+        min-height: 32px;
+        height: auto;
+        line-height: 1.4;
       }
       .badge-select {
         appearance: none;
@@ -481,6 +489,20 @@
           .filter(Boolean);
       }
 
+      function autoResizeTextarea(textarea) {
+        textarea.style.height = "0px";
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      }
+
+      function queueNextActionResize(root) {
+        const targets = root.querySelectorAll
+          ? root.querySelectorAll('[data-field="next_action"]')
+          : [];
+        requestAnimationFrame(() => {
+          targets.forEach(autoResizeTextarea);
+        });
+      }
+
       function statusSelectOptions(current) {
         return statusOptions
           .map(
@@ -552,12 +574,12 @@
           ${summary ? `<div class="loop-summary">${summary}</div>` : ""}
           <div class="inline-row">
             <span class="inline-label">Next action</span>
-            <input
-              class="inline-input"
-              type="text"
+            <textarea
+              class="inline-input inline-textarea"
+              rows="1"
               data-field="next_action"
               placeholder="Add next action"
-            >
+            ></textarea>
           </div>
           <div class="badges">
             <select class="badge-select" data-field="status">
@@ -596,6 +618,7 @@
         if (nextInput) {
           nextInput.value = loop.next_action || "";
           nextInput.dataset.initial = loop.next_action || "";
+          autoResizeTextarea(nextInput);
         }
         if (dueInput) {
           dueInput.value = toLocalInputValue(loop.due_at_utc);
@@ -615,6 +638,7 @@
         } else {
           inbox.prepend(rendered);
         }
+        queueNextActionResize(rendered);
       }
 
       async function loadInbox() {
@@ -632,6 +656,7 @@
         const data = await response.json();
         inbox.innerHTML = "";
         data.forEach((loop) => inbox.appendChild(renderLoop(loop)));
+        queueNextActionResize(inbox);
         await loadTags();
       }
 
@@ -963,6 +988,24 @@
           applyInlineUpdate(target);
         }
       });
+
+      inbox.addEventListener("input", (event) => {
+        const target = event.target;
+        if (target && target.dataset && target.dataset.field === "next_action") {
+          autoResizeTextarea(target);
+        }
+      });
+
+      inbox.addEventListener(
+        "focus",
+        (event) => {
+          const target = event.target;
+          if (target && target.dataset && target.dataset.field === "next_action") {
+            autoResizeTextarea(target);
+          }
+        },
+        true,
+      );
 
       inbox.addEventListener(
         "keydown",
