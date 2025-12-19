@@ -50,7 +50,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **CLI + API**: Use it from the terminal or run a local HTTP server.
 - **Persistent “memory”**: Optional `read_note` / `write_note` tools backed by `core.db`.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
-- **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → active/waiting/scheduled → done).
+- **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
 - **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
 - **Next 5**: Deterministic prioritization for actionable loops.
 - **MCP tools**: A purpose-built MCP server that exposes loop operations only.
@@ -68,7 +68,7 @@ Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 If you want a simple mental model, treat each loop as having:
 
 - **Trigger**: What caused it to appear? (“Email from…”, “Bug report…”, “Random idea…”)
-- **Intent**: What does “done” mean? (clear definition of closed)
+- **Intent**: What does “completed” mean? (clear definition of closed)
 - **Next action**: The smallest step you can do next
 - **Context**: Links, filenames, snippets, and references that make it easy to resume later
 - **Review cadence**: When should you look at it again? (today, next week, someday)
@@ -138,7 +138,7 @@ Endpoints:
 - `GET /loops`: list loops (default inbox).
 - `GET /loops/{id}`: fetch a loop.
 - `PATCH /loops/{id}`: update loop fields.
-- `POST /loops/{id}/close`: close a loop (done or dropped).
+- `POST /loops/{id}/close`: close a loop (completed or dropped).
 - `POST /loops/{id}/enrich`: request enrichment for a loop.
 - `GET /loops/next`: deterministic “Next 5” buckets.
 
