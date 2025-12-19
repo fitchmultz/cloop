@@ -819,8 +819,22 @@
         if (input) {
           input.dataset.mode = "edit";
           input.value = input.dataset.initial || "";
+          const statusSelect = card.querySelector('[data-field="status"]');
+          const currentStatus = statusSelect ? statusSelect.value : card.dataset.status;
           const pinned =
-            card.dataset.status === "completed" || Boolean(input.dataset.initial?.trim());
+            currentStatus === "completed" || Boolean(input.dataset.initial?.trim());
+          if (card.dataset.pendingStatus === "completed") {
+            const previous = card.dataset.previousStatus || "";
+            if (statusSelect && previous) {
+              statusSelect.value = previous;
+              statusSelect.dataset.initial = previous;
+            }
+            if (previous) {
+              card.dataset.status = previous;
+            }
+            delete card.dataset.pendingStatus;
+            delete card.dataset.previousStatus;
+          }
           if (!pinned) {
             noteRow.classList.remove("visible");
           }
@@ -855,7 +869,17 @@
           status.textContent = "Failed to close loop.";
           return;
         }
-        await loadInbox();
+        const updated = await response.json();
+        const filterValue = statusFilter.value;
+        const shouldHide =
+          filterValue === "open" ||
+          (filterValue && filterValue !== "all" && filterValue !== "completed");
+        if (shouldHide) {
+          const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
+          card?.remove();
+          return;
+        }
+        replaceLoop(updated);
       }
 
       async function transitionStatus(loopId, nextStatus) {
@@ -1013,12 +1037,18 @@
           const nextStatus = target.value;
           const initialStatus = target.dataset.initial || "";
           if (nextStatus === initialStatus) return;
+          if (nextStatus === "completed") {
+            if (card) {
+              card.dataset.pendingStatus = "completed";
+              card.dataset.previousStatus = initialStatus;
+              card.dataset.status = "completed";
+            }
+            showCompletionNote(loopId);
+            return;
+          }
           const transitioned = await transitionStatus(loopId, nextStatus);
           if (transitioned) {
             replaceLoop(transitioned);
-            if (nextStatus === "completed") {
-              showCompletionNote(loopId);
-            }
           }
           return;
         }
