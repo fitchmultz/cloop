@@ -73,6 +73,8 @@ _LOCKABLE_FIELDS = {
     "urgency",
     "importance",
     "project_id",
+    "blocked_reason",
+    "completion_note",
     "tags",
 }
 
@@ -102,6 +104,8 @@ def _record_to_dict(
         "urgency": record.urgency,
         "importance": record.importance,
         "project_id": record.project_id,
+        "blocked_reason": record.blocked_reason,
+        "completion_note": record.completion_note,
         "project": project,
         "tags": tags or [],
         "user_locks": list(record.user_locks),
@@ -262,6 +266,8 @@ def export_loops(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
                 "activation_energy": record.activation_energy,
                 "urgency": record.urgency,
                 "importance": record.importance,
+                "blocked_reason": record.blocked_reason,
+                "completion_note": record.completion_note,
                 "project": project,
                 "tags": tags,
                 "user_locks": list(record.user_locks),
@@ -322,6 +328,8 @@ def import_loops(
                 "activation_energy": item_map.get("activation_energy"),
                 "urgency": item_map.get("urgency"),
                 "importance": item_map.get("importance"),
+                "blocked_reason": item_map.get("blocked_reason"),
+                "completion_note": item_map.get("completion_note"),
                 "user_locks_json": json.dumps(item_map.get("user_locks") or []),
                 "provenance_json": json.dumps(item_map.get("provenance") or {}),
                 "enrichment_state": item_map.get("enrichment_state") or EnrichmentState.IDLE.value,
@@ -416,9 +424,12 @@ def transition_status(
     if to_status in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
         closed_at = format_utc_datetime(utc_now())
     with conn:
+        updates = {"status": to_status.value, "closed_at": closed_at}
+        if to_status is LoopStatus.COMPLETED and note and note.strip():
+            updates["completion_note"] = note.strip()
         updated = repo.update_loop_fields(
             loop_id=loop_id,
-            fields={"status": to_status.value, "closed_at": closed_at},
+            fields=updates,
             conn=conn,
         )
         event_type = (

@@ -24,6 +24,8 @@ _ALLOWED_UPDATE_FIELDS = {
     "urgency",
     "importance",
     "project_id",
+    "blocked_reason",
+    "completion_note",
     "user_locks_json",
     "provenance_json",
     "enrichment_state",
@@ -91,6 +93,16 @@ def _row_to_record(row: sqlite3.Row) -> LoopRecord:
         ),
         project_id=(
             typingx.as_type(int, row["project_id"]) if row["project_id"] is not None else None
+        ),
+        blocked_reason=(
+            typingx.as_type(str, row["blocked_reason"])
+            if row["blocked_reason"] is not None
+            else None
+        ),
+        completion_note=(
+            typingx.as_type(str, row["completion_note"])
+            if row["completion_note"] is not None
+            else None
         ),
         user_locks=_parse_json_list(row["user_locks_json"]),
         provenance=_parse_json_dict(row["provenance_json"]),
@@ -235,6 +247,8 @@ def insert_loop_from_export(
             urgency,
             importance,
             project_id,
+            blocked_reason,
+            completion_note,
             user_locks_json,
             provenance_json,
             enrichment_state,
@@ -258,6 +272,8 @@ def insert_loop_from_export(
             :urgency,
             :importance,
             :project_id,
+            :blocked_reason,
+            :completion_note,
             :user_locks_json,
             :provenance_json,
             :enrichment_state,

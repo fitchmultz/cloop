@@ -17,7 +17,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 7
+SCHEMA_VERSION: int = 9
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -82,6 +82,8 @@ CREATE TABLE loops (
     urgency REAL,
     importance REAL,
     project_id INTEGER,
+    blocked_reason TEXT,
+    completion_note TEXT,
     user_locks_json TEXT NOT NULL DEFAULT '[]',
     provenance_json TEXT NOT NULL DEFAULT '{}',
     enrichment_state TEXT NOT NULL DEFAULT 'idle',
@@ -289,6 +291,12 @@ _CORE_MIGRATIONS: dict[int, str] = {
     UPDATE loops
     SET updated_at = created_at
     WHERE updated_at IS NULL OR updated_at = '';
+    """,
+    8: """
+    ALTER TABLE loops ADD COLUMN blocked_reason TEXT;
+    """,
+    9: """
+    ALTER TABLE loops ADD COLUMN completion_note TEXT;
     """,
 }
 
