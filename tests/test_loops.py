@@ -77,10 +77,23 @@ def test_loop_status_transitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert response.status_code == 200
     loop_id = response.json()["id"]
 
-    for status in ["actionable", "blocked", "scheduled", "completed", "inbox"]:
+    for status in ["actionable", "blocked", "scheduled"]:
         transition = client.post(f"/loops/{loop_id}/status", json={"status": status})
         assert transition.status_code == 200
         assert transition.json()["status"] == status
+
+    completed = client.post(
+        f"/loops/{loop_id}/status",
+        json={"status": "completed", "note": "shipped"},
+    )
+    assert completed.status_code == 200
+    payload = completed.json()
+    assert payload["status"] == "completed"
+    assert payload["completion_note"] == "shipped"
+
+    reopened = client.post(f"/loops/{loop_id}/status", json={"status": "inbox"})
+    assert reopened.status_code == 200
+    assert reopened.json()["status"] == "inbox"
 
 
 def test_tag_normalization_and_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -135,7 +148,7 @@ def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     update = client.patch(
         f"/loops/{loop_id}",
-        json={"title": "Exported", "tags": ["Backup"]},
+        json={"title": "Exported", "tags": ["Backup"], "completion_note": "archived"},
     )
     assert update.status_code == 200
 
@@ -143,6 +156,7 @@ def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert export_response.status_code == 200
     export_payload = export_response.json()
     assert export_payload["loops"]
+    assert export_payload["loops"][0]["completion_note"] == "archived"
 
     fresh_dir = tmp_path / "imported"
     fresh_dir.mkdir()
@@ -153,4 +167,6 @@ def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     imported_loops = fresh_client.get("/loops", params={"status": "all"})
     assert imported_loops.status_code == 200
-    assert imported_loops.json()
+    imported_payload = imported_loops.json()
+    assert imported_payload
+    assert imported_payload[0]["completion_note"] == "archived"

@@ -243,6 +243,16 @@
         font-size: 12px;
         cursor: pointer;
       }
+      .completion-cancel {
+        border: 1px dashed var(--border);
+        background: #fffefb;
+        color: var(--muted);
+        border-radius: 999px;
+        padding: 4px 8px;
+        font-size: 12px;
+        cursor: pointer;
+        line-height: 1;
+      }
       .loop-meta {
         color: var(--muted);
         font-size: 13px;
@@ -254,6 +264,35 @@
         display: flex;
         gap: 8px;
         margin-top: 6px;
+      }
+      .completion-note-row {
+        display: none;
+        margin-top: 6px;
+      }
+      .completion-note-row.visible {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 6px;
+        align-items: center;
+      }
+      .completion-note-row .inline-label {
+        grid-column: 1 / -1;
+      }
+      .completion-note-row .completion-cancel {
+        display: none;
+      }
+      .completion-note-row.completing .completion-cancel {
+        display: inline-flex;
+      }
+      .completion-note-input {
+        font-size: 13px;
+      }
+      .blocked-reason-row {
+        display: none;
+      }
+      .blocked-reason-row.visible {
+        display: grid;
+        gap: 4px;
       }
       .inline-row {
         display: grid;
@@ -516,10 +555,14 @@
         const card = document.createElement("div");
         card.className = "loop-card";
         card.dataset.loopId = loop.id;
+        card.dataset.status = loop.status;
         const title = loop.title || loop.raw_text;
         const summary = loop.summary || loop.definition_of_done || "";
         const nextAction = loop.next_action || "";
         const closed = loop.closed_at_utc ? `Closed: ${formatTime(loop.closed_at_utc)}` : "";
+        const completionNoteValue = loop.completion_note || "";
+        const completionVisible =
+          loop.status === "completed" || Boolean(completionNoteValue.trim());
         const tagChips = Array.isArray(loop.tags) && loop.tags.length
           ? loop.tags
               .map(
@@ -595,12 +638,33 @@
             <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
           </div>
           ${tags}
+          <div class="blocked-reason-row ${loop.status === "blocked" ? "visible" : ""}">
+            <span class="inline-label">Blocked by</span>
+            <input
+              class="inline-input"
+              type="text"
+              data-field="blocked_reason"
+              placeholder="What's blocking this?"
+            >
+          </div>
           <div class="loop-actions">
             <button class="secondary" data-action="complete" data-id="${loop.id}">
               Complete
             </button>
             <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich</button>
             <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
+          </div>
+          <div class="completion-note-row ${completionVisible ? "visible" : ""}">
+            <span class="inline-label">completion note</span>
+            <input
+              class="inline-input completion-note-input"
+              type="text"
+              placeholder="Add a note (optional)"
+              data-action="completion-note"
+            >
+            <button class="completion-cancel" data-action="cancel-complete" data-id="${loop.id}">
+              ×
+            </button>
           </div>
         `;
         const titleInput = card.querySelector('[data-field="title"]');
@@ -626,6 +690,17 @@
         }
         if (statusSelect) {
           statusSelect.dataset.initial = loop.status;
+        }
+        const blockedInput = card.querySelector('[data-field="blocked_reason"]');
+        if (blockedInput) {
+          blockedInput.value = loop.blocked_reason || "";
+          blockedInput.dataset.initial = loop.blocked_reason || "";
+        }
+        const completionInput = card.querySelector(".completion-note-input");
+        if (completionInput) {
+          completionInput.value = completionNoteValue;
+          completionInput.dataset.initial = completionNoteValue;
+          completionInput.dataset.mode = completionVisible ? "edit" : "";
         }
         return card;
       }
@@ -718,11 +793,63 @@
         status.textContent = "Saved. Enrichment queued.";
       }
 
-      async function markComplete(loopId) {
+      function showCompletionNote(loopId) {
+        const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
+        if (!card) return;
+        const noteRow = card.querySelector(".completion-note-row");
+        if (noteRow) {
+          noteRow.classList.add("visible");
+          noteRow.classList.add("completing");
+          const input = noteRow.querySelector(".completion-note-input");
+          if (input) {
+            input.dataset.mode = "complete";
+            input.value = input.dataset.initial || "";
+            input.focus();
+          }
+        }
+      }
+
+      function hideCompletionNote(loopId) {
+        const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
+        if (!card) return;
+        const noteRow = card.querySelector(".completion-note-row");
+        if (!noteRow) return;
+        const input = noteRow.querySelector(".completion-note-input");
+        noteRow.classList.remove("completing");
+        if (input) {
+          input.dataset.mode = "edit";
+          input.value = input.dataset.initial || "";
+          const pinned =
+            card.dataset.status === "completed" || Boolean(input.dataset.initial?.trim());
+          if (!pinned) {
+            noteRow.classList.remove("visible");
+          }
+        } else {
+          noteRow.classList.remove("visible");
+        }
+      }
+
+      async function saveCompletionNote(loopId, input) {
+        const noteValue = input.value.trim();
+        const initialValue = input.dataset.initial || "";
+        if (noteValue === initialValue) return;
+        const updated = await patchLoop(loopId, {
+          completion_note: noteValue || null,
+        });
+        if (updated) {
+          replaceLoop(updated);
+        }
+      }
+
+      async function confirmComplete(loopId, note) {
+        const payload = { status: "completed" };
+        if (note && note.trim()) {
+          payload.note = note.trim();
+        }
         const response = await fetch(`/loops/${loopId}/status`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ status: "completed" }),
+          body: JSON.stringify(payload),
         });
         if (!response.ok) {
           status.textContent = "Failed to close loop.";
@@ -889,6 +1016,9 @@
           const transitioned = await transitionStatus(loopId, nextStatus);
           if (transitioned) {
             replaceLoop(transitioned);
+            if (nextStatus === "completed") {
+              showCompletionNote(loopId);
+            }
           }
           return;
         }
@@ -896,6 +1026,7 @@
         const payload = {};
         const nextInput = card.querySelector('[data-field="next_action"]');
         const dueInput = card.querySelector('[data-field="due_at_utc"]');
+        const blockedInput = card.querySelector('[data-field="blocked_reason"]');
 
         if (nextInput) {
           const nextValue = nextInput.value.trim();
@@ -921,6 +1052,14 @@
             payload.due_at_utc = null;
           } else if (dueIso && dueIso !== initialDue) {
             payload.due_at_utc = dueIso;
+          }
+        }
+
+        if (blockedInput) {
+          const blockedValue = blockedInput.value.trim();
+          const initialBlocked = blockedInput.dataset.initial || "";
+          if (blockedValue !== initialBlocked) {
+            payload.blocked_reason = blockedValue || null;
           }
         }
 
@@ -952,7 +1091,9 @@
         const button = event.target.closest("button");
         if (!button) return;
         if (button.dataset.action === "complete") {
-          markComplete(button.dataset.id);
+          showCompletionNote(button.dataset.id);
+        } else if (button.dataset.action === "cancel-complete") {
+          hideCompletionNote(button.dataset.id);
         } else if (button.dataset.action === "enrich") {
           enrichLoop(button.dataset.id);
         } else if (button.dataset.action === "refresh") {
@@ -975,8 +1116,41 @@
         }
       });
 
+      inbox.addEventListener(
+        "pointerdown",
+        (event) => {
+          const button = event.target.closest("button");
+          if (!button || button.dataset.action !== "cancel-complete") return;
+          const card = button.closest(".loop-card");
+          const input = card?.querySelector(".completion-note-input");
+          if (input) {
+            input.dataset.skipComplete = "true";
+          }
+        },
+        true,
+      );
+
       inbox.addEventListener("focusout", (event) => {
         const target = event.target;
+        if (target && target.classList && target.classList.contains("completion-note-input")) {
+          if (target.dataset.skipComplete) {
+            delete target.dataset.skipComplete;
+            return;
+          }
+          const card = target.closest(".loop-card");
+          const loopId = card?.dataset?.loopId;
+          if (!loopId) return;
+          const mode = target.dataset.mode || "complete";
+          if (mode === "complete") {
+            confirmComplete(loopId, target.value);
+            return;
+          }
+          if (mode === "edit") {
+            saveCompletionNote(loopId, target);
+            return;
+          }
+          return;
+        }
         if (target && target.classList && target.classList.contains("tag-input")) {
           appendTagsFromInput(target);
         }
@@ -1011,6 +1185,31 @@
         "keydown",
         (event) => {
           const target = event.target;
+          if (target?.dataset?.action === "completion-note") {
+            const card = target.closest(".loop-card");
+            const loopId = card?.dataset?.loopId;
+            const mode = target.dataset.mode || "complete";
+            if (event.key === "Enter" && loopId) {
+              event.preventDefault();
+              target.dataset.skipComplete = "true";
+              if (mode === "complete") {
+                confirmComplete(loopId, target.value);
+              } else if (mode === "edit") {
+                saveCompletionNote(loopId, target);
+                target.blur();
+              }
+            } else if (event.key === "Escape" && loopId) {
+              event.preventDefault();
+              target.dataset.skipComplete = "true";
+              if (mode === "complete") {
+                hideCompletionNote(loopId);
+              } else if (mode === "edit") {
+                target.value = target.dataset.initial || "";
+                target.blur();
+              }
+            }
+            return;
+          }
           if (!target || !target.dataset || !target.dataset.field) return;
           if (event.key === "Enter") {
             event.preventDefault();

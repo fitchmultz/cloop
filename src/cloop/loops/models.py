@@ -49,6 +49,8 @@ class LoopRecord:
     urgency: float | None
     importance: float | None
     project_id: int | None
+    blocked_reason: str | None
+    completion_note: str | None
     user_locks: list[str]
     provenance: dict[str, object]
     enrichment_state: EnrichmentState

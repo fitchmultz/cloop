@@ -151,6 +151,8 @@ class LoopUpdateRequest(BaseModel):
     urgency: float | None = Field(default=None, ge=0.0, le=1.0)
     importance: float | None = Field(default=None, ge=0.0, le=1.0)
     project: str | None = Field(default=None, min_length=1)
+    blocked_reason: str | None = None
+    completion_note: str | None = None
     tags: List[str] | None = None
 
 
@@ -181,6 +183,8 @@ class LoopResponse(BaseModel):
     urgency: float | None = None
     importance: float | None = None
     project_id: int | None = None
+    blocked_reason: str | None = None
+    completion_note: str | None = None
     project: str | None = None
     tags: List[str] = Field(default_factory=list)
     user_locks: List[str] = Field(default_factory=list)
@@ -213,6 +217,8 @@ class LoopExportItem(BaseModel):
     activation_energy: int | None = None
     urgency: float | None = None
     importance: float | None = None
+    blocked_reason: str | None = None
+    completion_note: str | None = None
     project: str | None = None
     tags: List[str] = Field(default_factory=list)
     user_locks: List[str] = Field(default_factory=list)
