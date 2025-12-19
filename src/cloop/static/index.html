@@ -346,16 +346,16 @@
           <textarea id="raw-text" placeholder="Drop a loop, idea, or task..." required></textarea>
           <div class="toggles">
             <label class="toggle">
-              <input type="checkbox" id="urgent">
-              Urgent
+              <input type="checkbox" id="actionable">
+              Actionable
             </label>
             <label class="toggle">
               <input type="checkbox" id="scheduled">
               Scheduled
             </label>
             <label class="toggle">
-              <input type="checkbox" id="waiting">
-              Waiting
+              <input type="checkbox" id="blocked">
+              Blocked
             </label>
           </div>
           <div class="actions">
@@ -369,13 +369,14 @@
         <div class="filters">
           <label for="status-filter">Show:</label>
           <select id="status-filter">
-            <option value="inbox" selected>Inbox</option>
-            <option value="active">Active</option>
-            <option value="waiting">Waiting</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="done">Done</option>
-            <option value="dropped">Dropped</option>
-            <option value="all">All</option>
+            <option value="open" selected>open</option>
+            <option value="inbox">inbox</option>
+            <option value="actionable">actionable</option>
+            <option value="blocked">blocked</option>
+            <option value="scheduled">scheduled</option>
+            <option value="completed">completed</option>
+            <option value="dropped">dropped</option>
+            <option value="all">all</option>
           </select>
         </div>
         <div id="inbox" class="inbox-list"></div>
@@ -386,11 +387,18 @@
       const status = document.getElementById("status");
       const form = document.getElementById("capture-form");
       const rawText = document.getElementById("raw-text");
-      const urgent = document.getElementById("urgent");
+      const actionable = document.getElementById("actionable");
       const scheduled = document.getElementById("scheduled");
-      const waiting = document.getElementById("waiting");
+      const blocked = document.getElementById("blocked");
       const statusFilter = document.getElementById("status-filter");
-      const statusOptions = ["inbox", "active", "waiting", "scheduled", "done", "dropped"];
+      const statusOptions = [
+        "inbox",
+        "actionable",
+        "blocked",
+        "scheduled",
+        "completed",
+        "dropped",
+      ];
 
       function formatTime(value) {
         try {
@@ -519,7 +527,9 @@
           </div>
           ${tags}
           <div class="loop-actions">
-            <button class="secondary" data-action="done" data-id="${loop.id}">Done</button>
+            <button class="secondary" data-action="complete" data-id="${loop.id}">
+              Complete
+            </button>
             <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich</button>
             <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
           </div>
@@ -599,9 +609,9 @@
           raw_text: rawText.value.trim(),
           captured_at: now.toISOString(),
           client_tz_offset_min: -now.getTimezoneOffset(),
-          urgent: urgent.checked,
+          actionable: actionable.checked,
           scheduled: scheduled.checked,
-          waiting: waiting.checked,
+          blocked: blocked.checked,
         };
         if (!payload.raw_text) {
           status.textContent = "Type something first.";
@@ -620,17 +630,17 @@
         replaceLoop(loop);
         pollLoop(loop.id);
         rawText.value = "";
-        urgent.checked = false;
+        actionable.checked = false;
         scheduled.checked = false;
-        waiting.checked = false;
+        blocked.checked = false;
         status.textContent = "Saved. Enrichment queued.";
       }
 
-      async function markDone(loopId) {
+      async function markComplete(loopId) {
         const response = await fetch(`/loops/${loopId}/status`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ status: "done" }),
+          body: JSON.stringify({ status: "completed" }),
         });
         if (!response.ok) {
           status.textContent = "Failed to close loop.";
@@ -775,8 +785,8 @@
       inbox.addEventListener("click", (event) => {
         const button = event.target.closest("button");
         if (!button) return;
-        if (button.dataset.action === "done") {
-          markDone(button.dataset.id);
+        if (button.dataset.action === "complete") {
+          markComplete(button.dataset.id);
         } else if (button.dataset.action === "enrich") {
           enrichLoop(button.dataset.id);
         } else if (button.dataset.action === "refresh") {

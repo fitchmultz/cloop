@@ -54,10 +54,10 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
     status = LoopStatus.INBOX
     if args.scheduled:
         status = LoopStatus.SCHEDULED
-    elif args.waiting:
-        status = LoopStatus.WAITING
-    elif args.urgent:
-        status = LoopStatus.ACTIVE
+    elif args.blocked:
+        status = LoopStatus.BLOCKED
+    elif args.actionable:
+        status = LoopStatus.ACTIONABLE
 
     with db.core_connection(settings) as conn:
         record = capture_loop(
@@ -132,9 +132,29 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="Timezone offset minutes from UTC",
     )
-    capture_parser.add_argument("--urgent", action="store_true", help="Mark as urgent")
+    capture_parser.add_argument(
+        "--actionable",
+        action="store_true",
+        help="Mark as actionable",
+    )
+    capture_parser.add_argument(
+        "--urgent",
+        action="store_true",
+        dest="actionable",
+        help="Alias for --actionable",
+    )
     capture_parser.add_argument("--scheduled", action="store_true", help="Mark as scheduled")
-    capture_parser.add_argument("--waiting", action="store_true", help="Mark as waiting")
+    capture_parser.add_argument(
+        "--blocked",
+        action="store_true",
+        help="Mark as blocked",
+    )
+    capture_parser.add_argument(
+        "--waiting",
+        action="store_true",
+        dest="blocked",
+        help="Alias for --blocked",
+    )
 
     inbox_parser = subparsers.add_parser("inbox", help="List inbox loops")
     inbox_parser.add_argument("--limit", type=int, default=50, help="Max loops to return")

@@ -7,10 +7,10 @@ from enum import StrEnum
 
 class LoopStatus(StrEnum):
     INBOX = "inbox"
-    ACTIVE = "active"
-    WAITING = "waiting"
+    ACTIONABLE = "actionable"
+    BLOCKED = "blocked"
     SCHEDULED = "scheduled"
-    DONE = "done"
+    COMPLETED = "completed"
     DROPPED = "dropped"
 
 
