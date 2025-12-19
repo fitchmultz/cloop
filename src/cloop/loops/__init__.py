@@ -1,7 +1,9 @@
 from .models import EnrichmentState, LoopEventType, LoopRecord, LoopStatus
 from .service import (
     capture_loop,
+    export_loops,
     get_loop,
+    import_loops,
     list_loops,
     list_loops_by_tag,
     list_tags,
@@ -18,7 +20,9 @@ __all__ = [
     "LoopRecord",
     "LoopStatus",
     "capture_loop",
+    "export_loops",
     "get_loop",
+    "import_loops",
     "list_loops",
     "list_loops_by_tag",
     "list_tags",

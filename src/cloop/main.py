@@ -197,6 +197,45 @@ class LoopNextResponse(BaseModel):
     high_leverage: List[LoopResponse]
 
 
+class LoopExportItem(BaseModel):
+    id: int | None = None
+    raw_text: str
+    title: str | None = None
+    summary: str | None = None
+    definition_of_done: str | None = None
+    next_action: str | None = None
+    status: str
+    captured_at_utc: str
+    captured_tz_offset_min: int
+    due_at_utc: str | None = None
+    snooze_until_utc: str | None = None
+    time_minutes: int | None = None
+    activation_energy: int | None = None
+    urgency: float | None = None
+    importance: float | None = None
+    project: str | None = None
+    tags: List[str] = Field(default_factory=list)
+    user_locks: List[str] = Field(default_factory=list)
+    provenance: Dict[str, Any] = Field(default_factory=dict)
+    enrichment_state: str | None = None
+    created_at_utc: str
+    updated_at_utc: str
+    closed_at_utc: str | None = None
+
+
+class LoopExportResponse(BaseModel):
+    version: int = 1
+    loops: List[LoopExportItem]
+
+
+class LoopImportRequest(BaseModel):
+    loops: List[LoopExportItem]
+
+
+class LoopImportResponse(BaseModel):
+    imported: int
+
+
 class HealthResponse(BaseModel):
     ok: bool
     model: str
@@ -572,6 +611,26 @@ def loop_list_endpoint(
 def loop_tags_endpoint(settings: SettingsDep) -> List[str]:
     with db.core_connection(settings) as conn:
         return loop_service.list_tags(conn=conn)
+
+
+@app.get("/loops/export", response_model=LoopExportResponse)
+def loop_export_endpoint(settings: SettingsDep) -> LoopExportResponse:
+    with db.core_connection(settings) as conn:
+        loops = loop_service.export_loops(conn=conn)
+    return LoopExportResponse(version=1, loops=loops)
+
+
+@app.post("/loops/import", response_model=LoopImportResponse)
+def loop_import_endpoint(
+    request: LoopImportRequest,
+    settings: SettingsDep,
+) -> LoopImportResponse:
+    with db.core_connection(settings) as conn:
+        try:
+            imported = loop_service.import_loops(loops=request.loops, conn=conn)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return LoopImportResponse(imported=imported)
 
 
 @app.get("/loops/{loop_id}", response_model=LoopResponse)

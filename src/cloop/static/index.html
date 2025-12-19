@@ -322,6 +322,15 @@
         font-size: 13px;
         color: var(--muted);
       }
+      .footer-actions {
+        max-width: 820px;
+        margin: 16px auto 40px;
+        padding: 0 20px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        opacity: 0.65;
+      }
       select {
         border-radius: 999px;
         border: 1px solid var(--border);
@@ -405,6 +414,11 @@
         <div id="inbox" class="inbox-list"></div>
       </section>
     </main>
+    <div class="footer-actions">
+      <button class="tag-add" type="button" id="export-btn">export</button>
+      <button class="tag-add" type="button" id="import-btn">import</button>
+      <input type="file" id="import-file" accept="application/json" hidden>
+    </div>
     <script>
       const inbox = document.getElementById("inbox");
       const status = document.getElementById("status");
@@ -415,6 +429,9 @@
       const blocked = document.getElementById("blocked");
       const statusFilter = document.getElementById("status-filter");
       const tagFilter = document.getElementById("tag-filter");
+      const exportBtn = document.getElementById("export-btn");
+      const importBtn = document.getElementById("import-btn");
+      const importFile = document.getElementById("import-file");
       const statusOptions = [
         "inbox",
         "actionable",
@@ -734,6 +751,57 @@
         }
       }
 
+      function downloadExport(payload) {
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        anchor.download = `cloop-loops-${stamp}.json`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      }
+
+      async function exportLoops() {
+        status.textContent = "Exporting...";
+        const response = await fetch("/loops/export");
+        if (!response.ok) {
+          status.textContent = "Export failed.";
+          return;
+        }
+        const payload = await response.json();
+        downloadExport(payload);
+        status.textContent = "Exported.";
+      }
+
+      async function importLoops(file) {
+        status.textContent = "Importing...";
+        const text = await file.text();
+        let payload;
+        try {
+          payload = JSON.parse(text);
+        } catch {
+          status.textContent = "Invalid JSON file.";
+          return;
+        }
+        const loops = Array.isArray(payload) ? payload : payload.loops || [];
+        const response = await fetch("/loops/import", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ loops }),
+        });
+        if (!response.ok) {
+          status.textContent = "Import failed.";
+          return;
+        }
+        const result = await response.json();
+        status.textContent = `Imported ${result.imported} loops.`;
+        await loadTags();
+        await loadInbox();
+      }
+
       function getTagsFromCard(card) {
         return Array.from(card.querySelectorAll(".tag-chip"))
           .map((chip) => chip.dataset.tag || "")
@@ -927,6 +995,15 @@
       });
 
       form.addEventListener("submit", captureLoop);
+      exportBtn.addEventListener("click", exportLoops);
+      importBtn.addEventListener("click", () => importFile.click());
+      importFile.addEventListener("change", (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (file) {
+          importLoops(file);
+        }
+        importFile.value = "";
+      });
       loadTags();
       loadInbox();
     </script>

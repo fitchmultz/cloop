@@ -178,6 +178,13 @@ def list_loops_by_statuses(
     return [_row_to_record(row) for row in rows]
 
 
+def list_all_loops(*, conn: sqlite3.Connection) -> list[LoopRecord]:
+    rows = conn.execute(
+        "SELECT * FROM loops ORDER BY updated_at DESC, captured_at_utc DESC"
+    ).fetchall()
+    return [_row_to_record(row) for row in rows]
+
+
 def list_loops_by_tag(
     *,
     tag: str,
@@ -202,6 +209,68 @@ def list_loops_by_tag(
     params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
+
+
+def insert_loop_from_export(
+    *,
+    payload: Mapping[str, Any],
+    project_id: int | None,
+    conn: sqlite3.Connection,
+) -> int:
+    cursor = conn.execute(
+        """
+        INSERT INTO loops (
+            raw_text,
+            title,
+            summary,
+            definition_of_done,
+            next_action,
+            status,
+            captured_at_utc,
+            captured_tz_offset_min,
+            due_at_utc,
+            snooze_until_utc,
+            time_minutes,
+            activation_energy,
+            urgency,
+            importance,
+            project_id,
+            user_locks_json,
+            provenance_json,
+            enrichment_state,
+            created_at,
+            updated_at,
+            closed_at
+        )
+        VALUES (
+            :raw_text,
+            :title,
+            :summary,
+            :definition_of_done,
+            :next_action,
+            :status,
+            :captured_at_utc,
+            :captured_tz_offset_min,
+            :due_at_utc,
+            :snooze_until_utc,
+            :time_minutes,
+            :activation_energy,
+            :urgency,
+            :importance,
+            :project_id,
+            :user_locks_json,
+            :provenance_json,
+            :enrichment_state,
+            :created_at,
+            :updated_at,
+            :closed_at
+        )
+        """,
+        {**payload, "project_id": project_id},
+    )
+    if cursor.lastrowid is None:
+        raise RuntimeError("loop_import_failed")
+    return int(cursor.lastrowid)
 
 
 def list_tags(conn: sqlite3.Connection) -> list[str]:
