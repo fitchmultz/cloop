@@ -439,7 +439,7 @@ def test_loop_enrich_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.M
 def test_loop_capture_invalid_timestamp_returns_validation_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that invalid timestamp returns validation error (422 from Pydantic)."""
+    """Verify that invalid timestamp returns validation error (400 from ValidationError)."""
     client = make_client(tmp_path, monkeypatch)
 
     response = client.post(
@@ -450,7 +450,7 @@ def test_loop_capture_invalid_timestamp_returns_validation_error(
             "client_tz_offset_min": 0,
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
     data = response.json()
     assert data["error"]["type"] == "validation_error"
 

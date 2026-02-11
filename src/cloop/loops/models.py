@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
+from .errors import ValidationError
+
 # Timezone offset validation constants
 # Python's timezone class requires offsets strictly between -24 and +24 hours,
 # so we use [-1439, +1439] minutes (exclusive of exactly ±24h)
@@ -121,9 +123,8 @@ def _normalize_iso(value: str) -> str:
 def validate_iso8601_timestamp(value: str, field_name: str = "timestamp") -> str:
     """Validate that a string is a valid ISO8601 timestamp.
 
-    This function is used as a Pydantic field validator and therefore
-    raises ValueError (not ValidationError) for compatibility with
-    Pydantic's validation error handling.
+    This function raises ValidationError for typed exception handling
+    in both HTTP and MCP layers.
 
     Args:
         value: The timestamp string to validate
@@ -133,10 +134,10 @@ def validate_iso8601_timestamp(value: str, field_name: str = "timestamp") -> str
         The original value if valid
 
     Raises:
-        ValueError: If the value is not a valid ISO8601 timestamp
+        ValidationError: If the value is not a valid ISO8601 timestamp
     """
     if not value:
-        raise ValueError(f"invalid_{field_name}: value cannot be empty")
+        raise ValidationError(field_name, "value cannot be empty")
 
     try:
         # Normalize 'Z' suffix to '+00:00' for consistency
@@ -144,8 +145,9 @@ def validate_iso8601_timestamp(value: str, field_name: str = "timestamp") -> str
         datetime.fromisoformat(normalized)
     except ValueError:
         truncated = value[:50] + "..." if len(value) > 50 else value
-        raise ValueError(
-            f"invalid_{field_name}: '{truncated}' is not a valid ISO8601 timestamp. "
+        raise ValidationError(
+            field_name,
+            f"'{truncated}' is not a valid ISO8601 timestamp. "
             f"Expected format: 2024-01-15T10:30:00+00:00",
         ) from None
 
@@ -170,12 +172,11 @@ def validate_tz_offset(value: int, field_name: str = "tz_offset_min") -> int:
         The original value if valid
 
     Raises:
-        ValueError: If the value is outside the valid range
+        ValidationError: If the value is outside the valid range
     """
     if not (MIN_TZ_OFFSET_MIN <= value <= MAX_TZ_OFFSET_MIN):
-        raise ValueError(
-            f"invalid_{field_name}: {value} is outside valid range "
-            f"[{MIN_TZ_OFFSET_MIN}, {MAX_TZ_OFFSET_MIN}]"
+        raise ValidationError(
+            field_name, f"{value} is outside valid range [{MIN_TZ_OFFSET_MIN}, {MAX_TZ_OFFSET_MIN}]"
         )
     return value
 

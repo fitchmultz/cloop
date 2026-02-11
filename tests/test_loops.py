@@ -1068,7 +1068,7 @@ def test_parse_json_list_truncates_long_value_in_error(
 def test_loop_capture_invalid_timestamp_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that invalid captured_at format returns 422 with clear error."""
+    """Test that invalid captured_at format returns 400 with clear error."""
     client = _make_client(tmp_path, monkeypatch)
 
     invalid_timestamps = [
@@ -1088,16 +1088,16 @@ def test_loop_capture_invalid_timestamp_format(
                 "client_tz_offset_min": 0,
             },
         )
-        assert response.status_code == 422, f"Expected 422 for '{invalid_ts}'"
+        assert response.status_code == 400, f"Expected 400 for '{invalid_ts}'"
         error_detail = response.json()
         assert "error" in error_detail
         # Check that the error message mentions validation
         error_str = str(error_detail).lower()
-        assert "invalid_captured_at" in error_str or "validation" in error_str
+        assert "invalid captured_at" in error_str or "validation" in error_str
 
 
 def test_loop_update_invalid_due_at_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that invalid due_at_utc format returns 422 with clear error."""
+    """Test that invalid due_at_utc format returns 400 with clear error."""
     client = _make_client(tmp_path, monkeypatch)
 
     # Create a loop first
@@ -1116,17 +1116,17 @@ def test_loop_update_invalid_due_at_format(tmp_path: Path, monkeypatch: pytest.M
         f"/loops/{loop_id}",
         json={"due_at_utc": "not-a-valid-timestamp"},
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
     error_detail = response.json()
     assert "error" in error_detail
     error_str = str(error_detail).lower()
-    assert "invalid_due_at_utc" in error_str or "validation" in error_str
+    assert "invalid due_at_utc" in error_str or "validation" in error_str
 
 
 def test_loop_update_invalid_snooze_until_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that invalid snooze_until_utc format returns 422 with clear error."""
+    """Test that invalid snooze_until_utc format returns 400 with clear error."""
     client = _make_client(tmp_path, monkeypatch)
 
     # Create a loop first
@@ -1145,7 +1145,7 @@ def test_loop_update_invalid_snooze_until_format(
         f"/loops/{loop_id}",
         json={"snooze_until_utc": "2024-13-45T99:99:99"},
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
     error_detail = response.json()
     assert "error" in error_detail
 
@@ -1197,12 +1197,13 @@ def test_validate_tz_offset_rejects_too_high() -> None:
     """Test that validate_tz_offset rejects values > 1440."""
     import pytest
 
+    from cloop.loops.errors import ValidationError
     from cloop.loops.models import validate_tz_offset
 
-    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid tz_offset_min.*outside valid range"):
         validate_tz_offset(999999)
 
-    with pytest.raises(ValueError, match="invalid_custom_field.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid custom_field.*outside valid range"):
         validate_tz_offset(1441, "custom_field")
 
 
@@ -1210,12 +1211,13 @@ def test_validate_tz_offset_rejects_too_low() -> None:
     """Test that validate_tz_offset rejects values < -1440."""
     import pytest
 
+    from cloop.loops.errors import ValidationError
     from cloop.loops.models import validate_tz_offset
 
-    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid tz_offset_min.*outside valid range"):
         validate_tz_offset(-999999)
 
-    with pytest.raises(ValueError, match="invalid_custom_field.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid custom_field.*outside valid range"):
         validate_tz_offset(-1441, "custom_field")
 
 
@@ -1233,19 +1235,20 @@ def test_parse_client_datetime_rejects_invalid_tz_offset() -> None:
     """Test that parse_client_datetime rejects invalid tz_offset_min values."""
     import pytest
 
+    from cloop.loops.errors import ValidationError
     from cloop.loops.models import parse_client_datetime
 
-    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid tz_offset_min.*outside valid range"):
         parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=999999)
 
-    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid tz_offset_min.*outside valid range"):
         parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=-999999)
 
     # Also reject exactly ±1440 since Python timezone can't handle it
-    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid tz_offset_min.*outside valid range"):
         parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=1440)
 
-    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+    with pytest.raises(ValidationError, match="Invalid tz_offset_min.*outside valid range"):
         parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=-1440)
 
 
@@ -1265,7 +1268,7 @@ def test_parse_client_datetime_accepts_valid_tz_offset() -> None:
 def test_loop_capture_invalid_tz_offset_too_high(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that tz_offset_min > 1440 is rejected with 422."""
+    """Test that tz_offset_min > 1440 is rejected with 400."""
     client = _make_client(tmp_path, monkeypatch)
 
     response = client.post(
@@ -1276,17 +1279,17 @@ def test_loop_capture_invalid_tz_offset_too_high(
             "client_tz_offset_min": 999999,
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
     error_detail = response.json()
     assert "error" in error_detail
     error_str = str(error_detail).lower()
-    assert "invalid_client_tz_offset_min" in error_str or "range" in error_str
+    assert "invalid client_tz_offset_min" in error_str or "range" in error_str
 
 
 def test_loop_capture_invalid_tz_offset_too_low(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that tz_offset_min < -1439 is rejected with 422."""
+    """Test that tz_offset_min < -1439 is rejected with 400."""
     client = _make_client(tmp_path, monkeypatch)
 
     response = client.post(
@@ -1297,7 +1300,7 @@ def test_loop_capture_invalid_tz_offset_too_low(
             "client_tz_offset_min": -999999,
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
     error_detail = response.json()
     assert "error" in error_detail
 
