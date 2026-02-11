@@ -481,11 +481,11 @@ def next_loops(
         actionable_records.append(record)
 
     weights = PriorityWeights(
-        due_weight=1.0,
-        urgency_weight=0.7,
-        importance_weight=0.9,
-        time_penalty=0.2,
-        activation_penalty=0.3,
+        due_weight=settings.priority_weight_due,
+        urgency_weight=settings.priority_weight_urgency,
+        importance_weight=settings.priority_weight_importance,
+        time_penalty=settings.priority_weight_time_penalty,
+        activation_penalty=settings.priority_weight_activation_penalty,
     )
 
     scored = [

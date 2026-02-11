@@ -43,6 +43,11 @@ def _test_settings() -> Settings:
         prioritization_due_soon_hours=48.0,
         prioritization_quick_win_minutes=15,
         prioritization_high_leverage_threshold=0.7,
+        priority_weight_due=1.0,
+        priority_weight_urgency=0.7,
+        priority_weight_importance=0.9,
+        priority_weight_time_penalty=0.2,
+        priority_weight_activation_penalty=0.3,
         related_similarity_threshold=0.78,
         related_max_candidates=1000,
     )
@@ -1222,5 +1227,65 @@ def test_update_loop_fields_rejects_multiple_invalid_fields(
             fields={"zebra_field": "z", "alpha_field": "a"},
             conn=conn,
         )
+
+    conn.close()
+
+
+# =============================================================================
+# Priority weights configuration tests
+# =============================================================================
+
+
+def test_priority_weights_from_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that next_loops uses priority weights from settings."""
+    import sqlite3
+
+    from cloop.loops import repo, service
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    # Set custom priority weights
+    monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_DUE", "2.0")
+    monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_URGENCY", "1.5")
+    monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_IMPORTANCE", "0.5")
+    monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_TIME_PENALTY", "0.1")
+    monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_ACTIVATION_PENALTY", "0.2")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create an actionable loop with next_action
+    record = repo.create_loop(
+        raw_text="Test loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    repo.update_loop_fields(
+        loop_id=record.id,
+        fields={"status": LoopStatus.ACTIONABLE.value, "next_action": "Do it"},
+        conn=conn,
+    )
+
+    # Verify settings have the custom weights
+    assert settings.priority_weight_due == 2.0
+    assert settings.priority_weight_urgency == 1.5
+    assert settings.priority_weight_importance == 0.5
+    assert settings.priority_weight_time_penalty == 0.1
+    assert settings.priority_weight_activation_penalty == 0.2
+
+    # Call next_loops with custom settings - should not raise
+    result = service.next_loops(limit=10, conn=conn, settings=settings)
+
+    # Should have buckets
+    assert "due_soon" in result
+    assert "quick_wins" in result
+    assert "high_leverage" in result
+    assert "standard" in result
 
     conn.close()
