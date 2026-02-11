@@ -314,7 +314,13 @@ def update_loop_fields(
     fields: Mapping[str, Any],
     conn: sqlite3.Connection,
 ) -> LoopRecord:
-    updates = {key: value for key, value in fields.items() if key in _ALLOWED_UPDATE_FIELDS}
+    # Detect invalid fields BEFORE processing
+    invalid_fields = set(fields.keys()) - _ALLOWED_UPDATE_FIELDS
+    if invalid_fields:
+        invalid_list = ", ".join(sorted(invalid_fields))
+        raise ValueError(f"invalid_field:{invalid_list}")
+
+    updates = dict(fields)
     if not updates:
         raise ValueError("no_valid_fields")
     set_clause = ", ".join(f"{key} = ?" for key in updates)
