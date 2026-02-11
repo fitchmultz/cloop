@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Optional
+from typing import Any, Dict, Iterable, Iterator
 
 from .settings import Settings, get_settings
 
@@ -434,7 +434,7 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 
 @contextmanager
-def core_connection(settings: Optional[Settings] = None) -> Iterator[sqlite3.Connection]:
+def core_connection(settings: Settings | None = None) -> Iterator[sqlite3.Connection]:
     settings = settings or get_settings()
     conn = _connect(settings.core_db_path)
     try:
@@ -444,7 +444,7 @@ def core_connection(settings: Optional[Settings] = None) -> Iterator[sqlite3.Con
 
 
 @contextmanager
-def rag_connection(settings: Optional[Settings] = None) -> Iterator[sqlite3.Connection]:
+def rag_connection(settings: Settings | None = None) -> Iterator[sqlite3.Connection]:
     settings = settings or get_settings()
     conn = _connect(settings.rag_db_path)
     _maybe_load_vector_extension(conn, settings)
@@ -511,19 +511,19 @@ def reset_vector_backend() -> None:
     _VECTOR_LOAD_ERROR = None
 
 
-def init_core_db(settings: Optional[Settings] = None) -> None:
+def init_core_db(settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     with core_connection(settings) as conn:
         ensure_core_schema(conn)
 
 
-def init_rag_db(settings: Optional[Settings] = None) -> None:
+def init_rag_db(settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     with rag_connection(settings) as conn:
         _initialize_schema_if_needed(conn, _RAG_SCHEMA, expected_version=RAG_SCHEMA_VERSION)
 
 
-def init_databases(settings: Optional[Settings] = None) -> None:
+def init_databases(settings: Settings | None = None) -> None:
     settings = settings or get_settings()
     init_core_db(settings)
     init_rag_db(settings)
@@ -538,12 +538,12 @@ def record_interaction(
     endpoint: str,
     request_payload: Dict[str, Any],
     response_payload: Dict[str, Any],
-    model: Optional[str],
-    latency_ms: Optional[float],
-    token_estimate: Optional[int],
-    selected_chunks: Optional[Iterable[Dict[str, Any]]] = None,
-    tool_calls: Optional[Iterable[Dict[str, Any]]] = None,
-    settings: Optional[Settings] = None,
+    model: str | None,
+    latency_ms: float | None,
+    token_estimate: int | None,
+    selected_chunks: Iterable[Dict[str, Any]] | None = None,
+    tool_calls: Iterable[Dict[str, Any]] | None = None,
+    settings: Settings | None = None,
 ) -> None:
     settings = settings or get_settings()
     sanitized_chunks: list[Dict[str, Any]] = []
@@ -583,8 +583,8 @@ def upsert_note(
     *,
     title: str,
     body: str,
-    note_id: Optional[int] = None,
-    settings: Optional[Settings] = None,
+    note_id: int | None = None,
+    settings: Settings | None = None,
 ) -> Dict[str, Any]:
     settings = settings or get_settings()
     with core_connection(settings) as conn:
@@ -609,7 +609,7 @@ def upsert_note(
     return dict(row) if row else {}
 
 
-def read_note(note_id: int, settings: Optional[Settings] = None) -> Optional[Dict[str, Any]]:
+def read_note(note_id: int, settings: Settings | None = None) -> Dict[str, Any] | None:
     settings = settings or get_settings()
     with core_connection(settings) as conn:
         row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()

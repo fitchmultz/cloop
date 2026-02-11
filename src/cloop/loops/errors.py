@@ -18,13 +18,11 @@ Exception Hierarchy:
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 class CloopError(Exception):
     """Base exception for all Cloop domain errors."""
 
-    def __init__(self, message: str, *, detail: Optional[str] = None) -> None:
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.detail = detail

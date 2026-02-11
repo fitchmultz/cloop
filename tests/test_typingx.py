@@ -1,7 +1,7 @@
 """Tests for typingx module."""
 
 import sqlite3
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 import pytest
 
@@ -54,7 +54,7 @@ class TestValidateIO:
         """Should handle Optional[T] correctly with a value."""
 
         @typingx.validate_io()
-        def maybe_value(x: Optional[str]) -> Optional[int]:
+        def maybe_value(x: str | None) -> int | None:
             if x is None:
                 return None
             return len(x)
@@ -65,7 +65,7 @@ class TestValidateIO:
         """Should handle Optional[T] correctly with None."""
 
         @typingx.validate_io()
-        def maybe_value(x: Optional[str]) -> Optional[int]:
+        def maybe_value(x: str | None) -> int | None:
             if x is None:
                 return None
             return len(x)
@@ -76,7 +76,7 @@ class TestValidateIO:
         """Should reject wrong type even in Optional."""
 
         @typingx.validate_io()
-        def process(x: Optional[int]) -> str:
+        def process(x: int | None) -> str:
             return str(x) if x is not None else "none"
 
         # Valid calls
