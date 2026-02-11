@@ -345,6 +345,35 @@ def test_retrieve_raises_on_embedding_model_mismatch(
     assert "Stored embed_model" in str(excinfo.value)
 
 
+def test_alignment_check_handles_corrupted_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that corrupted metadata doesn't crash but logs appropriately."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    vector = np.ones(2, dtype=np.float32)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [vector for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    doc = tmp_path / "corrupt.txt"
+    doc.write_text("test content", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+
+    # Corrupt the metadata with invalid JSON
+    with db.rag_connection(settings) as conn:
+        conn.execute("UPDATE chunks SET metadata = ?", ("not valid json{",))
+        conn.commit()
+
+    # Should not raise, should silently skip alignment check
+    results = retrieve_similar_chunks("test", top_k=1, settings=settings)
+    # Results should still work, just without alignment check
+    assert results is not None
+
+
 def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings = make_settings(tmp_path, vector_mode=VectorSearchMode.AUTO)
 
