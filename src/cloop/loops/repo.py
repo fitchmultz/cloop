@@ -422,6 +422,44 @@ def read_project_name(*, project_id: int | None, conn: sqlite3.Connection) -> st
     return typingx.as_type(str, row["name"]) if row else None
 
 
+def read_project_names_batch(*, project_ids: set[int], conn: sqlite3.Connection) -> dict[int, str]:
+    """Fetch multiple project names in a single query.
+
+    Returns a dict mapping project_id -> project_name.
+    Project IDs that don't exist will be omitted from the result.
+    """
+    if not project_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in project_ids)
+    sql = f"SELECT id, name FROM projects WHERE id IN ({placeholders})"
+    rows = conn.execute(sql, list(project_ids)).fetchall()
+    return {int(row["id"]): typingx.as_type(str, row["name"]) for row in rows}
+
+
+def list_loop_tags_batch(*, loop_ids: list[int], conn: sqlite3.Connection) -> dict[int, list[str]]:
+    """Fetch tags for multiple loops in a single query.
+
+    Returns a dict mapping loop_id -> list of tag names.
+    Loops with no tags will have an empty list.
+    """
+    if not loop_ids:
+        return {}
+    placeholders = ", ".join("?" for _ in loop_ids)
+    sql = f"""
+        SELECT loop_tags.loop_id, LOWER(tags.name) AS name
+        FROM loop_tags
+        JOIN tags ON tags.id = loop_tags.tag_id
+        WHERE loop_tags.loop_id IN ({placeholders})
+        ORDER BY loop_tags.loop_id, name ASC
+    """
+    rows = conn.execute(sql, loop_ids).fetchall()
+    result: dict[int, list[str]] = {loop_id: [] for loop_id in loop_ids}
+    for row in rows:
+        loop_id = int(row["loop_id"])
+        result.setdefault(loop_id, []).append(typingx.as_type(str, row["name"]))
+    return result
+
+
 def list_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute("SELECT * FROM projects ORDER BY name ASC").fetchall()
     return [dict(row) for row in rows]
