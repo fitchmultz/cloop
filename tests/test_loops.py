@@ -1007,3 +1007,131 @@ def test_parse_json_list_truncates_long_value_in_error(
     assert len(error_msg) < 300  # Reasonable upper bound for truncated message
 
     conn.close()
+
+
+# =============================================================================
+# Timestamp validation tests
+# =============================================================================
+
+
+def test_loop_capture_invalid_timestamp_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that invalid captured_at format returns 422 with clear error."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    invalid_timestamps = [
+        "not-a-timestamp",
+        "2024-13-45T99:99:99",  # Invalid date/time values
+        "2024/01/15 10:30:00",  # Wrong format entirely
+        "",  # Empty string
+        "   ",  # Whitespace only
+    ]
+
+    for invalid_ts in invalid_timestamps:
+        response = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "test",
+                "captured_at": invalid_ts,
+                "client_tz_offset_min": 0,
+            },
+        )
+        assert response.status_code == 422, f"Expected 422 for '{invalid_ts}'"
+        error_detail = response.json()
+        assert "error" in error_detail
+        # Check that the error message mentions validation
+        error_str = str(error_detail).lower()
+        assert "invalid_captured_at" in error_str or "validation" in error_str
+
+
+def test_loop_update_invalid_due_at_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that invalid due_at_utc format returns 422 with clear error."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create a loop first
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    # Try to update with invalid timestamp
+    response = client.patch(
+        f"/loops/{loop_id}",
+        json={"due_at_utc": "not-a-valid-timestamp"},
+    )
+    assert response.status_code == 422
+    error_detail = response.json()
+    assert "error" in error_detail
+    error_str = str(error_detail).lower()
+    assert "invalid_due_at_utc" in error_str or "validation" in error_str
+
+
+def test_loop_update_invalid_snooze_until_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that invalid snooze_until_utc format returns 422 with clear error."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create a loop first
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    # Try to update with invalid timestamp
+    response = client.patch(
+        f"/loops/{loop_id}",
+        json={"snooze_until_utc": "2024-13-45T99:99:99"},
+    )
+    assert response.status_code == 422
+    error_detail = response.json()
+    assert "error" in error_detail
+
+
+def test_loop_capture_valid_timestamp_with_z_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that timestamps with Z suffix are accepted."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Use Z suffix (UTC indicator)
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test with Z suffix",
+            "captured_at": "2024-01-15T10:30:00Z",
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["raw_text"] == "test with Z suffix"
+
+
+def test_loop_capture_valid_timestamp_with_offset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that timestamps with timezone offset are accepted."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Use timezone offset
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test with offset",
+            "captured_at": "2024-01-15T10:30:00-05:00",
+            "client_tz_offset_min": -300,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["raw_text"] == "test with offset"

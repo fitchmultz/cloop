@@ -63,6 +63,36 @@ def _normalize_iso(value: str) -> str:
     return value[:-1] + "+00:00" if value.endswith("Z") else value
 
 
+def validate_iso8601_timestamp(value: str, field_name: str = "timestamp") -> str:
+    """Validate that a string is a valid ISO8601 timestamp.
+
+    Args:
+        value: The timestamp string to validate
+        field_name: Name of the field for error messages
+
+    Returns:
+        The original value if valid
+
+    Raises:
+        ValueError: If the value is not a valid ISO8601 timestamp
+    """
+    if not value:
+        raise ValueError(f"invalid_{field_name}: value cannot be empty")
+
+    try:
+        # Normalize 'Z' suffix to '+00:00' for consistency
+        normalized = _normalize_iso(value)
+        datetime.fromisoformat(normalized)
+    except ValueError:
+        truncated = value[:50] + "..." if len(value) > 50 else value
+        raise ValueError(
+            f"invalid_{field_name}: '{truncated}' is not a valid ISO8601 timestamp. "
+            f"Expected format: 2024-01-15T10:30:00+00:00"
+        ) from None
+
+    return value
+
+
 def parse_utc_datetime(value: str) -> datetime:
     parsed = datetime.fromisoformat(_normalize_iso(value))
     if parsed.tzinfo is None:
