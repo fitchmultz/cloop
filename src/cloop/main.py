@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
@@ -361,9 +362,10 @@ def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSON
 
 @app.exception_handler(Exception)
 def handle_generic_exception(_: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled exception: %s", exc)
+    error_id = str(uuid.uuid4())
+    logger.exception("Unhandled exception [%s]: %s", error_id, exc)
     return _http_error(
-        {"message": "Unexpected server error", "exception": str(exc)},
+        {"message": "Unexpected server error", "error_id": error_id},
         status_code=500,
         error_type="server_error",
     )
