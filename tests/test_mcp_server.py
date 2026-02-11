@@ -181,7 +181,7 @@ def test_loop_update_rejects_status_field(tmp_path: Path, monkeypatch: pytest.Mo
         client_tz_offset_min=0,
     )
 
-    with pytest.raises(ToolError, match="Invalid status transition"):
+    with pytest.raises(ToolError, match="Invalid status"):
         loop_update(loop_id=created["id"], fields={"status": "completed"})
 
 
@@ -676,7 +676,7 @@ def test_loop_enrich_invalid_json_response(tmp_path: Path, monkeypatch: pytest.M
     # Mock invalid JSON response
     mock_response = {"choices": [{"message": {"content": "not valid json"}}]}
 
-    with pytest.raises(ToolError, match="Invalid json response"):
+    with pytest.raises(ToolError, match="Invalid response"):
         with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
             loop_enrich(loop_id=created["id"])
 

@@ -768,16 +768,18 @@ def test_extract_json_with_text_before_and_after():
 def test_extract_json_invalid_no_braces():
     """No JSON object in payload."""
     from cloop.loops.enrichment import _extract_json
+    from cloop.loops.errors import ValidationError
 
-    with pytest.raises(ValueError, match="invalid_json_response"):
+    with pytest.raises(ValidationError, match="Invalid response"):
         _extract_json("Just some text")
 
 
 def test_extract_json_invalid_not_dict():
     """JSON that's not a dict."""
     from cloop.loops.enrichment import _extract_json
+    from cloop.loops.errors import ValidationError
 
-    with pytest.raises(ValueError, match="invalid_json_response"):
+    with pytest.raises(ValidationError, match="Invalid response"):
         _extract_json('["just", "a", "list"]')
 
 
@@ -822,18 +824,20 @@ def test_extract_json_complex_nested():
 
 
 def test_extract_json_empty_string():
-    """Empty string should raise ValueError."""
+    """Empty string should raise ValidationError."""
     from cloop.loops.enrichment import _extract_json
+    from cloop.loops.errors import ValidationError
 
-    with pytest.raises(ValueError, match="invalid_json_response"):
+    with pytest.raises(ValidationError, match="Invalid response"):
         _extract_json("")
 
 
 def test_extract_json_whitespace_only():
-    """Whitespace only should raise ValueError."""
+    """Whitespace only should raise ValidationError."""
     from cloop.loops.enrichment import _extract_json
+    from cloop.loops.errors import ValidationError
 
-    with pytest.raises(ValueError, match="invalid_json_response"):
+    with pytest.raises(ValidationError, match="Invalid response"):
         _extract_json("   \n\t  ")
 
 
@@ -1150,10 +1154,11 @@ def test_loop_capture_valid_timestamp_with_offset(
 def test_update_loop_fields_rejects_invalid_fields(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that update_loop_fields raises ValueError for invalid field names."""
+    """Test that update_loop_fields raises ValidationError for invalid field names."""
     import sqlite3
 
     from cloop.loops import repo
+    from cloop.loops.errors import ValidationError
     from cloop.loops.models import LoopStatus
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
@@ -1175,7 +1180,7 @@ def test_update_loop_fields_rejects_invalid_fields(
     )
 
     # Try to update with an invalid field name
-    with pytest.raises(ValueError, match="invalid_field:typo_field"):
+    with pytest.raises(ValidationError, match="Invalid fields"):
         repo.update_loop_fields(
             loop_id=record.id,
             fields={"typo_field": "some value"},
@@ -1183,7 +1188,7 @@ def test_update_loop_fields_rejects_invalid_fields(
         )
 
     # Try with mix of valid and invalid - should still fail
-    with pytest.raises(ValueError, match="invalid_field"):
+    with pytest.raises(ValidationError, match="Invalid fields"):
         repo.update_loop_fields(
             loop_id=record.id,
             fields={"title": "Valid title", "another_typo": "bad"},
@@ -1200,6 +1205,7 @@ def test_update_loop_fields_rejects_multiple_invalid_fields(
     import sqlite3
 
     from cloop.loops import repo
+    from cloop.loops.errors import ValidationError
     from cloop.loops.models import LoopStatus
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
@@ -1221,7 +1227,7 @@ def test_update_loop_fields_rejects_multiple_invalid_fields(
     )
 
     # Try with multiple invalid fields - should list all, sorted
-    with pytest.raises(ValueError, match=r"invalid_field:alpha_field, zebra_field"):
+    with pytest.raises(ValidationError, match="alpha_field, zebra_field"):
         repo.update_loop_fields(
             loop_id=record.id,
             fields={"zebra_field": "z", "alpha_field": "a"},

@@ -66,6 +66,10 @@ def _normalize_iso(value: str) -> str:
 def validate_iso8601_timestamp(value: str, field_name: str = "timestamp") -> str:
     """Validate that a string is a valid ISO8601 timestamp.
 
+    This function is used as a Pydantic field validator and therefore
+    raises ValueError (not ValidationError) for compatibility with
+    Pydantic's validation error handling.
+
     Args:
         value: The timestamp string to validate
         field_name: Name of the field for error messages
@@ -87,7 +91,7 @@ def validate_iso8601_timestamp(value: str, field_name: str = "timestamp") -> str
         truncated = value[:50] + "..." if len(value) > 50 else value
         raise ValueError(
             f"invalid_{field_name}: '{truncated}' is not a valid ISO8601 timestamp. "
-            f"Expected format: 2024-01-15T10:30:00+00:00"
+            f"Expected format: 2024-01-15T10:30:00+00:00",
         ) from None
 
     return value

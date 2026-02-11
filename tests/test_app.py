@@ -377,3 +377,102 @@ def test_ask_returns_400_on_embedding_drift(
     payload = response.json()
     assert payload["error"]["type"] == "http_error"
     assert "embedding_dim mismatch" in payload["error"]["message"]
+
+
+def test_loop_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that LoopNotFoundError maps to HTTP 404."""
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.get("/loops/999999")
+    assert response.status_code == 404
+    data = response.json()
+    assert data["error"]["type"] == "not_found"
+    assert "Loop not found" in data["error"]["message"]
+
+
+def test_loop_update_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that updating a non-existent loop returns 404."""
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.patch("/loops/999999", json={"title": "Updated"})
+    assert response.status_code == 404
+    data = response.json()
+    assert data["error"]["type"] == "not_found"
+
+
+def test_loop_close_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that closing a non-existent loop returns 404."""
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.post("/loops/999999/close", json={"status": "completed"})
+    assert response.status_code == 404
+    data = response.json()
+    assert data["error"]["type"] == "not_found"
+
+
+def test_loop_status_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that status transition on non-existent loop returns 404."""
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.post("/loops/999999/status", json={"status": "actionable"})
+    assert response.status_code == 404
+    data = response.json()
+    assert data["error"]["type"] == "not_found"
+
+
+def test_loop_enrich_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that enriching a non-existent loop returns 404."""
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.post("/loops/999999/enrich")
+    assert response.status_code == 404
+    data = response.json()
+    assert data["error"]["type"] == "not_found"
+
+
+def test_loop_capture_invalid_timestamp_returns_validation_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that invalid timestamp returns validation error (422 from Pydantic)."""
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Test loop",
+            "captured_at": "not-a-timestamp",
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert response.status_code == 422
+    data = response.json()
+    assert data["error"]["type"] == "validation_error"
+
+
+def test_loop_update_empty_fields_returns_400(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that updating with no fields returns 400."""
+    client = make_client(tmp_path, monkeypatch)
+
+    # First capture a loop (with autopilot disabled to avoid background task issues)
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+
+    capture_resp = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Test loop",
+            "captured_at": "2024-01-01T12:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert capture_resp.status_code == 200
+    loop_id = capture_resp.json()["id"]
+
+    # Try to update with empty fields (by using a dict with only excluded defaults)
+    response = client.patch(f"/loops/{loop_id}", json={})
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["type"] == "http_error"
+    assert "no_fields_to_update" in data["error"]["message"]

@@ -13,6 +13,8 @@ from .. import db
 from ..providers import resolve_provider_kwargs
 from ..settings import Settings, get_settings
 from . import repo
+from .errors import LoopNotFoundError
+from .errors import ValidationError as CloopValidationError
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
 from .related import suggest_links, upsert_loop_embedding
 
@@ -81,7 +83,7 @@ def _extract_json(payload: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         pass
 
-    raise ValueError("invalid_json_response")
+    raise CloopValidationError("response", "invalid JSON from LLM")
 
 
 def _build_prompt(loop: Mapping[str, Any]) -> list[dict[str, str]]:
@@ -249,7 +251,7 @@ def enrich_loop(
 
     record = repo.read_loop(loop_id=loop_id, conn=conn)
     if record is None:
-        raise ValueError("loop_not_found")
+        raise LoopNotFoundError(loop_id)
     loop_payload = {
         "id": record.id,
         "raw_text": record.raw_text,

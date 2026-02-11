@@ -31,6 +31,12 @@ from . import db
 from .loops import enrichment as loop_enrichment
 from .loops import repo as loop_repo
 from .loops import service as loop_service
+from .loops.errors import (
+    CloopError,
+    NotFoundError,
+    TransitionError,
+    ValidationError,
+)
 from .loops.models import LoopStatus, validate_iso8601_timestamp
 from .settings import get_settings
 
@@ -56,54 +62,56 @@ def with_db_init(func: F) -> F:
     return _wrapper  # type: ignore[return-value]
 
 
-def _to_tool_error(exc: ValueError) -> ToolError:
-    """Convert service layer ValueError to MCP ToolError with user-friendly message.
+def _to_tool_error(exc: Exception) -> ToolError:
+    """Convert service layer exceptions to MCP ToolError with user-friendly message.
 
-    Uses the same error pattern matching as main.py HTTP error handling
-    to ensure consistency across interfaces.
+    Typed exceptions are handled directly; ValueError falls back to string matching
+    for backwards compatibility with any remaining legacy code.
     """
-    message = str(exc)
+    # Handle typed exceptions directly
+    if isinstance(exc, NotFoundError):
+        return ToolError(exc.message)
+    if isinstance(exc, TransitionError):
+        return ToolError(f"Invalid status transition: {exc.from_status} -> {exc.to_status}")
+    if isinstance(exc, ValidationError):
+        return ToolError(exc.message)
+    if isinstance(exc, CloopError):
+        return ToolError(exc.message)
 
-    # Map "not_found" errors (same pattern as main.py)
-    if "not_found" in message:
-        # Convert snake_case to human-readable
-        if "loop_not_found" in message:
-            return ToolError("Loop not found")
-        if "project_not_found" in message:
-            return ToolError("Project not found")
-        return ToolError("Resource not found")
+    # Fallback for ValueError (legacy)
+    if isinstance(exc, ValueError):
+        message = str(exc)
+        if "not_found" in message:
+            if "loop_not_found" in message:
+                return ToolError("Loop not found")
+            if "project_not_found" in message:
+                return ToolError("Project not found")
+            return ToolError("Resource not found")
+        if message.startswith("invalid_"):
+            field = message.split(":")[0].replace("invalid_", "")
+            return ToolError(f"Invalid {field.replace('_', ' ')}")
+        if "invalid_transition" in message or "status_update_requires_transition" in message:
+            return ToolError(f"Invalid status transition: {message}")
+        if "status must be completed or dropped" in message:
+            return ToolError("Status must be 'completed' or 'dropped'")
+        return ToolError(message)
 
-    # Map validation errors (invalid_*)
-    if message.startswith("invalid_"):
-        # Convert invalid_captured_at -> "Invalid captured_at timestamp"
-        field = message.split(":")[0].replace("invalid_", "")
-        return ToolError(f"Invalid {field.replace('_', ' ')}")
-
-    # Map transition errors
-    if "invalid_transition" in message or "status_update_requires_transition" in message:
-        return ToolError(f"Invalid status transition: {message}")
-
-    # Map completion/dropping errors
-    if "status must be completed or dropped" in message:
-        return ToolError("Status must be 'completed' or 'dropped'")
-
-    # Default: pass through the original message
-    return ToolError(message)
+    # Unknown exception type
+    return ToolError(str(exc))
 
 
 def with_mcp_error_handling(func: F) -> F:
-    """Wrap MCP tool handler to convert ValueError to ToolError.
+    """Wrap MCP tool handler to convert exceptions to ToolError.
 
-    Provides consistent error handling across all MCP tools by catching
-    ValueError from the service layer and converting it to structured
-    ToolError responses for MCP clients.
+    Catches both typed CloopError and legacy ValueError for consistent
+    error responses to MCP clients.
     """
 
     @wraps(func)
     def _wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
-        except ValueError as exc:
+        except Exception as exc:
             raise _to_tool_error(exc) from exc
 
     return _wrapper  # type: ignore[return-value]

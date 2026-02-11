@@ -21,6 +21,7 @@ from .llm import (
 )
 from .loops import enrichment as loop_enrichment
 from .loops import service as loop_service
+from .loops.errors import CloopError, NotFoundError, TransitionError, ValidationError
 from .loops.models import LoopStatus
 from .rag import (
     _SQL_PY_METRIC,
@@ -299,6 +300,36 @@ def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
     return _http_error(exc.detail, status_code=exc.status_code, error_type="http_error")
 
 
+@app.exception_handler(CloopError)
+def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
+    """Handle all typed Cloop domain exceptions.
+
+    Maps exception types to appropriate HTTP status codes:
+    - NotFoundError -> 404
+    - ValidationError -> 400
+    - TransitionError -> 400
+    - Other CloopError -> 400
+    """
+    if isinstance(exc, NotFoundError):
+        status_code = 404
+        error_type = "not_found"
+    elif isinstance(exc, TransitionError):
+        status_code = 400
+        error_type = "transition_error"
+    elif isinstance(exc, ValidationError):
+        status_code = 400
+        error_type = "validation_error"
+    else:
+        status_code = 400
+        error_type = "domain_error"
+
+    return _http_error(
+        {"message": exc.message, "detail": exc.detail},
+        status_code=status_code,
+        error_type=error_type,
+    )
+
+
 @app.exception_handler(RequestValidationError)
 def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:
     serialized_errors: List[Dict[str, Any]] = []
@@ -334,10 +365,12 @@ def handle_tool_call(tool_call: ToolCall) -> Dict[str, Any]:
     payload = tool_call.model_dump(exclude_none=True, exclude={"name"})
     try:
         return executor(**payload)
-    except ValueError as exc:  # Surface validation issues as 4xx for manual mode
-        detail = str(exc)
-        status = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status, detail=detail) from exc
+    except CloopError:
+        # Typed exceptions are handled by the global exception_handler
+        raise
+    except ValueError as exc:
+        # Fallback for any remaining ValueError (should not happen after migration)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _sse_event(event: str, payload: Dict[str, Any]) -> str:
@@ -564,18 +597,15 @@ def loop_capture_endpoint(
 ) -> LoopResponse:
     status = _resolve_loop_status(request)
     with db.core_connection(settings) as conn:
-        try:
-            record = loop_service.capture_loop(
-                raw_text=request.raw_text,
-                captured_at_iso=request.captured_at,
-                client_tz_offset_min=request.client_tz_offset_min,
-                status=status,
-                conn=conn,
-            )
-            if settings.autopilot_enabled:
-                record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        record = loop_service.capture_loop(
+            raw_text=request.raw_text,
+            captured_at_iso=request.captured_at,
+            client_tz_offset_min=request.client_tz_offset_min,
+            status=status,
+            conn=conn,
+        )
+        if settings.autopilot_enabled:
+            record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
     if settings.autopilot_enabled:
         background_tasks.add_task(
             loop_enrichment.enrich_loop,
@@ -658,10 +688,7 @@ def loop_import_endpoint(
     settings: SettingsDep,
 ) -> LoopImportResponse:
     with db.core_connection(settings) as conn:
-        try:
-            imported = loop_service.import_loops(loops=request.loops, conn=conn)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        imported = loop_service.import_loops(loops=request.loops, conn=conn)
     return LoopImportResponse(imported=imported)
 
 
@@ -671,10 +698,7 @@ def loop_get_endpoint(
     settings: SettingsDep,
 ) -> LoopResponse:
     with db.core_connection(settings) as conn:
-        try:
-            record = loop_service.get_loop(loop_id=loop_id, conn=conn)
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        record = loop_service.get_loop(loop_id=loop_id, conn=conn)
     return LoopResponse(**record)
 
 
@@ -688,12 +712,7 @@ def loop_update_endpoint(
     if not fields:
         raise HTTPException(status_code=400, detail="no_fields_to_update")
     with db.core_connection(settings) as conn:
-        try:
-            record = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
-        except ValueError as exc:
-            detail = str(exc)
-            status_code = 404 if "not_found" in detail else 400
-            raise HTTPException(status_code=status_code, detail=detail) from exc
+        record = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
     return LoopResponse(**record)
 
 
@@ -706,17 +725,12 @@ def loop_close_endpoint(
     if request.status not in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
         raise HTTPException(status_code=400, detail="status must be completed or dropped")
     with db.core_connection(settings) as conn:
-        try:
-            record = loop_service.transition_status(
-                loop_id=loop_id,
-                to_status=request.status,
-                conn=conn,
-                note=request.note,
-            )
-        except ValueError as exc:
-            detail = str(exc)
-            status_code = 404 if "not_found" in detail else 400
-            raise HTTPException(status_code=status_code, detail=detail) from exc
+        record = loop_service.transition_status(
+            loop_id=loop_id,
+            to_status=request.status,
+            conn=conn,
+            note=request.note,
+        )
     return LoopResponse(**record)
 
 
@@ -727,17 +741,12 @@ def loop_status_endpoint(
     settings: SettingsDep,
 ) -> LoopResponse:
     with db.core_connection(settings) as conn:
-        try:
-            record = loop_service.transition_status(
-                loop_id=loop_id,
-                to_status=request.status,
-                conn=conn,
-                note=request.note,
-            )
-        except ValueError as exc:
-            detail = str(exc)
-            status_code = 404 if "not_found" in detail else 400
-            raise HTTPException(status_code=status_code, detail=detail) from exc
+        record = loop_service.transition_status(
+            loop_id=loop_id,
+            to_status=request.status,
+            conn=conn,
+            note=request.note,
+        )
     return LoopResponse(**record)
 
 
@@ -748,12 +757,7 @@ def loop_enrich_endpoint(
     settings: SettingsDep,
 ) -> LoopResponse:
     with db.core_connection(settings) as conn:
-        try:
-            record = loop_service.request_enrichment(loop_id=loop_id, conn=conn)
-        except ValueError as exc:
-            detail = str(exc)
-            status_code = 404 if "not_found" in detail else 400
-            raise HTTPException(status_code=status_code, detail=detail) from exc
+        record = loop_service.request_enrichment(loop_id=loop_id, conn=conn)
     background_tasks.add_task(
         loop_enrichment.enrich_loop,
         loop_id=loop_id,
