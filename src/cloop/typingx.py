@@ -1,14 +1,8 @@
 import functools
 import inspect
-from typing import Any, Callable, Type, TypeVar, Union, get_args, get_origin
+from typing import Any, Callable, TypeVar, Union, get_args, get_origin
 
 T = TypeVar("T")
-
-
-def as_type(tp: Type[T], value: Any) -> T:
-    """Lightweight runtime cast helper used to satisfy validation constraints."""
-
-    return value
 
 
 def _is_instance_of_type(value: Any, expected_type: Any) -> bool:
@@ -133,4 +127,4 @@ def escape_like_pattern(query: str) -> str:
     return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-__all__ = ["as_type", "validate_io", "escape_like_pattern"]
+__all__ = ["validate_io", "escape_like_pattern"]

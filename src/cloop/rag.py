@@ -11,7 +11,6 @@ from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 import numpy as np
 from pypdf import PdfReader
 
-from . import typingx
 from .db import (
     VectorBackend,
     get_vector_backend,
@@ -126,7 +125,7 @@ def upsert_document_record(
         (doc_path,),
     ).fetchone()
     if row_obj:
-        row = typingx.as_type(dict[str, Any], dict(row_obj))
+        row = dict(row_obj)
         changed = (
             int(row["mtime_ns"]) != int(metadata["mtime_ns"])
             or int(row["size_bytes"]) != int(metadata["size_bytes"])
@@ -193,7 +192,7 @@ def _select_document_ids_for_target(
             "SELECT id FROM documents WHERE document_path = ?",
             (doc_path,),
         ).fetchall()
-    return {int(typingx.as_type(dict[str, Any], dict(row))["id"]) for row in rows}
+    return {int(dict(row)["id"]) for row in rows}
 
 
 def purge_documents(
@@ -247,7 +246,7 @@ def _collect_missing_documents(
     rows = conn.execute("SELECT document_path FROM documents").fetchall()
     missing: List[Path] = []
     for row in rows:
-        doc_map = typingx.as_type(dict[str, Any], dict(row))
+        doc_map = dict(row)
         doc_path = _normalize_path(Path(doc_map["document_path"]))
         if doc_path.exists():
             continue
@@ -480,7 +479,7 @@ def _chunk_rows_with_scores(
         ).fetchone()
         if chunk_row is None:
             continue
-        chunk = typingx.as_type(dict[str, Any], dict(chunk_row))
+        chunk = dict(chunk_row)
         chunk.pop("embedding_blob", None)
         distance = float(row["distance"])
         # Extensions return a distance metric; map to similarity as documented by _VECLIKE_METRIC.
@@ -664,7 +663,7 @@ def fetch_all_chunks(settings: Settings | None = None) -> List[Dict[str, Any]]:
             FROM chunks
             """
         ).fetchall()
-    return [typingx.as_type(dict[str, Any], dict(row)) for row in rows]
+    return [dict(row) for row in rows]
 
 
 def retrieve_similar_chunks(

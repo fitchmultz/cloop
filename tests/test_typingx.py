@@ -413,25 +413,3 @@ class TestValidateIO:
         # Invalid keyword-only
         with pytest.raises(TypeError, match="argument 'c' expected"):
             mixed(1, "two", c="not float")
-
-
-class TestAsType:
-    """Tests for as_type helper."""
-
-    def test_casts_value(self) -> None:
-        """Should cast value to expected type."""
-        value: object = "hello"
-        result = typingx.as_type(str, value)
-        assert result == "hello"
-
-    def test_returns_value_unchanged(self) -> None:
-        """Should return value unchanged (runtime cast only)."""
-        value = 42
-        result = typingx.as_type(int, value)
-        assert result == 42
-
-    def test_with_complex_type(self) -> None:
-        """Should work with complex types."""
-        value: object = ["a", "b", "c"]
-        result = typingx.as_type(list[str], value)
-        assert result == ["a", "b", "c"]
