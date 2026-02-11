@@ -37,17 +37,3 @@ def embed_texts(
             )
         vectors.append(np.array(embedding_values, dtype=np.float32))
     return vectors
-
-
-def cosine_similarities(
-    query: np.ndarray,
-    embeddings: Iterable[np.ndarray],
-) -> np.ndarray:
-    vectors = list(embeddings)
-    if not vectors:
-        return np.array([])
-    matrix = np.stack(vectors)
-    query_norm = query / (np.linalg.norm(query) + 1e-12)
-    matrix_norms = np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-12
-    normalized = matrix / matrix_norms
-    return normalized @ query_norm
