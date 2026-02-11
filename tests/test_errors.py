@@ -5,7 +5,6 @@ from cloop.loops.errors import (
     LoopNotFoundError,
     NoteNotFoundError,
     NotFoundError,
-    ProjectNotFoundError,
     TransitionError,
     ValidationError,
 )
@@ -21,11 +20,6 @@ class TestExceptionHierarchy:
 
     def test_note_not_found_is_not_found(self) -> None:
         exc = NoteNotFoundError(1)
-        assert isinstance(exc, NotFoundError)
-        assert isinstance(exc, CloopError)
-
-    def test_project_not_found_is_not_found(self) -> None:
-        exc = ProjectNotFoundError(99)
         assert isinstance(exc, NotFoundError)
         assert isinstance(exc, CloopError)
 
@@ -55,12 +49,6 @@ class TestExceptionMessages:
         assert "5" in str(exc)
         assert exc.note_id == 5
 
-    def test_project_not_found_message(self) -> None:
-        exc = ProjectNotFoundError(7)
-        assert "Project not found" in str(exc)
-        assert "7" in str(exc)
-        assert exc.project_id == 7
-
     def test_validation_error_message(self) -> None:
         exc = ValidationError("due_at_utc", "invalid date format")
         assert "Invalid due_at_utc" in str(exc)
@@ -87,10 +75,6 @@ class TestExceptionDetails:
     def test_note_not_found_detail(self) -> None:
         exc = NoteNotFoundError(99)
         assert exc.detail == "note_id=99"
-
-    def test_project_not_found_detail(self) -> None:
-        exc = ProjectNotFoundError(1)
-        assert exc.detail == "project_id=1"
 
     def test_validation_error_detail(self) -> None:
         exc = ValidationError("status", "invalid value")
