@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import math
 import os
 import re
@@ -21,6 +22,8 @@ from .db import (
 from .embeddings import embed_texts
 from .settings import EmbedStorageMode, Settings, VectorSearchMode, get_settings
 from .typingx import escape_like_pattern
+
+logger = logging.getLogger(__name__)
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 PDF_EXTENSIONS = {".pdf"}
@@ -299,7 +302,11 @@ def _assert_embedding_model_alignment(*, settings: Settings) -> None:
         return
     try:
         metadata = json.loads(row["metadata"] or "{}")
-    except Exception:
+    except json.JSONDecodeError:
+        logger.debug("Chunk metadata is not valid JSON, skipping model alignment check")
+        return
+    except (TypeError, KeyError) as e:
+        logger.warning("Unexpected error parsing chunk metadata: %s", e)
         return
     stored = metadata.get("embed_model")
     if stored and stored != settings.embed_model:
