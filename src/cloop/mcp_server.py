@@ -25,6 +25,7 @@ from functools import wraps
 from typing import Any, Callable, TypeVar
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 from . import db
 from .loops import enrichment as loop_enrichment
@@ -55,8 +56,62 @@ def with_db_init(func: F) -> F:
     return _wrapper  # type: ignore[return-value]
 
 
+def _to_tool_error(exc: ValueError) -> ToolError:
+    """Convert service layer ValueError to MCP ToolError with user-friendly message.
+
+    Uses the same error pattern matching as main.py HTTP error handling
+    to ensure consistency across interfaces.
+    """
+    message = str(exc)
+
+    # Map "not_found" errors (same pattern as main.py)
+    if "not_found" in message:
+        # Convert snake_case to human-readable
+        if "loop_not_found" in message:
+            return ToolError("Loop not found")
+        if "project_not_found" in message:
+            return ToolError("Project not found")
+        return ToolError("Resource not found")
+
+    # Map validation errors (invalid_*)
+    if message.startswith("invalid_"):
+        # Convert invalid_captured_at -> "Invalid captured_at timestamp"
+        field = message.split(":")[0].replace("invalid_", "")
+        return ToolError(f"Invalid {field.replace('_', ' ')}")
+
+    # Map transition errors
+    if "invalid_transition" in message or "status_update_requires_transition" in message:
+        return ToolError(f"Invalid status transition: {message}")
+
+    # Map completion/dropping errors
+    if "status must be completed or dropped" in message:
+        return ToolError("Status must be 'completed' or 'dropped'")
+
+    # Default: pass through the original message
+    return ToolError(message)
+
+
+def with_mcp_error_handling(func: F) -> F:
+    """Wrap MCP tool handler to convert ValueError to ToolError.
+
+    Provides consistent error handling across all MCP tools by catching
+    ValueError from the service layer and converting it to structured
+    ToolError responses for MCP clients.
+    """
+
+    @wraps(func)
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except ValueError as exc:
+            raise _to_tool_error(exc) from exc
+
+    return _wrapper  # type: ignore[return-value]
+
+
 @mcp.tool(name="loop.create")
 @with_db_init
+@with_mcp_error_handling
 def loop_create(
     raw_text: str,
     captured_at: str,
@@ -81,6 +136,7 @@ def loop_create(
 
 @mcp.tool(name="loop.update")
 @with_db_init
+@with_mcp_error_handling
 def loop_update(loop_id: int, fields: dict[str, Any]) -> dict[str, Any]:
     # Validate timestamp fields in the fields dict
     if "due_at_utc" in fields and fields["due_at_utc"] is not None:
@@ -95,6 +151,7 @@ def loop_update(loop_id: int, fields: dict[str, Any]) -> dict[str, Any]:
 
 @mcp.tool(name="loop.close")
 @with_db_init
+@with_mcp_error_handling
 def loop_close(
     loop_id: int,
     status: str = "completed",
@@ -115,6 +172,7 @@ def loop_close(
 
 @mcp.tool(name="loop.list")
 @with_db_init
+@with_mcp_error_handling
 def loop_list(status: str | None = None, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     settings = get_settings()
     parsed_status = LoopStatus(status) if status else None
@@ -129,6 +187,7 @@ def loop_list(status: str | None = None, limit: int = 50, offset: int = 0) -> li
 
 @mcp.tool(name="loop.search")
 @with_db_init
+@with_mcp_error_handling
 def loop_search(query: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     settings = get_settings()
     with db.core_connection(settings) as conn:
@@ -137,6 +196,7 @@ def loop_search(query: str, limit: int = 50, offset: int = 0) -> list[dict[str, 
 
 @mcp.tool(name="loop.snooze")
 @with_db_init
+@with_mcp_error_handling
 def loop_snooze(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
     # Validate timestamp format before processing
     validate_iso8601_timestamp(snooze_until_utc, "snooze_until_utc")
@@ -152,6 +212,7 @@ def loop_snooze(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
 
 @mcp.tool(name="loop.enrich")
 @with_db_init
+@with_mcp_error_handling
 def loop_enrich(loop_id: int) -> dict[str, Any]:
     settings = get_settings()
     with db.core_connection(settings) as conn:
@@ -162,6 +223,7 @@ def loop_enrich(loop_id: int) -> dict[str, Any]:
 
 @mcp.tool(name="project.list")
 @with_db_init
+@with_mcp_error_handling
 def project_list() -> list[dict[str, Any]]:
     settings = get_settings()
     with db.core_connection(settings) as conn:
