@@ -44,6 +44,7 @@ def _test_settings() -> Settings:
         prioritization_quick_win_minutes=15,
         prioritization_high_leverage_threshold=0.7,
         related_similarity_threshold=0.78,
+        related_max_candidates=1000,
     )
 
 
@@ -398,6 +399,134 @@ def test_list_loops_query_count_not_n_plus_one(
         assert f"tag{i}" in loop["tags"]
 
     conn.close()
+
+
+def test_fetch_loop_embeddings_with_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that fetch_loop_embeddings respects the limit parameter."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create test loops with embeddings
+    for i in range(5):
+        loop = repo.create_loop(
+            raw_text=f"Test loop {i}",
+            captured_at_utc="2024-01-01T00:00:00+00:00",
+            captured_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        repo.upsert_loop_embedding(
+            loop_id=loop.id,
+            embedding_blob=b"\x00" * 16,  # 4 floats
+            embedding_dim=4,
+            embedding_norm=1.0,
+            embed_model="test",
+            conn=conn,
+        )
+
+    # Test with limit
+    limited = repo.fetch_loop_embeddings(conn=conn, limit=3)
+    assert len(limited) == 3
+
+    # Test without limit
+    all_rows = repo.fetch_loop_embeddings(conn=conn, limit=None)
+    assert len(all_rows) == 5
+
+    # Test with exclude_loop_id
+    excluded = repo.fetch_loop_embeddings(conn=conn, exclude_loop_id=1)
+    assert len(excluded) == 4
+    assert all(row["loop_id"] != 1 for row in excluded)
+
+    # Test with both limit and exclude_loop_id
+    limited_excluded = repo.fetch_loop_embeddings(conn=conn, limit=2, exclude_loop_id=1)
+    assert len(limited_excluded) <= 2
+    assert all(row["loop_id"] != 1 for row in limited_excluded)
+
+    conn.close()
+
+
+def test_find_related_loops_respects_max_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that find_related_loops respects the related_max_candidates setting."""
+    import sqlite3
+
+    import numpy as np
+
+    from cloop.db import init_core_db
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+    from cloop.loops.related import find_related_loops
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_RELATED_MAX_CANDIDATES", "2")
+    get_settings.cache_clear()
+    settings = get_settings()
+    init_core_db(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create test loops with different embeddings
+    query_vec = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+    for i in range(5):
+        loop = repo.create_loop(
+            raw_text=f"Test loop {i}",
+            captured_at_utc="2024-01-01T00:00:00+00:00",
+            captured_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        # Create embeddings with varying similarity to query
+        vec = np.array([0.9 if j == i % 4 else 0.1 for j in range(4)], dtype=np.float32)
+        vec = vec / np.linalg.norm(vec)
+        repo.upsert_loop_embedding(
+            loop_id=loop.id,
+            embedding_blob=vec.tobytes(),
+            embedding_dim=4,
+            embedding_norm=float(np.linalg.norm(vec)),
+            embed_model="test",
+            conn=conn,
+        )
+
+    # With max_candidates=2, we fetch at most 2 embeddings (excluding loop_id=1)
+    # With ORDER BY loop_id, we get loops 2 and 3 (since loop 1 is excluded)
+    related = find_related_loops(
+        loop_id=1,
+        query_vec=query_vec,
+        threshold=0.0,
+        top_k=10,
+        conn=conn,
+        settings=settings,
+    )
+    # We should get exactly 2 related loops (loops 2 and 3 from the LIMIT 2)
+    assert len(related) == 2
+
+    conn.close()
+
+
+def test_find_related_loops_scalability_docstring() -> None:
+    """Verify find_related_loops has scalability documentation."""
+    from cloop.loops.related import find_related_loops
+
+    docstring = find_related_loops.__doc__
+    assert docstring is not None
+    assert "O(n)" in docstring or "scalability" in docstring.lower()
+    assert "memory" in docstring.lower() or "computation" in docstring.lower()
 
 
 def test_search_loops_escapes_like_wildcards_percent(

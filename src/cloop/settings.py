@@ -62,6 +62,7 @@ class Settings:
     prioritization_high_leverage_threshold: float
     # Related loop settings
     related_similarity_threshold: float
+    related_max_candidates: int
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -153,6 +154,7 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_PRIORITIZATION_HIGH_LEVERAGE_THRESHOLD", "0.7")
         ),
         related_similarity_threshold=float(os.getenv("CLOOP_RELATED_SIMILARITY_THRESHOLD", "0.78")),
+        related_max_candidates=int(os.getenv("CLOOP_RELATED_MAX_CANDIDATES", "1000")),
     )
     return _validate_settings(settings)
 
@@ -206,4 +208,6 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("Streaming default cannot be enabled when default tool mode is llm")
     if not 0.0 <= settings.autopilot_autoapply_min_confidence <= 1.0:
         raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
+    if settings.related_max_candidates < 1:
+        raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
     return settings
