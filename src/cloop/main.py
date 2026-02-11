@@ -623,7 +623,7 @@ def loop_tags_endpoint(settings: SettingsDep) -> List[str]:
 def loop_export_endpoint(settings: SettingsDep) -> LoopExportResponse:
     with db.core_connection(settings) as conn:
         loops = loop_service.export_loops(conn=conn)
-    return LoopExportResponse(version=1, loops=loops)
+    return LoopExportResponse(version=1, loops=[LoopExportItem(**loop_item) for loop_item in loops])
 
 
 @app.post("/loops/import", response_model=LoopImportResponse)
@@ -743,7 +743,11 @@ def loop_next_endpoint(
 ) -> LoopNextResponse:
     with db.core_connection(settings) as conn:
         payload = loop_service.next_loops(limit=limit, conn=conn)
-    return LoopNextResponse(**payload)
+    return LoopNextResponse(
+        due_soon=[LoopResponse(**loop_item) for loop_item in payload["due_soon"]],
+        quick_wins=[LoopResponse(**loop_item) for loop_item in payload["quick_wins"]],
+        high_leverage=[LoopResponse(**loop_item) for loop_item in payload["high_leverage"]],
+    )
 
 
 @app.get("/ask", response_model=AskResponse)

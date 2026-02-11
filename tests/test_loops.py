@@ -12,7 +12,7 @@ from cloop.settings import get_settings
 def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    get_settings.cache_clear()  # type: ignore[attr-defined]
+    get_settings.cache_clear()
     db.init_databases(get_settings())
     return TestClient(app)
 

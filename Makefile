@@ -1,4 +1,4 @@
-.PHONY: help sync fmt fmt-check lint lint-fix type test check run
+.PHONY: help sync fmt fmt-check lint lint-fix type test check ci run
 
 help:
 	@printf "%s\n" \
@@ -37,6 +37,8 @@ test:
 	uv run pytest
 
 check: fmt-check lint type test
+
+ci: check
 
 run:
 	uv run uvicorn cloop.main:app --reload

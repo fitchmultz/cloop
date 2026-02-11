@@ -17,7 +17,7 @@ def make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     os.environ["CLOOP_DATA_DIR"] = str(tmp_path)
     os.environ["CLOOP_LLM_MODEL"] = "mock-llm"
     os.environ["CLOOP_EMBED_MODEL"] = "mock-embed"
-    get_settings.cache_clear()  # type: ignore[attr-defined]
+    get_settings.cache_clear()
     db.init_databases(get_settings())
 
     def mock_completion(*args: Any, **kwargs: Any) -> Dict[str, Any]:
