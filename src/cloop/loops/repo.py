@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from typing import Any, Mapping
 
 from .. import typingx
 from .models import EnrichmentState, LoopRecord, LoopStatus, parse_utc_datetime
+
+logger = logging.getLogger(__name__)
 
 # Re-export for backward compatibility
 _escape_like_pattern = typingx.escape_like_pattern
@@ -41,7 +44,12 @@ def _parse_json_list(value: Any) -> list[str]:
         return []
     try:
         parsed = json.loads(value)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Failed to parse JSON list: %s. Returning empty list.",
+            e,
+            extra={"raw_value": repr(value)[:200]},  # Limit length for safety
+        )
         return []
     return [str(item) for item in parsed] if isinstance(parsed, list) else []
 
@@ -51,7 +59,12 @@ def _parse_json_dict(value: Any) -> dict[str, object]:
         return {}
     try:
         parsed = json.loads(value)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.warning(
+            "Failed to parse JSON dict: %s. Returning empty dict.",
+            e,
+            extra={"raw_value": repr(value)[:200]},  # Limit length for safety
+        )
         return {}
     return parsed if isinstance(parsed, dict) else {}
 

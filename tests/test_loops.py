@@ -697,3 +697,159 @@ def test_extract_json_malformed_in_markdown():
 ```
     But here is valid JSON: {"key": "value"}"""
     assert _extract_json(payload) == {"key": "value"}
+
+
+# =============================================================================
+# JSON parsing error handling tests
+# =============================================================================
+
+
+def test_parse_json_list_logs_warning_on_malformed_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that malformed JSON in user_locks_json field is logged as a warning."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop with valid JSON initially
+    record = repo.create_loop(
+        raw_text="test loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Directly corrupt the user_locks_json field in the database
+    conn.execute(
+        "UPDATE loops SET user_locks_json = ? WHERE id = ?",
+        ('{"invalid json missing closing', record.id),
+    )
+    conn.commit()
+
+    # Clear log capture before reading the corrupted record
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="cloop.loops.repo"):
+        # Read the loop back - this should trigger the JSON parse error
+        result = repo.read_loop(loop_id=record.id, conn=conn)
+
+    # Verify the result has empty user_locks (fallback behavior)
+    assert result is not None
+    assert result.user_locks == []
+
+    # Verify a warning was logged
+    assert "Failed to parse JSON list" in caplog.text
+    assert "unterminated string" in caplog.text.lower() or "expecting" in caplog.text.lower()
+
+    conn.close()
+
+
+def test_parse_json_dict_logs_warning_on_malformed_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that malformed JSON in provenance_json field is logged as a warning."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop with valid JSON initially
+    record = repo.create_loop(
+        raw_text="test loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Directly corrupt the provenance_json field in the database
+    conn.execute(
+        "UPDATE loops SET provenance_json = ? WHERE id = ?",
+        ("[invalid json starts with bracket", record.id),
+    )
+    conn.commit()
+
+    # Clear log capture before reading the corrupted record
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="cloop.loops.repo"):
+        # Read the loop back - this should trigger the JSON parse error
+        result = repo.read_loop(loop_id=record.id, conn=conn)
+
+    # Verify the result has empty provenance (fallback behavior)
+    assert result is not None
+    assert result.provenance == {}
+
+    # Verify a warning was logged
+    assert "Failed to parse JSON dict" in caplog.text
+    assert "invalid json" in caplog.text.lower() or "Expecting" in caplog.text
+
+    conn.close()
+
+
+def test_parse_json_list_handles_truncated_long_value_in_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that very long malformed JSON values are truncated in the log."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop
+    record = repo.create_loop(
+        raw_text="test loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Create a very long malformed JSON string (> 200 chars)
+    long_malformed = '{"key": "' + "x" * 500 + '" missing closing brace'
+
+    # Corrupt the field
+    conn.execute(
+        "UPDATE loops SET user_locks_json = ? WHERE id = ?",
+        (long_malformed, record.id),
+    )
+    conn.commit()
+
+    # Read back and verify logging doesn't explode
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="cloop.loops.repo"):
+        result = repo.read_loop(loop_id=record.id, conn=conn)
+
+    assert result is not None
+    assert result.user_locks == []
+    assert "Failed to parse JSON list" in caplog.text
+
+    conn.close()
