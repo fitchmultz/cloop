@@ -76,7 +76,8 @@ def make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr("cloop.llm.litellm.completion", mock_completion)
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding)
     monkeypatch.setattr("cloop.llm.stream_completion", mock_stream_completion)
-    monkeypatch.setattr("cloop.main.stream_completion", mock_stream_completion)
+    monkeypatch.setattr("cloop.routes.chat.stream_completion", mock_stream_completion)
+    monkeypatch.setattr("cloop.routes.rag.stream_completion", mock_stream_completion)
     return TestClient(app)
 
 
@@ -494,13 +495,13 @@ def test_generic_exception_sanitized_response(
     def mock_ingest_paths(*args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Simulated ingestion failure with /secret/path")
 
-    monkeypatch.setattr("cloop.main.ingest_paths", mock_ingest_paths)
+    monkeypatch.setattr("cloop.routes.rag.ingest_paths", mock_ingest_paths)
     client = TestClient(app, raise_server_exceptions=False)
 
     doc = tmp_path / "test.txt"
     doc.write_text("content", encoding="utf-8")
 
-    with patch.object(logging.getLogger("cloop.main"), "exception") as mock_log:
+    with patch.object(logging.getLogger("cloop.handlers"), "exception") as mock_log:
         response = client.post("/ingest", json={"paths": [str(doc)]})
 
     assert response.status_code == 500
@@ -543,13 +544,13 @@ def test_generic_exception_never_exposes_sensitive_data(
         def mock_fail(*args: Any, _pattern: str = pattern, **kwargs: Any) -> dict[str, Any]:
             raise RuntimeError(f"Error involving {_pattern}")
 
-        monkeypatch.setattr("cloop.main.ingest_paths", mock_fail)
+        monkeypatch.setattr("cloop.routes.rag.ingest_paths", mock_fail)
         client = TestClient(app, raise_server_exceptions=False)
 
         doc = tmp_path / "test.txt"
         doc.write_text("content", encoding="utf-8")
 
-        with patch.object(logging.getLogger("cloop.main"), "exception"):
+        with patch.object(logging.getLogger("cloop.handlers"), "exception"):
             response = client.post("/ingest", json={"paths": [str(doc)]})
 
         response_text = response.text.lower()
