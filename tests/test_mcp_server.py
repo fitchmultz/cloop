@@ -874,3 +874,175 @@ def test_invalid_status_enum_value(tmp_path: Path, monkeypatch: pytest.MonkeyPat
                 client_tz_offset_min=0,
                 status=invalid_status,
             )
+
+
+# =============================================================================
+# Timestamp validation tests
+# =============================================================================
+
+
+def test_loop_create_invalid_timestamp_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_create with invalid timestamp raises ValueError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    invalid_timestamps = [
+        "not-a-timestamp",
+        "2024-13-45T99:99:99",
+        "",
+        "   ",
+        "2024/01/15 10:30:00",
+    ]
+
+    for invalid_ts in invalid_timestamps:
+        with pytest.raises(ValueError, match="invalid_captured_at"):
+            loop_create(
+                raw_text="Test",
+                captured_at=invalid_ts,
+                client_tz_offset_min=0,
+            )
+
+
+def test_loop_snooze_invalid_timestamp_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_snooze with invalid timestamp raises ValueError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create a valid loop first
+    created = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    invalid_timestamps = [
+        "not-a-timestamp",
+        "2024-13-45T99:99:99",
+        "",
+    ]
+
+    for invalid_ts in invalid_timestamps:
+        with pytest.raises(ValueError, match="invalid_snooze_until_utc"):
+            loop_snooze(loop_id=created["id"], snooze_until_utc=invalid_ts)
+
+
+def test_loop_create_valid_timestamp_with_z_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_create accepts timestamps with Z suffix."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    result = loop_create(
+        raw_text="Test with Z suffix",
+        captured_at="2024-01-15T10:30:00Z",
+        client_tz_offset_min=0,
+    )
+
+    assert result["raw_text"] == "Test with Z suffix"
+
+
+def test_loop_create_valid_timestamp_with_offset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_create accepts timestamps with timezone offset."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    result = loop_create(
+        raw_text="Test with offset",
+        captured_at="2024-01-15T10:30:00-05:00",
+        client_tz_offset_min=-300,
+    )
+
+    assert result["raw_text"] == "Test with offset"
+
+
+def test_loop_snooze_valid_timestamp_with_z_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_snooze accepts timestamps with Z suffix."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    snooze_time = (
+        (datetime.now(timezone.utc) + timedelta(days=7))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+    result = loop_snooze(loop_id=created["id"], snooze_until_utc=snooze_time)
+
+    assert result["snooze_until_utc"] is not None
+
+
+def test_loop_update_invalid_due_at_timestamp_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_update with invalid due_at_utc in fields raises ValueError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create a valid loop first
+    created = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    # Try to update with invalid due_at_utc timestamp
+    with pytest.raises(ValueError, match="invalid_due_at_utc"):
+        loop_update(loop_id=created["id"], fields={"due_at_utc": "not-a-timestamp"})
+
+
+def test_loop_update_invalid_snooze_until_timestamp_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that loop_update with invalid snooze_until_utc in fields raises ValueError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create a valid loop first
+    created = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    # Try to update with invalid snooze_until_utc timestamp
+    with pytest.raises(ValueError, match="invalid_snooze_until_utc"):
+        loop_update(loop_id=created["id"], fields={"snooze_until_utc": "2024-13-45T99:99:99"})
+
+
+def test_loop_update_valid_timestamps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that loop_update accepts valid timestamp fields."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create a valid loop first
+    created = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    # Update with valid timestamps
+    due_time = (
+        (datetime.now(timezone.utc) + timedelta(days=7))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+    snooze_time = (
+        (datetime.now(timezone.utc) + timedelta(days=1))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+    result = loop_update(
+        loop_id=created["id"],
+        fields={"due_at_utc": due_time, "snooze_until_utc": snooze_time},
+    )
+
+    assert result["due_at_utc"] is not None
+    assert result["snooze_until_utc"] is not None

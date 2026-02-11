@@ -30,7 +30,7 @@ from . import db
 from .loops import enrichment as loop_enrichment
 from .loops import repo as loop_repo
 from .loops import service as loop_service
-from .loops.models import LoopStatus
+from .loops.models import LoopStatus, validate_iso8601_timestamp
 from .settings import get_settings
 
 mcp = FastMCP("Cloop Loops", json_response=True)
@@ -63,6 +63,9 @@ def loop_create(
     client_tz_offset_min: int,
     status: str = "inbox",
 ) -> dict[str, Any]:
+    # Validate timestamp format before processing
+    validate_iso8601_timestamp(captured_at, "captured_at")
+
     settings = get_settings()
     loop_status = LoopStatus(status)
     with db.core_connection(settings) as conn:
@@ -79,6 +82,12 @@ def loop_create(
 @mcp.tool(name="loop.update")
 @with_db_init
 def loop_update(loop_id: int, fields: dict[str, Any]) -> dict[str, Any]:
+    # Validate timestamp fields in the fields dict
+    if "due_at_utc" in fields and fields["due_at_utc"] is not None:
+        validate_iso8601_timestamp(fields["due_at_utc"], "due_at_utc")
+    if "snooze_until_utc" in fields and fields["snooze_until_utc"] is not None:
+        validate_iso8601_timestamp(fields["snooze_until_utc"], "snooze_until_utc")
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
@@ -129,6 +138,9 @@ def loop_search(query: str, limit: int = 50, offset: int = 0) -> list[dict[str, 
 @mcp.tool(name="loop.snooze")
 @with_db_init
 def loop_snooze(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
+    # Validate timestamp format before processing
+    validate_iso8601_timestamp(snooze_until_utc, "snooze_until_utc")
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.update_loop(

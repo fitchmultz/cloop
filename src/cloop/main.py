@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional,
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, conlist, model_validator
+from pydantic import BaseModel, Field, conlist, field_validator, model_validator
 from starlette.requests import Request
 
 from . import db, web
@@ -137,6 +137,13 @@ class LoopCaptureRequest(BaseModel):
     scheduled: bool = False
     blocked: bool = False
 
+    @field_validator("captured_at")
+    @classmethod
+    def validate_captured_at(cls, v: str) -> str:
+        from .loops.models import validate_iso8601_timestamp
+
+        return validate_iso8601_timestamp(v, "captured_at")
+
 
 class LoopUpdateRequest(BaseModel):
     raw_text: str | None = Field(default=None, min_length=1)
@@ -154,6 +161,24 @@ class LoopUpdateRequest(BaseModel):
     blocked_reason: str | None = None
     completion_note: str | None = None
     tags: List[str] | None = None
+
+    @field_validator("due_at_utc", mode="before")
+    @classmethod
+    def validate_due_at_utc(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from .loops.models import validate_iso8601_timestamp
+
+        return validate_iso8601_timestamp(v, "due_at_utc")
+
+    @field_validator("snooze_until_utc", mode="before")
+    @classmethod
+    def validate_snooze_until_utc(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from .loops.models import validate_iso8601_timestamp
+
+        return validate_iso8601_timestamp(v, "snooze_until_utc")
 
 
 class LoopCloseRequest(BaseModel):
