@@ -21,6 +21,7 @@ from .db import (
 )
 from .embeddings import embed_texts
 from .settings import EmbedStorageMode, Settings, VectorSearchMode, get_settings
+from .typingx import escape_like_pattern
 
 TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 PDF_EXTENSIONS = {".pdf"}
@@ -162,7 +163,9 @@ def upsert_document_record(
 
 def _directory_like_pattern(path_str: str) -> str:
     normalized = path_str.rstrip(os.sep)
-    return f"{normalized}{os.sep}%"
+    # Escape LIKE wildcards in path before adding the directory wildcard
+    escaped = escape_like_pattern(normalized)
+    return f"{escaped}{os.sep}%"
 
 
 def _select_document_ids_for_target(
@@ -273,9 +276,10 @@ def _assert_embedding_dimension_consistency(
                     (doc_id,),
                 ).fetchall()
         elif scope:
+            escaped_scope = escape_like_pattern(scope)
             rows = conn.execute(
-                "SELECT DISTINCT embedding_dim FROM chunks WHERE document_path LIKE ?",
-                (f"%{scope}%",),
+                "SELECT DISTINCT embedding_dim FROM chunks WHERE document_path LIKE ? ESCAPE '\\'",
+                (f"%{escaped_scope}%",),
             ).fetchall()
         else:
             rows = conn.execute("SELECT DISTINCT embedding_dim FROM chunks").fetchall()

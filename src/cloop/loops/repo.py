@@ -7,6 +7,10 @@ from typing import Any, Mapping
 from .. import typingx
 from .models import EnrichmentState, LoopRecord, LoopStatus, parse_utc_datetime
 
+# Re-export for backward compatibility
+_escape_like_pattern = typingx.escape_like_pattern
+
+
 _ALLOWED_UPDATE_FIELDS = {
     "raw_text",
     "title",
@@ -308,15 +312,16 @@ def search_loops(
     offset: int,
     conn: sqlite3.Connection,
 ) -> list[LoopRecord]:
-    like_query = f"%{query}%"
+    escaped_query = typingx.escape_like_pattern(query)
+    like_query = f"%{escaped_query}%"
     rows = conn.execute(
         """
         SELECT *
         FROM loops
-        WHERE raw_text LIKE ?
-           OR title LIKE ?
-           OR summary LIKE ?
-           OR next_action LIKE ?
+        WHERE raw_text LIKE ? ESCAPE '\\'
+           OR title LIKE ? ESCAPE '\\'
+           OR summary LIKE ? ESCAPE '\\'
+           OR next_action LIKE ? ESCAPE '\\'
         ORDER BY captured_at_utc DESC
         LIMIT ? OFFSET ?
         """,
