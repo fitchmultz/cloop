@@ -122,9 +122,15 @@ class IngestRequest(BaseModel):
     )
 
 
+class FailedFileInfo(BaseModel):
+    path: str
+    error: str
+
+
 class IngestResponse(BaseModel):
     files: int
     chunks: int
+    failed_files: List[FailedFileInfo] = Field(default_factory=list)
 
 
 class AskResponse(BaseModel):

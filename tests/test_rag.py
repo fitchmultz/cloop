@@ -10,6 +10,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import cloop.rag
 from cloop import db
 from cloop.db import VectorBackend
 from cloop.loops.errors import ValidationError
@@ -87,12 +88,12 @@ def test_ingest_skips_unchanged_documents(tmp_path: Path, monkeypatch: pytest.Mo
     doc.write_text("alpha beta gamma", encoding="utf-8")
 
     first = ingest_paths([str(doc)], settings=settings)
-    assert first == {"files": 1, "chunks": 1}
+    assert first == {"files": 1, "chunks": 1, "failed_files": []}
     assert _count_rows("chunks", settings=settings) == 1
     assert _count_rows("documents", settings=settings) == 1
 
     second = ingest_paths([str(doc)], settings=settings)
-    assert second == {"files": 0, "chunks": 0}
+    assert second == {"files": 0, "chunks": 0, "failed_files": []}
     assert _count_rows("chunks", settings=settings) == 1
     assert _count_rows("documents", settings=settings) == 1
 
@@ -111,11 +112,11 @@ def test_reindex_forces_reingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     doc.write_text("one two three four", encoding="utf-8")
 
     first = ingest_paths([str(doc)], settings=settings)
-    assert first == {"files": 1, "chunks": 1}
+    assert first == {"files": 1, "chunks": 1, "failed_files": []}
     assert len(calls) == 1
 
     second = ingest_paths([str(doc)], mode="reindex", settings=settings)
-    assert second == {"files": 1, "chunks": 1}
+    assert second == {"files": 1, "chunks": 1, "failed_files": []}
     assert len(calls) == 2
     assert _count_rows("chunks", settings=settings) == 1
 
@@ -135,7 +136,7 @@ def test_purge_removes_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert _count_rows("documents", settings=settings) == 1
 
     result = ingest_paths([str(doc)], mode="purge", settings=settings)
-    assert result == {"files": 1, "chunks": 1}
+    assert result == {"files": 1, "chunks": 1, "failed_files": []}
     assert _count_rows("documents", settings=settings) == 0
     assert _count_rows("chunks", settings=settings) == 0
 
@@ -161,7 +162,7 @@ def test_sync_purges_missing_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     remove.unlink()
 
     sync_result = ingest_paths([str(directory)], mode="sync", settings=settings)
-    assert sync_result == {"files": 1, "chunks": 1}
+    assert sync_result == {"files": 1, "chunks": 1, "failed_files": []}
     assert _count_rows("documents", settings=settings) == 1
     assert _count_rows("chunks", settings=settings) == 1
 
@@ -180,7 +181,7 @@ def test_embeddings_dual_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     doc.write_text("blob storage", encoding="utf-8")
 
     result = ingest_paths([str(doc)], settings=settings)
-    assert result == {"files": 1, "chunks": 1}
+    assert result == {"files": 1, "chunks": 1, "failed_files": []}
 
     with db.rag_connection(settings) as conn:
         row = conn.execute(
@@ -210,7 +211,7 @@ def test_embedding_norm_persisted_for_json_storage(
     doc.write_text("json storage", encoding="utf-8")
 
     result = ingest_paths([str(doc)], settings=settings)
-    assert result == {"files": 1, "chunks": 1}
+    assert result == {"files": 1, "chunks": 1, "failed_files": []}
 
     with db.rag_connection(settings) as conn:
         row = conn.execute("SELECT embedding_blob, embedding_norm FROM chunks").fetchone()
@@ -466,7 +467,7 @@ def test_ingest_accepts_files_under_limit(tmp_path: Path, monkeypatch: pytest.Mo
 
     # Should succeed without error
     result = ingest_paths([str(small_file)], settings=settings)
-    assert result == {"files": 1, "chunks": 1}
+    assert result == {"files": 1, "chunks": 1, "failed_files": []}
 
 
 def test_ingest_file_at_exact_limit_is_accepted(
@@ -488,7 +489,7 @@ def test_ingest_file_at_exact_limit_is_accepted(
 
     # Should succeed without error (limit is > not >=)
     result = ingest_paths([str(exact_file)], settings=settings)
-    assert result == {"files": 1, "chunks": 1}
+    assert result == {"files": 1, "chunks": 1, "failed_files": []}
 
 
 def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -507,7 +508,7 @@ def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.Monk
     # Should succeed - empty files pass size check and are processed
     # (chunk_text produces one empty chunk for empty content)
     result = ingest_paths([str(empty_file)], settings=settings)
-    assert result == {"files": 1, "chunks": 1}
+    assert result == {"files": 1, "chunks": 1, "failed_files": []}
 
 
 def test_retrieve_raises_on_invalid_doc_scope_format(
@@ -606,3 +607,128 @@ def test_ensure_vector_index_logs_warning_on_sqlite_error(
         for record in caplog.records
         if record.levelno == logging.WARNING
     )
+
+
+def test_ingest_reports_failed_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that files that fail to load are reported in failed_files."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    valid_file = tmp_path / "valid.txt"
+    valid_file.write_text("valid content", encoding="utf-8")
+
+    failing_file = tmp_path / "failing.txt"
+    failing_file.write_text("this will fail", encoding="utf-8")
+
+    valid_file2 = tmp_path / "valid2.txt"
+    valid_file2.write_text("more content", encoding="utf-8")
+
+    original_load = cloop.rag.load_document
+
+    def mock_load_document(path: Path) -> str:
+        if path.name == "failing.txt":
+            raise ValueError("Simulated PDF parse error")
+        return original_load(path)
+
+    monkeypatch.setattr("cloop.rag.load_document", mock_load_document)
+
+    result = ingest_paths(
+        [str(valid_file), str(failing_file), str(valid_file2)],
+        settings=settings,
+    )
+
+    assert result["files"] == 2
+    assert result["chunks"] == 2
+    assert len(result["failed_files"]) == 1
+    assert result["failed_files"][0]["path"] == str(failing_file)
+    assert "Simulated PDF parse error" in result["failed_files"][0]["error"]
+
+
+def test_ingest_reports_multiple_failed_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that multiple file failures are all reported in failed_files."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    valid_file = tmp_path / "valid.txt"
+    valid_file.write_text("valid content", encoding="utf-8")
+
+    failing_file1 = tmp_path / "failing1.txt"
+    failing_file1.write_text("this will fail", encoding="utf-8")
+
+    failing_file2 = tmp_path / "failing2.txt"
+    failing_file2.write_text("this will also fail", encoding="utf-8")
+
+    failing_pdf = tmp_path / "failing.pdf"
+    failing_pdf.write_text("fake pdf content", encoding="utf-8")
+
+    original_load = cloop.rag.load_document
+
+    def mock_load_document(path: Path) -> str:
+        if path.name in ("failing1.txt", "failing2.txt"):
+            raise ValueError(f"Error in {path.name}")
+        if path.name == "failing.pdf":
+            raise PermissionError("Permission denied")
+        return original_load(path)
+
+    monkeypatch.setattr("cloop.rag.load_document", mock_load_document)
+
+    result = ingest_paths(
+        [str(valid_file), str(failing_file1), str(failing_file2), str(failing_pdf)],
+        settings=settings,
+    )
+
+    assert result["files"] == 1
+    assert result["chunks"] == 1
+    assert len(result["failed_files"]) == 3
+
+    failed_paths = {f["path"] for f in result["failed_files"]}
+    assert str(failing_file1) in failed_paths
+    assert str(failing_file2) in failed_paths
+    assert str(failing_pdf) in failed_paths
+
+    # Check error types are included in messages
+    error_messages = " ".join(f["error"] for f in result["failed_files"])
+    assert "ValueError:" in error_messages
+    assert "PermissionError:" in error_messages
+
+
+def test_ingest_reports_all_files_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that complete batch failure is properly reported."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    failing_file1 = tmp_path / "failing1.txt"
+    failing_file1.write_text("content 1", encoding="utf-8")
+
+    failing_file2 = tmp_path / "failing2.txt"
+    failing_file2.write_text("content 2", encoding="utf-8")
+
+    def mock_load_document(path: Path) -> str:
+        raise OSError(f"Cannot read file: {path.name}")
+
+    monkeypatch.setattr("cloop.rag.load_document", mock_load_document)
+
+    result = ingest_paths(
+        [str(failing_file1), str(failing_file2)],
+        settings=settings,
+    )
+
+    assert result["files"] == 0
+    assert result["chunks"] == 0
+    assert len(result["failed_files"]) == 2
+
+    failed_paths = {f["path"] for f in result["failed_files"]}
+    assert str(failing_file1) in failed_paths
+    assert str(failing_file2) in failed_paths
+
+    for failed in result["failed_files"]:
+        assert "OSError:" in failed["error"]

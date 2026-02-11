@@ -7,10 +7,11 @@ import re
 import sqlite3
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple, TypedDict
 
 import numpy as np
 from pypdf import PdfReader
+from pypdf.errors import PyPdfError
 
 from .db import (
     VectorBackend,
@@ -30,6 +31,12 @@ TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 PDF_EXTENSIONS = {".pdf"}
 SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | PDF_EXTENSIONS
 SUPPORTED_INGEST_MODES = {"add", "reindex", "purge", "sync"}
+
+
+class FailedFile(TypedDict):
+    path: str
+    error: str
+
 
 _VECLIKE_METRIC = "1_over_1_plus_distance"
 _SQL_PY_METRIC = "cosine"
@@ -556,7 +563,7 @@ def ingest_paths(
     mode: str = "add",
     recursive: bool = True,
     settings: Settings | None = None,
-) -> Dict[str, int]:
+) -> Dict[str, Any]:
     settings = settings or get_settings()
     normalized_targets = [_normalize_path(Path(path)) for path in paths]
     ingestion_mode = (mode or "add").strip().lower()
@@ -565,6 +572,7 @@ def ingest_paths(
 
     files_processed = 0
     chunks_processed = 0
+    failed_files: List[FailedFile] = []
 
     vector_backend = get_vector_backend()
 
@@ -574,7 +582,7 @@ def ingest_paths(
                 normalized_targets, conn=conn, backend=vector_backend
             )
             conn.commit()
-            return {"files": int(docs_removed), "chunks": int(chunks_removed)}
+            return {"files": int(docs_removed), "chunks": int(chunks_removed), "failed_files": []}
 
         candidate_files = list(_iter_candidate_files(normalized_targets, recursive))
         for file_path in candidate_files:
@@ -584,7 +592,14 @@ def ingest_paths(
 
             try:
                 text = load_document(file_path)
-            except ValueError:
+            except (ValueError, OSError, PyPdfError) as e:
+                error_msg = f"{type(e).__name__}: {e}"
+                logger.warning(
+                    "Failed to load document %s: %s",
+                    file_path,
+                    error_msg,
+                )
+                failed_files.append(FailedFile(path=str(file_path), error=error_msg))
                 continue
 
             chunks = chunk_text(text, chunk_size=settings.chunk_size)
@@ -703,7 +718,11 @@ def ingest_paths(
 
         conn.commit()
 
-    return {"files": int(files_processed), "chunks": int(chunks_processed)}
+    return {
+        "files": int(files_processed),
+        "chunks": int(chunks_processed),
+        "failed_files": failed_files,
+    }
 
 
 def fetch_all_chunks(settings: Settings | None = None) -> List[Dict[str, Any]]:
