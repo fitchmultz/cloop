@@ -27,10 +27,15 @@ def embed_texts(
     )
     vectors: List[np.ndarray] = []
     data = response.get("data", [])
-    for item in cast(Iterable[Dict[str, Any]], data):
+    for idx, item in enumerate(cast(Iterable[Dict[str, Any]], data)):
         embedding_values = item.get("embedding")
-        if isinstance(embedding_values, list):
-            vectors.append(np.array(embedding_values, dtype=np.float32))
+        if not isinstance(embedding_values, list):
+            actual_type = type(embedding_values).__name__
+            raise ValueError(
+                f"invalid_embedding_format: item {idx} has embedding of type "
+                f"{actual_type}, expected list"
+            )
+        vectors.append(np.array(embedding_values, dtype=np.float32))
     return vectors
 
 

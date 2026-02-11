@@ -99,3 +99,72 @@ def test_embed_texts_forward_provider_base(tmp_path: Path, monkeypatch: pytest.M
     vectors = embed_texts(["hello"], settings=get_settings())
     assert np.allclose(vectors[0], np.array([0.1, 0.2, 0.3], dtype=np.float32))
     assert captured.get("api_base") == "http://localhost:11434/v1"
+
+
+def test_embed_texts_raises_on_malformed_embedding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that embed_texts raises ValueError when embedding is not a list."""
+    _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
+        CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
+    )
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        # Return embedding as string instead of list (malformed response)
+        return {"data": [{"embedding": "not-a-list"}]}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+    with pytest.raises(ValueError, match="invalid_embedding_format"):
+        embed_texts(["hello"], settings=get_settings())
+
+
+def test_embed_texts_raises_on_missing_embedding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that embed_texts raises ValueError when embedding key is missing."""
+    _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
+        CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
+    )
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        # Return item without embedding key
+        return {"data": [{}]}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+    with pytest.raises(ValueError, match="invalid_embedding_format"):
+        embed_texts(["hello"], settings=get_settings())
+
+
+def test_embed_texts_error_includes_item_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that error message includes the item index for batch debugging."""
+    _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
+        CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
+    )
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        # First two valid, third malformed
+        return {
+            "data": [
+                {"embedding": [0.1, 0.2]},
+                {"embedding": [0.3, 0.4]},
+                {"embedding": None},  # Malformed at index 2
+            ]
+        }
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+    with pytest.raises(ValueError, match=r"item 2.*NoneType"):
+        embed_texts(["a", "b", "c"], settings=get_settings())
