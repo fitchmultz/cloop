@@ -41,6 +41,17 @@ def _read_pdf(path: Path) -> str:
     return "\n".join(pages)
 
 
+def _check_file_size(path: Path, max_size_mb: int) -> None:
+    """Raise ValueError if file exceeds max size limit."""
+    max_bytes = max_size_mb * 1024 * 1024
+    size = path.stat().st_size
+    if size > max_bytes:
+        raise ValueError(
+            f"File too large: {path.name} ({size / (1024 * 1024):.1f} MB) "
+            f"exceeds maximum allowed size of {max_size_mb} MB"
+        )
+
+
 def load_document(path: Path) -> str:
     ext = path.suffix.lower()
     if ext in TEXT_EXTENSIONS:
@@ -502,6 +513,8 @@ def ingest_paths(
 
         candidate_files = list(_iter_candidate_files(normalized_targets, recursive))
         for file_path in candidate_files:
+            # Check file size before reading to prevent DoS
+            _check_file_size(file_path, settings.max_file_size_mb)
             metadata = _document_file_metadata(file_path)
 
             try:
