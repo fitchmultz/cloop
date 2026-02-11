@@ -553,13 +553,40 @@ def insert_loop_link(
     )
 
 
-def fetch_loop_embeddings(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = conn.execute(
-        """
+def fetch_loop_embeddings(
+    *,
+    conn: sqlite3.Connection,
+    limit: int | None = None,
+    exclude_loop_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch loop embeddings with optional pagination.
+
+    Args:
+        conn: Database connection
+        limit: Maximum number of embeddings to fetch (None = no limit)
+        exclude_loop_id: Optional loop ID to exclude from results
+
+    Returns:
+        List of embedding records as dictionaries
+    """
+    sql = """
         SELECT loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model
         FROM loop_embeddings
-        """
-    ).fetchall()
+    """
+    params: list[Any] = []
+
+    if exclude_loop_id is not None:
+        sql += " WHERE loop_id != ?"
+        params.append(exclude_loop_id)
+
+    # Order by loop_id for deterministic results when using LIMIT
+    sql += " ORDER BY loop_id"
+
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(limit)
+
+    rows = conn.execute(sql, params).fetchall()
     return [dict(row) for row in rows]
 
 
