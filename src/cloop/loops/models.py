@@ -20,6 +20,29 @@ class LoopStatus(StrEnum):
     DROPPED = "dropped"
 
 
+TERMINAL_STATUSES: frozenset[LoopStatus] = frozenset(
+    {
+        LoopStatus.COMPLETED,
+        LoopStatus.DROPPED,
+    }
+)
+
+
+def is_terminal_status(status: LoopStatus) -> bool:
+    """Check if a status represents a terminal (closed) state.
+
+    Terminal statuses are final states from which a loop cannot transition
+    except via reopening.
+
+    Args:
+        status: The loop status to check
+
+    Returns:
+        True if the status is COMPLETED or DROPPED
+    """
+    return status in TERMINAL_STATUSES
+
+
 def resolve_status_from_flags(
     scheduled: bool,
     blocked: bool,
