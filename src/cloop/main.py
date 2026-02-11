@@ -813,7 +813,7 @@ def ask_endpoint(
     context_snapshot = _interaction_context(settings)
     try:
         chunks = retrieve_similar_chunks(q, top_k=top_k, scope=scope, settings=settings)
-    except RuntimeError as exc:
+    except (RuntimeError, CloopError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     stream_enabled = stream if stream is not None else settings.stream_default
     if not chunks:
