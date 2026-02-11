@@ -347,14 +347,26 @@ def ensure_vector_index(conn: sqlite3.Connection, dim: int, backend: VectorBacke
                     "CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[%d])"
                     % dim
                 )
-            except sqlite3.Error:
+            except sqlite3.Error as e:
+                logger.warning(
+                    "Failed to create vec_chunks index (dimension=%d): %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    dim,
+                    e,
+                )
                 reset_vector_backend()
         case VectorBackend.VSS:
             try:
                 conn.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS vss_chunks USING vss0(embedding(%d))" % dim
                 )
-            except sqlite3.Error:
+            except sqlite3.Error as e:
+                logger.warning(
+                    "Failed to create vss_chunks index (dimension=%d): %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    dim,
+                    e,
+                )
                 reset_vector_backend()
         case _:
             return
@@ -372,7 +384,13 @@ def upsert_vector(
                     "INSERT INTO vec_chunks(rowid, embedding) VALUES (?, ?)",
                     (chunk_id, json.dumps(vector.astype(float).tolist())),
                 )
-            except sqlite3.Error:
+            except sqlite3.Error as e:
+                logger.warning(
+                    "Failed to upsert vector to vec_chunks (chunk_id=%d): %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    chunk_id,
+                    e,
+                )
                 reset_vector_backend()
         case VectorBackend.VSS:
             try:
@@ -381,7 +399,13 @@ def upsert_vector(
                     "INSERT INTO vss_chunks(rowid, embedding) VALUES (?, ?)",
                     (chunk_id, vector.tobytes()),
                 )
-            except sqlite3.Error:
+            except sqlite3.Error as e:
+                logger.warning(
+                    "Failed to upsert vector to vss_chunks (chunk_id=%d): %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    chunk_id,
+                    e,
+                )
                 reset_vector_backend()
         case _:
             return
@@ -400,12 +424,22 @@ def delete_vector_rows(
         case VectorBackend.VEC:
             try:
                 conn.execute(f"DELETE FROM vec_chunks WHERE rowid IN ({placeholders})", params)
-            except sqlite3.Error:
+            except sqlite3.Error as e:
+                logger.warning(
+                    "Failed to delete vectors from vec_chunks: %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    e,
+                )
                 reset_vector_backend()
         case VectorBackend.VSS:
             try:
                 conn.execute(f"DELETE FROM vss_chunks WHERE rowid IN ({placeholders})", params)
-            except sqlite3.Error:
+            except sqlite3.Error as e:
+                logger.warning(
+                    "Failed to delete vectors from vss_chunks: %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    e,
+                )
                 reset_vector_backend()
         case _:
             return
@@ -440,7 +474,12 @@ def _vec_extension_search(
             ),
             (payload, top_k),
         ).fetchall()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.warning(
+            "Failed to search vec_chunks index: %s. "
+            "Vector search will fall back to SQLite/Python mode.",
+            e,
+        )
         reset_vector_backend()
         return None
 
@@ -462,7 +501,12 @@ def _vss_extension_search(
             ),
             (payload, top_k),
         ).fetchall()
-    except sqlite3.Error:
+    except sqlite3.Error as e:
+        logger.warning(
+            "Failed to search vss_chunks index: %s. "
+            "Vector search will fall back to SQLite/Python mode.",
+            e,
+        )
         reset_vector_backend()
         return None
 

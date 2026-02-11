@@ -579,3 +579,30 @@ def test_retrieve_raises_on_empty_doc_scope(
     with pytest.raises(ValidationError) as excinfo:
         retrieve_similar_chunks("test", top_k=5, scope="doc:", settings=settings)
     assert "scope" in str(excinfo.value)
+
+
+def test_ensure_vector_index_logs_warning_on_sqlite_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Test that a warning is logged when vector index creation fails."""
+    import logging
+    from unittest.mock import MagicMock
+
+    caplog.set_level(logging.WARNING)
+
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.AUTO)
+    db.init_databases(settings)
+
+    fake_conn = MagicMock()
+    fake_conn.execute.side_effect = sqlite3.Error("simulated index creation failure")
+
+    from cloop.rag import ensure_vector_index
+
+    ensure_vector_index(fake_conn, dim=128, backend=VectorBackend.VEC)
+
+    assert any(
+        "Failed to create vec_chunks index" in record.message
+        and "simulated index creation failure" in record.message
+        for record in caplog.records
+        if record.levelno == logging.WARNING
+    )
