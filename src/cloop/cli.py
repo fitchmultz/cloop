@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from . import db
-from .loops.models import LoopStatus
+from .loops.models import LoopStatus, resolve_status_from_flags
 from .loops.service import capture_loop, list_loops, next_loops, request_enrichment
 from .rag import ingest_paths, retrieve_similar_chunks
 from .settings import Settings, get_settings
@@ -51,13 +51,11 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
         offset = local_now.utcoffset()
         tz_offset_min = int(offset.total_seconds() / 60) if offset else 0
 
-    status = LoopStatus.INBOX
-    if args.scheduled:
-        status = LoopStatus.SCHEDULED
-    elif args.blocked:
-        status = LoopStatus.BLOCKED
-    elif args.actionable:
-        status = LoopStatus.ACTIONABLE
+    status = resolve_status_from_flags(
+        scheduled=args.scheduled,
+        blocked=args.blocked,
+        actionable=args.actionable,
+    )
 
     with db.core_connection(settings) as conn:
         record = capture_loop(

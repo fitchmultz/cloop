@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
+from cloop.loops.models import LoopStatus
 from cloop.loops.prioritization import bucketize
 from cloop.main import app
 from cloop.settings import Settings, get_settings
@@ -1498,3 +1499,20 @@ def test_priority_weights_from_settings(tmp_path: Path, monkeypatch: pytest.Monk
     assert "standard" in result
 
     conn.close()
+
+
+def test_resolve_status_from_flags() -> None:
+    """Test resolve_status_from_flags precedence logic."""
+    from cloop.loops.models import resolve_status_from_flags
+
+    # Single flag tests
+    assert resolve_status_from_flags(True, False, False) == LoopStatus.SCHEDULED
+    assert resolve_status_from_flags(False, True, False) == LoopStatus.BLOCKED
+    assert resolve_status_from_flags(False, False, True) == LoopStatus.ACTIONABLE
+    assert resolve_status_from_flags(False, False, False) == LoopStatus.INBOX
+
+    # Precedence tests
+    assert resolve_status_from_flags(True, True, True) == LoopStatus.SCHEDULED
+    assert resolve_status_from_flags(True, True, False) == LoopStatus.SCHEDULED
+    assert resolve_status_from_flags(True, False, True) == LoopStatus.SCHEDULED
+    assert resolve_status_from_flags(False, True, True) == LoopStatus.BLOCKED
