@@ -55,6 +55,13 @@ class Settings:
     autopilot_enabled: bool
     autopilot_autoapply_min_confidence: float
     max_file_size_mb: int
+    # Prioritization settings
+    prioritization_due_window_hours: float
+    prioritization_due_soon_hours: float
+    prioritization_quick_win_minutes: int
+    prioritization_high_leverage_threshold: float
+    # Related loop settings
+    related_similarity_threshold: float
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -133,6 +140,19 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE", "0.85")
         ),
         max_file_size_mb=int(os.getenv("CLOOP_MAX_FILE_SIZE_MB", "50")),
+        prioritization_due_window_hours=float(
+            os.getenv("CLOOP_PRIORITIZATION_DUE_WINDOW_HOURS", "72.0")
+        ),
+        prioritization_due_soon_hours=float(
+            os.getenv("CLOOP_PRIORITIZATION_DUE_SOON_HOURS", "48.0")
+        ),
+        prioritization_quick_win_minutes=int(
+            os.getenv("CLOOP_PRIORITIZATION_QUICK_WIN_MINUTES", "15")
+        ),
+        prioritization_high_leverage_threshold=float(
+            os.getenv("CLOOP_PRIORITIZATION_HIGH_LEVERAGE_THRESHOLD", "0.7")
+        ),
+        related_similarity_threshold=float(os.getenv("CLOOP_RELATED_SIMILARITY_THRESHOLD", "0.78")),
     )
     return _validate_settings(settings)
 

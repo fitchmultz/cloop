@@ -5,6 +5,7 @@ import sqlite3
 from typing import Any, Mapping
 
 from .. import typingx
+from ..settings import Settings, get_settings
 from . import repo
 from .models import (
     EnrichmentState,
@@ -463,19 +464,21 @@ def next_loops(
     *,
     limit: int,
     conn: sqlite3.Connection,
+    settings: Settings | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
+    settings = settings or get_settings()
     candidates = repo.list_loops_by_statuses(
         statuses=[LoopStatus.INBOX, LoopStatus.ACTIONABLE],
         conn=conn,
     )
     now = utc_now()
-    actionable: list[LoopRecord] = []
+    actionable_records: list[LoopRecord] = []
     for record in candidates:
         if not record.next_action:
             continue
         if record.snooze_until_utc and record.snooze_until_utc > now:
             continue
-        actionable.append(record)
+        actionable_records.append(record)
 
     weights = PriorityWeights(
         due_weight=1.0,
@@ -488,14 +491,19 @@ def next_loops(
     scored = [
         (
             record,
-            compute_priority_score(_record_to_dict(record), now_utc=now, w=weights),
+            compute_priority_score(
+                _record_to_dict(record),
+                now_utc=now,
+                w=weights,
+                settings=settings,
+            ),
         )
-        for record in actionable
+        for record in actionable_records
     ]
 
     buckets = {"due_soon": [], "quick_wins": [], "high_leverage": [], "standard": []}
     for record, score in scored:
-        label = bucketize(_record_to_dict(record), now_utc=now)
+        label = bucketize(_record_to_dict(record), now_utc=now, settings=settings)
         if label in buckets:
             buckets[label].append((record, score))
 

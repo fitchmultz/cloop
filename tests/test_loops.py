@@ -7,7 +7,44 @@ from fastapi.testclient import TestClient
 from cloop import db
 from cloop.loops.prioritization import bucketize
 from cloop.main import app
-from cloop.settings import get_settings
+from cloop.settings import Settings, get_settings
+
+
+def _test_settings() -> Settings:
+    """Create a Settings object with default test values."""
+    return Settings(
+        root_dir=Path.cwd(),
+        core_db_path=Path("./data/core.db"),
+        rag_db_path=Path("./data/rag.db"),
+        llm_model="ollama/llama3",
+        embed_model="ollama/nomic-embed-text",
+        default_top_k=5,
+        chunk_size=800,
+        llm_timeout=30.0,
+        ingest_timeout=60.0,
+        embedding_timeout=30.0,
+        sqlite_vector_extension=None,
+        vector_search_mode="python",  # type: ignore[arg-type]
+        tool_mode_default="manual",  # type: ignore[arg-type]
+        embed_storage_mode="dual",  # type: ignore[arg-type]
+        openai_api_base=None,
+        openai_api_key=None,
+        google_api_key=None,
+        ollama_api_base=None,
+        lmstudio_api_base=None,
+        openrouter_api_base=None,
+        stream_default=False,
+        organizer_model="gemini/gemini-3-flash-preview",
+        organizer_timeout=20.0,
+        autopilot_enabled=False,
+        autopilot_autoapply_min_confidence=0.85,
+        max_file_size_mb=50,
+        prioritization_due_window_hours=72.0,
+        prioritization_due_soon_hours=48.0,
+        prioritization_quick_win_minutes=15,
+        prioritization_high_leverage_threshold=0.7,
+        related_similarity_threshold=0.78,
+    )
 
 
 def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
@@ -176,6 +213,7 @@ def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 def test_bucketize_returns_standard_for_low_importance() -> None:
     """Low importance loops should NOT be classified as high_leverage."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     # Loop with low importance, not due soon, not a quick win
     loop = {
@@ -185,13 +223,14 @@ def test_bucketize_returns_standard_for_low_importance() -> None:
         # No due_at_utc, so not due_soon
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "standard", f"Expected 'standard' for low importance loop, got '{result}'"
 
 
 def test_bucketize_returns_high_leverage_for_high_importance() -> None:
     """High importance loops should be classified as high_leverage."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     loop = {
         "importance": 0.8,
@@ -199,13 +238,14 @@ def test_bucketize_returns_high_leverage_for_high_importance() -> None:
         "activation_energy": 3,
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "high_leverage"
 
 
 def test_bucketize_returns_due_soon_for_urgent_due_date() -> None:
     """Loops due within 48h should be due_soon regardless of other factors."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     loop = {
         "importance": 0.9,  # High importance
@@ -214,13 +254,14 @@ def test_bucketize_returns_due_soon_for_urgent_due_date() -> None:
         "activation_energy": 1,
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "due_soon"
 
 
 def test_bucketize_returns_quick_wins_for_small_tasks() -> None:
     """Short, low-energy tasks should be quick_wins."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     loop = {
         "importance": 0.9,  # High importance
@@ -228,26 +269,28 @@ def test_bucketize_returns_quick_wins_for_small_tasks() -> None:
         "activation_energy": 1,
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "quick_wins"
 
 
 def test_bucketize_handles_none_importance() -> None:
     """Loops without importance should default to standard."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     loop = {
         "time_minutes": 60,
         "activation_energy": 2,
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "standard"
 
 
 def test_bucketize_importance_boundary_high() -> None:
     """Loop with importance exactly 0.7 should be high_leverage."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     loop = {
         "importance": 0.7,
@@ -255,13 +298,14 @@ def test_bucketize_importance_boundary_high() -> None:
         "activation_energy": 2,
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "high_leverage"
 
 
 def test_bucketize_importance_boundary_low() -> None:
     """Loop with importance just below 0.7 should be standard."""
     now = datetime.now(timezone.utc)
+    settings = _test_settings()
 
     loop = {
         "importance": 0.69,
@@ -269,7 +313,7 @@ def test_bucketize_importance_boundary_low() -> None:
         "activation_energy": 2,
     }
 
-    result = bucketize(loop, now_utc=now)
+    result = bucketize(loop, now_utc=now, settings=settings)
     assert result == "standard"
 
 
