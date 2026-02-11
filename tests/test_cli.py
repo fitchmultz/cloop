@@ -31,8 +31,9 @@ def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
-    # Mock at rag module level since that's where embed_texts is imported and used
+    # Mock at import locations (rag/__init__.py and rag/search.py import embed_texts)
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
 
 def _get_last_json(capsys: Any) -> Any:
@@ -538,6 +539,7 @@ def test_main_ingest_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "doc.txt"
     doc.write_text("content", encoding="utf-8")
@@ -561,6 +563,7 @@ def test_main_ask_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsy
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     exit_code = cli.main(["ask", "question"])
 
@@ -920,6 +923,7 @@ def test_main_ask_with_empty_question(
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     # Empty question is still a valid question string
     exit_code = cli.main(["ask", ""])
