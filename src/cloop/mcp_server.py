@@ -69,12 +69,7 @@ def with_db_init(func: F) -> F:
 
 
 def _to_tool_error(exc: Exception) -> ToolError:
-    """Convert service layer exceptions to MCP ToolError with user-friendly message.
-
-    Typed exceptions are handled directly; ValueError falls back to string matching
-    for backwards compatibility with any remaining legacy code.
-    """
-    # Handle typed exceptions directly
+    """Convert service layer exceptions to MCP ToolError with user-friendly message."""
     if isinstance(exc, NotFoundError):
         return ToolError(exc.message)
     if isinstance(exc, TransitionError):
@@ -84,25 +79,7 @@ def _to_tool_error(exc: Exception) -> ToolError:
     if isinstance(exc, CloopError):
         return ToolError(exc.message)
 
-    # Fallback for ValueError (legacy)
-    if isinstance(exc, ValueError):
-        message = str(exc)
-        if "not_found" in message:
-            if "loop_not_found" in message:
-                return ToolError("Loop not found")
-            if "project_not_found" in message:
-                return ToolError("Project not found")
-            return ToolError("Resource not found")
-        if message.startswith("invalid_"):
-            field = message.split(":")[0].replace("invalid_", "")
-            return ToolError(f"Invalid {field.replace('_', ' ')}")
-        if "invalid_transition" in message or "status_update_requires_transition" in message:
-            return ToolError(f"Invalid status transition: {message}")
-        if "status must be completed or dropped" in message:
-            return ToolError("Status must be 'completed' or 'dropped'")
-        return ToolError(message)
-
-    # Unknown exception type
+    # Unknown exception type - pass through the message
     return ToolError(str(exc))
 
 
@@ -176,7 +153,7 @@ def loop_close(
     settings = get_settings()
     loop_status = LoopStatus(status)
     if not is_terminal_status(loop_status):
-        raise ValueError("status must be completed or dropped")
+        raise ValidationError("status", "must be completed or dropped")
     with db.core_connection(settings) as conn:
         return loop_service.transition_status(
             loop_id=loop_id,

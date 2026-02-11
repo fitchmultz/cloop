@@ -303,7 +303,7 @@ def test_loop_close_invalid_status_raises_error(
         client_tz_offset_min=0,
     )
 
-    with pytest.raises(ToolError, match="Status must be 'completed' or 'dropped'"):
+    with pytest.raises(ToolError, match="Invalid status:"):
         loop_close(loop_id=created["id"], status="inbox")
 
 
@@ -897,7 +897,7 @@ def test_loop_create_invalid_timestamp_raises_error(
     ]
 
     for invalid_ts in invalid_timestamps:
-        with pytest.raises(ToolError, match="Invalid captured at"):
+        with pytest.raises(ToolError, match="Invalid captured_at:"):
             loop_create(
                 raw_text="Test",
                 captured_at=invalid_ts,
@@ -925,7 +925,7 @@ def test_loop_snooze_invalid_timestamp_raises_error(
     ]
 
     for invalid_ts in invalid_timestamps:
-        with pytest.raises(ToolError, match="Invalid snooze until utc"):
+        with pytest.raises(ToolError, match="Invalid snooze_until_utc:"):
             loop_snooze(loop_id=created["id"], snooze_until_utc=invalid_ts)
 
 
@@ -995,7 +995,7 @@ def test_loop_update_invalid_due_at_timestamp_raises_error(
     )
 
     # Try to update with invalid due_at_utc timestamp
-    with pytest.raises(ToolError, match="Invalid due at utc"):
+    with pytest.raises(ToolError, match="Invalid due_at_utc:"):
         loop_update(loop_id=created["id"], fields={"due_at_utc": "not-a-timestamp"})
 
 
@@ -1013,7 +1013,7 @@ def test_loop_update_invalid_snooze_until_timestamp_raises_error(
     )
 
     # Try to update with invalid snooze_until_utc timestamp
-    with pytest.raises(ToolError, match="Invalid snooze until utc"):
+    with pytest.raises(ToolError, match="Invalid snooze_until_utc:"):
         loop_update(loop_id=created["id"], fields={"snooze_until_utc": "2024-13-45T99:99:99"})
 
 
@@ -1047,3 +1047,57 @@ def test_loop_update_valid_timestamps(tmp_path: Path, monkeypatch: pytest.Monkey
 
     assert result["due_at_utc"] is not None
     assert result["snooze_until_utc"] is not None
+
+
+# =============================================================================
+# _to_tool_error unit tests
+# =============================================================================
+
+
+def test_to_tool_error_not_found_error() -> None:
+    """Test _to_tool_error correctly maps LoopNotFoundError."""
+    from cloop.loops.errors import LoopNotFoundError
+    from cloop.mcp_server import _to_tool_error
+
+    exc = LoopNotFoundError(loop_id=123)
+    result = _to_tool_error(exc)
+
+    assert isinstance(result, ToolError)
+    assert "Loop not found" in str(result)
+
+
+def test_to_tool_error_validation_error() -> None:
+    """Test _to_tool_error correctly maps ValidationError."""
+    from cloop.loops.errors import ValidationError
+    from cloop.mcp_server import _to_tool_error
+
+    exc = ValidationError("status", "must be completed or dropped")
+    result = _to_tool_error(exc)
+
+    assert isinstance(result, ToolError)
+    assert "Invalid status" in str(result)
+
+
+def test_to_tool_error_transition_error() -> None:
+    """Test _to_tool_error correctly maps TransitionError."""
+    from cloop.loops.errors import TransitionError
+    from cloop.mcp_server import _to_tool_error
+
+    exc = TransitionError("inbox", "completed")
+    result = _to_tool_error(exc)
+
+    assert isinstance(result, ToolError)
+    assert "Invalid status transition" in str(result)
+    assert "inbox" in str(result)
+    assert "completed" in str(result)
+
+
+def test_to_tool_error_unknown_exception() -> None:
+    """Test _to_tool_error handles unknown exceptions gracefully."""
+    from cloop.mcp_server import _to_tool_error
+
+    exc = RuntimeError("Something unexpected happened")
+    result = _to_tool_error(exc)
+
+    assert isinstance(result, ToolError)
+    assert "Something unexpected happened" in str(result)
