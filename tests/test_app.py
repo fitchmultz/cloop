@@ -251,8 +251,14 @@ def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     payload = response.json()
     assert payload["ok"] is True
     assert payload["model"] == "mock-llm"
-    assert payload["core_db"].endswith("core.db")
-    assert payload["rag_db"].endswith("rag.db")
+    assert payload["core_db"] == "core.db"
+    assert payload["rag_db"] == "rag.db"
+    assert "/" not in payload["core_db"]
+    assert "/" not in payload["rag_db"]
+    assert not payload["core_db"].startswith("/")
+    assert not payload["rag_db"].startswith("/")
+    assert "Users" not in payload["core_db"]
+    assert "home" not in payload["rag_db"]
     assert payload["schema_version"] == db.SCHEMA_VERSION
     assert payload["embed_storage"] in {"json", "blob", "dual"}
     assert payload["tool_mode_default"] in {"manual", "llm", "none"}
