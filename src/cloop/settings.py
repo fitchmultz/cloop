@@ -58,6 +58,12 @@ class Settings:
     prioritization_due_soon_hours: float
     prioritization_quick_win_minutes: int
     prioritization_high_leverage_threshold: float
+    # Priority weights for scoring
+    priority_weight_due: float
+    priority_weight_urgency: float
+    priority_weight_importance: float
+    priority_weight_time_penalty: float
+    priority_weight_activation_penalty: float
     # Related loop settings
     related_similarity_threshold: float
     related_max_candidates: int
@@ -151,6 +157,13 @@ def get_settings() -> Settings:
         prioritization_high_leverage_threshold=float(
             os.getenv("CLOOP_PRIORITIZATION_HIGH_LEVERAGE_THRESHOLD", "0.7")
         ),
+        priority_weight_due=float(os.getenv("CLOOP_PRIORITY_WEIGHT_DUE", "1.0")),
+        priority_weight_urgency=float(os.getenv("CLOOP_PRIORITY_WEIGHT_URGENCY", "0.7")),
+        priority_weight_importance=float(os.getenv("CLOOP_PRIORITY_WEIGHT_IMPORTANCE", "0.9")),
+        priority_weight_time_penalty=float(os.getenv("CLOOP_PRIORITY_WEIGHT_TIME_PENALTY", "0.2")),
+        priority_weight_activation_penalty=float(
+            os.getenv("CLOOP_PRIORITY_WEIGHT_ACTIVATION_PENALTY", "0.3")
+        ),
         related_similarity_threshold=float(os.getenv("CLOOP_RELATED_SIMILARITY_THRESHOLD", "0.78")),
         related_max_candidates=int(os.getenv("CLOOP_RELATED_MAX_CANDIDATES", "1000")),
     )
@@ -207,4 +220,14 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
+    for weight_name in [
+        "priority_weight_due",
+        "priority_weight_urgency",
+        "priority_weight_importance",
+        "priority_weight_time_penalty",
+        "priority_weight_activation_penalty",
+    ]:
+        weight = getattr(settings, weight_name)
+        if weight < 0:
+            raise ValueError(f"CLOOP_{weight_name.upper()} must be non-negative")
     return settings
