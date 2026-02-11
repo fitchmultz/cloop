@@ -20,6 +20,7 @@ from .db import (
     vector_extension_available,
 )
 from .embeddings import embed_texts
+from .loops.errors import ValidationError
 from .settings import EmbedStorageMode, Settings, VectorSearchMode, get_settings
 from .typingx import escape_like_pattern
 
@@ -268,15 +269,11 @@ def _assert_embedding_dimension_consistency(
 ) -> None:
     with rag_connection(settings) as conn:
         if scope and scope.startswith("doc:"):
-            try:
-                doc_id = int(scope.split(":", 1)[1])
-            except ValueError:
-                rows: list[sqlite3.Row] = []
-            else:
-                rows = conn.execute(
-                    "SELECT DISTINCT embedding_dim FROM chunks WHERE doc_id = ?",
-                    (doc_id,),
-                ).fetchall()
+            doc_id = _parse_doc_scope(scope)
+            rows = conn.execute(
+                "SELECT DISTINCT embedding_dim FROM chunks WHERE doc_id = ?",
+                (doc_id,),
+            ).fetchall()
         elif scope:
             escaped_scope = escape_like_pattern(scope)
             rows = conn.execute(
@@ -315,15 +312,29 @@ def _assert_embedding_model_alignment(*, settings: Settings) -> None:
         )
 
 
+def _parse_doc_scope(scope: str) -> int:
+    """Parse 'doc:ID' format scope and return the integer ID.
+
+    Raises:
+        ValidationError: If scope starts with 'doc:' but ID is not a valid integer.
+    """
+    if not scope.startswith("doc:"):
+        raise ValidationError("scope", "doc scope must start with 'doc:'")
+    id_part = scope.split(":", 1)[1]
+    if not id_part:
+        raise ValidationError("scope", "doc:ID requires integer ID after colon")
+    try:
+        return int(id_part)
+    except ValueError:
+        raise ValidationError("scope", f"doc:ID requires integer ID, got: {id_part}") from None
+
+
 def _filter_rows_by_scope(rows: List[Dict[str, Any]], scope: str) -> List[Dict[str, Any]]:
     if not scope:
         return rows
     scope = scope.strip()
     if scope.startswith("doc:"):
-        try:
-            doc_id = int(scope.split(":", 1)[1])
-        except ValueError:
-            return []
+        doc_id = _parse_doc_scope(scope)
         return [row for row in rows if int(row.get("doc_id") or 0) == doc_id]
     return [row for row in rows if scope in str(row.get("document_path", ""))]
 

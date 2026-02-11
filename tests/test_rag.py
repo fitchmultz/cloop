@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 
 from cloop import db
 from cloop.db import VectorBackend
+from cloop.loops.errors import ValidationError
 from cloop.rag import chunk_text, ingest_paths, retrieve_similar_chunks
 from cloop.settings import Settings, VectorSearchMode, get_settings
 
@@ -507,3 +508,74 @@ def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.Monk
     # (chunk_text produces one empty chunk for empty content)
     result = ingest_paths([str(empty_file)], settings=settings)
     assert result == {"files": 1, "chunks": 1}
+
+
+def test_retrieve_raises_on_invalid_doc_scope_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed doc: scope should raise ValidationError, not return empty."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("test content", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+
+    with pytest.raises(ValidationError) as excinfo:
+        retrieve_similar_chunks("test", top_k=5, scope="doc:notanumber", settings=settings)
+    assert "scope" in str(excinfo.value)
+    assert "integer" in str(excinfo.value).lower()
+
+
+def test_retrieve_valid_doc_scope_works(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Valid doc:ID scope should work correctly."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    doc_a = tmp_path / "doc_a.txt"
+    doc_b = tmp_path / "doc_b.txt"
+    doc_a.write_text("alpha", encoding="utf-8")
+    doc_b.write_text("beta", encoding="utf-8")
+
+    ingest_paths([str(doc_a), str(doc_b)], settings=settings)
+
+    with db.rag_connection(settings) as conn:
+        row = conn.execute(
+            "SELECT id FROM documents WHERE document_path = ?",
+            (str(doc_b),),
+        ).fetchone()
+    assert row is not None
+    doc_id = row["id"]
+
+    chunks = retrieve_similar_chunks("beta", top_k=5, scope=f"doc:{doc_id}", settings=settings)
+    assert len(chunks) > 0
+
+
+def test_retrieve_raises_on_empty_doc_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty doc: scope should raise ValidationError."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("test content", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+
+    with pytest.raises(ValidationError) as excinfo:
+        retrieve_similar_chunks("test", top_k=5, scope="doc:", settings=settings)
+    assert "scope" in str(excinfo.value)
