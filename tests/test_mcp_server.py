@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from cloop import db
 from cloop.mcp_server import (
@@ -108,10 +109,10 @@ def test_loop_create_with_scheduled_status(tmp_path: Path, monkeypatch: pytest.M
 def test_loop_create_invalid_status_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test loop creation with invalid status raises ValueError."""
+    """Test loop creation with invalid status raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ToolError):
         loop_create(
             raw_text="Test",
             captured_at=_now_iso(),
@@ -163,10 +164,10 @@ def test_loop_update_title_and_text(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 def test_loop_update_not_found_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test updating non-existent loop raises ValueError."""
+    """Test updating non-existent loop raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    with pytest.raises(ValueError, match="loop_not_found"):
+    with pytest.raises(ToolError, match="Loop not found"):
         loop_update(loop_id=99999, fields={"title": "Test"})
 
 
@@ -180,7 +181,7 @@ def test_loop_update_rejects_status_field(tmp_path: Path, monkeypatch: pytest.Mo
         client_tz_offset_min=0,
     )
 
-    with pytest.raises(ValueError, match="status_update_requires_transition"):
+    with pytest.raises(ToolError, match="Invalid status transition"):
         loop_update(loop_id=created["id"], fields={"status": "completed"})
 
 
@@ -293,7 +294,7 @@ def test_loop_close_dropped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_loop_close_invalid_status_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test closing with invalid status raises ValueError."""
+    """Test closing with invalid status raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
     created = loop_create(
@@ -302,15 +303,15 @@ def test_loop_close_invalid_status_raises_error(
         client_tz_offset_min=0,
     )
 
-    with pytest.raises(ValueError, match="status must be completed or dropped"):
+    with pytest.raises(ToolError, match="Status must be 'completed' or 'dropped'"):
         loop_close(loop_id=created["id"], status="inbox")
 
 
 def test_loop_close_not_found_raises_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test closing non-existent loop raises ValueError."""
+    """Test closing non-existent loop raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    with pytest.raises(ValueError, match="loop_not_found"):
+    with pytest.raises(ToolError, match="Loop not found"):
         loop_close(loop_id=99999, status="completed")
 
 
@@ -582,12 +583,12 @@ def test_loop_snooze_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def test_loop_snooze_not_found_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test snoozing non-existent loop raises ValueError."""
+    """Test snoozing non-existent loop raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
     snooze_time = datetime.now(timezone.utc).isoformat()
 
-    with pytest.raises(ValueError, match="loop_not_found"):
+    with pytest.raises(ToolError, match="Loop not found"):
         loop_snooze(loop_id=99999, snooze_until_utc=snooze_time)
 
 
@@ -658,7 +659,7 @@ def test_loop_enrich_loop_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     """Test enriching non-existent loop raises error."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    with pytest.raises(ValueError, match="loop_not_found"):
+    with pytest.raises(ToolError, match="Loop not found"):
         loop_enrich(loop_id=99999)
 
 
@@ -675,7 +676,7 @@ def test_loop_enrich_invalid_json_response(tmp_path: Path, monkeypatch: pytest.M
     # Mock invalid JSON response
     mock_response = {"choices": [{"message": {"content": "not valid json"}}]}
 
-    with pytest.raises(ValueError, match="invalid_json_response"):
+    with pytest.raises(ToolError, match="Invalid json response"):
         with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
             loop_enrich(loop_id=created["id"])
 
@@ -867,7 +868,7 @@ def test_invalid_status_enum_value(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     invalid_statuses = ["", "INBOX", "unknown", "deleted", "archived", "pending"]
 
     for invalid_status in invalid_statuses:
-        with pytest.raises(ValueError):
+        with pytest.raises(ToolError):
             loop_create(
                 raw_text="Test",
                 captured_at=_now_iso(),
@@ -884,7 +885,7 @@ def test_invalid_status_enum_value(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 def test_loop_create_invalid_timestamp_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that loop_create with invalid timestamp raises ValueError."""
+    """Test that loop_create with invalid timestamp raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
     invalid_timestamps = [
@@ -896,7 +897,7 @@ def test_loop_create_invalid_timestamp_raises_error(
     ]
 
     for invalid_ts in invalid_timestamps:
-        with pytest.raises(ValueError, match="invalid_captured_at"):
+        with pytest.raises(ToolError, match="Invalid captured at"):
             loop_create(
                 raw_text="Test",
                 captured_at=invalid_ts,
@@ -907,7 +908,7 @@ def test_loop_create_invalid_timestamp_raises_error(
 def test_loop_snooze_invalid_timestamp_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that loop_snooze with invalid timestamp raises ValueError."""
+    """Test that loop_snooze with invalid timestamp raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
     # Create a valid loop first
@@ -924,7 +925,7 @@ def test_loop_snooze_invalid_timestamp_raises_error(
     ]
 
     for invalid_ts in invalid_timestamps:
-        with pytest.raises(ValueError, match="invalid_snooze_until_utc"):
+        with pytest.raises(ToolError, match="Invalid snooze until utc"):
             loop_snooze(loop_id=created["id"], snooze_until_utc=invalid_ts)
 
 
@@ -983,7 +984,7 @@ def test_loop_snooze_valid_timestamp_with_z_suffix(
 def test_loop_update_invalid_due_at_timestamp_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that loop_update with invalid due_at_utc in fields raises ValueError."""
+    """Test that loop_update with invalid due_at_utc in fields raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
     # Create a valid loop first
@@ -994,14 +995,14 @@ def test_loop_update_invalid_due_at_timestamp_raises_error(
     )
 
     # Try to update with invalid due_at_utc timestamp
-    with pytest.raises(ValueError, match="invalid_due_at_utc"):
+    with pytest.raises(ToolError, match="Invalid due at utc"):
         loop_update(loop_id=created["id"], fields={"due_at_utc": "not-a-timestamp"})
 
 
 def test_loop_update_invalid_snooze_until_timestamp_raises_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that loop_update with invalid snooze_until_utc in fields raises ValueError."""
+    """Test that loop_update with invalid snooze_until_utc in fields raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
     # Create a valid loop first
@@ -1012,7 +1013,7 @@ def test_loop_update_invalid_snooze_until_timestamp_raises_error(
     )
 
     # Try to update with invalid snooze_until_utc timestamp
-    with pytest.raises(ValueError, match="invalid_snooze_until_utc"):
+    with pytest.raises(ToolError, match="Invalid snooze until utc"):
         loop_update(loop_id=created["id"], fields={"snooze_until_utc": "2024-13-45T99:99:99"})
 
 
