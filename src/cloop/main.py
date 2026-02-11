@@ -622,8 +622,9 @@ def loop_tags_endpoint(settings: SettingsDep) -> List[str]:
 @app.get("/loops/export", response_model=LoopExportResponse)
 def loop_export_endpoint(settings: SettingsDep) -> LoopExportResponse:
     with db.core_connection(settings) as conn:
-        loops = loop_service.export_loops(conn=conn)
-    return LoopExportResponse(version=1, loops=[LoopExportItem(**loop_item) for loop_item in loops])
+        loops_data: list[dict[str, Any]] = loop_service.export_loops(conn=conn)
+    export_items = [LoopExportItem(**loop_item) for loop_item in loops_data]
+    return LoopExportResponse(version=1, loops=export_items)
 
 
 @app.post("/loops/import", response_model=LoopImportResponse)
@@ -742,11 +743,11 @@ def loop_next_endpoint(
     limit: Annotated[int, Query(ge=1, le=20)] = 5,
 ) -> LoopNextResponse:
     with db.core_connection(settings) as conn:
-        payload = loop_service.next_loops(limit=limit, conn=conn)
+        result: dict[str, list[dict[str, Any]]] = loop_service.next_loops(limit=limit, conn=conn)
     return LoopNextResponse(
-        due_soon=[LoopResponse(**loop_item) for loop_item in payload["due_soon"]],
-        quick_wins=[LoopResponse(**loop_item) for loop_item in payload["quick_wins"]],
-        high_leverage=[LoopResponse(**loop_item) for loop_item in payload["high_leverage"]],
+        due_soon=[LoopResponse(**item) for item in result["due_soon"]],
+        quick_wins=[LoopResponse(**item) for item in result["quick_wins"]],
+        high_leverage=[LoopResponse(**item) for item in result["high_leverage"]],
     )
 
 
