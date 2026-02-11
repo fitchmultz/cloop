@@ -1135,3 +1135,92 @@ def test_loop_capture_valid_timestamp_with_offset(
     )
     assert response.status_code == 200
     assert response.json()["raw_text"] == "test with offset"
+
+
+# =============================================================================
+# update_loop_fields validation tests
+# =============================================================================
+
+
+def test_update_loop_fields_rejects_invalid_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that update_loop_fields raises ValueError for invalid field names."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop
+    record = repo.create_loop(
+        raw_text="Test loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Try to update with an invalid field name
+    with pytest.raises(ValueError, match="invalid_field:typo_field"):
+        repo.update_loop_fields(
+            loop_id=record.id,
+            fields={"typo_field": "some value"},
+            conn=conn,
+        )
+
+    # Try with mix of valid and invalid - should still fail
+    with pytest.raises(ValueError, match="invalid_field"):
+        repo.update_loop_fields(
+            loop_id=record.id,
+            fields={"title": "Valid title", "another_typo": "bad"},
+            conn=conn,
+        )
+
+    conn.close()
+
+
+def test_update_loop_fields_rejects_multiple_invalid_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that error message includes all invalid fields, sorted alphabetically."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop
+    record = repo.create_loop(
+        raw_text="Test loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Try with multiple invalid fields - should list all, sorted
+    with pytest.raises(ValueError, match=r"invalid_field:alpha_field, zebra_field"):
+        repo.update_loop_fields(
+            loop_id=record.id,
+            fields={"zebra_field": "z", "alpha_field": "a"},
+            conn=conn,
+        )
+
+    conn.close()
