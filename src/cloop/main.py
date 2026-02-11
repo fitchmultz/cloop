@@ -24,7 +24,7 @@ from .llm import (
 from .loops import enrichment as loop_enrichment
 from .loops import service as loop_service
 from .loops.errors import CloopError, NotFoundError, TransitionError, ValidationError
-from .loops.models import LoopStatus, resolve_status_from_flags
+from .loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags
 from .rag import (
     _SQL_PY_METRIC,
     _VECLIKE_METRIC,
@@ -735,7 +735,7 @@ def loop_close_endpoint(
     request: LoopCloseRequest,
     settings: SettingsDep,
 ) -> LoopResponse:
-    if request.status not in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
+    if not is_terminal_status(request.status):
         raise HTTPException(status_code=400, detail="status must be completed or dropped")
     with db.core_connection(settings) as conn:
         record = loop_service.transition_status(

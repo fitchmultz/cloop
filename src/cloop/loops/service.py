@@ -14,6 +14,7 @@ from .models import (
     LoopRecord,
     LoopStatus,
     format_utc_datetime,
+    is_terminal_status,
     parse_client_datetime,
     parse_utc_datetime,
     utc_now,
@@ -397,7 +398,7 @@ def transition_status(
     if to_status not in allowed:
         raise TransitionError(record.status.value, to_status.value)
     closed_at = None
-    if to_status in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
+    if is_terminal_status(to_status):
         closed_at = format_utc_datetime(utc_now())
     with conn:
         updates = {"status": to_status.value, "closed_at": closed_at}
@@ -410,7 +411,7 @@ def transition_status(
         )
         event_type = (
             LoopEventType.CLOSE.value
-            if to_status in {LoopStatus.COMPLETED, LoopStatus.DROPPED}
+            if is_terminal_status(to_status)
             else LoopEventType.STATUS_CHANGE.value
         )
         payload: dict[str, Any] = {"from": record.status.value, "to": to_status.value}

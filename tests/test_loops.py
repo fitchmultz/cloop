@@ -1516,3 +1516,33 @@ def test_resolve_status_from_flags() -> None:
     assert resolve_status_from_flags(True, True, False) == LoopStatus.SCHEDULED
     assert resolve_status_from_flags(True, False, True) == LoopStatus.SCHEDULED
     assert resolve_status_from_flags(False, True, True) == LoopStatus.BLOCKED
+
+
+def test_is_terminal_status_completed() -> None:
+    from cloop.loops.models import is_terminal_status
+
+    assert is_terminal_status(LoopStatus.COMPLETED) is True
+
+
+def test_is_terminal_status_dropped() -> None:
+    from cloop.loops.models import is_terminal_status
+
+    assert is_terminal_status(LoopStatus.DROPPED) is True
+
+
+def test_is_terminal_status_non_terminal() -> None:
+    from cloop.loops.models import is_terminal_status
+
+    for status in (
+        LoopStatus.INBOX,
+        LoopStatus.ACTIONABLE,
+        LoopStatus.BLOCKED,
+        LoopStatus.SCHEDULED,
+    ):
+        assert is_terminal_status(status) is False, f"{status} should not be terminal"
+
+
+def test_terminal_statuses_constant() -> None:
+    from cloop.loops.models import TERMINAL_STATUSES
+
+    assert TERMINAL_STATUSES == frozenset({LoopStatus.COMPLETED, LoopStatus.DROPPED})

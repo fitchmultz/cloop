@@ -37,7 +37,12 @@ from .loops.errors import (
     TransitionError,
     ValidationError,
 )
-from .loops.models import LoopStatus, validate_iso8601_timestamp, validate_tz_offset
+from .loops.models import (
+    LoopStatus,
+    is_terminal_status,
+    validate_iso8601_timestamp,
+    validate_tz_offset,
+)
 from .settings import get_settings
 
 mcp = FastMCP("Cloop Loops", json_response=True)
@@ -169,7 +174,7 @@ def loop_close(
 ) -> dict[str, Any]:
     settings = get_settings()
     loop_status = LoopStatus(status)
-    if loop_status not in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
+    if not is_terminal_status(loop_status):
         raise ValueError("status must be completed or dropped")
     with db.core_connection(settings) as conn:
         return loop_service.transition_status(
