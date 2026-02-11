@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, conlist, field_validator, model_validator
 from starlette.requests import Request
 
 from . import db, web
+from .constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from .llm import (
     ToolCallError,
     chat_completion,
@@ -636,7 +637,7 @@ def loop_list_endpoint(
         Query(description="Filter by loop status, 'open', or 'all'"),
     ] = "open",
     tag: Annotated[str | None, Query(description="Filter by tag")] = None,
-    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_LOOP_LIST_LIMIT,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> List[LoopResponse]:
     tag_value = tag.strip().lower() if tag else None
@@ -782,7 +783,7 @@ def loop_enrich_endpoint(
 @app.get("/loops/next", response_model=LoopNextResponse)
 def loop_next_endpoint(
     settings: SettingsDep,
-    limit: Annotated[int, Query(ge=1, le=20)] = 5,
+    limit: Annotated[int, Query(ge=1, le=20)] = DEFAULT_LOOP_NEXT_LIMIT,
 ) -> LoopNextResponse:
     with db.core_connection(settings) as conn:
         result: dict[str, list[dict[str, Any]]] = loop_service.next_loops(limit=limit, conn=conn)
