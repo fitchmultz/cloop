@@ -1,5 +1,6 @@
 import pytest
 
+from cloop.loops.errors import ValidationError
 from cloop.tools import _require_fields, normalize_tool_arguments
 
 
@@ -7,13 +8,13 @@ class TestRequireFields:
     """Tests for the _require_fields validation function."""
 
     def test_raises_when_field_missing(self):
-        """Should raise ValueError when a required field is not present."""
-        with pytest.raises(ValueError, match="Missing required fields: title"):
+        """Should raise ValidationError when a required field is not present."""
+        with pytest.raises(ValidationError, match="Invalid fields"):
             _require_fields({"body": "test"}, "title", "body")
 
     def test_raises_when_multiple_fields_missing(self):
         """Should list all missing fields in the error message."""
-        with pytest.raises(ValueError, match="Missing required fields: title, body"):
+        with pytest.raises(ValidationError, match="title, body"):
             _require_fields({}, "title", "body")
 
     def test_passes_when_field_is_empty_string(self):
@@ -58,6 +59,6 @@ class TestNormalizeToolArguments:
         assert result == {}
 
     def test_raises_for_invalid_json(self):
-        """Should raise ValueError for invalid JSON."""
-        with pytest.raises(ValueError, match="Invalid tool arguments"):
+        """Should raise ValidationError for invalid JSON."""
+        with pytest.raises(ValidationError, match="Invalid arguments"):
             normalize_tool_arguments("not valid json")

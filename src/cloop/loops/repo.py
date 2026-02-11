@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any, Mapping
 
 from ..typingx import escape_like_pattern
+from .errors import LoopNotFoundError, ValidationError
 from .models import EnrichmentState, LoopRecord, LoopStatus, parse_utc_datetime
 
 logger = logging.getLogger(__name__)
@@ -318,11 +319,11 @@ def update_loop_fields(
     invalid_fields = set(fields.keys()) - _ALLOWED_UPDATE_FIELDS
     if invalid_fields:
         invalid_list = ", ".join(sorted(invalid_fields))
-        raise ValueError(f"invalid_field:{invalid_list}")
+        raise ValidationError("fields", f"invalid fields: {invalid_list}")
 
     updates = dict(fields)
     if not updates:
-        raise ValueError("no_valid_fields")
+        raise ValidationError("fields", "no valid fields to update")
     set_clause = ", ".join(f"{key} = ?" for key in updates)
     params = list(updates.values())
     sql = f"""
@@ -335,7 +336,7 @@ def update_loop_fields(
     conn.execute(sql, params)
     row = conn.execute("SELECT * FROM loops WHERE id = ?", (loop_id,)).fetchone()
     if row is None:
-        raise ValueError("loop_not_found")
+        raise LoopNotFoundError(loop_id)
     return _row_to_record(row)
 
 
@@ -457,7 +458,7 @@ def list_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 def upsert_tag(*, name: str, conn: sqlite3.Connection) -> int:
     normalized = name.strip().lower()
     if not normalized:
-        raise ValueError("tag_name_empty")
+        raise ValidationError("tag_name", "tag name cannot be empty")
     row = conn.execute("SELECT id FROM tags WHERE name = ?", (normalized,)).fetchone()
     if row:
         return int(row["id"])

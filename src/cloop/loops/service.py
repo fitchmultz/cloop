@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from .. import typingx
 from ..settings import Settings, get_settings
 from . import repo
+from .errors import LoopNotFoundError, TransitionError, ValidationError
 from .models import (
     EnrichmentState,
     LoopEventType,
@@ -192,7 +193,7 @@ def capture_loop(
 def get_loop(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
     record = repo.read_loop(loop_id=loop_id, conn=conn)
     if record is None:
-        raise ValueError("loop_not_found")
+        raise LoopNotFoundError(loop_id)
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
     return _record_to_dict(record, project=project, tags=tags)
@@ -333,10 +334,10 @@ def update_loop(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
     if "status" in fields:
-        raise ValueError("status_update_requires_transition")
+        raise ValidationError("status", "use /loops/{id}/status or /loops/{id}/close endpoints")
     record = repo.read_loop(loop_id=loop_id, conn=conn)
     if record is None:
-        raise ValueError("loop_not_found")
+        raise LoopNotFoundError(loop_id)
     locked_fields = set(record.user_locks)
     mutable_fields = dict(fields)
     tags = None
@@ -387,14 +388,14 @@ def transition_status(
 ) -> dict[str, Any]:
     record = repo.read_loop(loop_id=loop_id, conn=conn)
     if record is None:
-        raise ValueError("loop_not_found")
+        raise LoopNotFoundError(loop_id)
     if record.status == to_status:
         project = repo.read_project_name(project_id=record.project_id, conn=conn)
         tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
         return _record_to_dict(record, project=project, tags=tags)
     allowed = _ALLOWED_TRANSITIONS.get(record.status, set())
     if to_status not in allowed:
-        raise ValueError("invalid_status_transition")
+        raise TransitionError(record.status.value, to_status.value)
     closed_at = None
     if to_status in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
         closed_at = format_utc_datetime(utc_now())

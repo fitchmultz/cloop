@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Protocol
 
 from . import db
+from .loops.errors import NoteNotFoundError, ValidationError
 
 
 class ToolExecutor(Protocol):
@@ -11,7 +12,7 @@ class ToolExecutor(Protocol):
 def _require_fields(payload: Dict[str, Any], *fields: str) -> None:
     missing = [field for field in fields if payload.get(field) is None]
     if missing:
-        raise ValueError(f"Missing required fields: {', '.join(missing)}")
+        raise ValidationError("fields", f"missing required: {', '.join(missing)}")
 
 
 def execute_write_note(**kwargs: Any) -> Dict[str, Any]:
@@ -25,10 +26,10 @@ def execute_write_note(**kwargs: Any) -> Dict[str, Any]:
 def execute_read_note(**kwargs: Any) -> Dict[str, Any]:
     note_id = kwargs.get("note_id")
     if note_id is None:
-        raise ValueError("note_id is required for read_note")
+        raise ValidationError("note_id", "required for read_note")
     note = db.read_note(int(note_id))
     if note is None:
-        raise ValueError("Note not found")
+        raise NoteNotFoundError(note_id=int(note_id))
     return {"action": "read_note", "note": note}
 
 
@@ -86,4 +87,4 @@ def normalize_tool_arguments(raw: str | Dict[str, Any]) -> Dict[str, Any]:
     try:
         return json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError("Invalid tool arguments") from exc
+        raise ValidationError("arguments", "invalid JSON") from exc
