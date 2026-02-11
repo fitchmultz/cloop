@@ -20,6 +20,32 @@ class LoopStatus(StrEnum):
     DROPPED = "dropped"
 
 
+def resolve_status_from_flags(
+    scheduled: bool,
+    blocked: bool,
+    actionable: bool,
+) -> LoopStatus:
+    """Resolve loop status from boolean flags.
+
+    Precedence order: scheduled > blocked > actionable > inbox.
+
+    Args:
+        scheduled: True if the loop is scheduled
+        blocked: True if the loop is blocked
+        actionable: True if the loop is actionable
+
+    Returns:
+        The resolved LoopStatus based on flag precedence
+    """
+    if scheduled:
+        return LoopStatus.SCHEDULED
+    if blocked:
+        return LoopStatus.BLOCKED
+    if actionable:
+        return LoopStatus.ACTIONABLE
+    return LoopStatus.INBOX
+
+
 class LoopEventType(StrEnum):
     CAPTURE = "capture"
     UPDATE = "update"

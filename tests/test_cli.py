@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from cloop import cli, db
-from cloop.loops.models import LoopStatus
+from cloop.loops.models import LoopStatus, resolve_status_from_flags
 from cloop.settings import Settings, get_settings
 
 
@@ -708,47 +708,19 @@ def test_capture_status_flag_priority_order() -> None:
     assert args.actionable is True
 
     # Verify the priority logic in _capture_command
-    status = LoopStatus.INBOX
-    if args.scheduled:
-        status = LoopStatus.SCHEDULED
-    elif args.blocked:
-        status = LoopStatus.BLOCKED
-    elif args.actionable:
-        status = LoopStatus.ACTIONABLE
-    assert status == LoopStatus.SCHEDULED
+    assert resolve_status_from_flags(True, True, True) == LoopStatus.SCHEDULED
 
     # Test blocked vs actionable - blocked wins
     args = parser.parse_args(["capture", "test", "--actionable", "--blocked"])
-    status = LoopStatus.INBOX
-    if args.scheduled:
-        status = LoopStatus.SCHEDULED
-    elif args.blocked:
-        status = LoopStatus.BLOCKED
-    elif args.actionable:
-        status = LoopStatus.ACTIONABLE
-    assert status == LoopStatus.BLOCKED
+    assert resolve_status_from_flags(False, True, True) == LoopStatus.BLOCKED
 
     # Test actionable only
     args = parser.parse_args(["capture", "test", "--actionable"])
-    status = LoopStatus.INBOX
-    if args.scheduled:
-        status = LoopStatus.SCHEDULED
-    elif args.blocked:
-        status = LoopStatus.BLOCKED
-    elif args.actionable:
-        status = LoopStatus.ACTIONABLE
-    assert status == LoopStatus.ACTIONABLE
+    assert resolve_status_from_flags(False, False, True) == LoopStatus.ACTIONABLE
 
     # Test default (no flags)
     args = parser.parse_args(["capture", "test"])
-    status = LoopStatus.INBOX
-    if args.scheduled:
-        status = LoopStatus.SCHEDULED
-    elif args.blocked:
-        status = LoopStatus.BLOCKED
-    elif args.actionable:
-        status = LoopStatus.ACTIONABLE
-    assert status == LoopStatus.INBOX
+    assert resolve_status_from_flags(False, False, False) == LoopStatus.INBOX
 
 
 def test_ingest_multiple_paths(

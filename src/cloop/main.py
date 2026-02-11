@@ -24,7 +24,7 @@ from .llm import (
 from .loops import enrichment as loop_enrichment
 from .loops import service as loop_service
 from .loops.errors import CloopError, NotFoundError, TransitionError, ValidationError
-from .loops.models import LoopStatus
+from .loops.models import LoopStatus, resolve_status_from_flags
 from .rag import (
     _SQL_PY_METRIC,
     _VECLIKE_METRIC,
@@ -598,23 +598,17 @@ def ingest_endpoint(
     return IngestResponse(**result)
 
 
-def _resolve_loop_status(request: LoopCaptureRequest) -> LoopStatus:
-    if request.scheduled:
-        return LoopStatus.SCHEDULED
-    if request.blocked:
-        return LoopStatus.BLOCKED
-    if request.actionable:
-        return LoopStatus.ACTIONABLE
-    return LoopStatus.INBOX
-
-
 @app.post("/loops/capture", response_model=LoopResponse)
 def loop_capture_endpoint(
     request: LoopCaptureRequest,
     background_tasks: BackgroundTasks,
     settings: SettingsDep,
 ) -> LoopResponse:
-    status = _resolve_loop_status(request)
+    status = resolve_status_from_flags(
+        scheduled=request.scheduled,
+        blocked=request.blocked,
+        actionable=request.actionable,
+    )
     with db.core_connection(settings) as conn:
         record = loop_service.capture_loop(
             raw_text=request.raw_text,
