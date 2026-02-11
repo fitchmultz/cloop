@@ -1238,6 +1238,36 @@ def test_update_loop_fields_rejects_multiple_invalid_fields(
 
 
 # =============================================================================
+# request_enrichment error handling tests
+# =============================================================================
+
+
+def test_request_enrichment_raises_for_nonexistent_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that request_enrichment raises LoopNotFoundError for non-existent loop."""
+    import sqlite3
+
+    from cloop.loops import service
+    from cloop.loops.errors import LoopNotFoundError
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Try to request enrichment for a loop that doesn't exist
+    with pytest.raises(LoopNotFoundError, match="Loop not found: 99999"):
+        service.request_enrichment(loop_id=99999, conn=conn)
+
+    conn.close()
+
+
+# =============================================================================
 # Priority weights configuration tests
 # =============================================================================
 

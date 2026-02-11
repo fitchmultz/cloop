@@ -431,6 +431,9 @@ def transition_status(
 
 @typingx.validate_io()
 def request_enrichment(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
+    record = repo.read_loop(loop_id=loop_id, conn=conn)
+    if record is None:
+        raise LoopNotFoundError(loop_id)
     with conn:
         updated = repo.update_loop_fields(
             loop_id=loop_id,
