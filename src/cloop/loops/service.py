@@ -119,6 +119,36 @@ def _record_to_dict(
     }
 
 
+def _enrich_records_batch(
+    records: list[LoopRecord],
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Enrich multiple loop records with project names and tags in batch.
+
+    This avoids the N+1 query problem by fetching all projects and tags
+    in just 2 queries total, regardless of the number of records.
+    """
+    if not records:
+        return []
+
+    # Collect all project IDs and loop IDs
+    project_ids = {r.project_id for r in records if r.project_id is not None}
+    loop_ids = [r.id for r in records]
+
+    # Batch fetch all projects and tags in just 2 queries
+    projects_map = repo.read_project_names_batch(project_ids=project_ids, conn=conn)
+    tags_map = repo.list_loop_tags_batch(loop_ids=loop_ids, conn=conn)
+
+    # Build the response dicts
+    payloads: list[dict[str, Any]] = []
+    for record in records:
+        project = projects_map.get(record.project_id) if record.project_id else None
+        tags = tags_map.get(record.id, [])
+        payloads.append(_record_to_dict(record, project=project, tags=tags))
+
+    return payloads
+
+
 @typingx.validate_io()
 def capture_loop(
     *,
@@ -176,12 +206,7 @@ def list_loops(
     conn: sqlite3.Connection,
 ) -> list[dict[str, Any]]:
     records = repo.list_loops(status=status, limit=limit, offset=offset, conn=conn)
-    payloads: list[dict[str, Any]] = []
-    for record in records:
-        project = repo.read_project_name(project_id=record.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-        payloads.append(_record_to_dict(record, project=project, tags=tags))
-    return payloads
+    return _enrich_records_batch(records, conn=conn)
 
 
 @typingx.validate_io()
@@ -198,12 +223,7 @@ def list_loops_by_statuses(
         offset=offset,
         conn=conn,
     )
-    payloads: list[dict[str, Any]] = []
-    for record in records:
-        project = repo.read_project_name(project_id=record.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-        payloads.append(_record_to_dict(record, project=project, tags=tags))
-    return payloads
+    return _enrich_records_batch(records, conn=conn)
 
 
 @typingx.validate_io()
@@ -223,12 +243,7 @@ def list_loops_by_tag(
         offset=offset,
         conn=conn,
     )
-    payloads: list[dict[str, Any]] = []
-    for record in records:
-        project = repo.read_project_name(project_id=record.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-        payloads.append(_record_to_dict(record, project=project, tags=tags))
-    return payloads
+    return _enrich_records_batch(records, conn=conn)
 
 
 @typingx.validate_io()
@@ -239,48 +254,7 @@ def list_tags(*, conn: sqlite3.Connection) -> list[str]:
 @typingx.validate_io()
 def export_loops(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
     records = repo.list_all_loops(conn=conn)
-    payloads: list[dict[str, Any]] = []
-    for record in records:
-        project = repo.read_project_name(project_id=record.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-        payloads.append(
-            {
-                "id": record.id,
-                "raw_text": record.raw_text,
-                "title": record.title,
-                "summary": record.summary,
-                "definition_of_done": record.definition_of_done,
-                "next_action": record.next_action,
-                "status": record.status.value,
-                "captured_at_utc": format_utc_datetime(record.captured_at_utc),
-                "captured_tz_offset_min": record.captured_tz_offset_min,
-                "due_at_utc": (
-                    format_utc_datetime(record.due_at_utc) if record.due_at_utc else None
-                ),
-                "snooze_until_utc": (
-                    format_utc_datetime(record.snooze_until_utc)
-                    if record.snooze_until_utc
-                    else None
-                ),
-                "time_minutes": record.time_minutes,
-                "activation_energy": record.activation_energy,
-                "urgency": record.urgency,
-                "importance": record.importance,
-                "blocked_reason": record.blocked_reason,
-                "completion_note": record.completion_note,
-                "project": project,
-                "tags": tags,
-                "user_locks": list(record.user_locks),
-                "provenance": dict(record.provenance),
-                "enrichment_state": record.enrichment_state.value,
-                "created_at_utc": format_utc_datetime(record.created_at_utc),
-                "updated_at_utc": format_utc_datetime(record.updated_at_utc),
-                "closed_at_utc": (
-                    format_utc_datetime(record.closed_at_utc) if record.closed_at_utc else None
-                ),
-            }
-        )
-    return payloads
+    return _enrich_records_batch(records, conn=conn)
 
 
 @typingx.validate_io()
@@ -481,12 +455,7 @@ def search_loops(
     conn: sqlite3.Connection,
 ) -> list[dict[str, Any]]:
     records = repo.search_loops(query=query, limit=limit, offset=offset, conn=conn)
-    payloads: list[dict[str, Any]] = []
-    for record in records:
-        project = repo.read_project_name(project_id=record.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-        payloads.append(_record_to_dict(record, project=project, tags=tags))
-    return payloads
+    return _enrich_records_batch(records, conn=conn)
 
 
 @typingx.validate_io()
@@ -530,13 +499,26 @@ def next_loops(
         if label in buckets:
             buckets[label].append((record, score))
 
+    # Collect all loop IDs and project IDs for batch enrichment
+    all_loop_ids: list[int] = []
+    all_project_ids: set[int] = set()
+    for items in buckets.values():
+        for record, _score in items:
+            all_loop_ids.append(record.id)
+            if record.project_id is not None:
+                all_project_ids.add(record.project_id)
+
+    # Batch fetch all projects and tags in just 2 queries
+    projects_map = repo.read_project_names_batch(project_ids=all_project_ids, conn=conn)
+    tags_map = repo.list_loop_tags_batch(loop_ids=all_loop_ids, conn=conn)
+
     response: dict[str, list[dict[str, Any]]] = {}
     for label, items in buckets.items():
         items.sort(key=lambda item: item[1], reverse=True)
         payloads = []
         for record, _score in items[:limit]:
-            project = repo.read_project_name(project_id=record.project_id, conn=conn)
-            tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+            project = projects_map.get(record.project_id) if record.project_id else None
+            tags = tags_map.get(record.id, [])
             payloads.append(_record_to_dict(record, project=project, tags=tags))
         response[label] = payloads
     return response

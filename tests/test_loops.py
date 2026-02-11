@@ -271,3 +271,86 @@ def test_bucketize_importance_boundary_low() -> None:
 
     result = bucketize(loop, now_utc=now)
     assert result == "standard"
+
+
+def test_list_loops_query_count_not_n_plus_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that listing loops uses O(1) queries, not O(n) queries.
+
+    This is a regression test for the N+1 query problem where each loop
+    would trigger 2 additional queries (for project and tags).
+    """
+    import sqlite3
+
+    from cloop.loops import repo, service
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create test data: 10 loops with projects and tags
+    project_id = repo.upsert_project(name="TestProject", conn=conn)
+    loop_ids: list[int] = []
+    for i in range(10):
+        record = repo.create_loop(
+            raw_text=f"Loop {i}",
+            captured_at_utc="2024-01-01T00:00:00+00:00",
+            captured_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        loop_ids.append(record.id)
+        # Update with project
+        repo.update_loop_fields(
+            loop_id=record.id,
+            fields={"project_id": project_id},
+            conn=conn,
+        )
+        # Add tags
+        repo.replace_loop_tags(loop_id=record.id, tag_names=[f"tag{i}", "common"], conn=conn)
+
+    # Create a connection wrapper to count queries
+    class CountingConnection:
+        """Wrapper that counts execute calls."""
+
+        def __init__(self, conn: sqlite3.Connection):
+            self._conn = conn
+            self.execute_count = 0
+
+        def execute(self, *args, **kwargs):
+            self.execute_count += 1
+            return self._conn.execute(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    counting_conn = CountingConnection(conn)
+
+    # Call list_loops with the counting wrapper
+    result = service.list_loops(status=None, limit=100, offset=0, conn=counting_conn)
+
+    # Should have exactly 10 loops
+    assert len(result) == 10
+
+    # With batch fetching, we expect:
+    # 1 query for loops + 1 query for projects + 1 query for tags = 3 queries
+    # Without batch fetching (N+1), we'd have: 1 + 10 + 10 = 21 queries
+    assert counting_conn.execute_count <= 3, (
+        f"Expected <= 3 queries with batch fetching, got {counting_conn.execute_count}"
+    )
+
+    # Verify the data is correct
+    for i, loop in enumerate(result):
+        assert loop["raw_text"] == f"Loop {i}"
+        assert loop["project"] == "TestProject"
+        assert "common" in loop["tags"]
+        assert f"tag{i}" in loop["tags"]
+
+    conn.close()
