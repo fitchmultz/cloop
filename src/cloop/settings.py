@@ -137,7 +137,7 @@ def get_settings() -> Settings:
         ollama_api_base=os.getenv("CLOOP_OLLAMA_API_BASE"),
         lmstudio_api_base=os.getenv("CLOOP_LMSTUDIO_API_BASE"),
         openrouter_api_base=os.getenv("CLOOP_OPENROUTER_API_BASE"),
-        stream_default=_resolve_stream_default(os.getenv("CLOOP_STREAM_DEFAULT")),
+        stream_default=_resolve_bool(os.getenv("CLOOP_STREAM_DEFAULT")),
         organizer_model=os.getenv("CLOOP_ORGANIZER_MODEL", "gemini/gemini-3-flash-preview"),
         organizer_timeout=float(os.getenv("CLOOP_ORGANIZER_TIMEOUT", "20.0")),
         autopilot_enabled=_resolve_bool(os.getenv("CLOOP_AUTOPILOT_ENABLED", "true")),
@@ -194,16 +194,9 @@ def _resolve_embed_storage(raw: str | None) -> EmbedStorageMode:
         raise ValueError(f"Invalid CLOOP_EMBED_STORAGE: {raw}") from exc
 
 
-def _resolve_stream_default(raw: str | None) -> bool:
+def _resolve_bool(raw: str | None, default: bool = False) -> bool:
     if raw is None:
-        return False
-    normalized = raw.strip().lower()
-    return normalized in {"1", "true", "yes", "on"}
-
-
-def _resolve_bool(raw: str | None) -> bool:
-    if raw is None:
-        return False
+        return default
     normalized = raw.strip().lower()
     return normalized in {"1", "true", "yes", "on"}
 
