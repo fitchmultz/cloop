@@ -145,6 +145,13 @@ class LoopCaptureRequest(BaseModel):
 
         return validate_iso8601_timestamp(v, "captured_at")
 
+    @field_validator("client_tz_offset_min")
+    @classmethod
+    def validate_tz_offset(cls, v: int) -> int:
+        from .loops.models import validate_tz_offset
+
+        return validate_tz_offset(v, "client_tz_offset_min")
+
 
 class LoopUpdateRequest(BaseModel):
     raw_text: str | None = Field(default=None, min_length=1)
