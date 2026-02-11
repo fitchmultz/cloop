@@ -18,7 +18,6 @@ from .db import (
     get_vector_backend,
     rag_connection,
     reset_vector_backend,
-    vector_extension_available,
 )
 from .embeddings import embed_texts
 from .loops.errors import ValidationError
@@ -865,9 +864,6 @@ def _sqlite_similar_chunks(
 ) -> List[Dict[str, Any]] | None:
     if settings.embed_storage_mode is EmbedStorageMode.BLOB:
         raise RuntimeError("SQL retrieval requires json or dual embedding storage")
-    if not vector_extension_available() and settings.vector_search_mode is VectorSearchMode.SQLITE:
-        # Even without an external extension we can run the SQL implementation.
-        pass
     query_norm = float(np.linalg.norm(query_vec))
     if query_norm <= 1e-12:
         return []
