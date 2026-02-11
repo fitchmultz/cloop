@@ -35,7 +35,7 @@ def test_chunk_text_preserves_token_order(tokens: List[str]) -> None:
 def make_settings(tmp_path: Path, *, vector_mode: VectorSearchMode) -> Settings:
     os.environ["CLOOP_DATA_DIR"] = str(tmp_path)
     os.environ["CLOOP_VECTOR_MODE"] = vector_mode.value
-    get_settings.cache_clear()  # type: ignore[attr-defined]
+    get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
     return settings

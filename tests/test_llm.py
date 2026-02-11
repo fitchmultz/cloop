@@ -13,7 +13,7 @@ def _configure_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **env: str) 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     for key, value in env.items():
         monkeypatch.setenv(key, value)
-    get_settings.cache_clear()  # type: ignore[attr-defined]
+    get_settings.cache_clear()
 
 
 def test_chat_completion_uses_ollama_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
