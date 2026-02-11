@@ -5,13 +5,10 @@ import logging
 import sqlite3
 from typing import Any, Mapping
 
-from .. import typingx
+from ..typingx import escape_like_pattern
 from .models import EnrichmentState, LoopRecord, LoopStatus, parse_utc_datetime
 
 logger = logging.getLogger(__name__)
-
-# Re-export for backward compatibility
-_escape_like_pattern = typingx.escape_like_pattern
 
 
 _ALLOWED_UPDATE_FIELDS = {
@@ -69,66 +66,36 @@ def _parse_json_dict(value: Any) -> dict[str, object]:
 
 def _row_to_record(row: sqlite3.Row) -> LoopRecord:
     return LoopRecord(
-        id=typingx.as_type(int, row["id"]),
-        raw_text=typingx.as_type(str, row["raw_text"]),
-        title=typingx.as_type(str, row["title"]) if row["title"] is not None else None,
-        summary=typingx.as_type(str, row["summary"]) if row["summary"] is not None else None,
+        id=row["id"],
+        raw_text=row["raw_text"],
+        title=row["title"] if row["title"] is not None else None,
+        summary=row["summary"] if row["summary"] is not None else None,
         definition_of_done=(
-            typingx.as_type(str, row["definition_of_done"])
-            if row["definition_of_done"] is not None
-            else None
+            row["definition_of_done"] if row["definition_of_done"] is not None else None
         ),
-        next_action=(
-            typingx.as_type(str, row["next_action"]) if row["next_action"] is not None else None
-        ),
-        status=LoopStatus(typingx.as_type(str, row["status"])),
-        captured_at_utc=parse_utc_datetime(typingx.as_type(str, row["captured_at_utc"])),
-        captured_tz_offset_min=typingx.as_type(int, row["captured_tz_offset_min"]),
-        due_at_utc=(
-            parse_utc_datetime(typingx.as_type(str, row["due_at_utc"]))
-            if row["due_at_utc"]
-            else None
-        ),
+        next_action=row["next_action"] if row["next_action"] is not None else None,
+        status=LoopStatus(row["status"]),
+        captured_at_utc=parse_utc_datetime(row["captured_at_utc"]),
+        captured_tz_offset_min=row["captured_tz_offset_min"],
+        due_at_utc=parse_utc_datetime(row["due_at_utc"]) if row["due_at_utc"] else None,
         snooze_until_utc=(
-            parse_utc_datetime(typingx.as_type(str, row["snooze_until_utc"]))
-            if row["snooze_until_utc"]
-            else None
+            parse_utc_datetime(row["snooze_until_utc"]) if row["snooze_until_utc"] else None
         ),
-        time_minutes=(
-            typingx.as_type(int, row["time_minutes"]) if row["time_minutes"] is not None else None
-        ),
+        time_minutes=row["time_minutes"] if row["time_minutes"] is not None else None,
         activation_energy=(
-            typingx.as_type(int, row["activation_energy"])
-            if row["activation_energy"] is not None
-            else None
+            row["activation_energy"] if row["activation_energy"] is not None else None
         ),
-        urgency=(typingx.as_type(float, row["urgency"]) if row["urgency"] is not None else None),
-        importance=(
-            typingx.as_type(float, row["importance"]) if row["importance"] is not None else None
-        ),
-        project_id=(
-            typingx.as_type(int, row["project_id"]) if row["project_id"] is not None else None
-        ),
-        blocked_reason=(
-            typingx.as_type(str, row["blocked_reason"])
-            if row["blocked_reason"] is not None
-            else None
-        ),
-        completion_note=(
-            typingx.as_type(str, row["completion_note"])
-            if row["completion_note"] is not None
-            else None
-        ),
+        urgency=row["urgency"] if row["urgency"] is not None else None,
+        importance=row["importance"] if row["importance"] is not None else None,
+        project_id=row["project_id"] if row["project_id"] is not None else None,
+        blocked_reason=row["blocked_reason"] if row["blocked_reason"] is not None else None,
+        completion_note=row["completion_note"] if row["completion_note"] is not None else None,
         user_locks=_parse_json_list(row["user_locks_json"]),
         provenance=_parse_json_dict(row["provenance_json"]),
-        enrichment_state=EnrichmentState(
-            typingx.as_type(str, row["enrichment_state"] or EnrichmentState.IDLE.value)
-        ),
-        created_at_utc=parse_utc_datetime(typingx.as_type(str, row["created_at"])),
-        updated_at_utc=parse_utc_datetime(typingx.as_type(str, row["updated_at"])),
-        closed_at_utc=(
-            parse_utc_datetime(typingx.as_type(str, row["closed_at"])) if row["closed_at"] else None
-        ),
+        enrichment_state=EnrichmentState(row["enrichment_state"] or EnrichmentState.IDLE.value),
+        created_at_utc=parse_utc_datetime(row["created_at"]),
+        updated_at_utc=parse_utc_datetime(row["updated_at"]),
+        closed_at_utc=parse_utc_datetime(row["closed_at"]) if row["closed_at"] else None,
     )
 
 
@@ -313,7 +280,7 @@ def list_tags(conn: sqlite3.Connection) -> list[str]:
         ORDER BY name ASC
         """
     ).fetchall()
-    return [typingx.as_type(str, row["name"]) for row in rows]
+    return [row["name"] for row in rows]
 
 
 def search_loops(
@@ -323,7 +290,7 @@ def search_loops(
     offset: int,
     conn: sqlite3.Connection,
 ) -> list[LoopRecord]:
-    escaped_query = typingx.escape_like_pattern(query)
+    escaped_query = escape_like_pattern(query)
     like_query = f"%{escaped_query}%"
     rows = conn.execute(
         """
@@ -435,7 +402,7 @@ def read_project_name(*, project_id: int | None, conn: sqlite3.Connection) -> st
     if project_id is None:
         return None
     row = conn.execute("SELECT name FROM projects WHERE id = ?", (project_id,)).fetchone()
-    return typingx.as_type(str, row["name"]) if row else None
+    return row["name"] if row else None
 
 
 def read_project_names_batch(*, project_ids: set[int], conn: sqlite3.Connection) -> dict[int, str]:
@@ -449,7 +416,7 @@ def read_project_names_batch(*, project_ids: set[int], conn: sqlite3.Connection)
     placeholders = ", ".join("?" for _ in project_ids)
     sql = f"SELECT id, name FROM projects WHERE id IN ({placeholders})"
     rows = conn.execute(sql, list(project_ids)).fetchall()
-    return {int(row["id"]): typingx.as_type(str, row["name"]) for row in rows}
+    return {int(row["id"]): row["name"] for row in rows}
 
 
 def list_loop_tags_batch(*, loop_ids: list[int], conn: sqlite3.Connection) -> dict[int, list[str]]:
@@ -472,7 +439,7 @@ def list_loop_tags_batch(*, loop_ids: list[int], conn: sqlite3.Connection) -> di
     result: dict[int, list[str]] = {loop_id: [] for loop_id in loop_ids}
     for row in rows:
         loop_id = int(row["loop_id"])
-        result.setdefault(loop_id, []).append(typingx.as_type(str, row["name"]))
+        result.setdefault(loop_id, []).append(row["name"])
     return result
 
 
@@ -505,7 +472,7 @@ def list_loop_tags(*, loop_id: int, conn: sqlite3.Connection) -> list[str]:
         """,
         (loop_id,),
     ).fetchall()
-    return [typingx.as_type(str, row["name"]) for row in rows]
+    return [row["name"] for row in rows]
 
 
 def replace_loop_tags(*, loop_id: int, tag_names: list[str], conn: sqlite3.Connection) -> None:

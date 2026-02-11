@@ -272,7 +272,7 @@ def import_loops(
                 item_map = dict(item)
             else:
                 item_map = item.model_dump()
-            status = LoopStatus(typingx.as_type(str, item_map.get("status", "inbox")))
+            status = LoopStatus(str(item_map.get("status", "inbox")))
             captured_at = item_map.get("captured_at_utc")
             if captured_at:
                 captured_at = format_utc_datetime(parse_utc_datetime(captured_at))
@@ -289,7 +289,7 @@ def import_loops(
             if project_name:
                 project_id = repo.upsert_project(name=str(project_name).strip(), conn=conn)
             payload = {
-                "raw_text": typingx.as_type(str, item_map.get("raw_text", "")),
+                "raw_text": str(item_map.get("raw_text", "")),
                 "title": item_map.get("title"),
                 "summary": item_map.get("summary"),
                 "definition_of_done": item_map.get("definition_of_done"),

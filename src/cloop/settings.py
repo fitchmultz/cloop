@@ -4,8 +4,6 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 
-from . import typingx
-
 _DOTENV_LOADED = False
 
 
@@ -177,9 +175,8 @@ def _resolve_tool_mode(raw: str | None) -> ToolMode:
 
 def _resolve_embed_storage(raw: str | None) -> EmbedStorageMode:
     value = (raw or EmbedStorageMode.DUAL.value).strip().lower()
-    typed_value = typingx.as_type(str, value)
     try:
-        return EmbedStorageMode(typed_value)
+        return EmbedStorageMode(value)
     except ValueError as exc:
         raise ValueError(f"Invalid CLOOP_EMBED_STORAGE: {raw}") from exc
 
