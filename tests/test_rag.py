@@ -55,6 +55,7 @@ def test_sqlite_vector_mode_matches_python(tmp_path: Path, monkeypatch: pytest.M
         return [np.ones(4, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed_texts)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed_texts)
     doc = tmp_path / "doc.txt"
     doc.write_text("alpha beta gamma delta epsilon zeta", encoding="utf-8")
     ingest_paths([str(doc)], settings=settings_sqlite)
@@ -83,6 +84,7 @@ def test_ingest_skips_unchanged_documents(tmp_path: Path, monkeypatch: pytest.Mo
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "note.txt"
     doc.write_text("alpha beta gamma", encoding="utf-8")
@@ -107,6 +109,7 @@ def test_reindex_forces_reingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "doc.txt"
     doc.write_text("one two three four", encoding="utf-8")
@@ -128,6 +131,7 @@ def test_purge_removes_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "old.txt"
     doc.write_text("obsolete", encoding="utf-8")
@@ -148,6 +152,7 @@ def test_sync_purges_missing_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     directory = tmp_path / "docs"
     directory.mkdir()
@@ -176,6 +181,7 @@ def test_embeddings_dual_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "blob.txt"
     doc.write_text("blob storage", encoding="utf-8")
@@ -206,6 +212,7 @@ def test_embedding_norm_persisted_for_json_storage(
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "json.txt"
     doc.write_text("json storage", encoding="utf-8")
@@ -229,6 +236,7 @@ def test_retrieve_prefers_blob_over_json(tmp_path: Path, monkeypatch: pytest.Mon
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "dual.txt"
     doc.write_text("dual write", encoding="utf-8")
@@ -251,6 +259,7 @@ def test_retrieve_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyP
         return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc_keep = tmp_path / "keep.txt"
     doc_skip = tmp_path / "skip.txt"
@@ -271,6 +280,7 @@ def test_retrieve_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.Monke
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc_a = tmp_path / "doc_a.txt"
     doc_b = tmp_path / "doc_b.txt"
@@ -303,6 +313,7 @@ def test_retrieve_raises_on_embedding_dimension_mismatch(
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", ingest_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", ingest_embed)
 
     doc = tmp_path / "drift.txt"
     doc.write_text("drift guard", encoding="utf-8")
@@ -317,6 +328,7 @@ def test_retrieve_raises_on_embedding_dimension_mismatch(
         return [vector]
 
     monkeypatch.setattr("cloop.rag.embed_texts", query_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", query_embed)
 
     with pytest.raises(RuntimeError) as excinfo:
         retrieve_similar_chunks("guard", top_k=1, settings=settings)
@@ -334,6 +346,7 @@ def test_retrieve_raises_on_embedding_model_mismatch(
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "model.txt"
     doc.write_text("model guard", encoding="utf-8")
@@ -359,6 +372,7 @@ def test_alignment_check_handles_corrupted_metadata(
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "corrupt.txt"
     doc.write_text("test content", encoding="utf-8")
@@ -385,7 +399,9 @@ def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPa
         return [vector for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
     monkeypatch.setattr("cloop.rag.get_vector_backend", lambda: VectorBackend.VEC)
+    monkeypatch.setattr("cloop.rag.search.get_vector_backend", lambda: VectorBackend.VEC)
 
     ensure_calls: List[int] = []
     upsert_calls: List[int] = []
@@ -418,6 +434,7 @@ def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("cloop.rag.upsert_vector", fake_upsert)
     monkeypatch.setattr("cloop.rag.delete_vector_rows", fake_delete)
     monkeypatch.setattr("cloop.rag.vec_backend_search", fake_search)
+    monkeypatch.setattr("cloop.rag.search.vec_backend_search", fake_search)
 
     doc = tmp_path / "vec.txt"
     doc.write_text("vector enabled", encoding="utf-8")
@@ -460,6 +477,7 @@ def test_ingest_accepts_files_under_limit(tmp_path: Path, monkeypatch: pytest.Mo
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     # Create a file well under the limit (100 KB)
     small_file = tmp_path / "small.txt"
@@ -482,6 +500,7 @@ def test_ingest_file_at_exact_limit_is_accepted(
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     # Create a file exactly at the limit (1 MB = 1,048,576 bytes)
     exact_file = tmp_path / "exact.txt"
@@ -500,6 +519,7 @@ def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.Monk
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     # Create an empty file
     empty_file = tmp_path / "empty.txt"
@@ -521,6 +541,7 @@ def test_retrieve_raises_on_invalid_doc_scope_format(
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "test.txt"
     doc.write_text("test content", encoding="utf-8")
@@ -541,6 +562,7 @@ def test_retrieve_valid_doc_scope_works(tmp_path: Path, monkeypatch: pytest.Monk
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc_a = tmp_path / "doc_a.txt"
     doc_b = tmp_path / "doc_b.txt"
@@ -571,6 +593,7 @@ def test_retrieve_raises_on_empty_doc_scope(
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     doc = tmp_path / "test.txt"
     doc.write_text("test content", encoding="utf-8")
@@ -617,6 +640,7 @@ def test_ingest_reports_failed_files(tmp_path: Path, monkeypatch: pytest.MonkeyP
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     valid_file = tmp_path / "valid.txt"
     valid_file.write_text("valid content", encoding="utf-8")
@@ -658,6 +682,7 @@ def test_ingest_reports_multiple_failed_files(
         return [np.ones(3, dtype=np.float32) for _ in chunks]
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
     valid_file = tmp_path / "valid.txt"
     valid_file.write_text("valid content", encoding="utf-8")
