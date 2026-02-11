@@ -1147,6 +1147,138 @@ def test_loop_capture_valid_timestamp_with_offset(
 
 
 # =============================================================================
+# Timezone offset validation tests
+# =============================================================================
+
+
+def test_validate_tz_offset_rejects_too_high() -> None:
+    """Test that validate_tz_offset rejects values > 1440."""
+    import pytest
+
+    from cloop.loops.models import validate_tz_offset
+
+    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+        validate_tz_offset(999999)
+
+    with pytest.raises(ValueError, match="invalid_custom_field.*outside valid range"):
+        validate_tz_offset(1441, "custom_field")
+
+
+def test_validate_tz_offset_rejects_too_low() -> None:
+    """Test that validate_tz_offset rejects values < -1440."""
+    import pytest
+
+    from cloop.loops.models import validate_tz_offset
+
+    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+        validate_tz_offset(-999999)
+
+    with pytest.raises(ValueError, match="invalid_custom_field.*outside valid range"):
+        validate_tz_offset(-1441, "custom_field")
+
+
+def test_validate_tz_offset_accepts_valid_boundaries() -> None:
+    """Test that validate_tz_offset accepts boundary values."""
+    from cloop.loops.models import validate_tz_offset
+
+    # Should not raise
+    assert validate_tz_offset(-1439) == -1439
+    assert validate_tz_offset(0) == 0
+    assert validate_tz_offset(1439) == 1439
+
+
+def test_parse_client_datetime_rejects_invalid_tz_offset() -> None:
+    """Test that parse_client_datetime rejects invalid tz_offset_min values."""
+    import pytest
+
+    from cloop.loops.models import parse_client_datetime
+
+    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+        parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=999999)
+
+    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+        parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=-999999)
+
+    # Also reject exactly ±1440 since Python timezone can't handle it
+    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+        parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=1440)
+
+    with pytest.raises(ValueError, match="invalid_tz_offset_min.*outside valid range"):
+        parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=-1440)
+
+
+def test_parse_client_datetime_accepts_valid_tz_offset() -> None:
+    """Test that parse_client_datetime accepts valid tz_offset_min values."""
+    from cloop.loops.models import parse_client_datetime
+
+    # Should not raise - returns UTC datetime
+    result = parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=-300)
+    assert result is not None
+
+    # Boundary values (Python timezone max is ±1439 minutes)
+    parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=-1439)
+    parse_client_datetime("2024-01-15T10:30:00", tz_offset_min=1439)
+
+
+def test_loop_capture_invalid_tz_offset_too_high(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that tz_offset_min > 1440 is rejected with 422."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 999999,
+        },
+    )
+    assert response.status_code == 422
+    error_detail = response.json()
+    assert "error" in error_detail
+    error_str = str(error_detail).lower()
+    assert "invalid_client_tz_offset_min" in error_str or "range" in error_str
+
+
+def test_loop_capture_invalid_tz_offset_too_low(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that tz_offset_min < -1439 is rejected with 422."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": -999999,
+        },
+    )
+    assert response.status_code == 422
+    error_detail = response.json()
+    assert "error" in error_detail
+
+
+def test_loop_capture_valid_tz_offset_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that boundary values (-1439, 0, 1439) are accepted."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    for offset in [-1439, 0, 1439]:
+        response = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"test with offset {offset}",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": offset,
+            },
+        )
+        assert response.status_code == 200, f"Expected 200 for offset {offset}"
+
+
+# =============================================================================
 # update_loop_fields validation tests
 # =============================================================================
 

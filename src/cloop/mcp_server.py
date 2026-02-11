@@ -37,7 +37,7 @@ from .loops.errors import (
     TransitionError,
     ValidationError,
 )
-from .loops.models import LoopStatus, validate_iso8601_timestamp
+from .loops.models import LoopStatus, validate_iso8601_timestamp, validate_tz_offset
 from .settings import get_settings
 
 mcp = FastMCP("Cloop Loops", json_response=True)
@@ -128,6 +128,8 @@ def loop_create(
 ) -> dict[str, Any]:
     # Validate timestamp format before processing
     validate_iso8601_timestamp(captured_at, "captured_at")
+    # Validate timezone offset is within valid bounds
+    validate_tz_offset(client_tz_offset_min, "client_tz_offset_min")
 
     settings = get_settings()
     loop_status = LoopStatus(status)

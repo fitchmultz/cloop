@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
+# Timezone offset validation constants
+# Python's timezone class requires offsets strictly between -24 and +24 hours,
+# so we use [-1439, +1439] minutes (exclusive of exactly ±24h)
+MIN_TZ_OFFSET_MIN = -1439
+MAX_TZ_OFFSET_MIN = 1439
+
 
 class LoopStatus(StrEnum):
     INBOX = "inbox"
@@ -104,7 +110,29 @@ def parse_utc_datetime(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def validate_tz_offset(value: int, field_name: str = "tz_offset_min") -> int:
+    """Validate that a timezone offset is within valid bounds.
+
+    Args:
+        value: The timezone offset in minutes
+        field_name: Name of the field for error messages
+
+    Returns:
+        The original value if valid
+
+    Raises:
+        ValueError: If the value is outside the valid range
+    """
+    if not (MIN_TZ_OFFSET_MIN <= value <= MAX_TZ_OFFSET_MIN):
+        raise ValueError(
+            f"invalid_{field_name}: {value} is outside valid range "
+            f"[{MIN_TZ_OFFSET_MIN}, {MAX_TZ_OFFSET_MIN}]"
+        )
+    return value
+
+
 def parse_client_datetime(value: str, *, tz_offset_min: int) -> datetime:
+    validate_tz_offset(tz_offset_min, "tz_offset_min")
     parsed = datetime.fromisoformat(_normalize_iso(value))
     if parsed.tzinfo is None:
         offset = timezone(timedelta(minutes=tz_offset_min))
