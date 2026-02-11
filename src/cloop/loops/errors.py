@@ -11,8 +11,7 @@ Exception Hierarchy:
     CloopError (base)
     ├── NotFoundError (base for 404s)
     │   ├── LoopNotFoundError
-    │   ├── NoteNotFoundError
-    │   └── ProjectNotFoundError
+    │   └── NoteNotFoundError
     ├── ValidationError (for invalid_* errors)
     └── TransitionError (for invalid_status_transition)
 """
@@ -54,14 +53,6 @@ class NoteNotFoundError(NotFoundError):
     def __init__(self, note_id: int) -> None:
         super().__init__(f"Note not found: {note_id}", detail=f"note_id={note_id}")
         self.note_id = note_id
-
-
-class ProjectNotFoundError(NotFoundError):
-    """Raised when a project with the specified ID does not exist."""
-
-    def __init__(self, project_id: int) -> None:
-        super().__init__(f"Project not found: {project_id}", detail=f"project_id={project_id}")
-        self.project_id = project_id
 
 
 class ValidationError(CloopError):
