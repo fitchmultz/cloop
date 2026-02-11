@@ -35,14 +35,53 @@ class LoopSuggestion(BaseModel):
 
 
 def _extract_json(payload: str) -> dict[str, Any]:
-    start = payload.find("{")
-    if start == -1:
-        raise ValueError("invalid_json_response")
+    """
+    Extract JSON object from LLM response, handling markdown blocks and text.
+
+    Tries multiple strategies in order:
+    1. Strip markdown code blocks and parse
+    2. Find JSON object by brace matching
+    3. Raise ValueError if all fail
+    """
+    import re
+
+    payload = payload.strip()
+
+    # Strategy 1: Strip markdown code blocks
+    # Match ```json...``` or ```...``` blocks (with optional language specifier)
+    markdown_pattern = r"^```(?:json)?\s*\n?(.*?)\n?```$"
+    match = re.match(markdown_pattern, payload, re.DOTALL | re.IGNORECASE)
+    if match:
+        inner = match.group(1).strip()
+        try:
+            decoder = json.JSONDecoder()
+            parsed, _ = decoder.raw_decode(inner)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass  # Fall through to next strategy
+
+    # Strategy 2: Find JSON by brace matching
+    # Look for the first '{' that starts a valid JSON object
     decoder = json.JSONDecoder()
-    parsed, _ = decoder.raw_decode(payload[start:])
-    if not isinstance(parsed, dict):
-        raise ValueError("invalid_json_response")
-    return parsed
+    for i, char in enumerate(payload):
+        if char == "{":
+            try:
+                parsed, _ = decoder.raw_decode(payload, i)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue  # Try next '{'
+
+    # Strategy 3: Try parsing the whole string as JSON (simple case)
+    try:
+        parsed = json.loads(payload)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    raise ValueError("invalid_json_response")
 
 
 def _build_prompt(loop: Mapping[str, Any]) -> list[dict[str, str]]:

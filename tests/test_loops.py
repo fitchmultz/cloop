@@ -498,3 +498,202 @@ def test_search_loops_escapes_backslash(tmp_path: Path, monkeypatch: pytest.Monk
     assert "C:\\Users" in results[0].raw_text
 
     conn.close()
+
+
+# =============================================================================
+# _extract_json() tests for robust JSON extraction from LLM responses
+# =============================================================================
+
+
+def test_extract_json_plain():
+    """Plain JSON object."""
+    from cloop.loops.enrichment import _extract_json
+
+    assert _extract_json('{"key": "value"}') == {"key": "value"}
+
+
+def test_extract_json_with_whitespace():
+    """JSON with surrounding whitespace."""
+    from cloop.loops.enrichment import _extract_json
+
+    assert _extract_json('  {"key": "value"}  ') == {"key": "value"}
+
+
+def test_extract_json_markdown_block():
+    """JSON wrapped in markdown code block."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = """```json
+{"key": "value"}
+```"""
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_markdown_block_no_lang():
+    """Markdown block without language specifier."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = """```
+{"key": "value"}
+```"""
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_markdown_block_inline():
+    """Markdown block on single line."""
+    from cloop.loops.enrichment import _extract_json
+
+    assert _extract_json('```json\n{"key": "value"}\n```') == {"key": "value"}
+    assert _extract_json('```\n{"key": "value"}\n```') == {"key": "value"}
+
+
+def test_extract_json_with_text_before():
+    """Text before JSON object."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = 'Here is the result: {"key": "value"}'
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_with_brace_in_text():
+    """Brace character in text before JSON (the original bug case)."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = 'Here\'s the data: {"key": "value"}'
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_nested_braces():
+    """Nested braces in JSON values."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = '{"query": "SELECT * FROM {table}"}'
+    assert _extract_json(payload) == {"query": "SELECT * FROM {table}"}
+
+
+def test_extract_json_with_text_after():
+    """Text after JSON object."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = '{"key": "value"} Hope this helps!'
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_with_text_before_and_after():
+    """Text before and after JSON object."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = 'Here is the result: {"key": "value"} Hope this helps!'
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_invalid_no_braces():
+    """No JSON object in payload."""
+    from cloop.loops.enrichment import _extract_json
+
+    with pytest.raises(ValueError, match="invalid_json_response"):
+        _extract_json("Just some text")
+
+
+def test_extract_json_invalid_not_dict():
+    """JSON that's not a dict."""
+    from cloop.loops.enrichment import _extract_json
+
+    with pytest.raises(ValueError, match="invalid_json_response"):
+        _extract_json('["just", "a", "list"]')
+
+
+def test_extract_json_markdown_with_text():
+    """Markdown block with surrounding text."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = """Here you go:
+
+```json
+{"key": "value"}
+```
+
+Let me know if you need more help!"""
+    assert _extract_json(payload) == {"key": "value"}
+
+
+def test_extract_json_complex_nested():
+    """Complex nested JSON structure."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = """
+    Here's a complex response:
+    {
+        "title": "Test Loop",
+        "summary": "This is a summary with {special} characters",
+        "nested": {
+            "array": [1, 2, 3],
+            "object": {"a": "b"}
+        },
+        "confidence": {
+            "title": 0.95,
+            "summary": 0.8
+        }
+    }
+    Does this help?
+    """
+    result = _extract_json(payload)
+    assert result["title"] == "Test Loop"
+    assert result["nested"]["array"] == [1, 2, 3]
+    assert result["confidence"]["title"] == 0.95
+
+
+def test_extract_json_empty_string():
+    """Empty string should raise ValueError."""
+    from cloop.loops.enrichment import _extract_json
+
+    with pytest.raises(ValueError, match="invalid_json_response"):
+        _extract_json("")
+
+
+def test_extract_json_whitespace_only():
+    """Whitespace only should raise ValueError."""
+    from cloop.loops.enrichment import _extract_json
+
+    with pytest.raises(ValueError, match="invalid_json_response"):
+        _extract_json("   \n\t  ")
+
+
+def test_extract_json_unicode_content():
+    """Unicode content should be preserved correctly."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = '{"title": "测试", "emoji": "🚀", "text": "café naïve"}'
+    result = _extract_json(payload)
+    assert result["title"] == "测试"
+    assert result["emoji"] == "🚀"
+    assert result["text"] == "café naïve"
+
+
+def test_extract_json_multiple_objects():
+    """Multiple JSON objects - should return first valid dict."""
+    from cloop.loops.enrichment import _extract_json
+
+    payload = '{"first": 1} {"second": 2}'
+    result = _extract_json(payload)
+    assert result == {"first": 1}
+
+
+def test_extract_json_markdown_case_insensitive():
+    """Markdown code block language specifier is case insensitive."""
+    from cloop.loops.enrichment import _extract_json
+
+    assert _extract_json('```JSON\n{"key": "value"}\n```') == {"key": "value"}
+    assert _extract_json('```Json\n{"key": "value"}\n```') == {"key": "value"}
+
+
+def test_extract_json_malformed_in_markdown():
+    """Malformed JSON inside markdown falls back to brace matching."""
+    from cloop.loops.enrichment import _extract_json
+
+    # The inner markdown is malformed, but there's valid JSON to find
+    payload = """```json
+    not valid json here
+```
+    But here is valid JSON: {"key": "value"}"""
+    assert _extract_json(payload) == {"key": "value"}
