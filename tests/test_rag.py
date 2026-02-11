@@ -398,3 +398,83 @@ def test_vec_backend_hooks_are_used(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     results = retrieve_similar_chunks("integration query", top_k=1, settings=settings)
     assert results and math.isclose(results[0]["score"], 0.99, rel_tol=1e-6)
+
+
+def test_ingest_rejects_oversized_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that files exceeding max_file_size_mb are rejected."""
+    # Set a small max file size for testing (1 MB)
+    monkeypatch.setenv("CLOOP_MAX_FILE_SIZE_MB", "1")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    # Create a file slightly over the limit (1.1 MB)
+    oversized_file = tmp_path / "oversized.txt"
+    oversized_file.write_text("x" * (1_100_000), encoding="utf-8")
+
+    # Attempt to ingest - should raise ValueError
+    with pytest.raises(ValueError) as excinfo:
+        ingest_paths([str(oversized_file)], settings=settings)
+
+    assert "File too large" in str(excinfo.value)
+    assert "oversized.txt" in str(excinfo.value)
+    assert "1 MB" in str(excinfo.value)  # Should mention the limit
+
+
+def test_ingest_accepts_files_under_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that files under max_file_size_mb are accepted."""
+    # Set a 5 MB limit
+    monkeypatch.setenv("CLOOP_MAX_FILE_SIZE_MB", "5")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    # Create a file well under the limit (100 KB)
+    small_file = tmp_path / "small.txt"
+    small_file.write_text("x" * 100_000, encoding="utf-8")
+
+    # Should succeed without error
+    result = ingest_paths([str(small_file)], settings=settings)
+    assert result == {"files": 1, "chunks": 1}
+
+
+def test_ingest_file_at_exact_limit_is_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that files exactly at max_file_size_mb are accepted (boundary test)."""
+    # Set a 1 MB limit
+    monkeypatch.setenv("CLOOP_MAX_FILE_SIZE_MB", "1")
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    # Create a file exactly at the limit (1 MB = 1,048,576 bytes)
+    exact_file = tmp_path / "exact.txt"
+    exact_file.write_text("x" * 1_048_576, encoding="utf-8")
+
+    # Should succeed without error (limit is > not >=)
+    result = ingest_paths([str(exact_file)], settings=settings)
+    assert result == {"files": 1, "chunks": 1}
+
+
+def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that zero-byte files are allowed through the size check."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+
+    # Create an empty file
+    empty_file = tmp_path / "empty.txt"
+    empty_file.write_text("", encoding="utf-8")
+
+    # Should succeed - empty files pass size check and are processed
+    # (chunk_text produces one empty chunk for empty content)
+    result = ingest_paths([str(empty_file)], settings=settings)
+    assert result == {"files": 1, "chunks": 1}

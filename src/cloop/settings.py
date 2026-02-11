@@ -54,6 +54,7 @@ class Settings:
     organizer_timeout: float
     autopilot_enabled: bool
     autopilot_autoapply_min_confidence: float
+    max_file_size_mb: int
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -131,6 +132,7 @@ def get_settings() -> Settings:
         autopilot_autoapply_min_confidence=float(
             os.getenv("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE", "0.85")
         ),
+        max_file_size_mb=int(os.getenv("CLOOP_MAX_FILE_SIZE_MB", "50")),
     )
     return _validate_settings(settings)
 

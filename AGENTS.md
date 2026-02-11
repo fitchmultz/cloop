@@ -161,6 +161,7 @@ Configuration is **environment-driven** via `.env` file. Key variables:
 - `CLOOP_EMBED_STORAGE`: `json`, `blob`, or `dual` (default: `dual`)
 - `CLOOP_DEFAULT_TOP_K`: Chunks to retrieve (default: 5)
 - `CLOOP_CHUNK_SIZE`: Chunk size in tokens (default: 800)
+- `CLOOP_MAX_FILE_SIZE_MB`: Maximum file size for ingestion in MB (default: 50)
 
 **Tools:**
 - `CLOOP_TOOL_MODE`: `manual`, `llm`, or `none` (default: `manual`)
