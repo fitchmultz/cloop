@@ -40,7 +40,7 @@ target-version = "py314"
 fix = false
 
 [tool.ruff.lint]
-select = ["E", "F", "B", "I"]
+select = ["E", "F", "B", "I", "UP045"]
 
 [tool.ty]
 

@@ -5,7 +5,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
-from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Dict, List, Literal, TypedDict
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
@@ -69,9 +69,9 @@ class ChatMessage(BaseModel):
 
 class ToolCall(BaseModel):
     name: str = Field(..., description="Supported: read_note, write_note")
-    note_id: Optional[int] = None
-    title: Optional[str] = None
-    body: Optional[str] = None
+    note_id: int | None = None
+    title: str | None = None
+    body: str | None = None
 
 
 if TYPE_CHECKING:
@@ -82,10 +82,10 @@ else:
 
 class ChatRequest(BaseModel):
     messages: ChatMessageList
-    tool_call: Optional[ToolCall] = Field(
+    tool_call: ToolCall | None = Field(
         default=None, description="Optional instruction to interact with notes"
     )
-    tool_mode: Optional[ToolMode] = Field(
+    tool_mode: ToolMode | None = Field(
         default=None,
         description="Tool orchestration mode: manual, llm, or none. Defaults to settings.",
     )
@@ -106,18 +106,18 @@ class IngestMode(StrEnum):
 
 class ChatResponse(BaseModel):
     message: str
-    tool_result: Optional[Dict[str, Any]] = None
+    tool_result: Dict[str, Any] | None = None
     tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
-    model: Optional[str] = None
+    model: str | None = None
 
 
 class IngestRequest(BaseModel):
     paths: List[str]
-    mode: Optional[IngestMode] = Field(
+    mode: IngestMode | None = Field(
         default=None,
         description="Ingestion mode: add, reindex, purge, or sync. Defaults to add.",
     )
-    recursive: Optional[bool] = Field(
+    recursive: bool | None = Field(
         default=None,
         description="Recurse into directories when true (default).",
     )
@@ -137,7 +137,7 @@ class IngestResponse(BaseModel):
 class AskResponse(BaseModel):
     answer: str
     chunks: List[Dict[str, Any]]
-    model: Optional[str] = None
+    model: str | None = None
     sources: List[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -458,12 +458,10 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
 def chat_endpoint(
     request: ChatRequest,
     settings: SettingsDep,
-    stream: Annotated[
-        Optional[bool], Query(description="Stream Server-Sent Events when true")
-    ] = None,
+    stream: Annotated[bool | None, Query(description="Stream Server-Sent Events when true")] = None,
 ) -> Any:
     messages = [message.model_dump() for message in request.messages]
-    tool_result: Optional[Dict[str, Any]] = None
+    tool_result: Dict[str, Any] | None = None
     tool_calls: List[Dict[str, Any]] = []
 
     tool_mode = request.tool_mode or settings.tool_mode_default
@@ -798,12 +796,10 @@ def loop_next_endpoint(
 def ask_endpoint(
     settings: SettingsDep,
     q: Annotated[str, Query(description="Question to run against the knowledge base")],
-    k: Annotated[Optional[int], Query(description="Override number of chunks to return")] = None,
-    stream: Annotated[
-        Optional[bool], Query(description="Stream Server-Sent Events when true")
-    ] = None,
+    k: Annotated[int | None, Query(description="Override number of chunks to return")] = None,
+    stream: Annotated[bool | None, Query(description="Stream Server-Sent Events when true")] = None,
     scope: Annotated[
-        Optional[str],
+        str | None,
         Query(description="Restrict retrieval by path substring or doc:ID"),
     ] = None,
 ) -> Any:
