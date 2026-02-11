@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from ..settings import Settings
 from .models import parse_utc_datetime
 
 
@@ -27,6 +28,7 @@ def compute_priority_score(
     *,
     now_utc: datetime,
     w: PriorityWeights,
+    settings: Settings,
 ) -> float:
     score = 0.0
     due_at = _parse_time(loop.get("due_at_utc"))
@@ -36,7 +38,8 @@ def compute_priority_score(
             due_factor = 1.0
         else:
             hours = delta / 3600
-            due_factor = max(0.0, 1.0 - min(hours / 72.0, 1.0))
+            due_window = settings.prioritization_due_window_hours
+            due_factor = max(0.0, 1.0 - min(hours / due_window, 1.0))
         score += w.due_weight * due_factor
 
     urgency = float(loop.get("urgency") or 0.0)
@@ -51,9 +54,11 @@ def compute_priority_score(
     return score
 
 
-def bucketize(loop: dict[str, Any], *, now_utc: datetime) -> str:
+def bucketize(loop: dict[str, Any], *, now_utc: datetime, settings: Settings) -> str:
     due_at = _parse_time(loop.get("due_at_utc"))
-    if due_at is not None and due_at <= now_utc + timedelta(hours=48):
+    if due_at is not None and due_at <= now_utc + timedelta(
+        hours=settings.prioritization_due_soon_hours
+    ):
         return "due_soon"
 
     time_minutes = loop.get("time_minutes")
@@ -61,13 +66,15 @@ def bucketize(loop: dict[str, Any], *, now_utc: datetime) -> str:
     if (
         time_minutes is not None
         and activation_energy is not None
-        and int(time_minutes) <= 15
+        and int(time_minutes) <= settings.prioritization_quick_win_minutes
         and int(activation_energy) <= 1
     ):
         return "quick_wins"
 
     importance = loop.get("importance")
-    if importance is not None and float(importance) >= 0.7:
-        return "high_leverage"
+    if importance is not None:
+        threshold = settings.prioritization_high_leverage_threshold
+        if float(importance) >= threshold:
+            return "high_leverage"
 
     return "standard"

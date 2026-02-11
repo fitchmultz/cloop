@@ -82,7 +82,7 @@ def suggest_links(
     related = find_related_loops(
         loop_id=loop_id,
         query_vec=query_vec,
-        threshold=0.78,
+        threshold=settings.related_similarity_threshold,
         top_k=5,
         conn=conn,
         settings=settings,
