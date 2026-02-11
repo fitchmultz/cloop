@@ -478,20 +478,17 @@ def test_loop_update_empty_fields_returns_400(
     assert "no_fields_to_update" in data["error"]["message"]
 
 
-def test_generic_exception_includes_message(
+def test_generic_exception_sanitized_response(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that generic exception handler logs and includes message in response."""
+    """Verify that generic exception handler logs details but returns sanitized response."""
     import logging
     from unittest.mock import patch
 
-    # Patch an endpoint to raise an unexpected exception BEFORE creating client
     def mock_ingest_paths(*args: Any, **kwargs: Any) -> dict[str, Any]:
-        raise RuntimeError("Simulated ingestion failure")
+        raise RuntimeError("Simulated ingestion failure with /secret/path")
 
     monkeypatch.setattr("cloop.main.ingest_paths", mock_ingest_paths)
-
-    # Use raise_server_exceptions=False to let FastAPI exception handlers catch exceptions
     client = TestClient(app, raise_server_exceptions=False)
 
     doc = tmp_path / "test.txt"
@@ -504,6 +501,52 @@ def test_generic_exception_includes_message(
     data = response.json()
     assert data["error"]["type"] == "server_error"
     assert data["error"]["message"] == "Unexpected server error"
-    assert "Simulated ingestion failure" in data["error"]["details"]["exception"]
-    # Verify logger.exception was called
+
+    assert "error_id" in data["error"]["details"]
+    error_id = data["error"]["details"]["error_id"]
+    assert len(error_id) == 36
+    assert error_id.count("-") == 4
+
+    assert "exception" not in data["error"]["details"]
+    assert "Simulated ingestion failure" not in str(data)
+    assert "/secret/path" not in str(data)
+
     mock_log.assert_called_once()
+    call_args = str(mock_log.call_args)
+    assert error_id in call_args
+
+
+def test_generic_exception_never_exposes_sensitive_data(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that sensitive information is never exposed in error responses."""
+    import logging
+    from unittest.mock import patch
+
+    sensitive_patterns = [
+        "/Users/secret",
+        "/home/admin",
+        "password=",
+        "api_key=",
+        "token=",
+        "connection string",
+    ]
+
+    for pattern in sensitive_patterns:
+
+        def mock_fail(*args: Any, _pattern: str = pattern, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError(f"Error involving {_pattern}")
+
+        monkeypatch.setattr("cloop.main.ingest_paths", mock_fail)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        doc = tmp_path / "test.txt"
+        doc.write_text("content", encoding="utf-8")
+
+        with patch.object(logging.getLogger("cloop.main"), "exception"):
+            response = client.post("/ingest", json={"paths": [str(doc)]})
+
+        response_text = response.text.lower()
+        assert pattern.lower() not in response_text, (
+            f"Sensitive pattern '{pattern}' exposed in response"
+        )
