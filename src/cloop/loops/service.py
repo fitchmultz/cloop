@@ -524,7 +524,7 @@ def next_loops(
         for record in actionable
     ]
 
-    buckets = {"due_soon": [], "quick_wins": [], "high_leverage": []}
+    buckets = {"due_soon": [], "quick_wins": [], "high_leverage": [], "standard": []}
     for record, score in scored:
         label = bucketize(_record_to_dict(record), now_utc=now)
         if label in buckets:

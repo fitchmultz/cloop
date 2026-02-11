@@ -70,4 +70,4 @@ def bucketize(loop: dict[str, Any], *, now_utc: datetime) -> str:
     if importance is not None and float(importance) >= 0.7:
         return "high_leverage"
 
-    return "high_leverage"
+    return "standard"

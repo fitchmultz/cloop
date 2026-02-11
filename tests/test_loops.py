@@ -1,10 +1,11 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
+from cloop.loops.prioritization import bucketize
 from cloop.main import app
 from cloop.settings import get_settings
 
@@ -170,3 +171,103 @@ def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     imported_payload = imported_loops.json()
     assert imported_payload
     assert imported_payload[0]["completion_note"] == "archived"
+
+
+def test_bucketize_returns_standard_for_low_importance() -> None:
+    """Low importance loops should NOT be classified as high_leverage."""
+    now = datetime.now(timezone.utc)
+
+    # Loop with low importance, not due soon, not a quick win
+    loop = {
+        "importance": 0.1,
+        "time_minutes": 120,
+        "activation_energy": 3,
+        # No due_at_utc, so not due_soon
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "standard", f"Expected 'standard' for low importance loop, got '{result}'"
+
+
+def test_bucketize_returns_high_leverage_for_high_importance() -> None:
+    """High importance loops should be classified as high_leverage."""
+    now = datetime.now(timezone.utc)
+
+    loop = {
+        "importance": 0.8,
+        "time_minutes": 120,
+        "activation_energy": 3,
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "high_leverage"
+
+
+def test_bucketize_returns_due_soon_for_urgent_due_date() -> None:
+    """Loops due within 48h should be due_soon regardless of other factors."""
+    now = datetime.now(timezone.utc)
+
+    loop = {
+        "importance": 0.9,  # High importance
+        "due_at_utc": (now + timedelta(hours=24)).isoformat(),
+        "time_minutes": 5,
+        "activation_energy": 1,
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "due_soon"
+
+
+def test_bucketize_returns_quick_wins_for_small_tasks() -> None:
+    """Short, low-energy tasks should be quick_wins."""
+    now = datetime.now(timezone.utc)
+
+    loop = {
+        "importance": 0.9,  # High importance
+        "time_minutes": 10,
+        "activation_energy": 1,
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "quick_wins"
+
+
+def test_bucketize_handles_none_importance() -> None:
+    """Loops without importance should default to standard."""
+    now = datetime.now(timezone.utc)
+
+    loop = {
+        "time_minutes": 60,
+        "activation_energy": 2,
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "standard"
+
+
+def test_bucketize_importance_boundary_high() -> None:
+    """Loop with importance exactly 0.7 should be high_leverage."""
+    now = datetime.now(timezone.utc)
+
+    loop = {
+        "importance": 0.7,
+        "time_minutes": 60,
+        "activation_energy": 2,
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "high_leverage"
+
+
+def test_bucketize_importance_boundary_low() -> None:
+    """Loop with importance just below 0.7 should be standard."""
+    now = datetime.now(timezone.utc)
+
+    loop = {
+        "importance": 0.69,
+        "time_minutes": 60,
+        "activation_energy": 2,
+    }
+
+    result = bucketize(loop, now_utc=now)
+    assert result == "standard"
