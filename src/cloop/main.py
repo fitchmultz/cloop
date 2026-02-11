@@ -210,14 +210,11 @@ class LoopStatusRequest(BaseModel):
     note: str | None = None
 
 
-class LoopResponse(BaseModel):
-    id: int
+class LoopBase(BaseModel):
     raw_text: str
-    title: str | None
     summary: str | None = None
     definition_of_done: str | None = None
     next_action: str | None = None
-    status: LoopStatus
     captured_at_utc: str
     captured_tz_offset_min: int
     due_at_utc: str | None = None
@@ -226,7 +223,6 @@ class LoopResponse(BaseModel):
     activation_energy: int | None = None
     urgency: float | None = None
     importance: float | None = None
-    project_id: int | None = None
     blocked_reason: str | None = None
     completion_note: str | None = None
     project: str | None = None
@@ -237,6 +233,13 @@ class LoopResponse(BaseModel):
     created_at_utc: str
     updated_at_utc: str
     closed_at_utc: str | None = None
+
+
+class LoopResponse(LoopBase):
+    id: int
+    title: str | None
+    status: LoopStatus
+    project_id: int | None = None
 
 
 class LoopNextResponse(BaseModel):
@@ -245,32 +248,10 @@ class LoopNextResponse(BaseModel):
     high_leverage: List[LoopResponse]
 
 
-class LoopExportItem(BaseModel):
+class LoopExportItem(LoopBase):
     id: int | None = None
-    raw_text: str
     title: str | None = None
-    summary: str | None = None
-    definition_of_done: str | None = None
-    next_action: str | None = None
     status: str
-    captured_at_utc: str
-    captured_tz_offset_min: int
-    due_at_utc: str | None = None
-    snooze_until_utc: str | None = None
-    time_minutes: int | None = None
-    activation_energy: int | None = None
-    urgency: float | None = None
-    importance: float | None = None
-    blocked_reason: str | None = None
-    completion_note: str | None = None
-    project: str | None = None
-    tags: List[str] = Field(default_factory=list)
-    user_locks: List[str] = Field(default_factory=list)
-    provenance: Dict[str, Any] = Field(default_factory=dict)
-    enrichment_state: str | None = None
-    created_at_utc: str
-    updated_at_utc: str
-    closed_at_utc: str | None = None
 
 
 class LoopExportResponse(BaseModel):
