@@ -476,3 +476,34 @@ def test_loop_update_empty_fields_returns_400(
     data = response.json()
     assert data["error"]["type"] == "http_error"
     assert "no_fields_to_update" in data["error"]["message"]
+
+
+def test_generic_exception_includes_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that generic exception handler logs and includes message in response."""
+    import logging
+    from unittest.mock import patch
+
+    # Patch an endpoint to raise an unexpected exception BEFORE creating client
+    def mock_ingest_paths(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("Simulated ingestion failure")
+
+    monkeypatch.setattr("cloop.main.ingest_paths", mock_ingest_paths)
+
+    # Use raise_server_exceptions=False to let FastAPI exception handlers catch exceptions
+    client = TestClient(app, raise_server_exceptions=False)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("content", encoding="utf-8")
+
+    with patch.object(logging.getLogger("cloop.main"), "exception") as mock_log:
+        response = client.post("/ingest", json={"paths": [str(doc)]})
+
+    assert response.status_code == 500
+    data = response.json()
+    assert data["error"]["type"] == "server_error"
+    assert data["error"]["message"] == "Unexpected server error"
+    assert "Simulated ingestion failure" in data["error"]["details"]["exception"]
+    # Verify logger.exception was called
+    mock_log.assert_called_once()
