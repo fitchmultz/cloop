@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime
 from typing import Any, Mapping
 
 import litellm
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .. import db
 from ..providers import resolve_provider_kwargs
@@ -237,7 +238,39 @@ def enrich_loop(
             content = str(message.get("content", ""))
         raw_json = _extract_json(content)
         suggestion = LoopSuggestion.model_validate(raw_json)
+    except KeyboardInterrupt, SystemExit:
+        # Re-raise system signals without modification
+        raise
+    except json.JSONDecodeError as exc:
+        with conn:
+            repo.update_loop_fields(
+                loop_id=loop_id,
+                fields={"enrichment_state": EnrichmentState.FAILED.value},
+                conn=conn,
+            )
+            repo.insert_loop_event(
+                loop_id=loop_id,
+                event_type=LoopEventType.ENRICH_FAILURE.value,
+                payload={"error": f"JSON decode error: {exc}"},
+                conn=conn,
+            )
+        raise
+    except ValidationError as exc:
+        with conn:
+            repo.update_loop_fields(
+                loop_id=loop_id,
+                fields={"enrichment_state": EnrichmentState.FAILED.value},
+                conn=conn,
+            )
+            repo.insert_loop_event(
+                loop_id=loop_id,
+                event_type=LoopEventType.ENRICH_FAILURE.value,
+                payload={"error": f"Validation error: {exc}"},
+                conn=conn,
+            )
+        raise
     except Exception as exc:
+        # Catch-all for unexpected errors (litellm API errors, etc.)
         with conn:
             repo.update_loop_fields(
                 loop_id=loop_id,
@@ -297,8 +330,14 @@ def enrich_loop(
                     loop_id=loop_id, text=text_for_embedding, conn=conn, settings=settings
                 )
                 suggest_links(loop_id=loop_id, conn=conn, settings=settings)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Log embedding/suggestion failures but don't fail the enrichment
+            logging.warning(
+                "Failed to create embedding or suggestions for loop %s: %s",
+                loop_id,
+                exc,
+                exc_info=True,
+            )
 
     return {
         "loop_id": loop_id,
