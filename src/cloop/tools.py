@@ -9,7 +9,7 @@ class ToolExecutor(Protocol):
 
 
 def _require_fields(payload: Dict[str, Any], *fields: str) -> None:
-    missing = [field for field in fields if not payload.get(field)]
+    missing = [field for field in fields if payload.get(field) is None]
     if missing:
         raise ValueError(f"Missing required fields: {', '.join(missing)}")
 
