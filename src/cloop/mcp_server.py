@@ -1,6 +1,28 @@
+"""MCP server exposing loop operations to external AI agents.
+
+This module implements the Model Context Protocol (MCP) server that allows
+external AI agents to interact with Cloop's loop management system. All
+operations are exposed as MCP tools with JSON responses.
+
+Tool Handlers:
+    - loop.create: Capture a new loop
+    - loop.update: Update loop fields
+    - loop.close: Close a loop as completed/dropped
+    - loop.list: List loops with optional status filter
+    - loop.search: Search loops by text
+    - loop.snooze: Set snooze timer on a loop
+    - loop.enrich: Trigger AI enrichment for a loop
+    - project.list: List all projects
+
+Non-scope:
+    - HTTP API endpoints (see main.py)
+    - CLI commands (see cli.py)
+"""
+
 from __future__ import annotations
 
-from typing import Any
+from functools import wraps
+from typing import Any, Callable, TypeVar
 
 from mcp.server.fastmcp import FastMCP
 
@@ -13,8 +35,28 @@ from .settings import get_settings
 
 mcp = FastMCP("Cloop Loops", json_response=True)
 
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def with_db_init(func: F) -> F:
+    """Initialize databases before executing an MCP tool handler.
+
+    Ensures settings are loaded and databases are initialized before any
+    MCP tool operation. This centralizes initialization logic that was
+    previously duplicated across all handlers.
+    """
+
+    @wraps(func)
+    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+        settings = get_settings()
+        db.init_databases(settings)
+        return func(*args, **kwargs)
+
+    return _wrapper  # type: ignore[return-value]
+
 
 @mcp.tool(name="loop.create")
+@with_db_init
 def loop_create(
     raw_text: str,
     captured_at: str,
@@ -22,7 +64,6 @@ def loop_create(
     status: str = "inbox",
 ) -> dict[str, Any]:
     settings = get_settings()
-    db.init_databases(settings)
     loop_status = LoopStatus(status)
     with db.core_connection(settings) as conn:
         record = loop_service.capture_loop(
@@ -36,21 +77,21 @@ def loop_create(
 
 
 @mcp.tool(name="loop.update")
+@with_db_init
 def loop_update(loop_id: int, fields: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
-    db.init_databases(settings)
     with db.core_connection(settings) as conn:
         return loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
 
 
 @mcp.tool(name="loop.close")
+@with_db_init
 def loop_close(
     loop_id: int,
     status: str = "completed",
     note: str | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
-    db.init_databases(settings)
     loop_status = LoopStatus(status)
     if loop_status not in {LoopStatus.COMPLETED, LoopStatus.DROPPED}:
         raise ValueError("status must be completed or dropped")
@@ -64,9 +105,9 @@ def loop_close(
 
 
 @mcp.tool(name="loop.list")
+@with_db_init
 def loop_list(status: str | None = None, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     settings = get_settings()
-    db.init_databases(settings)
     parsed_status = LoopStatus(status) if status else None
     with db.core_connection(settings) as conn:
         return loop_service.list_loops(
@@ -78,17 +119,17 @@ def loop_list(status: str | None = None, limit: int = 50, offset: int = 0) -> li
 
 
 @mcp.tool(name="loop.search")
+@with_db_init
 def loop_search(query: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     settings = get_settings()
-    db.init_databases(settings)
     with db.core_connection(settings) as conn:
         return loop_service.search_loops(query=query, limit=limit, offset=offset, conn=conn)
 
 
 @mcp.tool(name="loop.snooze")
+@with_db_init
 def loop_snooze(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
     settings = get_settings()
-    db.init_databases(settings)
     with db.core_connection(settings) as conn:
         return loop_service.update_loop(
             loop_id=loop_id,
@@ -98,9 +139,9 @@ def loop_snooze(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
 
 
 @mcp.tool(name="loop.enrich")
+@with_db_init
 def loop_enrich(loop_id: int) -> dict[str, Any]:
     settings = get_settings()
-    db.init_databases(settings)
     with db.core_connection(settings) as conn:
         loop_service.request_enrichment(loop_id=loop_id, conn=conn)
         result = loop_enrichment.enrich_loop(loop_id=loop_id, conn=conn, settings=settings)
@@ -108,9 +149,9 @@ def loop_enrich(loop_id: int) -> dict[str, Any]:
 
 
 @mcp.tool(name="project.list")
+@with_db_init
 def project_list() -> list[dict[str, Any]]:
     settings = get_settings()
-    db.init_databases(settings)
     with db.core_connection(settings) as conn:
         return loop_repo.list_projects(conn=conn)
 
