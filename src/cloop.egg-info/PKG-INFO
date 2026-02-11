@@ -17,7 +17,7 @@ Requires-Dist: ruff>=0.6.0; extra == "dev"
 Requires-Dist: pytest>=8.3.0; extra == "dev"
 Requires-Dist: httpx>=0.27.0; extra == "dev"
 Requires-Dist: hypothesis>=6.108.0; extra == "dev"
-Requires-Dist: ty>=0.0.3; extra == "dev"
+Requires-Dist: ty>=0.0.16; extra == "dev"
 
 # Cloop (Closed Loop): Your Private, Local-First AI Knowledge Base
 

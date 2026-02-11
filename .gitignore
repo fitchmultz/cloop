@@ -3,8 +3,14 @@
 **/.repoprompt
 **/.ruff_cache
 **/.venv
-
+data/
 # Commit .env since the repo is private
 !**/.env
 
 .claude/settings.local.json
+
+# Ralph debug logs (raw/unredacted; do not commit)
+.ralph/logs/
+.ralph
+# Ralph parallel mode workspace directories
+.ralph/workspaces/
