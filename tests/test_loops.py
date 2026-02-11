@@ -354,3 +354,147 @@ def test_list_loops_query_count_not_n_plus_one(
         assert f"tag{i}" in loop["tags"]
 
     conn.close()
+
+
+def test_search_loops_escapes_like_wildcards_percent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that % in search query is escaped and treated literally."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create loops with text containing % and similar patterns
+    repo.create_loop(
+        raw_text="50% discount on all items",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    repo.create_loop(
+        raw_text="500 discount offer",  # Should NOT match "50%"
+        captured_at_utc="2024-01-02T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    repo.create_loop(
+        raw_text="50 percent off",  # Should NOT match "50%"
+        captured_at_utc="2024-01-03T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Search for "50%" - should only match the first loop
+    results = repo.search_loops(query="50%", limit=10, offset=0, conn=conn)
+
+    # Should find only the loop with literal "50%"
+    assert len(results) == 1
+    assert "50%" in results[0].raw_text
+
+    conn.close()
+
+
+def test_search_loops_escapes_like_wildcards_underscore(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that _ in search query is escaped and treated literally."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create loops with text containing _ and similar patterns
+    repo.create_loop(
+        raw_text="test_file.py needs review",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    repo.create_loop(
+        raw_text="testAfile.py is something else",  # Should NOT match "test_file"
+        captured_at_utc="2024-01-02T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    repo.create_loop(
+        raw_text="testBfile.py is another",  # Should NOT match "test_file"
+        captured_at_utc="2024-01-03T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Search for "test_file" - should only match the first loop
+    results = repo.search_loops(query="test_file", limit=10, offset=0, conn=conn)
+
+    # Should find only the loop with literal "test_file"
+    assert len(results) == 1
+    assert "test_file" in results[0].raw_text
+
+    conn.close()
+
+
+def test_search_loops_escapes_backslash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that backslash in search query is properly escaped."""
+    import sqlite3
+
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop with backslash in text
+    repo.create_loop(
+        raw_text="Path is C:\\Users\\test",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    repo.create_loop(
+        raw_text="Some other text",
+        captured_at_utc="2024-01-02T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    # Search for "C:\Users" - should match
+    results = repo.search_loops(query="C:\\Users", limit=10, offset=0, conn=conn)
+
+    # Should find the loop with the backslash path
+    assert len(results) == 1
+    assert "C:\\Users" in results[0].raw_text
+
+    conn.close()

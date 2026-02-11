@@ -116,4 +116,21 @@ def validate_io() -> Callable[[Callable[..., T]], Callable[..., T]]:
     return decorator
 
 
-__all__ = ["as_type", "validate_io"]
+def escape_like_pattern(query: str) -> str:
+    """Escape SQL LIKE wildcards in user input.
+
+    Escapes % and _ characters so they are treated literally in LIKE queries.
+    Uses backslash as the escape character. The backslash itself is escaped first
+    to prevent double-escaping issues.
+
+    Example:
+        >>> escape_like_pattern("50% off")
+        '50\\% off'
+        >>> escape_like_pattern("test_file")
+        'test\\_file'
+    """
+    # First escape the escape character itself, then % and _
+    return query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+__all__ = ["as_type", "validate_io", "escape_like_pattern"]
