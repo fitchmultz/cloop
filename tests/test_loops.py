@@ -140,6 +140,47 @@ def test_loop_status_transitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert reopened.json()["status"] == "inbox"
 
 
+def test_invalid_status_transition_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that invalid status transitions are rejected with 400 error.
+
+    According to _ALLOWED_TRANSITIONS in service.py, actionable/blocked/scheduled
+    cannot transition directly back to inbox. The loop must be closed
+    (completed/dropped) first, then reopened.
+    """
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create a loop that starts in actionable status
+    capture = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test invalid transition",
+            "actionable": True,
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert capture.status_code == 200
+    loop_id = capture.json()["id"]
+    assert capture.json()["status"] == "actionable"
+
+    # Attempt invalid transition: actionable -> inbox (not allowed)
+    response = client.post(
+        f"/loops/{loop_id}/status",
+        json={"status": "inbox"},
+    )
+
+    # Should be rejected with 400 Bad Request (transition_error)
+    assert response.status_code == 400
+    error = response.json()
+    assert "error" in error
+    assert error["error"]["type"] == "transition_error"
+    # Verify the error message contains both statuses
+    assert "actionable" in error["error"]["message"].lower()
+    assert "inbox" in error["error"]["message"].lower()
+
+
 def test_tag_normalization_and_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     client = _make_client(tmp_path, monkeypatch)
     response = client.post(
