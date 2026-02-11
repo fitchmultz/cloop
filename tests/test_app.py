@@ -1,5 +1,4 @@
 import json
-import os
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -7,92 +6,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
-from cloop.main import app
 from cloop.settings import get_settings
 
-STREAM_TOKENS = ["Answer ", "segment"]
 
-
-def make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    os.environ["CLOOP_DATA_DIR"] = str(tmp_path)
-    os.environ["CLOOP_LLM_MODEL"] = "mock-llm"
-    os.environ["CLOOP_EMBED_MODEL"] = "mock-embed"
-    get_settings.cache_clear()
-    db.init_databases(get_settings())
-
-    def mock_completion(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        messages: List[Dict[str, Any]] = kwargs.get("messages") or []
-        tools = kwargs.get("tools")
-
-        # First tool-enabled pass returns a tool call.
-        if tools:
-            if any(message.get("role") == "tool" for message in messages):
-                return {
-                    "choices": [{"message": {"content": "tool-mode-final"}}],
-                    "model": "mock-llm-tool",
-                    "usage": {"total_tokens": 0},
-                }
-            return {
-                "choices": [
-                    {
-                        "message": {
-                            "tool_calls": [
-                                {
-                                    "id": "call_1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "write_note",
-                                        "arguments": '{"title": "auto", "body": "generated"}',
-                                    },
-                                }
-                            ]
-                        }
-                    }
-                ],
-                "model": "mock-llm-tool",
-                "usage": {"total_tokens": 0},
-            }
-
-        return {
-            "choices": [{"message": {"content": "mock-response"}}],
-            "model": "mock-llm",
-            "usage": {"total_tokens": 0},
-        }
-
-    def mock_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        inputs = kwargs.get("input") or []
-        vectors = []
-        for index, _ in enumerate(inputs):
-            vectors.append({"embedding": [0.1 + index, 0.2 + index, 0.3 + index]})
-        return {"data": vectors}
-
-    def mock_stream_completion(*args: Any, **kwargs: Any):
-        def iterator() -> Any:
-            for token in STREAM_TOKENS:
-                yield token
-
-        return iterator()
-
-    monkeypatch.setattr("cloop.llm.litellm.completion", mock_completion)
-    monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding)
-    monkeypatch.setattr("cloop.llm.stream_completion", mock_stream_completion)
-    monkeypatch.setattr("cloop.routes.chat.stream_completion", mock_stream_completion)
-    monkeypatch.setattr("cloop.routes.rag.stream_completion", mock_stream_completion)
-    return TestClient(app)
-
-
-def test_ingest_and_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    doc = tmp_path / "note.txt"
+def test_ingest_and_ask(test_client: TestClient, tmp_data_dir: Path) -> None:
+    doc = tmp_data_dir / "note.txt"
     doc.write_text("FastAPI makes it easy to build APIs.", encoding="utf-8")
 
-    response = client.post("/ingest", json={"paths": [str(doc)]})
+    response = test_client.post("/ingest", json={"paths": [str(doc)]})
     assert response.status_code == 200
     payload = response.json()
     assert payload["files"] == 1
     assert payload["chunks"] >= 1
 
-    ask_response = client.get("/ask", params={"q": "What does FastAPI help with?"})
+    ask_response = test_client.get("/ask", params={"q": "What does FastAPI help with?"})
     assert ask_response.status_code == 200
     answer_payload = ask_response.json()
     assert answer_payload["answer"] == "mock-response"
@@ -103,9 +30,7 @@ def test_ingest_and_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
         assert "embedding_blob" not in chunk
 
 
-def test_chat_manual_tool_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-
+def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> None:
     write_payload = {
         "messages": [{"role": "user", "content": "Log a new note."}],
         "tool_call": {
@@ -114,7 +39,7 @@ def test_chat_manual_tool_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "body": "remember to test",
         },
     }
-    write_response = client.post("/chat", json=write_payload)
+    write_response = test_client.post("/chat", json=write_payload)
     assert write_response.status_code == 200
     write_data = write_response.json()
     assert write_data["tool_result"]["action"] == "write_note"
@@ -126,7 +51,7 @@ def test_chat_manual_tool_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "messages": [{"role": "user", "content": "Fetch my note."}],
         "tool_call": {"name": "read_note", "note_id": note_id},
     }
-    read_response = client.post("/chat", json=read_payload)
+    read_response = test_client.post("/chat", json=read_payload)
     assert read_response.status_code == 200
     read_data = read_response.json()
     assert read_data["tool_result"]["action"] == "read_note"
@@ -141,15 +66,13 @@ def test_chat_manual_tool_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert row["tool_calls"] == "[]"
 
 
-def test_chat_llm_tool_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-
+def test_chat_llm_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> None:
     payload = {
         "messages": [{"role": "user", "content": "Please file a note."}],
         "tool_mode": "llm",
     }
 
-    response = client.post("/chat", json=payload)
+    response = test_client.post("/chat", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["message"] == "tool-mode-final"
@@ -184,15 +107,15 @@ def _read_sse(response: Any) -> List[Tuple[str, Dict[str, Any]]]:
     return events
 
 
-def test_chat_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
+def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
+    from tests.conftest import STREAM_TOKENS
 
     payload = {
         "messages": [{"role": "user", "content": "Stream please."}],
         "tool_mode": "none",
     }
 
-    with client.stream("POST", "/chat?stream=true", json=payload) as response:
+    with test_client.stream("POST", "/chat?stream=true", json=payload) as response:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
         events = _read_sse(response)
@@ -216,14 +139,15 @@ def test_chat_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     assert recorded["context"]["embed_model"] == get_settings().embed_model
 
 
-def test_ask_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    doc = tmp_path / "faq.txt"
+def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
+    from tests.conftest import STREAM_TOKENS
+
+    doc = tmp_data_dir / "faq.txt"
     doc.write_text("All about streaming.", encoding="utf-8")
-    ingest = client.post("/ingest", json={"paths": [str(doc)]})
+    ingest = test_client.post("/ingest", json={"paths": [str(doc)]})
     assert ingest.status_code == 200
 
-    with client.stream("GET", "/ask", params={"q": "Stream?", "stream": "true"}) as response:
+    with test_client.stream("GET", "/ask", params={"q": "Stream?", "stream": "true"}) as response:
         assert response.status_code == 200
         events = _read_sse(response)
 
@@ -245,9 +169,8 @@ def test_ask_streaming(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert recorded["context"]["vector_search_mode"] == get_settings().vector_search_mode.value
 
 
-def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    response = client.get("/health")
+def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.get("/health")
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -267,9 +190,8 @@ def test_health_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert payload["retrieval_metric"] in {"1_over_1_plus_distance", "cosine"}
 
 
-def test_chat_manual_requires_tool_call(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    response = client.post(
+def test_chat_manual_requires_tool_call(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.post(
         "/chat",
         json={
             "messages": [{"role": "user", "content": "hi"}],
@@ -281,11 +203,8 @@ def test_chat_manual_requires_tool_call(tmp_path: Path, monkeypatch: pytest.Monk
     assert payload["error"]["type"] == "validation_error"
 
 
-def test_chat_invalid_tool_mode_returns_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    response = client.post(
+def test_chat_invalid_tool_mode_returns_error(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.post(
         "/chat",
         json={
             "messages": [{"role": "user", "content": "hi"}],
@@ -298,19 +217,17 @@ def test_chat_invalid_tool_mode_returns_error(
     assert payload["error"]["message"] == "Validation failed"
 
 
-def test_validation_error_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    response = client.post("/chat", json={})
+def test_validation_error_shape(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.post("/chat", json={})
     assert response.status_code == 422
     payload = response.json()
     assert payload["error"]["type"] == "validation_error"
     assert payload["error"]["details"]["errors"]
 
 
-def test_ask_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    dir_one = tmp_path / "dir_one"
-    dir_two = tmp_path / "dir_two"
+def test_ask_scope_filters_path(test_client: TestClient, tmp_data_dir: Path) -> None:
+    dir_one = tmp_data_dir / "dir_one"
+    dir_two = tmp_data_dir / "dir_two"
     dir_one.mkdir()
     dir_two.mkdir()
     doc_a = dir_one / "alpha.txt"
@@ -318,10 +235,10 @@ def test_ask_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     doc_a.write_text("alpha scope content", encoding="utf-8")
     doc_b.write_text("beta scope content", encoding="utf-8")
 
-    response = client.post("/ingest", json={"paths": [str(doc_a), str(doc_b)]})
+    response = test_client.post("/ingest", json={"paths": [str(doc_a), str(doc_b)]})
     assert response.status_code == 200
 
-    scoped = client.get(
+    scoped = test_client.get(
         "/ask",
         params={"q": "scope?", "k": 10, "scope": "alpha.txt"},
     )
@@ -330,7 +247,7 @@ def test_ask_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert scoped_payload["sources"]
     assert all("alpha.txt" in source["document_path"] for source in scoped_payload["sources"])
 
-    doc_scope = client.get(
+    doc_scope = test_client.get(
         "/ask",
         params={"q": "scope?", "k": 10, "scope": "beta.txt"},
     )
@@ -339,13 +256,12 @@ def test_ask_scope_filters_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert all("beta.txt" in source["document_path"] for source in doc_payload["sources"])
 
 
-def test_ask_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    doc_a = tmp_path / "doc_a.txt"
-    doc_b = tmp_path / "doc_b.txt"
+def test_ask_scope_filters_doc_id(test_client: TestClient, tmp_data_dir: Path) -> None:
+    doc_a = tmp_data_dir / "doc_a.txt"
+    doc_b = tmp_data_dir / "doc_b.txt"
     doc_a.write_text("alpha doc content", encoding="utf-8")
     doc_b.write_text("beta doc content", encoding="utf-8")
-    ingest = client.post("/ingest", json={"paths": [str(doc_a), str(doc_b)]})
+    ingest = test_client.post("/ingest", json={"paths": [str(doc_a), str(doc_b)]})
     assert ingest.status_code == 200
 
     with db.rag_connection(get_settings()) as conn:
@@ -356,7 +272,7 @@ def test_ask_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert row is not None
     doc_id = row["id"]
 
-    scoped = client.get(
+    scoped = test_client.get(
         "/ask",
         params={"q": "doc id?", "k": 10, "scope": f"doc:{doc_id}"},
     )
@@ -366,84 +282,63 @@ def test_ask_scope_filters_doc_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert all(source["document_path"] == str(doc_b) for source in payload["sources"])
 
 
-def test_ask_returns_400_on_embedding_drift(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = make_client(tmp_path, monkeypatch)
-    doc = tmp_path / "drift.txt"
+def test_ask_returns_400_on_embedding_drift(test_client: TestClient, tmp_data_dir: Path) -> None:
+    doc = tmp_data_dir / "drift.txt"
     doc.write_text("guard", encoding="utf-8")
-    ingest = client.post("/ingest", json={"paths": [str(doc)]})
+    ingest = test_client.post("/ingest", json={"paths": [str(doc)]})
     assert ingest.status_code == 200
 
     with db.rag_connection(get_settings()) as conn:
         conn.execute("UPDATE chunks SET embedding_dim = embedding_dim + 1")
         conn.commit()
 
-    response = client.get("/ask", params={"q": "drift?"})
+    response = test_client.get("/ask", params={"q": "drift?"})
     assert response.status_code == 400
     payload = response.json()
     assert payload["error"]["type"] == "http_error"
     assert "embedding_dim mismatch" in payload["error"]["message"]
 
 
-def test_loop_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that LoopNotFoundError maps to HTTP 404."""
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.get("/loops/999999")
+def test_loop_not_found_returns_404(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.get("/loops/999999")
     assert response.status_code == 404
     data = response.json()
     assert data["error"]["type"] == "not_found"
     assert "Loop not found" in data["error"]["message"]
 
 
-def test_loop_update_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that updating a non-existent loop returns 404."""
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.patch("/loops/999999", json={"title": "Updated"})
+def test_loop_update_not_found_returns_404(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.patch("/loops/999999", json={"title": "Updated"})
     assert response.status_code == 404
     data = response.json()
     assert data["error"]["type"] == "not_found"
 
 
-def test_loop_close_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that closing a non-existent loop returns 404."""
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.post("/loops/999999/close", json={"status": "completed"})
+def test_loop_close_not_found_returns_404(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.post("/loops/999999/close", json={"status": "completed"})
     assert response.status_code == 404
     data = response.json()
     assert data["error"]["type"] == "not_found"
 
 
-def test_loop_status_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that status transition on non-existent loop returns 404."""
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.post("/loops/999999/status", json={"status": "actionable"})
+def test_loop_status_not_found_returns_404(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.post("/loops/999999/status", json={"status": "actionable"})
     assert response.status_code == 404
     data = response.json()
     assert data["error"]["type"] == "not_found"
 
 
-def test_loop_enrich_not_found_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify that enriching a non-existent loop returns 404."""
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.post("/loops/999999/enrich")
+def test_loop_enrich_not_found_returns_404(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.post("/loops/999999/enrich")
     assert response.status_code == 404
     data = response.json()
     assert data["error"]["type"] == "not_found"
 
 
 def test_loop_capture_invalid_timestamp_returns_validation_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    test_client: TestClient, tmp_data_dir: Path
 ) -> None:
-    """Verify that invalid timestamp returns validation error (400 from ValidationError)."""
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.post(
+    response = test_client.post(
         "/loops/capture",
         json={
             "raw_text": "Test loop",
@@ -457,16 +352,12 @@ def test_loop_capture_invalid_timestamp_returns_validation_error(
 
 
 def test_loop_update_empty_fields_returns_400(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    test_client: TestClient, tmp_data_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that updating with no fields returns 400."""
-    client = make_client(tmp_path, monkeypatch)
-
-    # First capture a loop (with autopilot disabled to avoid background task issues)
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     get_settings.cache_clear()
 
-    capture_resp = client.post(
+    capture_resp = test_client.post(
         "/loops/capture",
         json={
             "raw_text": "Test loop",
@@ -477,8 +368,7 @@ def test_loop_update_empty_fields_returns_400(
     assert capture_resp.status_code == 200
     loop_id = capture_resp.json()["id"]
 
-    # Try to update with empty fields (by using a dict with only excluded defaults)
-    response = client.patch(f"/loops/{loop_id}", json={})
+    response = test_client.patch(f"/loops/{loop_id}", json={})
     assert response.status_code == 400
     data = response.json()
     assert data["error"]["type"] == "http_error"
@@ -488,9 +378,10 @@ def test_loop_update_empty_fields_returns_400(
 def test_generic_exception_sanitized_response(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that generic exception handler logs details but returns sanitized response."""
     import logging
     from unittest.mock import patch
+
+    from cloop.main import app
 
     def mock_ingest_paths(*args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Simulated ingestion failure with /secret/path")
@@ -526,9 +417,10 @@ def test_generic_exception_sanitized_response(
 def test_generic_exception_never_exposes_sensitive_data(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify that sensitive information is never exposed in error responses."""
     import logging
     from unittest.mock import patch
+
+    from cloop.main import app
 
     sensitive_patterns = [
         "/Users/secret",
@@ -557,3 +449,29 @@ def test_generic_exception_never_exposes_sensitive_data(
         assert pattern.lower() not in response_text, (
             f"Sensitive pattern '{pattern}' exposed in response"
         )
+
+
+def test_mock_responses_match_litellm_format(
+    mock_completion_response: Dict[str, Any],
+    mock_tool_call_response: Dict[str, Any],
+    mock_tool_final_response: Dict[str, Any],
+) -> None:
+    """Verify all mock responses have correct litellm.completion() format.
+
+    This test ensures our mocks stay aligned with the actual API contract,
+    preventing silent breakage if litellm response format changes.
+    """
+    for response in [mock_completion_response, mock_tool_final_response]:
+        assert "choices" in response
+        assert isinstance(response["choices"], list)
+        assert len(response["choices"]) >= 1
+        assert "message" in response["choices"][0]
+        assert "content" in response["choices"][0]["message"]
+        assert "model" in response
+        assert "usage" in response
+
+    assert "tool_calls" in mock_tool_call_response["choices"][0]["message"]
+    tool_call = mock_tool_call_response["choices"][0]["message"]["tool_calls"][0]
+    assert tool_call["type"] == "function"
+    assert "name" in tool_call["function"]
+    assert "arguments" in tool_call["function"]
