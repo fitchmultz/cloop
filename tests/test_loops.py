@@ -877,10 +877,10 @@ def test_extract_json_malformed_in_markdown():
 # =============================================================================
 
 
-def test_parse_json_list_logs_warning_on_malformed_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_parse_json_list_raises_on_malformed_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that malformed JSON in user_locks_json field is logged as a warning."""
+    """Test that malformed JSON in user_locks_json field raises ValueError."""
     import sqlite3
 
     from cloop.loops import repo
@@ -911,27 +911,17 @@ def test_parse_json_list_logs_warning_on_malformed_json(
     )
     conn.commit()
 
-    # Clear log capture before reading the corrupted record
-    caplog.clear()
-    with caplog.at_level("WARNING", logger="cloop.loops.repo"):
-        # Read the loop back - this should trigger the JSON parse error
-        result = repo.read_loop(loop_id=record.id, conn=conn)
-
-    # Verify the result has empty user_locks (fallback behavior)
-    assert result is not None
-    assert result.user_locks == []
-
-    # Verify a warning was logged
-    assert "Failed to parse JSON list" in caplog.text
-    assert "unterminated string" in caplog.text.lower() or "expecting" in caplog.text.lower()
+    # Reading the corrupted record should raise ValueError
+    with pytest.raises(ValueError, match="Failed to parse JSON list"):
+        repo.read_loop(loop_id=record.id, conn=conn)
 
     conn.close()
 
 
-def test_parse_json_dict_logs_warning_on_malformed_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_parse_json_dict_raises_on_malformed_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that malformed JSON in provenance_json field is logged as a warning."""
+    """Test that malformed JSON in provenance_json field raises ValueError."""
     import sqlite3
 
     from cloop.loops import repo
@@ -962,27 +952,17 @@ def test_parse_json_dict_logs_warning_on_malformed_json(
     )
     conn.commit()
 
-    # Clear log capture before reading the corrupted record
-    caplog.clear()
-    with caplog.at_level("WARNING", logger="cloop.loops.repo"):
-        # Read the loop back - this should trigger the JSON parse error
-        result = repo.read_loop(loop_id=record.id, conn=conn)
-
-    # Verify the result has empty provenance (fallback behavior)
-    assert result is not None
-    assert result.provenance == {}
-
-    # Verify a warning was logged
-    assert "Failed to parse JSON dict" in caplog.text
-    assert "invalid json" in caplog.text.lower() or "Expecting" in caplog.text
+    # Reading the corrupted record should raise ValueError
+    with pytest.raises(ValueError, match="Failed to parse JSON dict"):
+        repo.read_loop(loop_id=record.id, conn=conn)
 
     conn.close()
 
 
-def test_parse_json_list_handles_truncated_long_value_in_log(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_parse_json_list_truncates_long_value_in_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that very long malformed JSON values are truncated in the log."""
+    """Test that very long malformed JSON values are truncated in the error message."""
     import sqlite3
 
     from cloop.loops import repo
@@ -1016,13 +996,14 @@ def test_parse_json_list_handles_truncated_long_value_in_log(
     )
     conn.commit()
 
-    # Read back and verify logging doesn't explode
-    caplog.clear()
-    with caplog.at_level("WARNING", logger="cloop.loops.repo"):
-        result = repo.read_loop(loop_id=record.id, conn=conn)
+    # Reading the corrupted record should raise ValueError with truncated message
+    with pytest.raises(ValueError, match="Failed to parse JSON list") as exc_info:
+        repo.read_loop(loop_id=record.id, conn=conn)
 
-    assert result is not None
-    assert result.user_locks == []
-    assert "Failed to parse JSON list" in caplog.text
+    # Verify the error message contains truncated raw value
+    error_msg = str(exc_info.value)
+    assert "Raw value:" in error_msg
+    # The raw value should be truncated to ~200 chars
+    assert len(error_msg) < 300  # Reasonable upper bound for truncated message
 
     conn.close()

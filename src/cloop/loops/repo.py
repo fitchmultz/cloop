@@ -40,33 +40,31 @@ _ALLOWED_UPDATE_FIELDS = {
 
 
 def _parse_json_list(value: Any) -> list[str]:
-    if not value:
+    if value is None or value == "":
         return []
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as e:
-        logger.warning(
-            "Failed to parse JSON list: %s. Returning empty list.",
-            e,
-            extra={"raw_value": repr(value)[:200]},  # Limit length for safety
+        raise ValueError(f"Failed to parse JSON list: {e}. Raw value: {repr(value)[:200]}") from e
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"Expected JSON list, got {type(parsed).__name__}. Raw value: {repr(value)[:200]}"
         )
-        return []
-    return [str(item) for item in parsed] if isinstance(parsed, list) else []
+    return [str(item) for item in parsed]
 
 
 def _parse_json_dict(value: Any) -> dict[str, object]:
-    if not value:
+    if value is None or value == "":
         return {}
     try:
         parsed = json.loads(value)
     except json.JSONDecodeError as e:
-        logger.warning(
-            "Failed to parse JSON dict: %s. Returning empty dict.",
-            e,
-            extra={"raw_value": repr(value)[:200]},  # Limit length for safety
+        raise ValueError(f"Failed to parse JSON dict: {e}. Raw value: {repr(value)[:200]}") from e
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            f"Expected JSON dict, got {type(parsed).__name__}. Raw value: {repr(value)[:200]}"
         )
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+    return parsed
 
 
 def _row_to_record(row: sqlite3.Row) -> LoopRecord:
