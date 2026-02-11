@@ -28,6 +28,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from . import db
+from .constants import DEFAULT_LOOP_LIST_LIMIT
 from .loops import enrichment as loop_enrichment
 from .loops import repo as loop_repo
 from .loops import service as loop_service
@@ -188,7 +189,9 @@ def loop_close(
 @mcp.tool(name="loop.list")
 @with_db_init
 @with_mcp_error_handling
-def loop_list(status: str | None = None, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+def loop_list(
+    status: str | None = None, limit: int = DEFAULT_LOOP_LIST_LIMIT, offset: int = 0
+) -> list[dict[str, Any]]:
     settings = get_settings()
     parsed_status = LoopStatus(status) if status else None
     with db.core_connection(settings) as conn:
@@ -203,7 +206,9 @@ def loop_list(status: str | None = None, limit: int = 50, offset: int = 0) -> li
 @mcp.tool(name="loop.search")
 @with_db_init
 @with_mcp_error_handling
-def loop_search(query: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+def loop_search(
+    query: str, limit: int = DEFAULT_LOOP_LIST_LIMIT, offset: int = 0
+) -> list[dict[str, Any]]:
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.search_loops(query=query, limit=limit, offset=offset, conn=conn)

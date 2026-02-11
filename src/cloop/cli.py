@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 from . import db
+from .constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from .loops.models import LoopStatus, resolve_status_from_flags
 from .loops.service import capture_loop, list_loops, next_loops, request_enrichment
 from .rag import ingest_paths, retrieve_similar_chunks
@@ -155,10 +156,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     inbox_parser = subparsers.add_parser("inbox", help="List inbox loops")
-    inbox_parser.add_argument("--limit", type=int, default=50, help="Max loops to return")
+    inbox_parser.add_argument(
+        "--limit", type=int, default=DEFAULT_LOOP_LIST_LIMIT, help="Max loops to return"
+    )
 
     next_parser = subparsers.add_parser("next", help="Show the next loops")
-    next_parser.add_argument("--limit", type=int, default=5, help="Max loops per bucket")
+    next_parser.add_argument(
+        "--limit", type=int, default=DEFAULT_LOOP_NEXT_LIMIT, help="Max loops per bucket"
+    )
 
     return parser
 
