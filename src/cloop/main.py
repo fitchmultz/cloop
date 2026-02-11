@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
@@ -32,6 +33,8 @@ from .rag import (
 )
 from .settings import Settings, ToolMode, get_settings
 from .tools import EXECUTORS, TOOL_SPECS
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -358,8 +361,9 @@ def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSON
 
 @app.exception_handler(Exception)
 def handle_generic_exception(_: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception: %s", exc)
     return _http_error(
-        {"message": "Unexpected server error", "exception": exc.__class__.__name__},
+        {"message": "Unexpected server error", "exception": str(exc)},
         status_code=500,
         error_type="server_error",
     )
