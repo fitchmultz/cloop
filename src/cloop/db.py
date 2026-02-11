@@ -1,4 +1,5 @@
 import json
+import logging
 import sqlite3
 from contextlib import contextmanager
 from enum import StrEnum
@@ -7,8 +8,11 @@ from typing import Any, Dict, Iterable, Iterator, Optional
 
 from .settings import Settings, get_settings
 
+logger = logging.getLogger(__name__)
+
 _VECTOR_EXTENSION_ATTEMPTED = False
 _VECTOR_EXTENSION_AVAILABLE = False
+_VECTOR_LOAD_ERROR: str | None = None
 
 
 class VectorBackend(StrEnum):
@@ -451,7 +455,11 @@ def rag_connection(settings: Optional[Settings] = None) -> Iterator[sqlite3.Conn
 
 
 def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -> None:
-    global _VECTOR_EXTENSION_ATTEMPTED, _VECTOR_EXTENSION_AVAILABLE, _VECTOR_BACKEND
+    global \
+        _VECTOR_EXTENSION_ATTEMPTED, \
+        _VECTOR_EXTENSION_AVAILABLE, \
+        _VECTOR_BACKEND, \
+        _VECTOR_LOAD_ERROR
     if _VECTOR_EXTENSION_ATTEMPTED:
         return
     _VECTOR_EXTENSION_ATTEMPTED = True
@@ -463,9 +471,17 @@ def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -
         conn.load_extension(extension_path)
         _VECTOR_BACKEND = _detect_vector_backend(conn)
         _VECTOR_EXTENSION_AVAILABLE = _VECTOR_BACKEND is not VectorBackend.NONE
-    except sqlite3.Error:
+        _VECTOR_LOAD_ERROR = None
+    except sqlite3.Error as e:
         _VECTOR_EXTENSION_AVAILABLE = False
         _VECTOR_BACKEND = VectorBackend.NONE
+        _VECTOR_LOAD_ERROR = str(e)
+        logger.warning(
+            "Failed to load SQLite vector extension from '%s': %s. "
+            "Vector search will fall back to SQLite/Python mode.",
+            extension_path,
+            e,
+        )
     finally:
         conn.enable_load_extension(False)
 
@@ -478,11 +494,21 @@ def get_vector_backend() -> VectorBackend:
     return _VECTOR_BACKEND
 
 
+def get_vector_load_error() -> str | None:
+    """Return the error message from the last vector extension load attempt, if any."""
+    return _VECTOR_LOAD_ERROR
+
+
 def reset_vector_backend() -> None:
-    global _VECTOR_BACKEND, _VECTOR_EXTENSION_AVAILABLE, _VECTOR_EXTENSION_ATTEMPTED
+    global \
+        _VECTOR_BACKEND, \
+        _VECTOR_EXTENSION_AVAILABLE, \
+        _VECTOR_EXTENSION_ATTEMPTED, \
+        _VECTOR_LOAD_ERROR
     _VECTOR_BACKEND = VectorBackend.NONE
     _VECTOR_EXTENSION_AVAILABLE = False
     _VECTOR_EXTENSION_ATTEMPTED = False
+    _VECTOR_LOAD_ERROR = None
 
 
 def init_core_db(settings: Optional[Settings] = None) -> None:
