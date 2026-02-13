@@ -84,11 +84,13 @@ Retrieve the most relevant chunks for a question:
 uv run cloop ask "What does the onboarding process say about PTO?" --k 5
 ```
 
-Capture a loop and see your inbox:
+Capture a loop and manage your tasks:
 
 ```bash
 uv run cloop capture "Return Amazon package by Friday" --tz-offset-min -420
-uv run cloop inbox
+uv run cloop loop list --status inbox
+uv run cloop loop update 1 --next-action "Go to post office" --due-at "2026-02-15T18:00:00Z"
+uv run cloop loop close 1 --note "Done"
 uv run cloop next
 ```
 
@@ -96,6 +98,126 @@ Notes:
 
 - `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
 - For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
+- Loop lifecycle and utility commands support `--format json|table` (default: `json`).
+
+## CLI Reference
+
+### Loop Lifecycle Commands
+
+Full loop lifecycle management from the terminal:
+
+```bash
+# Get a loop by ID
+cloop loop get <id> [--format json|table]
+
+# List loops with filters
+cloop loop list [--status STATUS] [--tag TAG] [--limit N] [--offset N] [--format json|table]
+# Status options: inbox, actionable, blocked, scheduled, completed, dropped, open (default), all
+
+# Search loops by text
+cloop loop search <query> [--limit N] [--offset N] [--format json|table]
+
+# Update loop fields
+cloop loop update <id> [OPTIONS] [--format json|table]
+  --title TEXT              Update title
+  --summary TEXT            Update summary
+  --next-action TEXT        Update next action
+  --due-at ISO8601          Update due date
+  --snooze-until ISO8601    Update snooze time
+  --time-minutes N          Estimated time
+  --activation-energy N     0-3 scale
+  --urgency FLOAT           0.0-1.0
+  --importance FLOAT        0.0-1.0
+  --project TEXT            Project name
+  --blocked-reason TEXT     Reason for blocked status
+  --tags TAGS               Comma-separated tags (clears existing)
+
+# Transition loop status
+cloop loop status <id> <status> [--note TEXT] [--format json|table]
+# Status options: inbox, actionable, blocked, scheduled, completed, dropped
+
+# Close a loop (completed or dropped)
+cloop loop close <id> [--dropped] [--note TEXT] [--format json|table]
+
+# Request AI enrichment
+cloop loop enrich <id> [--format json|table]
+
+# Snooze a loop
+cloop loop snooze <id> <duration> [--format json|table]
+# Duration examples: 30m, 1h, 2d, 1w, or ISO8601 timestamp
+```
+
+### Utility Commands
+
+```bash
+# List all tags in use
+cloop tags [--format json|table]
+
+# List all projects
+cloop projects [--format json|table]
+
+# Export loops
+cloop export [--output FILE] [--format json|table]
+# Writes to stdout if no --output specified
+
+# Import loops
+cloop import [--file FILE] [--format json|table]
+# Reads from stdin if no --file specified
+```
+
+### RAG Commands
+
+```bash
+# Ingest documents
+cloop ingest <paths...> [--mode MODE] [--no-recursive]
+# Mode options: add (default), reindex, purge, sync
+
+# Query knowledge base
+cloop ask <question> [--k N] [--scope SCOPE]
+```
+
+### Capture Commands
+
+```bash
+# Capture a loop
+cloop capture <text> [STATUS_FLAGS] [--captured-at ISO8601] [--tz-offset-min N]
+# Status flags: --actionable, --scheduled, --blocked
+# Aliases: --urgent (same as --actionable), --waiting (same as --blocked)
+
+# View inbox
+cloop inbox [--limit N]
+
+# View next actions (prioritized)
+cloop next [--limit N]
+```
+
+### Exit Codes
+
+- `0`: Success
+- `1`: Validation error (invalid arguments, no fields to update, etc.)
+- `2`: Not found error (loop not found, invalid transition, etc.)
+
+### Example Workflows
+
+**Capture and complete a task:**
+```bash
+uv run cloop capture "Review PR #123" --actionable
+uv run cloop loop update 1 --next-action "Open PR" --due-at "2026-02-14T17:00:00Z"
+uv run cloop loop list --status actionable
+uv run cloop loop close 1 --note "Approved and merged"
+```
+
+**Export and import data:**
+```bash
+uv run cloop export --output backup.json
+uv run cloop import --file backup.json
+```
+
+**Search and update:**
+```bash
+uv run cloop loop search "groceries"
+uv run cloop loop update 5 --tags "shopping,weekly"
+```
 
 ## Running the Server
 
