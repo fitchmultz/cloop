@@ -120,6 +120,7 @@ Endpoints:
 - `POST /loops/{id}/close`: close a loop (completed or dropped).
 - `POST /loops/{id}/enrich`: request enrichment for a loop.
 - `GET /loops/next`: deterministic “Next 5” buckets.
+- `GET /loops/tags`: list all tags in use.
 
 Example requests:
 
