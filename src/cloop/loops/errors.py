@@ -79,3 +79,47 @@ class TransitionError(CloopError):
         )
         self.from_status = from_status
         self.to_status = to_status
+
+
+class LoopClaimedError(CloopError):
+    """Raised when attempting to modify a loop claimed by another agent.
+
+    Maps to HTTP 409 Conflict.
+    """
+
+    def __init__(self, loop_id: int, owner: str, lease_until: str) -> None:
+        super().__init__(
+            f"Loop {loop_id} is claimed by '{owner}' until {lease_until}",
+            detail=f"loop_id={loop_id}, owner={owner}, lease_until={lease_until}",
+        )
+        self.loop_id = loop_id
+        self.owner = owner
+        self.lease_until = lease_until
+
+
+class ClaimNotFoundError(CloopError):
+    """Raised when a claim token doesn't match or doesn't exist.
+
+    Maps to HTTP 404 Not Found.
+    """
+
+    def __init__(self, loop_id: int) -> None:
+        super().__init__(
+            f"No valid claim found for loop {loop_id}",
+            detail=f"loop_id={loop_id}",
+        )
+        self.loop_id = loop_id
+
+
+class ClaimExpiredError(CloopError):
+    """Raised when attempting to renew an expired claim.
+
+    Maps to HTTP 410 Gone.
+    """
+
+    def __init__(self, loop_id: int) -> None:
+        super().__init__(
+            f"Claim for loop {loop_id} has expired",
+            detail=f"loop_id={loop_id}",
+        )
+        self.loop_id = loop_id

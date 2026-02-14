@@ -57,6 +57,7 @@ class LoopUpdateRequest(BaseModel):
     blocked_reason: str | None = None
     completion_note: str | None = None
     tags: List[str] | None = None
+    claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
 
     @field_validator("due_at_utc", mode="before")
     @classmethod
@@ -82,6 +83,7 @@ class LoopCloseRequest(BaseModel):
 
     status: LoopStatus = LoopStatus.COMPLETED
     note: str | None = None
+    claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
 
 
 class LoopStatusRequest(BaseModel):
@@ -89,6 +91,7 @@ class LoopStatusRequest(BaseModel):
 
     status: LoopStatus
     note: str | None = None
+    claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
 
 
 class LoopBase(BaseModel):
@@ -312,3 +315,49 @@ class WebhookDeliveryResponse(BaseModel):
     next_retry_at: str | None
     created_at_utc: str
     updated_at_utc: str
+
+
+# ============================================================================
+# Loop Claim Schemas
+# ============================================================================
+
+
+class LoopClaimRequest(BaseModel):
+    """Request to claim a loop for exclusive access."""
+
+    owner: str = Field(
+        ..., min_length=1, max_length=255, description="Identifier for claiming agent"
+    )
+    ttl_seconds: int | None = Field(default=None, ge=1, description="Lease duration in seconds")
+
+
+class LoopRenewClaimRequest(BaseModel):
+    """Request to renew an existing claim."""
+
+    claim_token: str = Field(..., min_length=1, description="Token from original claim")
+    ttl_seconds: int | None = Field(default=None, ge=1, description="New lease duration in seconds")
+
+
+class LoopReleaseClaimRequest(BaseModel):
+    """Request to release a claim."""
+
+    claim_token: str = Field(..., min_length=1, description="Token from original claim")
+
+
+class LoopClaimResponse(BaseModel):
+    """Response for claim operations."""
+
+    loop_id: int
+    owner: str
+    claim_token: str
+    leased_at_utc: str
+    lease_until_utc: str
+
+
+class LoopClaimStatusResponse(BaseModel):
+    """Claim status response (without token)."""
+
+    loop_id: int
+    owner: str
+    leased_at_utc: str
+    lease_until_utc: str

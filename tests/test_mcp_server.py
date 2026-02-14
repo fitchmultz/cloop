@@ -17,10 +17,16 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from cloop import db
 from cloop.mcp_server import (
+    loop_claim,
     loop_close,
     loop_create,
     loop_enrich,
+    loop_force_release_claim,
+    loop_get_claim,
     loop_list,
+    loop_list_claims,
+    loop_release_claim,
+    loop_renew_claim,
     loop_search,
     loop_snooze,
     loop_update,
@@ -2057,3 +2063,311 @@ def test_loop_bulk_snooze_idempotency_replay(
     )
 
     assert result1 == result2
+
+
+# =============================================================================
+# loop.claim tests
+# =============================================================================
+
+
+def test_loop_claim_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test successful loop claim via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    assert result["loop_id"] == loop_id
+    assert result["owner"] == "agent-alpha"
+    assert "claim_token" in result
+    assert len(result["claim_token"]) == 64  # 32 bytes = 64 hex chars
+
+
+def test_loop_claim_already_claimed_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that claiming an already-claimed loop fails."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test claim conflict",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # First claim succeeds
+    loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    # Second claim fails
+    with pytest.raises(ToolError, match="claimed by"):
+        loop_claim(loop_id=loop_id, owner="agent-beta", ttl_seconds=300)
+
+
+def test_loop_update_with_claim_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test updating a claimed loop with valid token."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test update with claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    claim = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    result = loop_update(
+        loop_id=loop_id,
+        fields={"title": "Updated title"},
+        claim_token=claim["claim_token"],
+    )
+
+    assert result["title"] == "Updated title"
+
+
+def test_loop_update_without_claim_token_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that updating a claimed loop without token fails."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test update without claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    with pytest.raises(ToolError, match="claimed by"):
+        loop_update(loop_id=loop_id, fields={"title": "Updated title"})
+
+
+def test_loop_renew_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test renewing a claim via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test renew",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    claim = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=60)
+
+    renewed = loop_renew_claim(
+        loop_id=loop_id,
+        claim_token=claim["claim_token"],
+        ttl_seconds=300,
+    )
+
+    assert renewed["claim_token"] == claim["claim_token"]
+    assert renewed["owner"] == "agent-alpha"
+
+
+def test_loop_release_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test releasing a claim via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test release",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    claim = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    result = loop_release_claim(loop_id=loop_id, claim_token=claim["claim_token"])
+
+    assert result["ok"] is True
+
+    # Another agent can now claim
+    new_claim = loop_claim(loop_id=loop_id, owner="agent-beta", ttl_seconds=300)
+    assert new_claim["owner"] == "agent-beta"
+
+
+def test_loop_get_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test getting claim status via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test get claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    result = loop_get_claim(loop_id=loop_id)
+
+    assert result is not None
+    assert result["loop_id"] == loop_id
+    assert result["owner"] == "agent-alpha"
+    assert "claim_token" not in result  # Token should NOT be exposed
+
+
+def test_loop_get_claim_unclaimed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test getting claim status for unclaimed loop."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test unclaimed",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result = loop_get_claim(loop_id=loop_id)
+
+    assert result is None
+
+
+def test_loop_list_claims(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test listing claims via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created1 = loop_create(
+        raw_text="Test list 1",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    created2 = loop_create(
+        raw_text="Test list 2",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    loop_claim(loop_id=created1["id"], owner="agent-alpha", ttl_seconds=300)
+    loop_claim(loop_id=created2["id"], owner="agent-beta", ttl_seconds=300)
+
+    # List all
+    all_claims = loop_list_claims()
+    assert len(all_claims) == 2
+
+    # Filter by owner
+    alpha_claims = loop_list_claims(owner="agent-alpha")
+    assert len(alpha_claims) == 1
+    assert alpha_claims[0]["owner"] == "agent-alpha"
+
+
+def test_loop_claim_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test claim idempotency via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test idempotency",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result1 = loop_claim(
+        loop_id=loop_id,
+        owner="agent-alpha",
+        ttl_seconds=300,
+        request_id="claim-key-1",
+    )
+
+    result2 = loop_claim(
+        loop_id=loop_id,
+        owner="agent-alpha",
+        ttl_seconds=300,
+        request_id="claim-key-1",
+    )
+
+    # Should return same result
+    assert result1["claim_token"] == result2["claim_token"]
+
+
+def test_loop_force_release_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test force-releasing a claim via MCP (admin override)."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test force release",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # Claim with agent-alpha
+    claim = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+    assert claim["owner"] == "agent-alpha"
+
+    # Force release (no token required)
+    result = loop_force_release_claim(loop_id=loop_id)
+
+    assert result["ok"] is True
+    assert result["released"] is True
+
+    # Another agent can now claim
+    new_claim = loop_claim(loop_id=loop_id, owner="agent-beta", ttl_seconds=300)
+    assert new_claim["owner"] == "agent-beta"
+
+
+def test_loop_force_release_unclaimed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force-releasing an unclaimed loop returns released=False."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test force release unclaimed",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # Force release without any claim
+    result = loop_force_release_claim(loop_id=loop_id)
+
+    assert result["ok"] is True
+    assert result["released"] is False
+
+
+def test_loop_close_with_claim_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test closing a claimed loop with valid token via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test close with claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    claim = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    result = loop_close(
+        loop_id=loop_id,
+        status="completed",
+        claim_token=claim["claim_token"],
+    )
+
+    assert result["status"] == "completed"
+
+
+def test_loop_close_without_claim_token_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that closing a claimed loop without token fails via MCP."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test close without claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    with pytest.raises(ToolError, match="claimed by"):
+        loop_close(loop_id=loop_id, status="completed")

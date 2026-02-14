@@ -29,7 +29,13 @@ from typing import Any, Dict, List
 from . import db
 from .constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from .loops import repo
-from .loops.errors import LoopNotFoundError, TransitionError, ValidationError
+from .loops.errors import (
+    ClaimNotFoundError,
+    LoopClaimedError,
+    LoopNotFoundError,
+    TransitionError,
+    ValidationError,
+)
 from .loops.models import (
     LoopStatus,
     format_utc_datetime,
@@ -40,18 +46,24 @@ from .loops.models import (
 from .loops.service import (
     apply_loop_view,
     capture_loop,
+    claim_loop,
     create_loop_view,
     delete_loop_view,
     export_loops,
+    force_release_claim,
+    get_claim_status,
     get_loop,
     get_loop_view,
     import_loops,
+    list_active_claims,
     list_loop_views,
     list_loops,
     list_loops_by_statuses,
     list_loops_by_tag,
     list_tags,
     next_loops,
+    release_claim,
+    renew_claim,
     request_enrichment,
     search_loops_by_query,
     transition_status,
@@ -343,14 +355,22 @@ def _loop_update_command(args: argparse.Namespace, settings: Settings) -> int:
         print("error: no fields to update", file=sys.stderr)
         return 1
 
+    claim_token = getattr(args, "claim_token", None)
+
     try:
         with db.core_connection(settings) as conn:
-            record = update_loop(loop_id=args.id, fields=fields, conn=conn)
+            record = update_loop(loop_id=args.id, fields=fields, claim_token=claim_token, conn=conn)
         _emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
+    except LoopClaimedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except ClaimNotFoundError:
+        print("error: invalid or expired claim token", file=sys.stderr)
+        return 1
     except ValidationError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -363,6 +383,8 @@ def _loop_status_command(args: argparse.Namespace, settings: Settings) -> int:
         print(f"error: invalid status '{args.status}'", file=sys.stderr)
         return 1
 
+    claim_token = getattr(args, "claim_token", None)
+
     try:
         with db.core_connection(settings) as conn:
             record = transition_status(
@@ -370,12 +392,19 @@ def _loop_status_command(args: argparse.Namespace, settings: Settings) -> int:
                 to_status=to_status,
                 conn=conn,
                 note=args.note,
+                claim_token=claim_token,
             )
         _emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
+    except LoopClaimedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except ClaimNotFoundError:
+        print("error: invalid or expired claim token", file=sys.stderr)
+        return 1
     except TransitionError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -384,6 +413,8 @@ def _loop_status_command(args: argparse.Namespace, settings: Settings) -> int:
 def _loop_close_command(args: argparse.Namespace, settings: Settings) -> int:
     to_status = LoopStatus.DROPPED if args.dropped else LoopStatus.COMPLETED
 
+    claim_token = getattr(args, "claim_token", None)
+
     try:
         with db.core_connection(settings) as conn:
             record = transition_status(
@@ -391,12 +422,19 @@ def _loop_close_command(args: argparse.Namespace, settings: Settings) -> int:
                 to_status=to_status,
                 conn=conn,
                 note=args.note,
+                claim_token=claim_token,
             )
         _emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
+    except LoopClaimedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except ClaimNotFoundError:
+        print("error: invalid or expired claim token", file=sys.stderr)
+        return 1
     except TransitionError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
@@ -583,6 +621,103 @@ def _loop_view_apply_command(args: argparse.Namespace, settings: Settings) -> in
         return 1
 
 
+# ============================================================================
+# Loop Claim Commands
+# ============================================================================
+
+
+def _loop_claim_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            result = claim_loop(
+                loop_id=args.id,
+                owner=args.owner,
+                ttl_seconds=args.ttl,
+                conn=conn,
+                settings=settings,
+            )
+        _emit_output(result, args.format)
+        return 0
+    except LoopClaimedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except LoopNotFoundError:
+        print(f"error: loop {args.id} not found", file=sys.stderr)
+        return 2
+
+
+def _loop_renew_claim_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            result = renew_claim(
+                loop_id=args.id,
+                claim_token=args.token,
+                ttl_seconds=args.ttl,
+                conn=conn,
+                settings=settings,
+            )
+        _emit_output(result, args.format)
+        return 0
+    except ClaimNotFoundError:
+        print(f"error: no valid claim found for loop {args.id}", file=sys.stderr)
+        return 1
+
+
+def _loop_release_claim_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            release_claim(
+                loop_id=args.id,
+                claim_token=args.token,
+                conn=conn,
+            )
+        _emit_output({"ok": True, "loop_id": args.id}, args.format)
+        return 0
+    except ClaimNotFoundError:
+        print(f"error: no valid claim found for loop {args.id}", file=sys.stderr)
+        return 1
+
+
+def _loop_get_claim_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            result = get_claim_status(loop_id=args.id, conn=conn)
+        if result is None:
+            print(f"Loop {args.id} is not claimed", file=sys.stderr)
+            return 0
+        _emit_output(result, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_list_claims_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            result = list_active_claims(
+                owner=args.owner,
+                limit=args.limit,
+                conn=conn,
+            )
+        _emit_output(result, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_force_release_claim_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            released = force_release_claim(loop_id=args.id, conn=conn)
+        _emit_output({"ok": True, "released": released, "loop_id": args.id}, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cloop",
@@ -605,6 +740,12 @@ Examples:
   cloop loop view create --name "Today's tasks" --query "status:open due:today"
   cloop loop view list
   cloop loop view apply 1
+
+  # Loop claims (multi-agent coordination)
+  cloop loop claim 1 --owner agent-alpha
+  cloop loop update 1 --title "Updated" --claim-token TOKEN
+  cloop loop release 1 --token TOKEN
+  cloop loop claims --owner agent-alpha
 
   # Data portability
   cloop export --output backup.json
@@ -770,6 +911,9 @@ def _add_loop_parser(subparsers: Any) -> None:
         "--tags",
         help="Comma-separated tags (clears existing tags, use empty string to clear all)",
     )
+    update_parser.add_argument(
+        "--claim-token", dest="claim_token", help="Claim token for claimed loops"
+    )
     _add_format_option(update_parser)
 
     status_parser = loop_subparsers.add_parser("status", help="Transition loop status")
@@ -782,6 +926,9 @@ def _add_loop_parser(subparsers: Any) -> None:
         "--note",
         help="Optional note (used for completion_note when completing)",
     )
+    status_parser.add_argument(
+        "--claim-token", dest="claim_token", help="Claim token for claimed loops"
+    )
     _add_format_option(status_parser)
 
     close_parser = loop_subparsers.add_parser("close", help="Close a loop")
@@ -792,6 +939,9 @@ def _add_loop_parser(subparsers: Any) -> None:
         help="Close as dropped instead of completed",
     )
     close_parser.add_argument("--note", help="Completion/drop note")
+    close_parser.add_argument(
+        "--claim-token", dest="claim_token", help="Claim token for claimed loops"
+    )
     _add_format_option(close_parser)
 
     enrich_parser = loop_subparsers.add_parser("enrich", help="Request AI enrichment")
@@ -838,6 +988,49 @@ def _add_loop_parser(subparsers: Any) -> None:
     view_apply_parser.add_argument("--limit", type=int, default=50, help="Max results")
     view_apply_parser.add_argument("--offset", type=int, default=0, help="Pagination offset")
     _add_format_option(view_apply_parser)
+
+    # Claim parsers
+    claim_parser = loop_subparsers.add_parser("claim", help="Claim a loop for exclusive access")
+    claim_parser.add_argument("id", type=int, help="Loop ID")
+    claim_parser.add_argument(
+        "--owner", "-o", default="cli-user", help="Owner identifier (default: cli-user)"
+    )
+    claim_parser.add_argument(
+        "--ttl", "-t", type=int, default=300, help="Lease duration in seconds (default: 300)"
+    )
+    _add_format_option(claim_parser)
+
+    renew_claim_parser = loop_subparsers.add_parser("renew", help="Renew an existing claim")
+    renew_claim_parser.add_argument("id", type=int, help="Loop ID")
+    renew_claim_parser.add_argument(
+        "--token", "-t", required=True, help="Claim token from original claim"
+    )
+    renew_claim_parser.add_argument(
+        "--ttl", type=int, default=300, help="New lease duration in seconds (default: 300)"
+    )
+    _add_format_option(renew_claim_parser)
+
+    release_claim_parser = loop_subparsers.add_parser("release", help="Release a claim")
+    release_claim_parser.add_argument("id", type=int, help="Loop ID")
+    release_claim_parser.add_argument(
+        "--token", "-t", required=True, help="Claim token from original claim"
+    )
+    _add_format_option(release_claim_parser)
+
+    get_claim_parser = loop_subparsers.add_parser("get-claim", help="Get claim status for a loop")
+    get_claim_parser.add_argument("id", type=int, help="Loop ID")
+    _add_format_option(get_claim_parser)
+
+    list_claims_parser = loop_subparsers.add_parser("claims", help="List active claims")
+    list_claims_parser.add_argument("--owner", "-o", help="Filter by owner")
+    list_claims_parser.add_argument("--limit", type=int, default=100, help="Max results")
+    _add_format_option(list_claims_parser)
+
+    force_release_parser = loop_subparsers.add_parser(
+        "force-release", help="Force-release any claim (admin override)"
+    )
+    force_release_parser.add_argument("id", type=int, help="Loop ID")
+    _add_format_option(force_release_parser)
 
 
 def _add_tags_parser(subparsers: Any) -> None:
@@ -912,6 +1105,18 @@ def main(argv: List[str] | None = None) -> int:
                 return _loop_view_apply_command(args, settings)
             parser.error(f"Unknown view command: {args.view_command}")
             return 2
+        if args.loop_command == "claim":
+            return _loop_claim_command(args, settings)
+        if args.loop_command == "renew":
+            return _loop_renew_claim_command(args, settings)
+        if args.loop_command == "release":
+            return _loop_release_claim_command(args, settings)
+        if args.loop_command == "get-claim":
+            return _loop_get_claim_command(args, settings)
+        if args.loop_command == "claims":
+            return _loop_list_claims_command(args, settings)
+        if args.loop_command == "force-release":
+            return _loop_force_release_claim_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 

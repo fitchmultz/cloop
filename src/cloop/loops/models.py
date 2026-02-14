@@ -79,6 +79,9 @@ class LoopEventType(StrEnum):
     ENRICH_REQUEST = "enrich_requested"
     ENRICH_SUCCESS = "enrich_succeeded"
     ENRICH_FAILURE = "enrich_failed"
+    CLAIM = "claim"
+    CLAIM_RELEASED = "claim_released"
+    CLAIM_EXPIRED = "claim_expired"
 
 
 class EnrichmentState(StrEnum):
@@ -114,6 +117,25 @@ class LoopRecord:
     created_at_utc: datetime
     updated_at_utc: datetime
     closed_at_utc: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class LoopClaim:
+    loop_id: int
+    owner: str
+    claim_token: str
+    leased_at_utc: datetime
+    lease_until_utc: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class LoopClaimSummary:
+    """Claim information without sensitive token (for list operations)."""
+
+    loop_id: int
+    owner: str
+    leased_at_utc: datetime
+    lease_until_utc: datetime
 
 
 def _normalize_iso(value: str) -> str:
