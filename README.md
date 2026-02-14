@@ -317,6 +317,39 @@ OpenRouter:
 - `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `true`)
 - `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
 
+### Idempotency (safe retries)
+
+All mutating endpoints support idempotency for safe retries over unreliable networks:
+
+- `CLOOP_IDEMPOTENCY_TTL_SECONDS`: retention window for idempotency keys (default: `86400` = 24 hours)
+- `CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH`: max key length (default: `255`)
+
+**HTTP API**: Include `Idempotency-Key` header with any mutating request (POST/PATCH).
+- Same key + same payload: replays prior response without additional writes
+- Same key + different payload: returns 409 Conflict
+
+**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.snooze`, `loop.enrich`).
+- Same request_id + same args: replays prior response
+- Same request_id + different args: raises `ToolError`
+
+Example HTTP retry:
+```bash
+curl -X POST http://127.0.0.1:8000/loops/capture \
+  -H 'content-type: application/json' \
+  -H 'Idempotency-Key: my-unique-key-123' \
+  -d '{"raw_text": "Buy groceries", "captured_at": "2026-02-13T10:00:00Z", "client_tz_offset_min": 0}'
+```
+
+Example MCP tool call with idempotency:
+```python
+loop_create(
+    raw_text="Buy groceries",
+    captured_at="2026-02-13T10:00:00Z",
+    client_tz_offset_min=0,
+    request_id="my-unique-key-123"
+)
+```
+
 ## MCP Server
 
 Run the MCP server (stdio transport):
