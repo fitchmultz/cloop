@@ -46,15 +46,21 @@ from ..idempotency import (
 )
 from ..loops import enrichment as loop_enrichment
 from ..loops import service as loop_service
+from ..loops.errors import ClaimNotFoundError, LoopClaimedError
 from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags
 from ..schemas.loops import (
     LoopCaptureRequest,
+    LoopClaimRequest,
+    LoopClaimResponse,
+    LoopClaimStatusResponse,
     LoopCloseRequest,
     LoopExportItem,
     LoopExportResponse,
     LoopImportRequest,
     LoopImportResponse,
     LoopNextResponse,
+    LoopReleaseClaimRequest,
+    LoopRenewClaimRequest,
     LoopResponse,
     LoopSearchRequest,
     LoopSearchResponse,
@@ -458,6 +464,18 @@ def loop_view_apply_endpoint(
     )
 
 
+@router.get("/claims")
+def list_claims_endpoint(
+    settings: SettingsDep,
+    owner: Annotated[str | None, Query(description="Filter by owner")] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> List[LoopClaimStatusResponse]:
+    """List all active claims."""
+    with db.core_connection(settings) as conn:
+        claims = loop_service.list_active_claims(owner=owner, limit=limit, conn=conn)
+    return [LoopClaimStatusResponse(**claim) for claim in claims]
+
+
 @router.get("/{loop_id}", response_model=LoopResponse)
 def loop_get_endpoint(
     loop_id: int,
@@ -476,6 +494,7 @@ def loop_update_endpoint(
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopResponse | JSONResponse:
     fields = request.model_dump(exclude_unset=True)
+    claim_token = fields.pop("claim_token", None)  # Extract claim_token if present
     if not fields:
         raise HTTPException(status_code=400, detail="no_fields_to_update")
 
@@ -509,7 +528,28 @@ def loop_update_endpoint(
                     status_code=replay["status_code"],
                 )
 
-            record = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
+            try:
+                record = loop_service.update_loop(
+                    loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
             response = LoopResponse(**record).model_dump()
             db.finalize_idempotency_response(
                 scope=scope,
@@ -520,7 +560,28 @@ def loop_update_endpoint(
             )
     else:
         with db.core_connection(settings) as conn:
-            record = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
+            try:
+                record = loop_service.update_loop(
+                    loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
         response = LoopResponse(**record).model_dump()
 
     return LoopResponse(**response)
@@ -543,7 +604,12 @@ def loop_close_endpoint(
             raise HTTPException(status_code=400, detail=str(e)) from None
 
         scope = build_http_scope("POST", f"/loops/{loop_id}/close")
-        payload = {"loop_id": loop_id, "status": request.status.value, "note": request.note}
+        payload = {
+            "loop_id": loop_id,
+            "status": request.status.value,
+            "note": request.note,
+            "claim_token": request.claim_token,
+        }
         request_hash = canonical_request_hash(payload)
         expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
 
@@ -566,12 +632,32 @@ def loop_close_endpoint(
                     status_code=replay["status_code"],
                 )
 
-            record = loop_service.transition_status(
-                loop_id=loop_id,
-                to_status=request.status,
-                conn=conn,
-                note=request.note,
-            )
+            try:
+                record = loop_service.transition_status(
+                    loop_id=loop_id,
+                    to_status=request.status,
+                    conn=conn,
+                    note=request.note,
+                    claim_token=request.claim_token,
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
             response = LoopResponse(**record).model_dump()
             db.finalize_idempotency_response(
                 scope=scope,
@@ -582,12 +668,32 @@ def loop_close_endpoint(
             )
     else:
         with db.core_connection(settings) as conn:
-            record = loop_service.transition_status(
-                loop_id=loop_id,
-                to_status=request.status,
-                conn=conn,
-                note=request.note,
-            )
+            try:
+                record = loop_service.transition_status(
+                    loop_id=loop_id,
+                    to_status=request.status,
+                    conn=conn,
+                    note=request.note,
+                    claim_token=request.claim_token,
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
         response = LoopResponse(**record).model_dump()
 
     return LoopResponse(**response)
@@ -607,7 +713,12 @@ def loop_status_endpoint(
             raise HTTPException(status_code=400, detail=str(e)) from None
 
         scope = build_http_scope("POST", f"/loops/{loop_id}/status")
-        payload = {"loop_id": loop_id, "status": request.status.value, "note": request.note}
+        payload = {
+            "loop_id": loop_id,
+            "status": request.status.value,
+            "note": request.note,
+            "claim_token": request.claim_token,
+        }
         request_hash = canonical_request_hash(payload)
         expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
 
@@ -630,12 +741,32 @@ def loop_status_endpoint(
                     status_code=replay["status_code"],
                 )
 
-            record = loop_service.transition_status(
-                loop_id=loop_id,
-                to_status=request.status,
-                conn=conn,
-                note=request.note,
-            )
+            try:
+                record = loop_service.transition_status(
+                    loop_id=loop_id,
+                    to_status=request.status,
+                    conn=conn,
+                    note=request.note,
+                    claim_token=request.claim_token,
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
             response = LoopResponse(**record).model_dump()
             db.finalize_idempotency_response(
                 scope=scope,
@@ -646,12 +777,32 @@ def loop_status_endpoint(
             )
     else:
         with db.core_connection(settings) as conn:
-            record = loop_service.transition_status(
-                loop_id=loop_id,
-                to_status=request.status,
-                conn=conn,
-                note=request.note,
-            )
+            try:
+                record = loop_service.transition_status(
+                    loop_id=loop_id,
+                    to_status=request.status,
+                    conn=conn,
+                    note=request.note,
+                    claim_token=request.claim_token,
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
         response = LoopResponse(**record).model_dump()
 
     return LoopResponse(**response)
@@ -953,6 +1104,341 @@ def delete_webhook_subscription(
         if not deleted:
             raise HTTPException(status_code=404, detail="subscription_not_found")
     return {"deleted": True}
+
+
+# ============================================================================
+# Loop Claim Endpoints
+# ============================================================================
+
+
+@router.post("/{loop_id}/claim", response_model=LoopClaimResponse)
+def claim_loop_endpoint(
+    loop_id: int,
+    request: LoopClaimRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> LoopClaimResponse | JSONResponse:
+    """Claim a loop for exclusive access.
+
+    The returned claim_token must be provided for subsequent mutation operations
+    while the claim is active.
+    """
+    if idempotency_key is not None:
+        try:
+            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        scope = build_http_scope("POST", f"/loops/{loop_id}/claim")
+        payload = {"loop_id": loop_id, "owner": request.owner, "ttl_seconds": request.ttl_seconds}
+        request_hash = canonical_request_hash(payload)
+        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+
+        with db.core_connection(settings) as conn:
+            try:
+                claim = db.claim_or_replay_idempotency(
+                    scope=scope,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    expires_at=expires_at,
+                    conn=conn,
+                )
+            except IdempotencyConflictError as e:
+                raise _idempotency_conflict(str(e)) from None
+
+            if not claim["is_new"] and claim["replay"]:
+                replay = claim["replay"]
+                return JSONResponse(
+                    content=replay["response_body"],
+                    status_code=replay["status_code"],
+                )
+
+            try:
+                result = loop_service.claim_loop(
+                    loop_id=loop_id,
+                    owner=request.owner,
+                    ttl_seconds=request.ttl_seconds,
+                    conn=conn,
+                    settings=settings,
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            db.finalize_idempotency_response(
+                scope=scope,
+                idempotency_key=key,
+                response_status=200,
+                response_body=result,
+                conn=conn,
+            )
+    else:
+        with db.core_connection(settings) as conn:
+            try:
+                result = loop_service.claim_loop(
+                    loop_id=loop_id,
+                    owner=request.owner,
+                    ttl_seconds=request.ttl_seconds,
+                    conn=conn,
+                    settings=settings,
+                )
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+
+    return LoopClaimResponse(**result)
+
+
+@router.post("/{loop_id}/renew", response_model=LoopClaimResponse)
+def renew_claim_endpoint(
+    loop_id: int,
+    request: LoopRenewClaimRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> LoopClaimResponse | JSONResponse:
+    """Renew an existing claim."""
+    if idempotency_key is not None:
+        try:
+            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        scope = build_http_scope("POST", f"/loops/{loop_id}/renew")
+        payload = {
+            "loop_id": loop_id,
+            "claim_token": request.claim_token,
+            "ttl_seconds": request.ttl_seconds,
+        }
+        request_hash = canonical_request_hash(payload)
+        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+
+        with db.core_connection(settings) as conn:
+            try:
+                claim = db.claim_or_replay_idempotency(
+                    scope=scope,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    expires_at=expires_at,
+                    conn=conn,
+                )
+            except IdempotencyConflictError as e:
+                raise _idempotency_conflict(str(e)) from None
+
+            if not claim["is_new"] and claim["replay"]:
+                replay = claim["replay"]
+                return JSONResponse(
+                    content=replay["response_body"],
+                    status_code=replay["status_code"],
+                )
+
+            try:
+                result = loop_service.renew_claim(
+                    loop_id=loop_id,
+                    claim_token=request.claim_token,
+                    ttl_seconds=request.ttl_seconds,
+                    conn=conn,
+                    settings=settings,
+                )
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "code": "claim_not_found",
+                        "message": f"No valid claim for loop {loop_id}",
+                    },
+                ) from None
+            db.finalize_idempotency_response(
+                scope=scope,
+                idempotency_key=key,
+                response_status=200,
+                response_body=result,
+                conn=conn,
+            )
+    else:
+        with db.core_connection(settings) as conn:
+            try:
+                result = loop_service.renew_claim(
+                    loop_id=loop_id,
+                    claim_token=request.claim_token,
+                    ttl_seconds=request.ttl_seconds,
+                    conn=conn,
+                    settings=settings,
+                )
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "code": "claim_not_found",
+                        "message": f"No valid claim for loop {loop_id}",
+                    },
+                ) from None
+
+    return LoopClaimResponse(**result)
+
+
+@router.delete("/{loop_id}/claim")
+def release_claim_endpoint(
+    loop_id: int,
+    request: LoopReleaseClaimRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> Any:
+    """Release a claim on a loop."""
+    if idempotency_key is not None:
+        try:
+            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        scope = build_http_scope("DELETE", f"/loops/{loop_id}/claim")
+        payload = {"loop_id": loop_id, "claim_token": request.claim_token}
+        request_hash = canonical_request_hash(payload)
+        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+
+        with db.core_connection(settings) as conn:
+            try:
+                claim = db.claim_or_replay_idempotency(
+                    scope=scope,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    expires_at=expires_at,
+                    conn=conn,
+                )
+            except IdempotencyConflictError as e:
+                raise _idempotency_conflict(str(e)) from None
+
+            if not claim["is_new"] and claim["replay"]:
+                replay = claim["replay"]
+                return JSONResponse(
+                    content=replay["response_body"],
+                    status_code=replay["status_code"],
+                )
+
+            try:
+                loop_service.release_claim(
+                    loop_id=loop_id,
+                    claim_token=request.claim_token,
+                    conn=conn,
+                )
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "code": "claim_not_found",
+                        "message": f"No valid claim for loop {loop_id}",
+                    },
+                ) from None
+            result = {"ok": True, "loop_id": loop_id}
+            db.finalize_idempotency_response(
+                scope=scope,
+                idempotency_key=key,
+                response_status=200,
+                response_body=result,
+                conn=conn,
+            )
+    else:
+        with db.core_connection(settings) as conn:
+            try:
+                loop_service.release_claim(
+                    loop_id=loop_id,
+                    claim_token=request.claim_token,
+                    conn=conn,
+                )
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "code": "claim_not_found",
+                        "message": f"No valid claim for loop {loop_id}",
+                    },
+                ) from None
+        result = {"ok": True, "loop_id": loop_id}
+
+    return result
+
+
+@router.get("/{loop_id}/claim", response_model=LoopClaimStatusResponse | None)
+def get_claim_status_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+) -> LoopClaimStatusResponse | None:
+    """Get the current claim status for a loop."""
+    with db.core_connection(settings) as conn:
+        claim = loop_service.get_claim_status(loop_id=loop_id, conn=conn)
+    if claim is None:
+        return None
+    return LoopClaimStatusResponse(**claim)
+
+
+@router.delete("/{loop_id}/claim/force")
+def force_release_claim_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> Any:
+    """Force-release any claim on a loop (admin override).
+
+    This endpoint releases any active claim on the loop without requiring
+    the claim token. Use with caution in production.
+    """
+    if idempotency_key is not None:
+        try:
+            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        scope = build_http_scope("DELETE", f"/loops/{loop_id}/claim/force")
+        payload = {"loop_id": loop_id}
+        request_hash = canonical_request_hash(payload)
+        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+
+        with db.core_connection(settings) as conn:
+            try:
+                claim = db.claim_or_replay_idempotency(
+                    scope=scope,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    expires_at=expires_at,
+                    conn=conn,
+                )
+            except IdempotencyConflictError as e:
+                raise _idempotency_conflict(str(e)) from None
+
+            if not claim["is_new"] and claim["replay"]:
+                replay = claim["replay"]
+                return JSONResponse(
+                    content=replay["response_body"],
+                    status_code=replay["status_code"],
+                )
+
+            released = loop_service.force_release_claim(loop_id=loop_id, conn=conn)
+            result = {"ok": True, "released": released, "loop_id": loop_id}
+            db.finalize_idempotency_response(
+                scope=scope,
+                idempotency_key=key,
+                response_status=200,
+                response_body=result,
+                conn=conn,
+            )
+    else:
+        with db.core_connection(settings) as conn:
+            released = loop_service.force_release_claim(loop_id=loop_id, conn=conn)
+        result = {"ok": True, "released": released, "loop_id": loop_id}
+
+    return result
 
 
 @router.get(

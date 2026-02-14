@@ -45,7 +45,9 @@ from .loops import enrichment as loop_enrichment
 from .loops import repo as loop_repo
 from .loops import service as loop_service
 from .loops.errors import (
+    ClaimNotFoundError,
     CloopError,
+    LoopClaimedError,
     NotFoundError,
     TransitionError,
     ValidationError,
@@ -87,6 +89,10 @@ def _to_tool_error(exc: Exception) -> ToolError:
     if isinstance(exc, TransitionError):
         return ToolError(f"Invalid status transition: {exc.from_status} -> {exc.to_status}")
     if isinstance(exc, ValidationError):
+        return ToolError(exc.message)
+    if isinstance(exc, LoopClaimedError):
+        return ToolError(f"Loop {exc.loop_id} is claimed by '{exc.owner}' until {exc.lease_until}")
+    if isinstance(exc, ClaimNotFoundError):
         return ToolError(exc.message)
     if isinstance(exc, CloopError):
         return ToolError(exc.message)
@@ -253,6 +259,7 @@ def loop_create(
 def loop_update(
     loop_id: int,
     fields: dict[str, Any],
+    claim_token: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
     if "due_at_utc" in fields and fields["due_at_utc"] is not None:
@@ -262,7 +269,7 @@ def loop_update(
 
     settings = get_settings()
 
-    payload = {"loop_id": loop_id, "fields": fields}
+    payload = {"loop_id": loop_id, "fields": fields, "claim_token": claim_token}
 
     replay = _handle_mcp_idempotency(
         tool_name="loop.update",
@@ -274,7 +281,9 @@ def loop_update(
         return replay
 
     with db.core_connection(settings) as conn:
-        result = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
+        result = loop_service.update_loop(
+            loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
+        )
 
     _finalize_mcp_idempotency(
         tool_name="loop.update",
@@ -293,6 +302,7 @@ def loop_close(
     loop_id: int,
     status: str = "completed",
     note: str | None = None,
+    claim_token: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
@@ -300,7 +310,7 @@ def loop_close(
     if not is_terminal_status(loop_status):
         raise ValidationError("status", "must be completed or dropped")
 
-    payload = {"loop_id": loop_id, "status": status, "note": note}
+    payload = {"loop_id": loop_id, "status": status, "note": note, "claim_token": claim_token}
 
     replay = _handle_mcp_idempotency(
         tool_name="loop.close",
@@ -316,6 +326,7 @@ def loop_close(
             loop_id=loop_id,
             to_status=loop_status,
             note=note,
+            claim_token=claim_token,
             conn=conn,
         )
 
@@ -797,6 +808,249 @@ def loop_bulk_snooze(
 
     _finalize_mcp_idempotency(
         tool_name="loop.bulk_snooze",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+# ============================================================================
+# Loop Claim MCP Tools
+# ============================================================================
+
+
+@mcp.tool(name="loop.claim")
+@with_db_init
+@with_mcp_error_handling
+def loop_claim(
+    loop_id: int,
+    owner: str,
+    ttl_seconds: int | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Claim a loop for exclusive access. Returns claim_token required for mutations.
+
+    Args:
+        loop_id: Loop ID to claim
+        owner: Identifier for the claiming agent
+        ttl_seconds: Lease duration in seconds (default 300)
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with claim details including claim_token
+    """
+    settings = get_settings()
+
+    payload = {"loop_id": loop_id, "owner": owner, "ttl_seconds": ttl_seconds}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.claim",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.claim_loop(
+            loop_id=loop_id,
+            owner=owner,
+            ttl_seconds=ttl_seconds,
+            conn=conn,
+            settings=settings,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.claim",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.renew_claim")
+@with_db_init
+@with_mcp_error_handling
+def loop_renew_claim(
+    loop_id: int,
+    claim_token: str,
+    ttl_seconds: int | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Renew an existing claim on a loop.
+
+    Args:
+        loop_id: Loop ID
+        claim_token: Token from original claim
+        ttl_seconds: New lease duration in seconds
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with updated claim details
+    """
+    settings = get_settings()
+
+    payload = {
+        "loop_id": loop_id,
+        "claim_token": claim_token,
+        "ttl_seconds": ttl_seconds,
+    }
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.renew_claim",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.renew_claim(
+            loop_id=loop_id,
+            claim_token=claim_token,
+            ttl_seconds=ttl_seconds,
+            conn=conn,
+            settings=settings,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.renew_claim",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.release_claim")
+@with_db_init
+@with_mcp_error_handling
+def loop_release_claim(
+    loop_id: int,
+    claim_token: str,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Release a claim on a loop.
+
+    Args:
+        loop_id: Loop ID
+        claim_token: Token from original claim
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with ok status
+    """
+    settings = get_settings()
+
+    payload = {"loop_id": loop_id, "claim_token": claim_token}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.release_claim",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        loop_service.release_claim(
+            loop_id=loop_id,
+            claim_token=claim_token,
+            conn=conn,
+        )
+
+    result = {"ok": True}
+    _finalize_mcp_idempotency(
+        tool_name="loop.release_claim",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.get_claim")
+@with_db_init
+@with_mcp_error_handling
+def loop_get_claim(loop_id: int) -> dict[str, Any] | None:
+    """Get the current claim status for a loop.
+
+    Args:
+        loop_id: Loop ID to check
+
+    Returns:
+        Dict with claim info (without token) or None if not claimed
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.get_claim_status(loop_id=loop_id, conn=conn)
+
+
+@mcp.tool(name="loop.list_claims")
+@with_db_init
+@with_mcp_error_handling
+def loop_list_claims(
+    owner: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """List all active claims.
+
+    Args:
+        owner: Optional owner filter
+        limit: Max results (default 100)
+
+    Returns:
+        List of claim dicts (without tokens) ordered by lease_until ascending
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.list_active_claims(owner=owner, limit=limit, conn=conn)
+
+
+@mcp.tool(name="loop.force_release_claim")
+@with_db_init
+@with_mcp_error_handling
+def loop_force_release_claim(
+    loop_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Force-release any claim on a loop (admin override).
+
+    Args:
+        loop_id: Loop ID
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with ok and released status
+    """
+    settings = get_settings()
+
+    payload = {"loop_id": loop_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.force_release_claim",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        released = loop_service.force_release_claim(loop_id=loop_id, conn=conn)
+
+    result = {"ok": True, "released": released}
+    _finalize_mcp_idempotency(
+        tool_name="loop.force_release_claim",
         request_id=request_id,
         payload=payload,
         response=result,

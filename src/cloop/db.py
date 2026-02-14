@@ -22,7 +22,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 12
+SCHEMA_VERSION: int = 13
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -225,6 +225,17 @@ CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
 CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
     WHERE status = 'pending';
 CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
+
+CREATE TABLE loop_claims (
+    loop_id INTEGER PRIMARY KEY,
+    owner TEXT NOT NULL,
+    claim_token TEXT NOT NULL,
+    leased_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    lease_until TEXT NOT NULL,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
@@ -434,6 +445,18 @@ _CORE_MIGRATIONS: dict[int, str] = {
     CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
         WHERE status = 'pending';
     CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
+    """,
+    13: """
+    CREATE TABLE loop_claims (
+        loop_id INTEGER PRIMARY KEY,
+        owner TEXT NOT NULL,
+        claim_token TEXT NOT NULL,
+        leased_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        lease_until TEXT NOT NULL,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
     """,
 }
 

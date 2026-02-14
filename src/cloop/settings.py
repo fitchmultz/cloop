@@ -76,6 +76,10 @@ class Settings:
     webhook_retry_max_delay: float
     webhook_timeout_seconds: float
     webhook_heartbeat_interval: float
+    # Claim configuration
+    claim_default_ttl_seconds: int
+    claim_max_ttl_seconds: int
+    claim_token_bytes: int
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -183,6 +187,10 @@ def get_settings() -> Settings:
         webhook_retry_max_delay=float(os.getenv("CLOOP_WEBHOOK_RETRY_MAX_DELAY", "300.0")),
         webhook_timeout_seconds=float(os.getenv("CLOOP_WEBHOOK_TIMEOUT_SECONDS", "30.0")),
         webhook_heartbeat_interval=float(os.getenv("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL", "30.0")),
+        # Claim configuration
+        claim_default_ttl_seconds=int(os.getenv("CLOOP_CLAIM_DEFAULT_TTL_SECONDS", "300")),
+        claim_max_ttl_seconds=int(os.getenv("CLOOP_CLAIM_MAX_TTL_SECONDS", "3600")),
+        claim_token_bytes=int(os.getenv("CLOOP_CLAIM_TOKEN_BYTES", "32")),
     )
     return _validate_settings(settings)
 
@@ -255,4 +263,11 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_WEBHOOK_TIMEOUT_SECONDS must be positive")
     if settings.webhook_heartbeat_interval <= 0:
         raise ValueError("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL must be positive")
+    # Validate claim settings
+    if settings.claim_default_ttl_seconds < 1:
+        raise ValueError("CLOOP_CLAIM_DEFAULT_TTL_SECONDS must be at least 1")
+    if settings.claim_max_ttl_seconds < settings.claim_default_ttl_seconds:
+        raise ValueError("CLOOP_CLAIM_MAX_TTL_SECONDS must be >= CLOOP_CLAIM_DEFAULT_TTL_SECONDS")
+    if settings.claim_token_bytes < 16:
+        raise ValueError("CLOOP_CLAIM_TOKEN_BYTES must be at least 16")
     return settings
