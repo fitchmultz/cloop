@@ -170,3 +170,57 @@ class LoopImportResponse(BaseModel):
     """Response from loop import."""
 
     imported: int
+
+
+class LoopSearchRequest(BaseModel):
+    """Request for DSL-based loop search."""
+
+    query: str = Field(..., min_length=1, description="DSL query string")
+    limit: int = Field(default=50, ge=1, le=200, description="Max results")
+    offset: int = Field(default=0, ge=0, description="Pagination offset")
+
+
+class LoopSearchResponse(BaseModel):
+    """Response from DSL-based loop search."""
+
+    query: str
+    limit: int
+    offset: int
+    items: List[LoopResponse]
+
+
+class LoopViewCreateRequest(BaseModel):
+    """Request to create a saved view."""
+
+    name: str = Field(..., min_length=1, max_length=255, description="View name")
+    query: str = Field(..., min_length=1, description="DSL query string")
+    description: str | None = Field(default=None, description="Optional description")
+
+
+class LoopViewUpdateRequest(BaseModel):
+    """Request to update a saved view."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    query: str | None = Field(default=None, min_length=1)
+    description: str | None = None
+
+
+class LoopViewResponse(BaseModel):
+    """Saved view response."""
+
+    id: int
+    name: str
+    query: str
+    description: str | None = None
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class LoopViewApplyResponse(BaseModel):
+    """Response from applying a saved view."""
+
+    view: LoopViewResponse
+    query: str
+    limit: int
+    offset: int
+    items: List[LoopResponse]

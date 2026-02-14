@@ -442,6 +442,16 @@
       <section class="panel">
         <h2>Inbox</h2>
         <div class="filters">
+          <label for="query-filter">query:</label>
+          <input
+            type="text"
+            id="query-filter"
+            class="query-input"
+            placeholder="e.g., status:inbox due:today"
+            style="flex: 1; min-width: 200px; border-radius: 999px; border: 1px solid var(--border); padding: 6px 12px; background: #fffefb; font-family: inherit;"
+          >
+        </div>
+        <div class="filters">
           <label for="status-filter">show:</label>
           <select id="status-filter">
             <option value="open" selected>open</option>
@@ -457,6 +467,11 @@
           <select id="tag-filter">
             <option value="" selected>all tags</option>
           </select>
+          <label for="view-filter">view:</label>
+          <select id="view-filter">
+            <option value="" selected>-</option>
+          </select>
+          <button class="tag-add" type="button" id="save-view-btn" style="padding: 4px 8px; font-size: 12px;">save</button>
         </div>
         <div id="inbox" class="inbox-list"></div>
       </section>
@@ -476,6 +491,9 @@
       const blocked = document.getElementById("blocked");
       const statusFilter = document.getElementById("status-filter");
       const tagFilter = document.getElementById("tag-filter");
+      const queryFilter = document.getElementById("query-filter");
+      const viewFilter = document.getElementById("view-filter");
+      const saveViewBtn = document.getElementById("save-view-btn");
       const exportBtn = document.getElementById("export-btn");
       const importBtn = document.getElementById("import-btn");
       const importFile = document.getElementById("import-file");
@@ -717,22 +735,41 @@
       }
 
       async function loadInbox() {
-        const statusValue = statusFilter.value;
-        const url = new URL("/loops", window.location.origin);
-        url.searchParams.set("status", statusValue);
-        if (tagFilter.value) {
-          url.searchParams.set("tag", tagFilter.value);
+        const queryValue = queryFilter.value.trim();
+        let data;
+
+        if (queryValue) {
+          const response = await fetch("/loops/search", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ query: queryValue, limit: 50, offset: 0 }),
+          });
+          if (!response.ok) {
+            status.textContent = "Failed to search loops.";
+            return;
+          }
+          const result = await response.json();
+          data = result.items;
+        } else {
+          const statusValue = statusFilter.value;
+          const url = new URL("/loops", window.location.origin);
+          url.searchParams.set("status", statusValue);
+          if (tagFilter.value) {
+            url.searchParams.set("tag", tagFilter.value);
+          }
+          const response = await fetch(url.toString());
+          if (!response.ok) {
+            status.textContent = "Failed to load inbox.";
+            return;
+          }
+          data = await response.json();
         }
-        const response = await fetch(url.toString());
-        if (!response.ok) {
-          status.textContent = "Failed to load inbox.";
-          return;
-        }
-        const data = await response.json();
+
         inbox.innerHTML = "";
         data.forEach((loop) => inbox.appendChild(renderLoop(loop)));
         queueNextActionResize(inbox);
         await loadTags();
+        await loadViews();
       }
 
       async function refreshLoop(loopId) {
@@ -925,6 +962,50 @@
         if (selected && tags.includes(selected)) {
           tagFilter.value = selected;
         }
+      }
+
+      async function loadViews() {
+        const response = await fetch("/loops/views");
+        if (!response.ok) {
+          return;
+        }
+        const views = await response.json();
+        const selected = viewFilter.value;
+        viewFilter.innerHTML = '<option value="">-</option>';
+        views.forEach((view) => {
+          const option = document.createElement("option");
+          option.value = view.id;
+          option.textContent = view.name;
+          option.dataset.query = view.query;
+          viewFilter.appendChild(option);
+        });
+        if (selected && views.some((v) => String(v.id) === selected)) {
+          viewFilter.value = selected;
+        }
+      }
+
+      async function saveCurrentView() {
+        const query = queryFilter.value.trim();
+        if (!query) {
+          status.textContent = "Enter a query first.";
+          return;
+        }
+        const name = prompt("View name:", "");
+        if (!name || !name.trim()) {
+          return;
+        }
+        const response = await fetch("/loops/views", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), query }),
+        });
+        if (!response.ok) {
+          const error = await response.json();
+          status.textContent = error.detail || "Failed to save view.";
+          return;
+        }
+        status.textContent = "View saved.";
+        await loadViews();
       }
 
       function downloadExport(payload) {
@@ -1260,11 +1341,37 @@
       );
 
       statusFilter.addEventListener("change", () => {
+        queryFilter.value = "";
+        viewFilter.value = "";
         loadInbox();
       });
       tagFilter.addEventListener("change", () => {
+        queryFilter.value = "";
+        viewFilter.value = "";
         loadInbox();
       });
+
+      queryFilter.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          viewFilter.value = "";
+          statusFilter.value = "all";
+          tagFilter.value = "";
+          loadInbox();
+        }
+      });
+
+      viewFilter.addEventListener("change", () => {
+        const selected = viewFilter.selectedOptions[0];
+        if (selected && selected.dataset.query) {
+          queryFilter.value = selected.dataset.query;
+          statusFilter.value = "all";
+          tagFilter.value = "";
+          loadInbox();
+        }
+      });
+
+      saveViewBtn.addEventListener("click", saveCurrentView);
 
       form.addEventListener("submit", captureLoop);
       exportBtn.addEventListener("click", exportLoops);

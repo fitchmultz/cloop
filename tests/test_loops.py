@@ -441,12 +441,17 @@ def test_list_loops_query_count_not_n_plus_one(
         f"Expected <= 3 queries with batch fetching, got {counting_conn.execute_count}"
     )
 
-    # Verify the data is correct
-    for i, loop in enumerate(result):
-        assert loop["raw_text"] == f"Loop {i}"
+    # Verify deterministic ordering (latest/highest id first) and data integrity.
+    assert [loop["id"] for loop in result] == sorted(loop_ids, reverse=True)
+
+    for loop in result:
+        raw_text = loop["raw_text"]
+        suffix = raw_text.split(" ", maxsplit=1)[1]
+        tag_number = int(suffix)
+        assert raw_text == f"Loop {tag_number}"
         assert loop["project"] == "TestProject"
         assert "common" in loop["tags"]
-        assert f"tag{i}" in loop["tags"]
+        assert f"tag{tag_number}" in loop["tags"]
 
     conn.close()
 

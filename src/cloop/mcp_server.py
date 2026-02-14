@@ -352,9 +352,27 @@ def loop_list(
 def loop_search(
     query: str, limit: int = DEFAULT_LOOP_LIST_LIMIT, offset: int = 0
 ) -> list[dict[str, Any]]:
+    """Search loops using the DSL query language.
+
+    Query syntax:
+        - status:<value> where value in {open, all, inbox, actionable,
+          blocked, scheduled, completed, dropped}
+        - tag:<value>
+        - project:<value>
+        - due:<value> where value in {today, tomorrow, overdue, none, next7d}
+        - text:<value>
+        - Bare tokens without field: prefix are treated as text:<token>
+
+    Examples:
+        - "status:inbox tag:work due:today"
+        - "project:ClientAlpha blocked"
+        - "status:open groceries"
+    """
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.search_loops(query=query, limit=limit, offset=offset, conn=conn)
+        return loop_service.search_loops_by_query(
+            query=query, limit=limit, offset=offset, conn=conn
+        )
 
 
 @mcp.tool(name="loop.snooze")
@@ -426,6 +444,177 @@ def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
         settings=settings,
     )
     return result
+
+
+@mcp.tool(name="loop.view.create")
+@with_db_init
+@with_mcp_error_handling
+def loop_view_create(
+    name: str,
+    query: str,
+    description: str | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Create a saved view with a DSL query.
+
+    Args:
+        name: Unique view name
+        query: DSL query string
+        description: Optional description
+        request_id: Optional idempotency key
+    """
+    settings = get_settings()
+    payload = {"name": name, "query": query, "description": description}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.view.create",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.create_loop_view(
+            name=name,
+            query=query,
+            description=description,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.view.create",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.view.list")
+@with_db_init
+@with_mcp_error_handling
+def loop_view_list() -> list[dict[str, Any]]:
+    """List all saved views."""
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.list_loop_views(conn=conn)
+
+
+@mcp.tool(name="loop.view.get")
+@with_db_init
+@with_mcp_error_handling
+def loop_view_get(view_id: int) -> dict[str, Any]:
+    """Get a saved view by ID."""
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.get_loop_view(view_id=view_id, conn=conn)
+
+
+@mcp.tool(name="loop.view.update")
+@with_db_init
+@with_mcp_error_handling
+def loop_view_update(
+    view_id: int,
+    name: str | None = None,
+    query: str | None = None,
+    description: str | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Update a saved view."""
+    settings = get_settings()
+    payload = {"view_id": view_id, "name": name, "query": query, "description": description}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.view.update",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.update_loop_view(
+            view_id=view_id,
+            name=name,
+            query=query,
+            description=description,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.view.update",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.view.delete")
+@with_db_init
+@with_mcp_error_handling
+def loop_view_delete(
+    view_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Delete a saved view."""
+    settings = get_settings()
+    payload = {"view_id": view_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.view.delete",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        loop_service.delete_loop_view(view_id=view_id, conn=conn)
+
+    result = {"deleted": True}
+    _finalize_mcp_idempotency(
+        tool_name="loop.view.delete",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.view.apply")
+@with_db_init
+@with_mcp_error_handling
+def loop_view_apply(
+    view_id: int,
+    limit: int = DEFAULT_LOOP_LIST_LIMIT,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """Apply a saved view and return matching loops.
+
+    Args:
+        view_id: View ID to apply
+        limit: Max results (default: 50)
+        offset: Pagination offset (default: 0)
+
+    Returns:
+        Dict with view info and matching loops in 'items' key
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.apply_loop_view(
+            view_id=view_id,
+            limit=limit,
+            offset=offset,
+            conn=conn,
+        )
 
 
 @mcp.tool(name="project.list")

@@ -7,7 +7,8 @@ from typing import Any, Mapping
 
 from ..typingx import escape_like_pattern
 from .errors import LoopNotFoundError, ValidationError
-from .models import EnrichmentState, LoopRecord, LoopStatus, parse_utc_datetime
+from .models import EnrichmentState, LoopRecord, LoopStatus, parse_utc_datetime, utc_now
+from .query import LoopQuery, compile_loop_query, parse_loop_query
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ def list_loops(
     if status is not None:
         sql += " WHERE status = ?"
         params.append(status.value)
-    sql += " ORDER BY updated_at DESC, captured_at_utc DESC LIMIT ? OFFSET ?"
+    sql += " ORDER BY updated_at DESC, captured_at_utc DESC, id DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
@@ -162,7 +163,7 @@ def list_loops_by_statuses(
     placeholders = ", ".join("?" for _ in statuses)
     sql = f"SELECT * FROM loops WHERE status IN ({placeholders})"
     params: list[Any] = [status.value for status in statuses]
-    sql += " ORDER BY updated_at DESC, captured_at_utc DESC"
+    sql += " ORDER BY updated_at DESC, captured_at_utc DESC, id DESC"
     if limit is not None:
         sql += " LIMIT ?"
         params.append(limit)
@@ -175,7 +176,7 @@ def list_loops_by_statuses(
 
 def list_all_loops(*, conn: sqlite3.Connection) -> list[LoopRecord]:
     rows = conn.execute(
-        "SELECT * FROM loops ORDER BY updated_at DESC, captured_at_utc DESC"
+        "SELECT * FROM loops ORDER BY updated_at DESC, captured_at_utc DESC, id DESC"
     ).fetchall()
     return [_row_to_record(row) for row in rows]
 
@@ -200,7 +201,10 @@ def list_loops_by_tag(
         placeholders = ", ".join("?" for _ in statuses)
         sql += f" AND loops.status IN ({placeholders})"
         params.extend(status.value for status in statuses)
-    sql += " ORDER BY loops.updated_at DESC, loops.captured_at_utc DESC LIMIT ? OFFSET ?"
+    sql += (
+        " ORDER BY loops.updated_at DESC, loops.captured_at_utc DESC, loops.id DESC"
+        " LIMIT ? OFFSET ?"
+    )
     params.extend([limit, offset])
     rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
@@ -301,7 +305,7 @@ def search_loops(
            OR title LIKE ? ESCAPE '\\'
            OR summary LIKE ? ESCAPE '\\'
            OR next_action LIKE ? ESCAPE '\\'
-        ORDER BY captured_at_utc DESC
+        ORDER BY updated_at DESC, captured_at_utc DESC, id DESC
         LIMIT ? OFFSET ?
         """,
         (like_query, like_query, like_query, like_query, limit, offset),
@@ -590,3 +594,207 @@ def upsert_loop_embedding(
         """,
         (loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model),
     )
+
+
+def search_loops_by_query(
+    *,
+    query: str,
+    limit: int,
+    offset: int,
+    conn: sqlite3.Connection,
+) -> list[LoopRecord]:
+    """Search loops using the DSL query language.
+
+    This is the canonical query path used by API, CLI, MCP, and UI.
+
+    Args:
+        query: DSL query string (e.g., 'status:inbox tag:work due:today')
+        limit: Maximum number of results
+        offset: Pagination offset
+        conn: Database connection
+
+    Returns:
+        List of matching LoopRecords, ordered by updated_at DESC, captured_at_utc DESC, id DESC
+
+    Raises:
+        ValidationError: If query syntax is invalid
+    """
+    parsed: LoopQuery = parse_loop_query(query)
+    now = utc_now()
+    where_sql, params = compile_loop_query(parsed, now_utc=now)
+
+    sql = f"""
+        SELECT DISTINCT loops.*
+        FROM loops
+        LEFT JOIN projects ON projects.id = loops.project_id
+        LEFT JOIN loop_tags ON loop_tags.loop_id = loops.id
+        LEFT JOIN tags ON tags.id = loop_tags.tag_id
+        {where_sql}
+        ORDER BY loops.updated_at DESC, loops.captured_at_utc DESC, loops.id DESC
+        LIMIT ? OFFSET ?
+    """
+
+    rows = conn.execute(sql, [*params, limit, offset]).fetchall()
+    return [_row_to_record(row) for row in rows]
+
+
+def create_loop_view(
+    *,
+    name: str,
+    query: str,
+    description: str | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Create a new saved view.
+
+    Args:
+        name: Unique view name
+        query: DSL query string
+        description: Optional description
+        conn: Database connection
+
+    Returns:
+        Created view record as dict
+
+    Raises:
+        ValidationError: If name already exists
+    """
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValidationError("name", "view name cannot be empty")
+
+    parse_loop_query(query)
+
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO loop_views (name, query, description)
+            VALUES (?, ?, ?)
+            """,
+            (normalized_name, query, description),
+        )
+        view_id = cursor.lastrowid
+        conn.commit()
+    except sqlite3.IntegrityError:
+        raise ValidationError("name", f"view '{normalized_name}' already exists") from None
+
+    row = conn.execute("SELECT * FROM loop_views WHERE id = ?", (view_id,)).fetchone()
+    return dict(row)
+
+
+def list_loop_views(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """List all saved views.
+
+    Args:
+        conn: Database connection
+
+    Returns:
+        List of view records as dicts, ordered by name
+    """
+    rows = conn.execute("SELECT * FROM loop_views ORDER BY name ASC").fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_loop_view(*, view_id: int, conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Get a saved view by ID.
+
+    Args:
+        view_id: View ID
+        conn: Database connection
+
+    Returns:
+        View record as dict, or None if not found
+    """
+    row = conn.execute("SELECT * FROM loop_views WHERE id = ?", (view_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_loop_view_by_name(*, name: str, conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Get a saved view by name.
+
+    Args:
+        name: View name
+        conn: Database connection
+
+    Returns:
+        View record as dict, or None if not found
+    """
+    row = conn.execute("SELECT * FROM loop_views WHERE name = ?", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_loop_view(
+    *,
+    view_id: int,
+    name: str | None = None,
+    query: str | None = None,
+    description: str | None = None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Update a saved view.
+
+    Args:
+        view_id: View ID
+        name: New name (optional)
+        query: New query string (optional)
+        description: New description (optional)
+        conn: Database connection
+
+    Returns:
+        Updated view record as dict
+
+    Raises:
+        ValidationError: If view not found or name conflict
+    """
+    existing = get_loop_view(view_id=view_id, conn=conn)
+    if not existing:
+        raise ValidationError("view_id", f"view {view_id} not found")
+
+    updates: dict[str, Any] = {}
+    if name is not None:
+        normalized = name.strip()
+        if not normalized:
+            raise ValidationError("name", "view name cannot be empty")
+        updates["name"] = normalized
+    if query is not None:
+        parse_loop_query(query)
+        updates["query"] = query
+    if description is not None:
+        updates["description"] = description
+
+    if not updates:
+        return existing
+
+    set_clause = ", ".join(f"{key} = ?" for key in updates)
+    params = list(updates.values()) + [view_id]
+
+    try:
+        conn.execute(
+            f"""
+            UPDATE loop_views
+            SET {set_clause}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            params,
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        raise ValidationError("name", f"view '{updates.get('name', '')}' already exists") from None
+
+    row = conn.execute("SELECT * FROM loop_views WHERE id = ?", (view_id,)).fetchone()
+    return dict(row)
+
+
+def delete_loop_view(*, view_id: int, conn: sqlite3.Connection) -> bool:
+    """Delete a saved view.
+
+    Args:
+        view_id: View ID
+        conn: Database connection
+
+    Returns:
+        True if deleted, False if not found
+    """
+    cursor = conn.execute("DELETE FROM loop_views WHERE id = ?", (view_id,))
+    conn.commit()
+    return cursor.rowcount > 0

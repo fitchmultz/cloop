@@ -22,7 +22,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 10
+SCHEMA_VERSION: int = 11
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -177,6 +177,17 @@ CREATE TABLE idempotency_keys (
 );
 
 CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
+
+CREATE TABLE loop_views (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    query TEXT NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_loop_views_name ON loop_views(name);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
@@ -336,6 +347,18 @@ _CORE_MIGRATIONS: dict[int, str] = {
     );
 
     CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
+    """,
+    11: """
+    CREATE TABLE loop_views (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        query TEXT NOT NULL,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_loop_views_name ON loop_views(name);
     """,
 }
 
