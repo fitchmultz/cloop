@@ -123,3 +123,13 @@ class ClaimExpiredError(CloopError):
             detail=f"loop_id={loop_id}",
         )
         self.loop_id = loop_id
+
+
+class RecurrenceError(CloopError):
+    """Raised when recurrence configuration is invalid.
+
+    Maps to HTTP 400 Bad Request.
+    """
+
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
+        super().__init__(message, detail=detail)

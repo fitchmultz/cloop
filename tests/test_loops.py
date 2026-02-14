@@ -3187,3 +3187,251 @@ def test_loop_claim_token_not_exposed_in_list(
     assert "claim_token" not in claims[0]
     assert claims[0]["owner"] == "agent-1"
     assert claims[0]["loop_id"] == loop_id
+
+
+# ==============================================================================
+# Recurrence Lifecycle Tests
+# ==============================================================================
+
+
+def test_capture_with_recurrence_sets_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Capturing a loop with recurrence sets recurrence fields."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Daily standup",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "rrule": "FREQ=DAILY",
+            "timezone": "UTC",
+        },
+    )
+    assert response.status_code == 200
+    loop = response.json()
+
+    assert loop["recurrence_enabled"] is True
+    assert loop["recurrence_rrule"] is not None
+    assert "FREQ=DAILY" in loop["recurrence_rrule"]
+    assert loop["recurrence_tz"] == "UTC"
+    assert loop["next_due_at_utc"] is not None
+
+
+def test_complete_recurring_creates_next_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Completing a recurring loop creates the next occurrence."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create recurring loop with tags
+    capture_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Daily standup",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "rrule": "FREQ=DAILY",
+            "timezone": "UTC",
+        },
+    )
+    assert capture_response.status_code == 200
+    loop_id = capture_response.json()["id"]
+
+    # Add tags to the loop
+    client.patch(f"/loops/{loop_id}", json={"tags": ["work", "meeting"]})
+
+    # Complete the loop
+    status_response = client.post(
+        f"/loops/{loop_id}/status",
+        json={"status": "completed"},
+    )
+    assert status_response.status_code == 200
+    completed = status_response.json()
+
+    # Verify original loop is completed with recurrence disabled
+    assert completed["status"] == "completed"
+    assert completed["recurrence_enabled"] is False
+
+    # Find the next occurrence via query
+    search_response = client.post(
+        "/loops/search",
+        json={"query": "recurring:yes", "limit": 100, "offset": 0},
+    )
+    assert search_response.status_code == 200
+    results = search_response.json()["items"]
+
+    # Should have exactly one recurring loop (the next occurrence)
+    assert len(results) == 1
+    next_loop = results[0]
+
+    # Verify next occurrence has recurrence enabled
+    assert next_loop["recurrence_enabled"] is True
+    assert next_loop["recurrence_rrule"] is not None
+    assert next_loop["next_due_at_utc"] is not None
+
+    # Verify tags were copied
+    assert "work" in next_loop["tags"]
+    assert "meeting" in next_loop["tags"]
+
+    # Verify raw_text was copied
+    assert next_loop["raw_text"] == "Daily standup"
+
+
+def test_bulk_close_recurring_creates_next_occurrence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bulk closing a recurring loop creates the next occurrence."""
+    import sqlite3
+
+    from cloop.loops import service as loop_service
+
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create recurring loop
+    capture_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Daily standup",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "rrule": "FREQ=DAILY",
+            "timezone": "UTC",
+        },
+    )
+    assert capture_response.status_code == 200
+    loop_id = capture_response.json()["id"]
+
+    # Bulk close it using the service directly (no HTTP endpoint for bulk_close)
+    settings = get_settings()
+    with sqlite3.connect(settings.core_db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        bulk_result = loop_service.bulk_close_loops(
+            items=[{"loop_id": loop_id, "status": "completed"}],
+            transactional=True,
+            conn=conn,
+        )
+    assert bulk_result["ok"] is True
+    assert bulk_result["succeeded"] == 1
+
+    # Verify original loop is completed
+    get_response = client.get(f"/loops/{loop_id}")
+    assert get_response.status_code == 200
+    original = get_response.json()
+    assert original["status"] == "completed"
+    assert original["recurrence_enabled"] is False
+
+    # Find the next occurrence
+    search_response = client.post(
+        "/loops/search",
+        json={"query": "recurring:yes", "limit": 100, "offset": 0},
+    )
+    assert search_response.status_code == 200
+    results = search_response.json()["items"]
+
+    # Should have exactly one recurring loop (the next occurrence)
+    assert len(results) == 1
+    next_loop = results[0]
+    assert next_loop["recurrence_enabled"] is True
+
+
+def test_query_recurring_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Query DSL recurring: filter works correctly."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create one recurring and one non-recurring loop
+    client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Daily recurring task",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "rrule": "FREQ=DAILY",
+            "timezone": "UTC",
+        },
+    )
+    client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "One-time task",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+
+    # Query for recurring
+    recurring_response = client.post(
+        "/loops/search",
+        json={"query": "recurring:yes", "limit": 100, "offset": 0},
+    )
+    assert recurring_response.status_code == 200
+    recurring = recurring_response.json()["items"]
+    assert len(recurring) == 1
+    assert recurring[0]["raw_text"] == "Daily recurring task"
+
+    # Query for non-recurring
+    non_recurring_response = client.post(
+        "/loops/search",
+        json={"query": "recurring:no", "limit": 100, "offset": 0},
+    )
+    assert non_recurring_response.status_code == 200
+    non_recurring = non_recurring_response.json()["items"]
+    assert len(non_recurring) == 1
+    assert non_recurring[0]["raw_text"] == "One-time task"
+
+
+def test_multiple_recurrence_completions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Completing a recurring loop multiple times creates a chain of occurrences."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create recurring loop
+    capture_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Weekly review",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "rrule": "FREQ=WEEKLY",
+            "timezone": "UTC",
+        },
+    )
+    assert capture_response.status_code == 200
+    first_id = capture_response.json()["id"]
+
+    # Complete first occurrence
+    client.post(f"/loops/{first_id}/status", json={"status": "completed"})
+
+    # Find the next occurrence
+    search_response = client.post(
+        "/loops/search",
+        json={"query": "recurring:yes", "limit": 100, "offset": 0},
+    )
+    assert search_response.status_code == 200
+    results = search_response.json()["items"]
+    assert len(results) == 1
+    second_id = results[0]["id"]
+    assert second_id != first_id
+
+    # Complete second occurrence
+    client.post(f"/loops/{second_id}/status", json={"status": "completed"})
+
+    # Find the third occurrence
+    search_response = client.post(
+        "/loops/search",
+        json={"query": "recurring:yes", "limit": 100, "offset": 0},
+    )
+    assert search_response.status_code == 200
+    results = search_response.json()["items"]
+    assert len(results) == 1
+    third_id = results[0]["id"]
+    assert third_id != first_id
+    assert third_id != second_id
+
+    # Verify we have 2 completed and 1 active recurring loop
+    all_response = client.get("/loops?status=all&limit=100")
+    assert all_response.status_code == 200
+    all_loops = all_response.json()
+    completed_count = sum(1 for loop in all_loops if loop["status"] == "completed")
+    assert completed_count == 2

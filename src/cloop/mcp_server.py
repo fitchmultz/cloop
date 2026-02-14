@@ -210,6 +210,9 @@ def loop_create(
     captured_at: str,
     client_tz_offset_min: int,
     status: str = "inbox",
+    schedule: str | None = None,
+    rrule: str | None = None,
+    timezone: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
     validate_iso8601_timestamp(captured_at, "captured_at")
@@ -218,11 +221,24 @@ def loop_create(
     settings = get_settings()
     loop_status = LoopStatus(status)
 
+    # Resolve recurrence RRULE from schedule phrase or direct rrule
+    recurrence_rrule: str | None = None
+    if schedule:
+        from .loops.recurrence import parse_recurrence_schedule
+
+        parsed = parse_recurrence_schedule(schedule)
+        recurrence_rrule = parsed.rrule
+    elif rrule:
+        recurrence_rrule = rrule
+
     payload = {
         "raw_text": raw_text,
         "captured_at": captured_at,
         "client_tz_offset_min": client_tz_offset_min,
         "status": status,
+        "schedule": schedule,
+        "rrule": rrule,
+        "timezone": timezone,
     }
 
     replay = _handle_mcp_idempotency(
@@ -241,6 +257,8 @@ def loop_create(
             client_tz_offset_min=client_tz_offset_min,
             status=loop_status,
             conn=conn,
+            recurrence_rrule=recurrence_rrule,
+            recurrence_tz=timezone,
         )
 
     _finalize_mcp_idempotency(

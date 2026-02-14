@@ -114,9 +114,17 @@ class LoopRecord:
     user_locks: list[str]
     provenance: dict[str, object]
     enrichment_state: EnrichmentState
+    recurrence_rrule: str | None
+    recurrence_tz: str | None
+    next_due_at_utc: datetime | None
+    recurrence_enabled: bool
     created_at_utc: datetime
     updated_at_utc: datetime
     closed_at_utc: datetime | None
+
+    def is_recurring(self) -> bool:
+        """Check if this loop has an active recurrence schedule."""
+        return self.recurrence_enabled and self.recurrence_rrule is not None
 
 
 @dataclass(frozen=True, slots=True)

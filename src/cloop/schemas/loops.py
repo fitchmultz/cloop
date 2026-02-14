@@ -23,6 +23,18 @@ class LoopCaptureRequest(BaseModel):
     actionable: bool = False
     scheduled: bool = False
     blocked: bool = False
+    schedule: str | None = Field(
+        default=None,
+        description="Natural-language recurrence phrase (e.g., 'every weekday', 'every 2 weeks')",
+    )
+    rrule: str | None = Field(
+        default=None,
+        description="RFC 5545 RRULE string (e.g., 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')",
+    )
+    timezone: str | None = Field(
+        default=None,
+        description="IANA timezone name (e.g., 'America/New_York'). Defaults to client offset.",
+    )
 
     @field_validator("captured_at")
     @classmethod
@@ -58,6 +70,9 @@ class LoopUpdateRequest(BaseModel):
     completion_note: str | None = None
     tags: List[str] | None = None
     claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
+    recurrence_rrule: str | None = Field(default=None, description="RFC 5545 RRULE string")
+    recurrence_tz: str | None = Field(default=None, description="IANA timezone name")
+    recurrence_enabled: bool | None = Field(default=None, description="Enable/disable recurrence")
 
     @field_validator("due_at_utc", mode="before")
     @classmethod
@@ -119,6 +134,10 @@ class LoopBase(BaseModel):
     user_locks: List[str] = Field(default_factory=list)
     provenance: Dict[str, Any] = Field(default_factory=dict)
     enrichment_state: str | None = None
+    recurrence_rrule: str | None = None
+    recurrence_tz: str | None = None
+    next_due_at_utc: str | None = None
+    recurrence_enabled: bool = False
     created_at_utc: str
     updated_at_utc: str
     closed_at_utc: str | None = None
