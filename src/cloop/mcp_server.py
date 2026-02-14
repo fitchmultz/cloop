@@ -14,6 +14,11 @@ Tool Handlers:
     - loop.enrich: Trigger AI enrichment for a loop
     - project.list: List all projects
 
+Idempotency:
+    All mutation tools support an optional `request_id` parameter for safe retries.
+    Same request_id + same args replays prior response without additional writes.
+    Same request_id + different args raises ToolError.
+
 Non-scope:
     - HTTP API endpoints (see main.py)
     - CLI commands (see cli.py)
@@ -29,6 +34,13 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from . import db
 from .constants import DEFAULT_LOOP_LIST_LIMIT
+from .idempotency import (
+    IdempotencyConflictError,
+    build_mcp_scope,
+    canonical_request_hash,
+    expiry_timestamp,
+    normalize_idempotency_key,
+)
 from .loops import enrichment as loop_enrichment
 from .loops import repo as loop_repo
 from .loops import service as loop_service
@@ -100,6 +112,90 @@ def with_mcp_error_handling(func: F) -> F:
     return _wrapper  # type: ignore[return-value]
 
 
+def _handle_mcp_idempotency(
+    *,
+    tool_name: str,
+    request_id: str | None,
+    payload: dict[str, Any],
+    settings: Any,
+) -> dict[str, Any] | None:
+    """Handle idempotency for MCP tool calls.
+
+    Args:
+        tool_name: MCP tool name (e.g., "loop.create")
+        request_id: Optional idempotency key
+        payload: Request payload (will be hashed)
+        settings: Settings object
+
+    Returns:
+        None if should proceed with mutation, or replayed response dict
+
+    Raises:
+        ToolError: If idempotency key conflict or validation error
+    """
+    if request_id is None:
+        return None
+
+    try:
+        key = normalize_idempotency_key(request_id, settings.idempotency_max_key_length)
+    except ValueError as e:
+        raise ToolError(str(e)) from None
+
+    scope = build_mcp_scope(tool_name)
+    request_hash = canonical_request_hash(payload)
+    expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+
+    with db.core_connection(settings) as conn:
+        try:
+            claim = db.claim_or_replay_idempotency(
+                scope=scope,
+                idempotency_key=key,
+                request_hash=request_hash,
+                expires_at=expires_at,
+                conn=conn,
+            )
+        except IdempotencyConflictError as e:
+            raise ToolError(f"Idempotency conflict: {e}") from None
+
+        if not claim["is_new"] and claim["replay"]:
+            return claim["replay"]["response_body"]
+
+        return None
+
+
+def _finalize_mcp_idempotency(
+    *,
+    tool_name: str,
+    request_id: str | None,
+    payload: dict[str, Any],
+    response: dict[str, Any],
+    settings: Any,
+) -> None:
+    """Store response for idempotent MCP tool call.
+
+    Args:
+        tool_name: MCP tool name
+        request_id: Optional idempotency key
+        payload: Request payload
+        response: Response body to store
+        settings: Settings object
+    """
+    if request_id is None:
+        return
+
+    key = normalize_idempotency_key(request_id, settings.idempotency_max_key_length)
+    scope = build_mcp_scope(tool_name)
+
+    with db.core_connection(settings) as conn:
+        db.finalize_idempotency_response(
+            scope=scope,
+            idempotency_key=key,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
+
+
 @mcp.tool(name="loop.create")
 @with_db_init
 @with_mcp_error_handling
@@ -108,14 +204,30 @@ def loop_create(
     captured_at: str,
     client_tz_offset_min: int,
     status: str = "inbox",
+    request_id: str | None = None,
 ) -> dict[str, Any]:
-    # Validate timestamp format before processing
     validate_iso8601_timestamp(captured_at, "captured_at")
-    # Validate timezone offset is within valid bounds
     validate_tz_offset(client_tz_offset_min, "client_tz_offset_min")
 
     settings = get_settings()
     loop_status = LoopStatus(status)
+
+    payload = {
+        "raw_text": raw_text,
+        "captured_at": captured_at,
+        "client_tz_offset_min": client_tz_offset_min,
+        "status": status,
+    }
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.create",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
     with db.core_connection(settings) as conn:
         record = loop_service.capture_loop(
             raw_text=raw_text,
@@ -124,22 +236,54 @@ def loop_create(
             status=loop_status,
             conn=conn,
         )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.create",
+        request_id=request_id,
+        payload=payload,
+        response=record,
+        settings=settings,
+    )
     return record
 
 
 @mcp.tool(name="loop.update")
 @with_db_init
 @with_mcp_error_handling
-def loop_update(loop_id: int, fields: dict[str, Any]) -> dict[str, Any]:
-    # Validate timestamp fields in the fields dict
+def loop_update(
+    loop_id: int,
+    fields: dict[str, Any],
+    request_id: str | None = None,
+) -> dict[str, Any]:
     if "due_at_utc" in fields and fields["due_at_utc"] is not None:
         validate_iso8601_timestamp(fields["due_at_utc"], "due_at_utc")
     if "snooze_until_utc" in fields and fields["snooze_until_utc"] is not None:
         validate_iso8601_timestamp(fields["snooze_until_utc"], "snooze_until_utc")
 
     settings = get_settings()
+
+    payload = {"loop_id": loop_id, "fields": fields}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.update",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
     with db.core_connection(settings) as conn:
-        return loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
+        result = loop_service.update_loop(loop_id=loop_id, fields=fields, conn=conn)
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.update",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
 
 
 @mcp.tool(name="loop.close")
@@ -149,18 +293,40 @@ def loop_close(
     loop_id: int,
     status: str = "completed",
     note: str | None = None,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
     loop_status = LoopStatus(status)
     if not is_terminal_status(loop_status):
         raise ValidationError("status", "must be completed or dropped")
+
+    payload = {"loop_id": loop_id, "status": status, "note": note}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.close",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
     with db.core_connection(settings) as conn:
-        return loop_service.transition_status(
+        result = loop_service.transition_status(
             loop_id=loop_id,
             to_status=loop_status,
             note=note,
             conn=conn,
         )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.close",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
 
 
 @mcp.tool(name="loop.list")
@@ -194,27 +360,71 @@ def loop_search(
 @mcp.tool(name="loop.snooze")
 @with_db_init
 @with_mcp_error_handling
-def loop_snooze(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
-    # Validate timestamp format before processing
+def loop_snooze(
+    loop_id: int,
+    snooze_until_utc: str,
+    request_id: str | None = None,
+) -> dict[str, Any]:
     validate_iso8601_timestamp(snooze_until_utc, "snooze_until_utc")
 
     settings = get_settings()
+
+    payload = {"loop_id": loop_id, "snooze_until_utc": snooze_until_utc}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.snooze",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
     with db.core_connection(settings) as conn:
-        return loop_service.update_loop(
+        result = loop_service.update_loop(
             loop_id=loop_id,
             fields={"snooze_until_utc": snooze_until_utc},
             conn=conn,
         )
 
+    _finalize_mcp_idempotency(
+        tool_name="loop.snooze",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
 
 @mcp.tool(name="loop.enrich")
 @with_db_init
 @with_mcp_error_handling
-def loop_enrich(loop_id: int) -> dict[str, Any]:
+def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
     settings = get_settings()
+
+    payload = {"loop_id": loop_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.enrich",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
     with db.core_connection(settings) as conn:
         loop_service.request_enrichment(loop_id=loop_id, conn=conn)
         result = loop_enrichment.enrich_loop(loop_id=loop_id, conn=conn, settings=settings)
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.enrich",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
     return result
 
 

@@ -67,6 +67,9 @@ class Settings:
     # Related loop settings
     related_similarity_threshold: float
     related_max_candidates: int
+    # Idempotency settings
+    idempotency_ttl_seconds: int
+    idempotency_max_key_length: int
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -166,6 +169,8 @@ def get_settings() -> Settings:
         ),
         related_similarity_threshold=float(os.getenv("CLOOP_RELATED_SIMILARITY_THRESHOLD", "0.78")),
         related_max_candidates=int(os.getenv("CLOOP_RELATED_MAX_CANDIDATES", "1000")),
+        idempotency_ttl_seconds=int(os.getenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")),
+        idempotency_max_key_length=int(os.getenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")),
     )
     return _validate_settings(settings)
 
@@ -213,6 +218,10 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
+    if settings.idempotency_ttl_seconds < 1:
+        raise ValueError("CLOOP_IDEMPOTENCY_TTL_SECONDS must be at least 1")
+    if settings.idempotency_max_key_length < 16:
+        raise ValueError("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH must be at least 16")
     for weight_name in [
         "priority_weight_due",
         "priority_weight_urgency",

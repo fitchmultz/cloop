@@ -6,8 +6,10 @@ to external AI agents via the Model Context Protocol.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -33,6 +35,8 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")
+    monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()
     db.init_databases(get_settings())
 
@@ -1101,3 +1105,359 @@ def test_to_tool_error_unknown_exception() -> None:
 
     assert isinstance(result, ToolError)
     assert "Something unexpected happened" in str(result)
+
+
+# =============================================================================
+# Idempotency tests for MCP tools
+# =============================================================================
+
+
+def test_loop_create_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + same args returns same response without duplicate loop."""
+    import sqlite3
+
+    _setup_test_db(tmp_path, monkeypatch)
+    captured_at = _now_iso()
+
+    result1 = loop_create(
+        raw_text="idempotent test",
+        captured_at=captured_at,
+        client_tz_offset_min=0,
+        request_id="mcp-key-123",
+    )
+
+    result2 = loop_create(
+        raw_text="idempotent test",
+        captured_at=captured_at,
+        client_tz_offset_min=0,
+        request_id="mcp-key-123",
+    )
+
+    assert result1["id"] == result2["id"]
+
+    settings = get_settings()
+    with sqlite3.connect(settings.core_db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+    assert count == 1
+
+
+def test_loop_create_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + different args raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+    captured_at = _now_iso()
+
+    loop_create(
+        raw_text="first text",
+        captured_at=captured_at,
+        client_tz_offset_min=0,
+        request_id="mcp-conflict-key",
+    )
+
+    with pytest.raises(ToolError, match="Idempotency conflict"):
+        loop_create(
+            raw_text="different text",
+            captured_at=captured_at,
+            client_tz_offset_min=0,
+            request_id="mcp-conflict-key",
+        )
+
+
+def test_loop_create_idempotency_concurrent_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Concurrent same-key MCP create calls replay one created loop."""
+    import sqlite3
+
+    _setup_test_db(tmp_path, monkeypatch)
+    captured_at = _now_iso()
+
+    def _create_once() -> dict[str, Any]:
+        return loop_create(
+            raw_text="concurrent create test",
+            captured_at=captured_at,
+            client_tz_offset_min=0,
+            request_id="mcp-concurrent-key",
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(lambda _: _create_once(), range(4)))
+
+    ids = [result["id"] for result in results]
+    assert len(set(ids)) == 1
+
+    settings = get_settings()
+    with sqlite3.connect(settings.core_db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+    assert count == 1
+
+
+def test_loop_update_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + same args for update returns same response."""
+    import sqlite3
+
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result1 = loop_update(
+        loop_id=loop_id,
+        fields={"title": "Updated Title"},
+        request_id="mcp-update-key",
+    )
+
+    result2 = loop_update(
+        loop_id=loop_id,
+        fields={"title": "Updated Title"},
+        request_id="mcp-update-key",
+    )
+
+    assert result1["title"] == result2["title"]
+
+    settings = get_settings()
+    with sqlite3.connect(settings.core_db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM loop_events WHERE loop_id = ?", (loop_id,)
+        ).fetchone()[0]
+    assert count <= 2
+
+
+def test_loop_update_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + different update fields raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="update conflict",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_update(
+        loop_id=loop_id,
+        fields={"title": "first"},
+        request_id="mcp-update-conflict-key",
+    )
+
+    with pytest.raises(ToolError, match="Idempotency conflict"):
+        loop_update(
+            loop_id=loop_id,
+            fields={"title": "second"},
+            request_id="mcp-update-conflict-key",
+        )
+
+
+def test_loop_close_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + same args for close returns same response."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="close test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result1 = loop_close(
+        loop_id=created["id"],
+        status="completed",
+        note="Done",
+        request_id="mcp-close-key",
+    )
+
+    result2 = loop_close(
+        loop_id=created["id"],
+        status="completed",
+        note="Done",
+        request_id="mcp-close-key",
+    )
+
+    assert result1["status"] == result2["status"]
+    assert result1["completion_note"] == result2["completion_note"]
+
+
+def test_loop_close_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + different close payload raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="close conflict",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_close(
+        loop_id=loop_id,
+        status="completed",
+        note="first-note",
+        request_id="mcp-close-conflict-key",
+    )
+
+    with pytest.raises(ToolError, match="Idempotency conflict"):
+        loop_close(
+            loop_id=loop_id,
+            status="completed",
+            note="different-note",
+            request_id="mcp-close-conflict-key",
+        )
+
+
+def test_loop_snooze_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + same args for snooze returns same response."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="snooze test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    snooze_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(timespec="seconds")
+
+    result1 = loop_snooze(
+        loop_id=created["id"],
+        snooze_until_utc=snooze_time,
+        request_id="mcp-snooze-key",
+    )
+
+    result2 = loop_snooze(
+        loop_id=created["id"],
+        snooze_until_utc=snooze_time,
+        request_id="mcp-snooze-key",
+    )
+
+    assert result1["snooze_until_utc"] == result2["snooze_until_utc"]
+
+
+def test_loop_snooze_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + different snooze time raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="snooze conflict",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    first_snooze = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(timespec="seconds")
+    second_snooze = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(timespec="seconds")
+
+    loop_snooze(
+        loop_id=loop_id,
+        snooze_until_utc=first_snooze,
+        request_id="mcp-snooze-conflict-key",
+    )
+
+    with pytest.raises(ToolError, match="Idempotency conflict"):
+        loop_snooze(
+            loop_id=loop_id,
+            snooze_until_utc=second_snooze,
+            request_id="mcp-snooze-conflict-key",
+        )
+
+
+def test_loop_enrich_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id + same args for enrich replays without rerunning enrichment."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="enrich replay",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+    mock_response = {"id": loop_id, "status": "inbox", "title": "Enriched"}
+
+    with patch(
+        "cloop.mcp_server.loop_enrichment.enrich_loop",
+        return_value=mock_response,
+    ) as enrich_mock:
+        result1 = loop_enrich(loop_id=loop_id, request_id="mcp-enrich-key")
+        result2 = loop_enrich(loop_id=loop_id, request_id="mcp-enrich-key")
+
+    assert result1 == result2
+    assert enrich_mock.call_count == 1
+
+
+def test_loop_enrich_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same request_id on different loop_id values raises ToolError conflict."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created1 = loop_create(
+        raw_text="enrich conflict 1",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    created2 = loop_create(
+        raw_text="enrich conflict 2",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    mock_response = {"id": created1["id"], "status": "inbox", "title": "Enriched"}
+    with patch("cloop.mcp_server.loop_enrichment.enrich_loop", return_value=mock_response):
+        loop_enrich(loop_id=created1["id"], request_id="mcp-enrich-conflict-key")
+        with pytest.raises(ToolError, match="Idempotency conflict"):
+            loop_enrich(loop_id=created2["id"], request_id="mcp-enrich-conflict-key")
+
+
+def test_mcp_no_request_id_creates_separate_loops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without request_id, same args creates separate loops."""
+    import sqlite3
+
+    _setup_test_db(tmp_path, monkeypatch)
+
+    result1 = loop_create(
+        raw_text="no key test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result2 = loop_create(
+        raw_text="no key test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    assert result1["id"] != result2["id"]
+
+    settings = get_settings()
+    with sqlite3.connect(settings.core_db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+    assert count == 2
+
+
+def test_mcp_different_tools_allow_same_request_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id can be used for different tools."""
+    import sqlite3
+
+    _setup_test_db(tmp_path, monkeypatch)
+
+    result = loop_create(
+        raw_text="scope test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        request_id="same-tool-key",
+    )
+    loop_id = result["id"]
+
+    update_result = loop_update(
+        loop_id=loop_id,
+        fields={"title": "Updated"},
+        request_id="same-tool-key",
+    )
+    assert update_result["title"] == "Updated"
+
+    settings = get_settings()
+    with sqlite3.connect(settings.core_db_path) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+    assert count == 1

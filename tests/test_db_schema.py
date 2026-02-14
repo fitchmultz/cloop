@@ -77,3 +77,33 @@ def test_vector_extension_loading_failure_logs_warning(
     assert error is not None
 
     get_settings.cache_clear()
+
+
+def test_idempotency_keys_table_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that idempotency_keys table is created after init_databases."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with sqlite3.connect(settings.core_db_path) as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='idempotency_keys'"
+        ).fetchone()
+    assert row is not None
+
+
+def test_idempotency_keys_table_has_unique_constraint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that idempotency_keys has unique constraint on (scope, idempotency_key)."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with sqlite3.connect(settings.core_db_path) as conn:
+        info = conn.execute("PRAGMA index_list('idempotency_keys')").fetchall()
+    has_unique = False
+    for row in info:
+        is_unique = row[2]
+        if is_unique:
+            has_unique = True
+            break
+    assert has_unique, f"No unique index found. Indexes: {info}"

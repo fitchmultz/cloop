@@ -1,10 +1,11 @@
 import json
 import logging
 import sqlite3
+import time
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator
+from typing import Any, Dict, Iterable, Iterator, Mapping
 
 from .settings import Settings, get_settings
 
@@ -21,7 +22,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 9
+SCHEMA_VERSION: int = 10
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -32,6 +33,9 @@ PRAGMAS = [
     ("cache_size", "-20000"),
     ("temp_store", "MEMORY"),
 ]
+
+_IDEMPOTENCY_PENDING_WAIT_SECONDS = 15.0
+_IDEMPOTENCY_PENDING_POLL_SECONDS = 0.05
 
 _CORE_SCHEMA = """
 CREATE TABLE notes (
@@ -158,6 +162,21 @@ CREATE TABLE loop_embeddings (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
 );
+
+CREATE TABLE idempotency_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_hash TEXT NOT NULL,
+    response_status INTEGER,
+    response_body_json TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT NOT NULL,
+    UNIQUE(scope, idempotency_key)
+);
+
+CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
@@ -301,6 +320,22 @@ _CORE_MIGRATIONS: dict[int, str] = {
     """,
     9: """
     ALTER TABLE loops ADD COLUMN completion_note TEXT;
+    """,
+    10: """
+    CREATE TABLE idempotency_keys (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_hash TEXT NOT NULL,
+        response_status INTEGER,
+        response_body_json TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL,
+        UNIQUE(scope, idempotency_key)
+    );
+
+    CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
     """,
 }
 
@@ -614,3 +649,214 @@ def read_note(note_id: int, settings: Settings | None = None) -> Dict[str, Any] 
     with core_connection(settings) as conn:
         row = conn.execute("SELECT * FROM notes WHERE id = ?", (note_id,)).fetchone()
     return dict(row) if row else None
+
+
+def purge_expired_idempotency_keys(*, conn: sqlite3.Connection) -> int:
+    """Delete expired idempotency keys from the database.
+
+    Args:
+        conn: SQLite connection to core database
+
+    Returns:
+        Number of deleted rows
+    """
+    cursor = conn.execute("DELETE FROM idempotency_keys WHERE expires_at < CURRENT_TIMESTAMP")
+    conn.commit()
+    return cursor.rowcount
+
+
+def _read_idempotency_row(
+    *,
+    scope: str,
+    idempotency_key: str,
+    conn: sqlite3.Connection,
+) -> sqlite3.Row | None:
+    return conn.execute(
+        """
+        SELECT request_hash,
+               response_status,
+               response_body_json,
+               datetime(expires_at) < datetime('now') AS is_expired
+        FROM idempotency_keys
+        WHERE scope = ? AND idempotency_key = ?
+        """,
+        (scope, idempotency_key),
+    ).fetchone()
+
+
+def _try_claim_expired_idempotency_key(
+    *,
+    scope: str,
+    idempotency_key: str,
+    request_hash: str,
+    expires_at: str,
+    conn: sqlite3.Connection,
+) -> bool:
+    cursor = conn.execute(
+        """
+        UPDATE idempotency_keys
+        SET request_hash = ?,
+            response_status = NULL,
+            response_body_json = NULL,
+            created_at = CURRENT_TIMESTAMP,
+            last_seen_at = CURRENT_TIMESTAMP,
+            expires_at = ?
+        WHERE scope = ?
+          AND idempotency_key = ?
+          AND datetime(expires_at) < datetime('now')
+        """,
+        (request_hash, expires_at, scope, idempotency_key),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def claim_or_replay_idempotency(
+    *,
+    scope: str,
+    idempotency_key: str,
+    request_hash: str,
+    expires_at: str,
+    conn: sqlite3.Connection,
+) -> Dict[str, Any]:
+    """Claim an idempotency key or retrieve prior response.
+
+    This function implements the claim/replay pattern:
+    - If no row exists: insert pending row, return is_new=True
+    - If row exists with different hash: raise IdempotencyConflictError
+    - If row exists with same hash and response: return replay
+    - If row exists with same hash but pending (no response): wait briefly
+      for the first caller to finalize and replay that response
+
+    Args:
+        scope: Scope identifier (e.g., "http:POST:/loops/capture")
+        idempotency_key: Unique key provided by client
+        request_hash: Canonical hash of request payload
+        expires_at: ISO8601 expiry timestamp
+        conn: SQLite connection to core database
+
+    Returns:
+        Dict with keys:
+        - is_new: True if this is a new claim, False if replay
+        - replay: Dict with status_code and response_body if replay, else None
+
+    Raises:
+        IdempotencyConflictError: If same key exists with different hash
+            or if an in-progress claim does not finalize before timeout
+    """
+    from .idempotency import IdempotencyConflictError
+
+    purge_expired_idempotency_keys(conn=conn)
+
+    try:
+        conn.execute(
+            """
+            INSERT INTO idempotency_keys
+                (scope, idempotency_key, request_hash, expires_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (scope, idempotency_key, request_hash, expires_at),
+        )
+        conn.commit()
+        return {"is_new": True, "replay": None}
+    except sqlite3.IntegrityError:
+        conn.rollback()
+
+    deadline = time.monotonic() + _IDEMPOTENCY_PENDING_WAIT_SECONDS
+    while True:
+        row = _read_idempotency_row(
+            scope=scope,
+            idempotency_key=idempotency_key,
+            conn=conn,
+        )
+        if row is None:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO idempotency_keys
+                        (scope, idempotency_key, request_hash, expires_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (scope, idempotency_key, request_hash, expires_at),
+                )
+                conn.commit()
+                return {"is_new": True, "replay": None}
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                continue
+
+        stored_hash = row["request_hash"]
+        response_status = row["response_status"]
+        response_body_json = row["response_body_json"]
+        is_expired = bool(row["is_expired"])
+
+        if is_expired:
+            if _try_claim_expired_idempotency_key(
+                scope=scope,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                expires_at=expires_at,
+                conn=conn,
+            ):
+                return {"is_new": True, "replay": None}
+            continue
+
+        if stored_hash != request_hash:
+            raise IdempotencyConflictError(
+                "Idempotency key conflict: "
+                f"key '{idempotency_key}' already used with different payload"
+            )
+
+        if response_status is not None and response_body_json is not None:
+            conn.execute(
+                """
+                UPDATE idempotency_keys
+                SET last_seen_at = CURRENT_TIMESTAMP
+                WHERE scope = ? AND idempotency_key = ?
+                """,
+                (scope, idempotency_key),
+            )
+            conn.commit()
+            return {
+                "is_new": False,
+                "replay": {
+                    "status_code": response_status,
+                    "response_body": json.loads(response_body_json),
+                },
+            }
+
+        if time.monotonic() >= deadline:
+            raise IdempotencyConflictError(
+                f"Idempotency key '{idempotency_key}' is currently in progress; retry shortly"
+            )
+        time.sleep(_IDEMPOTENCY_PENDING_POLL_SECONDS)
+
+
+def finalize_idempotency_response(
+    *,
+    scope: str,
+    idempotency_key: str,
+    response_status: int,
+    response_body: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> None:
+    """Store the response for an idempotent request.
+
+    Args:
+        scope: Scope identifier
+        idempotency_key: Unique key provided by client
+        response_status: HTTP status code
+        response_body: Response body dictionary
+        conn: SQLite connection to core database
+    """
+    conn.execute(
+        """
+        UPDATE idempotency_keys
+        SET response_status = ?,
+            response_body_json = ?,
+            last_seen_at = CURRENT_TIMESTAMP
+        WHERE scope = ? AND idempotency_key = ?
+        """,
+        (response_status, json.dumps(response_body), scope, idempotency_key),
+    )
+    conn.commit()
