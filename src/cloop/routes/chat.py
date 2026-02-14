@@ -26,6 +26,7 @@ from ..llm import (
 from ..loops.errors import CloopError
 from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
 from ..settings import Settings, ToolMode, get_settings
+from ..sse import format_sse_event
 from ..tools import EXECUTORS, TOOL_SPECS
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -45,11 +46,6 @@ def handle_tool_call(tool_call, settings: Settings) -> Dict[str, Any]:
         raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-def _sse_event(event: str, payload: Dict[str, Any]) -> str:
-    """Format an SSE event string."""
-    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
 def _interaction_context(settings: Settings) -> Dict[str, str]:
@@ -108,7 +104,7 @@ def chat_endpoint(
                 if not token:
                     continue
                 tokens.append(token)
-                yield _sse_event("token", {"token": token})
+                yield format_sse_event("token", {"token": token})
             final_message = "".join(tokens)
             metadata: _InteractionMetadata = {
                 "model": settings.llm_model,
@@ -132,7 +128,7 @@ def chat_endpoint(
                 tool_calls=tool_calls,
                 settings=settings,
             )
-            yield _sse_event(
+            yield format_sse_event(
                 "done",
                 {
                     "message": final_message,

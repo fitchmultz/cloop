@@ -54,6 +54,11 @@ def _test_settings() -> Settings:
         related_max_candidates=1000,
         idempotency_ttl_seconds=86400,
         idempotency_max_key_length=255,
+        webhook_max_retries=5,
+        webhook_retry_base_delay=2.0,
+        webhook_retry_max_delay=300.0,
+        webhook_timeout_seconds=30.0,
+        webhook_heartbeat_interval=30.0,
     )
 
 
@@ -1981,3 +1986,465 @@ def test_different_loop_ids_create_different_scopes(
     get2 = client.get(f"/loops/{loop_id_2}")
     assert get1.json()["title"] == "Updated"
     assert get2.json()["title"] == "Updated"
+
+
+# =============================================================================
+# SSE Event Stream tests
+# =============================================================================
+
+
+def test_loop_events_sse_endpoint_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test SSE stream endpoint exists (can't test infinite stream easily)."""
+    # The SSE stream runs forever with a while True loop, so we just verify
+    # the route exists and would return streaming content type by checking the route
+    from cloop.routes.loops import router
+
+    route_paths = [route.path for route in router.routes]  # type: ignore[misc]
+    assert "/loops/events/stream" in route_paths
+
+
+# =============================================================================
+# Webhook tests
+# =============================================================================
+
+
+def test_webhook_subscription_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test webhook subscription CRUD operations."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create subscription
+    create_response = client.post(
+        "/loops/webhooks/subscriptions",
+        json={
+            "url": "https://example.com/webhook",
+            "event_types": ["capture", "update"],
+            "description": "Test webhook",
+        },
+    )
+    assert create_response.status_code == 200
+    sub = create_response.json()
+    assert sub["url"] == "https://example.com/webhook"
+    assert sub["event_types"] == ["capture", "update"]
+    assert sub["active"] is True
+    assert sub["description"] == "Test webhook"
+    subscription_id = sub["id"]
+
+    # List subscriptions
+    list_response = client.get("/loops/webhooks/subscriptions")
+    assert list_response.status_code == 200
+    subs = list_response.json()
+    assert len(subs) == 1
+    assert subs[0]["id"] == subscription_id
+
+    # Update subscription
+    update_response = client.patch(
+        f"/loops/webhooks/subscriptions/{subscription_id}",
+        json={
+            "url": "https://example.com/webhook/v2",
+            "active": False,
+        },
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["url"] == "https://example.com/webhook/v2"
+    assert updated["active"] is False
+
+    # Delete subscription
+    delete_response = client.delete(f"/loops/webhooks/subscriptions/{subscription_id}")
+    assert delete_response.status_code == 200
+    assert delete_response.json()["deleted"] is True
+
+    # Verify deletion
+    list_after = client.get("/loops/webhooks/subscriptions")
+    assert len(list_after.json()) == 0
+
+
+def test_webhook_subscription_url_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test webhook subscription URL validation."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Invalid URL without http/https
+    response = client.post(
+        "/loops/webhooks/subscriptions",
+        json={"url": "ftp://example.com/webhook"},
+    )
+    assert response.status_code == 422
+
+    # Valid https URL
+    response = client.post(
+        "/loops/webhooks/subscriptions",
+        json={"url": "https://example.com/webhook"},
+    )
+    assert response.status_code == 200
+
+
+def test_webhook_subscription_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test webhook subscription endpoints return 404 for non-existent subscription."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Update non-existent
+    response = client.patch(
+        "/loops/webhooks/subscriptions/99999",
+        json={"active": False},
+    )
+    assert response.status_code == 404
+
+    # Delete non-existent
+    response = client.delete("/loops/webhooks/subscriptions/99999")
+    assert response.status_code == 404
+
+    # Get deliveries for non-existent
+    response = client.get("/loops/webhooks/subscriptions/99999/deliveries")
+    assert response.status_code == 404
+
+
+def test_webhook_signature_generation_and_verification() -> None:
+    """Test HMAC-SHA256 signature generation and verification."""
+    import time
+
+    from cloop.webhooks.signer import generate_signature, verify_signature
+
+    payload = {"loop_id": 123, "event_type": "capture"}
+    secret = "test_secret_key"
+    timestamp = str(int(time.time()))  # Use current timestamp for replay protection
+
+    # Generate signature
+    signature = generate_signature(payload, secret, timestamp)
+    assert signature.startswith(f"t={timestamp},v1=")
+
+    # Verify valid signature
+    assert verify_signature(payload, secret, signature) is True
+
+    # Verify with wrong secret
+    assert verify_signature(payload, "wrong_secret", signature) is False
+
+    # Verify with tampered payload
+    tampered_payload = {"loop_id": 999, "event_type": "capture"}
+    assert verify_signature(tampered_payload, secret, signature) is False
+
+    # Verify with invalid signature format
+    assert verify_signature(payload, secret, "invalid-format") is False
+
+    # Verify with expired timestamp (replay protection)
+    old_timestamp = "1707830400"  # Old timestamp from 2024
+    old_signature = generate_signature(payload, secret, old_timestamp)
+    assert verify_signature(payload, secret, old_signature) is False
+
+
+def test_webhook_deliveries_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test listing deliveries for a webhook subscription."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create subscription
+    sub_response = client.post(
+        "/loops/webhooks/subscriptions",
+        json={"url": "https://example.com/webhook", "event_types": ["*"]},
+    )
+    subscription_id = sub_response.json()["id"]
+
+    # Create a loop to trigger event creation (which queues webhook deliveries)
+    client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test loop",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+
+    # List deliveries - should include the automatically queued delivery
+    deliveries_response = client.get(f"/loops/webhooks/subscriptions/{subscription_id}/deliveries")
+    assert deliveries_response.status_code == 200
+    deliveries = deliveries_response.json()
+    assert len(deliveries) == 1
+    assert deliveries[0]["event_type"] == "capture"
+    assert deliveries[0]["status"] == "pending"
+
+
+def test_webhook_update_no_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test webhook update with no fields returns 400."""
+    client = _make_client(tmp_path, monkeypatch)
+
+    # Create subscription
+    sub_response = client.post(
+        "/loops/webhooks/subscriptions",
+        json={"url": "https://example.com/webhook"},
+    )
+    subscription_id = sub_response.json()["id"]
+
+    # Update with empty body
+    response = client.patch(f"/loops/webhooks/subscriptions/{subscription_id}", json={})
+    assert response.status_code == 400
+    assert "no_fields_to_update" in response.text
+
+
+def test_webhook_event_type_filtering() -> None:
+    """Test webhook event type filtering logic."""
+    from cloop.webhooks.service import _should_deliver_event
+
+    # Wildcard accepts all events
+    assert _should_deliver_event("capture", ["*"]) is True
+    assert _should_deliver_event("update", ["*"]) is True
+    assert _should_deliver_event("close", ["*"]) is True
+
+    # Specific event types
+    assert _should_deliver_event("capture", ["capture", "update"]) is True
+    assert _should_deliver_event("close", ["capture", "update"]) is False
+    assert _should_deliver_event("update", ["update"]) is True
+
+    # Empty list accepts nothing (except via wildcard)
+    assert _should_deliver_event("capture", []) is False
+
+
+def test_webhook_retry_delay_calculation() -> None:
+    """Test exponential backoff delay calculation."""
+    from cloop.webhooks.service import _calculate_retry_delay
+
+    settings = _test_settings()
+
+    # First retry should be around base delay (2s) ± jitter
+    delay0 = _calculate_retry_delay(0, settings)
+    assert 1.0 <= delay0 <= 3.0  # 2s ± 25%
+
+    # Second retry should be around 4s ± jitter
+    delay1 = _calculate_retry_delay(1, settings)
+    assert 3.0 <= delay1 <= 5.0  # 4s ± 25%
+
+    # Third retry should be around 8s ± jitter
+    delay2 = _calculate_retry_delay(2, settings)
+    assert 6.0 <= delay2 <= 10.0  # 8s ± 25%
+
+    # High retry count should cap at max_delay
+    delay_high = _calculate_retry_delay(100, settings)
+    assert delay_high <= settings.webhook_retry_max_delay
+
+
+def test_webhook_repo_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test webhook repository operations directly."""
+    import sqlite3
+
+    from cloop.webhooks import repo
+    from cloop.webhooks.models import DeliveryStatus
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create subscription
+    sub = repo.create_subscription(
+        url="https://example.com/webhook",
+        secret="test_secret",
+        event_types=["capture", "update"],
+        description="Test sub",
+        conn=conn,
+    )
+    assert sub.url == "https://example.com/webhook"
+    assert sub.event_types == ["capture", "update"]
+    assert sub.active is True
+
+    # Get subscription
+    fetched = repo.get_subscription(subscription_id=sub.id, conn=conn)
+    assert fetched is not None
+    assert fetched.id == sub.id
+
+    # Get non-existent
+    not_found = repo.get_subscription(subscription_id=99999, conn=conn)
+    assert not_found is None
+
+    # List subscriptions
+    subs = repo.list_subscriptions(conn=conn)
+    assert len(subs) == 1
+
+    # Update subscription
+    updated = repo.update_subscription(
+        subscription_id=sub.id,
+        active=False,
+        conn=conn,
+    )
+    assert updated is not None
+    assert updated.active is False
+
+    # Create delivery
+    delivery = repo.create_delivery(
+        subscription_id=sub.id,
+        event_id=1,
+        event_type="capture",
+        payload={"test": "data"},
+        signature="test_sig",
+        conn=conn,
+    )
+    assert delivery.subscription_id == sub.id
+    assert delivery.status == DeliveryStatus.PENDING
+
+    # Update delivery status
+    repo.update_delivery_status(
+        delivery_id=delivery.id,
+        status=DeliveryStatus.SUCCESS,
+        http_status=200,
+        response_body="OK",
+        conn=conn,
+    )
+
+    # Get delivery
+    fetched_delivery = repo.get_delivery(delivery_id=delivery.id, conn=conn)
+    assert fetched_delivery is not None
+    assert fetched_delivery.status == DeliveryStatus.SUCCESS
+    assert fetched_delivery.http_status == 200
+
+    # List deliveries for subscription
+    deliveries = repo.list_deliveries_for_subscription(
+        subscription_id=sub.id,
+        conn=conn,
+    )
+    assert len(deliveries) == 1
+
+    # Delete subscription
+    deleted = repo.delete_subscription(subscription_id=sub.id, conn=conn)
+    assert deleted is True
+
+    # Verify deleted
+    assert repo.get_subscription(subscription_id=sub.id, conn=conn) is None
+
+    conn.close()
+
+
+def test_webhook_queue_deliveries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test queueing webhook deliveries for events."""
+    import sqlite3
+
+    from cloop.webhooks import repo, service
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create subscriptions with different event types
+    repo.create_subscription(
+        url="https://example.com/all",
+        secret="secret1",
+        event_types=["*"],
+        description="All events",
+        conn=conn,
+    )
+    repo.create_subscription(
+        url="https://example.com/capture-only",
+        secret="secret2",
+        event_types=["capture"],
+        description="Capture only",
+        conn=conn,
+    )
+    repo.create_subscription(
+        url="https://example.com/inactive",
+        secret="secret3",
+        event_types=["*"],
+        description="Inactive",
+        conn=conn,
+    )
+    # Deactivate the third subscription
+    conn.execute(
+        "UPDATE webhook_subscriptions SET active = 0 WHERE url = ?",
+        ("https://example.com/inactive",),
+    )
+    conn.commit()
+
+    # Queue a capture event - should create deliveries for first two subscriptions
+    delivery_ids = service.queue_deliveries(
+        event_id=1,
+        event_type="capture",
+        payload={"test": "data"},
+        conn=conn,
+        settings=settings,
+    )
+    assert len(delivery_ids) == 2  # All events + capture-only
+
+    # Queue an update event - should only create delivery for wildcard subscription
+    delivery_ids = service.queue_deliveries(
+        event_id=2,
+        event_type="update",
+        payload={"test": "data"},
+        conn=conn,
+        settings=settings,
+    )
+    assert len(delivery_ids) == 1  # Only all events subscription
+
+    conn.close()
+
+
+def test_sse_format_functions() -> None:
+    """Test SSE formatting functions."""
+    from cloop.sse import format_sse_comment, format_sse_event
+
+    # Test event formatting
+    event = format_sse_event("test_event", {"key": "value"}, event_id="123")
+    assert "id: 123" in event
+    assert "event: test_event" in event
+    assert 'data: {"key": "value"}' in event
+    assert event.endswith("\n\n")
+
+    # Test event without ID
+    event_no_id = format_sse_event("simple", {"data": True})
+    assert "id:" not in event_no_id
+    assert "event: simple" in event_no_id
+
+    # Test comment formatting
+    comment = format_sse_comment("heartbeat")
+    assert comment == ": heartbeat\n\n"
+
+
+def test_settings_webhook_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test webhook settings validation via environment variables."""
+    from cloop.settings import get_settings
+
+    # Test invalid webhook_max_retries
+    monkeypatch.setenv("CLOOP_WEBHOOK_MAX_RETRIES", "-1")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="CLOOP_WEBHOOK_MAX_RETRIES must be non-negative"):
+        get_settings()
+
+    # Reset
+    monkeypatch.delenv("CLOOP_WEBHOOK_MAX_RETRIES", raising=False)
+    get_settings.cache_clear()
+
+    # Test invalid webhook_retry_base_delay
+    monkeypatch.setenv("CLOOP_WEBHOOK_RETRY_BASE_DELAY", "0")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="CLOOP_WEBHOOK_RETRY_BASE_DELAY must be positive"):
+        get_settings()
+
+    # Reset
+    monkeypatch.delenv("CLOOP_WEBHOOK_RETRY_BASE_DELAY", raising=False)
+    get_settings.cache_clear()
+
+    # Test invalid webhook_retry_max_delay < webhook_retry_base_delay
+    monkeypatch.setenv("CLOOP_WEBHOOK_RETRY_BASE_DELAY", "10")
+    monkeypatch.setenv("CLOOP_WEBHOOK_RETRY_MAX_DELAY", "1")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="CLOOP_WEBHOOK_RETRY_MAX_DELAY must be >="):
+        get_settings()
+
+    # Reset
+    monkeypatch.delenv("CLOOP_WEBHOOK_RETRY_BASE_DELAY", raising=False)
+    monkeypatch.delenv("CLOOP_WEBHOOK_RETRY_MAX_DELAY", raising=False)
+    get_settings.cache_clear()
+
+    # Test invalid webhook_timeout_seconds
+    monkeypatch.setenv("CLOOP_WEBHOOK_TIMEOUT_SECONDS", "0")
+    get_settings.cache_clear()
+    with pytest.raises(ValueError, match="CLOOP_WEBHOOK_TIMEOUT_SECONDS must be positive"):
+        get_settings()
+
+    # Reset
+    monkeypatch.delenv("CLOOP_WEBHOOK_TIMEOUT_SECONDS", raising=False)
+    get_settings.cache_clear()

@@ -243,6 +243,12 @@ Endpoints:
 - `POST /loops/{id}/enrich`: request enrichment for a loop.
 - `GET /loops/next`: deterministic “Next 5” buckets.
 - `GET /loops/tags`: list all tags in use.
+- `GET /loops/events/stream`: SSE stream of loop events (capture, update, status changes, enrichment).
+- `POST /loops/webhooks/subscriptions`: create webhook subscription for outbound events.
+- `GET /loops/webhooks/subscriptions`: list webhook subscriptions.
+- `PATCH /loops/webhooks/subscriptions/{id}`: update a webhook subscription.
+- `DELETE /loops/webhooks/subscriptions/{id}`: delete a webhook subscription.
+- `GET /loops/webhooks/subscriptions/{id}/deliveries`: list delivery history for a subscription.
 
 Example requests:
 
@@ -349,6 +355,100 @@ loop_create(
     request_id="my-unique-key-123"
 )
 ```
+
+## Webhooks and SSE
+
+Cloop supports real-time event delivery via webhooks (outbound HTTP) and SSE (Server-Sent Events).
+
+### Server-Sent Events (SSE)
+
+Stream loop events in real-time:
+
+```bash
+curl -N http://127.0.0.1:8000/loops/events/stream
+```
+
+**Reconnection support**: Pass `Last-Event-ID` header or `?cursor=` query param to resume from a specific event ID:
+
+```bash
+curl -N -H "Last-Event-ID: 42" http://127.0.0.1:8000/loops/events/stream
+```
+
+**Event types**:
+- `capture`: New loop created
+- `update`: Loop fields modified
+- `status_change`: Status transition
+- `close`: Loop completed or dropped
+- `enrich_request`/`enrich_success`: Enrichment lifecycle
+
+### Webhooks
+
+Register HTTPS endpoints to receive loop events with HMAC-SHA256 signatures.
+
+**Create a subscription**:
+
+```bash
+curl -X POST http://127.0.0.1:8000/loops/webhooks/subscriptions \
+  -H 'content-type: application/json' \
+  -d '{
+    "url": "https://example.com/webhook",
+    "event_types": ["capture", "update", "close"],
+    "description": "My webhook"
+  }'
+```
+
+Response includes a `secret` for signature verification. Store this securely.
+
+**Webhook security model**:
+
+- **HTTPS only**: Only HTTPS URLs are accepted (no HTTP)
+- **HMAC-SHA256 signatures**: Each payload is signed with the subscription secret
+- **Replay protection**: Signatures include timestamps valid for ±5 minutes
+- **Exponential backoff**: Failed deliveries retry with jitter (3 retries by default)
+- **Dead letter tracking**: Failed deliveries after max retries are preserved for inspection
+
+**Signature verification** (Python example):
+
+```python
+import hmac
+import hashlib
+import json
+import time
+
+def verify_webhook(payload: dict, secret: str, signature_header: str) -> bool:
+    """Verify webhook signature with replay protection."""
+    # Header format: t=<timestamp>,v1=<hex_signature>
+    parts = signature_header.split(",")
+    timestamp = parts[0].split("=")[1]
+    
+    # Check timestamp is recent (prevent replay attacks)
+    if abs(int(timestamp) - int(time.time())) > 300:
+        return False
+    
+    # Reconstruct expected signature
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    signed_payload = f"{timestamp}.{payload_bytes.decode()}".encode("utf-8")
+    expected_sig = hmac.new(
+        secret.encode(),
+        signed_payload,
+        hashlib.sha256
+    ).hexdigest()
+    expected = f"t={timestamp},v1={expected_sig}"
+    
+    return hmac.compare_digest(expected, signature_header)
+```
+
+**Webhook headers**:
+- `X-Webhook-Signature`: `t=<timestamp>,v1=<signature>`
+- `X-Webhook-Event`: Event type (e.g., `capture`)
+- `X-Webhook-Event-Id`: Loop event ID for idempotency
+
+**Configuration**:
+
+- `CLOOP_WEBHOOK_MAX_RETRIES`: Max retry attempts (default: 3)
+- `CLOOP_WEBHOOK_RETRY_BASE_DELAY`: Initial retry delay in seconds (default: 5.0)
+- `CLOOP_WEBHOOK_RETRY_MAX_DELAY`: Max retry delay cap (default: 300.0)
+- `CLOOP_WEBHOOK_TIMEOUT_SECONDS`: HTTP request timeout (default: 30.0)
 
 ## MCP Server
 

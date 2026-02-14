@@ -350,8 +350,8 @@ def insert_loop_event(
     event_type: str,
     payload: Mapping[str, Any],
     conn: sqlite3.Connection,
-) -> None:
-    conn.execute(
+) -> int:
+    cursor = conn.execute(
         """
         INSERT INTO loop_events (
             loop_id,
@@ -362,6 +362,9 @@ def insert_loop_event(
         """,
         (loop_id, event_type, json.dumps(dict(payload))),
     )
+    if cursor.lastrowid is None:
+        raise RuntimeError("insert_loop_event_failed")
+    return int(cursor.lastrowid)
 
 
 def list_loop_events(

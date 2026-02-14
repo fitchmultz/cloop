@@ -5,7 +5,6 @@ Endpoints:
 - GET /ask: Ask questions against the knowledge base
 """
 
-import json
 import time
 from collections.abc import Iterator
 from typing import Annotated, Any, Dict, List
@@ -23,15 +22,11 @@ from ..rag import (
 from ..schemas.chat import _InteractionMetadata
 from ..schemas.rag import AskResponse, IngestMode, IngestRequest, IngestResponse
 from ..settings import Settings, get_settings
+from ..sse import format_sse_event
 
 router = APIRouter(tags=["rag"])
 
 SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
-
-
-def _sse_event(event: str, payload: Dict[str, Any]) -> str:
-    """Format an SSE event string."""
-    return f"event: {event}\ndata: {json.dumps(payload)}\n\n"
 
 
 def _sanitize_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
@@ -118,7 +113,7 @@ def ask_endpoint(
         if stream_enabled:
 
             def empty_stream() -> Iterator[str]:
-                yield _sse_event(
+                yield format_sse_event(
                     "done",
                     {
                         "answer": "No knowledge available. Ingest documents first.",
@@ -159,7 +154,7 @@ def ask_endpoint(
                 if not token:
                     continue
                 tokens.append(token)
-                yield _sse_event("token", {"token": token})
+                yield format_sse_event("token", {"token": token})
             final_answer = "".join(tokens)
             metadata: _InteractionMetadata = {
                 "model": settings.llm_model,
@@ -183,7 +178,7 @@ def ask_endpoint(
                 tool_calls=[],
                 settings=settings,
             )
-            yield _sse_event(
+            yield format_sse_event(
                 "done",
                 {
                     "answer": final_answer,

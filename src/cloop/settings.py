@@ -70,6 +70,12 @@ class Settings:
     # Idempotency settings
     idempotency_ttl_seconds: int
     idempotency_max_key_length: int
+    # Webhook settings
+    webhook_max_retries: int
+    webhook_retry_base_delay: float
+    webhook_retry_max_delay: float
+    webhook_timeout_seconds: float
+    webhook_heartbeat_interval: float
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -171,6 +177,12 @@ def get_settings() -> Settings:
         related_max_candidates=int(os.getenv("CLOOP_RELATED_MAX_CANDIDATES", "1000")),
         idempotency_ttl_seconds=int(os.getenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")),
         idempotency_max_key_length=int(os.getenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")),
+        # Webhook settings
+        webhook_max_retries=int(os.getenv("CLOOP_WEBHOOK_MAX_RETRIES", "5")),
+        webhook_retry_base_delay=float(os.getenv("CLOOP_WEBHOOK_RETRY_BASE_DELAY", "2.0")),
+        webhook_retry_max_delay=float(os.getenv("CLOOP_WEBHOOK_RETRY_MAX_DELAY", "300.0")),
+        webhook_timeout_seconds=float(os.getenv("CLOOP_WEBHOOK_TIMEOUT_SECONDS", "30.0")),
+        webhook_heartbeat_interval=float(os.getenv("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL", "30.0")),
     )
     return _validate_settings(settings)
 
@@ -232,4 +244,15 @@ def _validate_settings(settings: Settings) -> Settings:
         weight = getattr(settings, weight_name)
         if weight < 0:
             raise ValueError(f"CLOOP_{weight_name.upper()} must be non-negative")
+    # Validate webhook settings
+    if settings.webhook_max_retries < 0:
+        raise ValueError("CLOOP_WEBHOOK_MAX_RETRIES must be non-negative")
+    if settings.webhook_retry_base_delay <= 0:
+        raise ValueError("CLOOP_WEBHOOK_RETRY_BASE_DELAY must be positive")
+    if settings.webhook_retry_max_delay < settings.webhook_retry_base_delay:
+        raise ValueError("CLOOP_WEBHOOK_RETRY_MAX_DELAY must be >= CLOOP_WEBHOOK_RETRY_BASE_DELAY")
+    if settings.webhook_timeout_seconds <= 0:
+        raise ValueError("CLOOP_WEBHOOK_TIMEOUT_SECONDS must be positive")
+    if settings.webhook_heartbeat_interval <= 0:
+        raise ValueError("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL must be positive")
     return settings
