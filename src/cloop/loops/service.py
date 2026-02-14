@@ -724,3 +724,814 @@ def apply_loop_view(
         "offset": offset,
         "items": loops,
     }
+
+
+def _build_list_fingerprint(status: LoopStatus | None) -> str:
+    from .pagination import fingerprint_payload
+
+    return fingerprint_payload({"tool": "loop.list", "status": status.value if status else None})
+
+
+def _build_search_fingerprint(query: str) -> str:
+    from .pagination import fingerprint_payload
+
+    return fingerprint_payload({"tool": "loop.search", "query": query})
+
+
+def _build_view_fingerprint(view_id: int, query: str) -> str:
+    from .pagination import fingerprint_payload
+
+    return fingerprint_payload({"tool": "loop.view.apply", "view_id": view_id, "query": query})
+
+
+def _format_sqlite_timestamp(dt: Any) -> str:
+    """Format datetime for SQLite comparison (YYYY-MM-DD HH:MM:SS)."""
+    s = format_utc_datetime(dt)
+    if "T" in s:
+        s = s.replace("T", " ")
+    if "+" in s:
+        s = s.split("+")[0]
+    if s.endswith("Z"):
+        s = s[:-1]
+    return s.strip()
+
+
+@typingx.validate_io()
+def list_loops_page(
+    *,
+    status: LoopStatus | None,
+    limit: int,
+    cursor: str | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """List loops with cursor-based pagination.
+
+    Args:
+        status: Optional status filter
+        limit: Maximum number of results
+        cursor: Optional cursor token for continuation
+        conn: Database connection
+
+    Returns:
+        Dict with items, next_cursor (or None), and limit
+    """
+    from .pagination import LoopCursor, decode_cursor, encode_cursor
+
+    fingerprint = _build_list_fingerprint(status)
+    snapshot_utc = _format_sqlite_timestamp(utc_now())
+
+    cursor_anchor: tuple[str, str, int] | None = None
+    if cursor is not None:
+        decoded = decode_cursor(cursor, expected_fingerprint=fingerprint)
+        snapshot_utc = decoded.snapshot_utc
+        cursor_anchor = (decoded.updated_at_utc, decoded.captured_at_utc, decoded.loop_id)
+
+    records = repo.list_loops_cursor(
+        status=status,
+        limit=limit,
+        snapshot_utc=snapshot_utc,
+        cursor_anchor=cursor_anchor,
+        conn=conn,
+    )
+
+    has_more = len(records) > limit
+    items_records = records[:limit]
+
+    next_cursor: str | None = None
+    if has_more and items_records:
+        last = items_records[-1]
+        loop_cursor = LoopCursor(
+            snapshot_utc=snapshot_utc,
+            updated_at_utc=_format_sqlite_timestamp(last.updated_at_utc),
+            captured_at_utc=_format_sqlite_timestamp(last.captured_at_utc),
+            loop_id=last.id,
+            fingerprint=fingerprint,
+        )
+        next_cursor = encode_cursor(loop_cursor)
+
+    items = _enrich_records_batch(items_records, conn=conn)
+    return {"items": items, "next_cursor": next_cursor, "limit": limit}
+
+
+@typingx.validate_io()
+def search_loops_by_query_page(
+    *,
+    query: str,
+    limit: int,
+    cursor: str | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Search loops with cursor-based pagination.
+
+    Args:
+        query: DSL query string
+        limit: Maximum number of results
+        cursor: Optional cursor token for continuation
+        conn: Database connection
+
+    Returns:
+        Dict with items, next_cursor (or None), and limit
+    """
+    from .pagination import LoopCursor, decode_cursor, encode_cursor
+
+    fingerprint = _build_search_fingerprint(query)
+    snapshot_utc = _format_sqlite_timestamp(utc_now())
+
+    cursor_anchor: tuple[str, str, int] | None = None
+    if cursor is not None:
+        decoded = decode_cursor(cursor, expected_fingerprint=fingerprint)
+        snapshot_utc = decoded.snapshot_utc
+        cursor_anchor = (decoded.updated_at_utc, decoded.captured_at_utc, decoded.loop_id)
+
+    records = repo.search_loops_by_query_cursor(
+        query=query,
+        limit=limit,
+        snapshot_utc=snapshot_utc,
+        cursor_anchor=cursor_anchor,
+        conn=conn,
+    )
+
+    has_more = len(records) > limit
+    items_records = records[:limit]
+
+    next_cursor: str | None = None
+    if has_more and items_records:
+        last = items_records[-1]
+        loop_cursor = LoopCursor(
+            snapshot_utc=snapshot_utc,
+            updated_at_utc=_format_sqlite_timestamp(last.updated_at_utc),
+            captured_at_utc=_format_sqlite_timestamp(last.captured_at_utc),
+            loop_id=last.id,
+            fingerprint=fingerprint,
+        )
+        next_cursor = encode_cursor(loop_cursor)
+
+    items = _enrich_records_batch(items_records, conn=conn)
+    return {"items": items, "next_cursor": next_cursor, "limit": limit}
+
+
+@typingx.validate_io()
+def apply_loop_view_page(
+    *,
+    view_id: int,
+    limit: int,
+    cursor: str | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Apply a saved view with cursor-based pagination.
+
+    Args:
+        view_id: View ID
+        limit: Maximum number of results
+        cursor: Optional cursor token for continuation
+        conn: Database connection
+
+    Returns:
+        Dict with view info, query, limit, cursor, next_cursor, and items
+
+    Raises:
+        ValidationError: If view not found or query invalid
+    """
+    from .pagination import LoopCursor, decode_cursor, encode_cursor
+
+    view = repo.get_loop_view(view_id=view_id, conn=conn)
+    if view is None:
+        raise ValidationError("view_id", f"view {view_id} not found")
+
+    query = view["query"]
+    fingerprint = _build_view_fingerprint(view_id, query)
+    snapshot_utc = _format_sqlite_timestamp(utc_now())
+
+    cursor_anchor: tuple[str, str, int] | None = None
+    if cursor is not None:
+        decoded = decode_cursor(cursor, expected_fingerprint=fingerprint)
+        snapshot_utc = decoded.snapshot_utc
+        cursor_anchor = (decoded.updated_at_utc, decoded.captured_at_utc, decoded.loop_id)
+
+    records = repo.search_loops_by_query_cursor(
+        query=query,
+        limit=limit,
+        snapshot_utc=snapshot_utc,
+        cursor_anchor=cursor_anchor,
+        conn=conn,
+    )
+
+    has_more = len(records) > limit
+    items_records = records[:limit]
+
+    next_cursor: str | None = None
+    if has_more and items_records:
+        last = items_records[-1]
+        loop_cursor = LoopCursor(
+            snapshot_utc=snapshot_utc,
+            updated_at_utc=_format_sqlite_timestamp(last.updated_at_utc),
+            captured_at_utc=_format_sqlite_timestamp(last.captured_at_utc),
+            loop_id=last.id,
+            fingerprint=fingerprint,
+        )
+        next_cursor = encode_cursor(loop_cursor)
+
+    items = _enrich_records_batch(items_records, conn=conn)
+    return {
+        "view": view,
+        "query": query,
+        "limit": limit,
+        "cursor": cursor,
+        "next_cursor": next_cursor,
+        "items": items,
+    }
+
+
+@typingx.validate_io()
+def bulk_update_loops(
+    *,
+    updates: list[Mapping[str, Any]],
+    transactional: bool,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Bulk update multiple loops.
+
+    Args:
+        updates: List of updates, each with loop_id and fields
+        transactional: If True, rollback all on any failure
+        conn: Database connection
+
+    Returns:
+        Dict with ok, transactional, results (per-item), succeeded, failed
+    """
+
+    class _Rollback(Exception):
+        pass
+
+    def _update_single(loop_id: int, fields: Mapping[str, Any]) -> dict[str, Any]:
+        if "status" in fields:
+            raise ValidationError("status", "use /loops/{id}/status or /loops/{id}/close endpoints")
+        record = repo.read_loop(loop_id=loop_id, conn=conn)
+        if record is None:
+            raise LoopNotFoundError(loop_id)
+        locked_fields = set(record.user_locks)
+        mutable_fields = dict(fields)
+        tags = None
+        if "tags" in mutable_fields:
+            tags = mutable_fields.pop("tags")
+            if tags is not None and not isinstance(tags, list):
+                tags = [tags]
+        project_name = None
+        if "project" in mutable_fields:
+            project_name = mutable_fields.pop("project")
+            project_name = str(project_name).strip() if project_name else ""
+            if project_name:
+                mutable_fields["project_id"] = "pending"
+            else:
+                mutable_fields["project_id"] = None
+
+        for field_name in {**mutable_fields, **({"tags": tags} if tags is not None else {})}.keys():
+            if field_name in _LOCKABLE_FIELDS:
+                locked_fields.add(field_name)
+        updated_fields = dict(mutable_fields)
+        updated_fields["user_locks_json"] = json.dumps(sorted(locked_fields))
+        if project_name:
+            project_id = repo.upsert_project(name=project_name, conn=conn)
+            updated_fields["project_id"] = project_id
+        updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
+        if tags is not None:
+            normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+            repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
+        repo.insert_loop_event(
+            loop_id=updated.id,
+            event_type=LoopEventType.UPDATE.value,
+            payload={"fields": dict(fields)},
+            conn=conn,
+        )
+        project = repo.read_project_name(project_id=updated.project_id, conn=conn)
+        tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
+        return _record_to_dict(updated, project=project, tags=tags)
+
+    results: list[dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+
+    if transactional:
+        try:
+            with conn:
+                for idx, item in enumerate(updates):
+                    loop_id = item.get("loop_id")
+                    fields = item.get("fields", {})
+
+                    if not isinstance(loop_id, int):
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {
+                                    "code": "validation_error",
+                                    "message": "loop_id must be an integer",
+                                },
+                            }
+                        )
+                        failed += 1
+                        continue
+
+                    try:
+                        record = _update_single(loop_id, fields)
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": True,
+                                "loop": record,
+                            }
+                        )
+                        succeeded += 1
+                    except Exception as exc:
+                        error_code = _classify_error(exc)
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {"code": error_code, "message": str(exc)},
+                            }
+                        )
+                        failed += 1
+
+                if failed > 0:
+                    raise _Rollback()
+        except _Rollback:
+            return {
+                "ok": False,
+                "transactional": True,
+                "results": _rollback_transaction_results(results),
+                "succeeded": 0,
+                "failed": len(updates),
+            }
+    else:
+        for idx, item in enumerate(updates):
+            loop_id = item.get("loop_id")
+            fields = item.get("fields", {})
+
+            if not isinstance(loop_id, int):
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {
+                            "code": "validation_error",
+                            "message": "loop_id must be an integer",
+                        },
+                    }
+                )
+                failed += 1
+                continue
+
+            try:
+                with conn:
+                    record = _update_single(loop_id, fields)
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": True,
+                        "loop": record,
+                    }
+                )
+                succeeded += 1
+            except Exception as exc:
+                error_code = _classify_error(exc)
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {"code": error_code, "message": str(exc)},
+                    }
+                )
+                failed += 1
+
+    return {
+        "ok": failed == 0,
+        "transactional": transactional,
+        "results": results,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+@typingx.validate_io()
+def bulk_close_loops(
+    *,
+    items: list[Mapping[str, Any]],
+    transactional: bool,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Bulk close multiple loops.
+
+    Args:
+        items: List of items with loop_id, optional status (default completed), optional note
+        transactional: If True, rollback all on any failure
+        conn: Database connection
+
+    Returns:
+        Dict with ok, transactional, results (per-item), succeeded, failed
+    """
+
+    class _Rollback(Exception):
+        pass
+
+    def _close_single(loop_id: int, to_status: LoopStatus, note: str | None) -> dict[str, Any]:
+        record = repo.read_loop(loop_id=loop_id, conn=conn)
+        if record is None:
+            raise LoopNotFoundError(loop_id)
+        if record.status == to_status:
+            project = repo.read_project_name(project_id=record.project_id, conn=conn)
+            tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+            return _record_to_dict(record, project=project, tags=tags)
+        allowed = _ALLOWED_TRANSITIONS.get(record.status, set())
+        if to_status not in allowed:
+            raise TransitionError(record.status.value, to_status.value)
+        closed_at = None
+        if is_terminal_status(to_status):
+            closed_at = format_utc_datetime(utc_now())
+        updates = {"status": to_status.value, "closed_at": closed_at}
+        if to_status is LoopStatus.COMPLETED and note and note.strip():
+            updates["completion_note"] = note.strip()
+        updated = repo.update_loop_fields(
+            loop_id=loop_id,
+            fields=updates,
+            conn=conn,
+        )
+        event_type = (
+            LoopEventType.CLOSE.value
+            if is_terminal_status(to_status)
+            else LoopEventType.STATUS_CHANGE.value
+        )
+        payload: dict[str, Any] = {"from": record.status.value, "to": to_status.value}
+        if note:
+            payload["note"] = note
+        if closed_at:
+            payload["closed_at_utc"] = closed_at
+        repo.insert_loop_event(
+            loop_id=loop_id,
+            event_type=event_type,
+            payload=payload,
+            conn=conn,
+        )
+        project = repo.read_project_name(project_id=updated.project_id, conn=conn)
+        tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
+        return _record_to_dict(updated, project=project, tags=tags)
+
+    results: list[dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+
+    if transactional:
+        try:
+            with conn:
+                for idx, item in enumerate(items):
+                    loop_id = item.get("loop_id")
+                    status_str = item.get("status", "completed")
+                    note = item.get("note")
+
+                    if not isinstance(loop_id, int):
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {
+                                    "code": "validation_error",
+                                    "message": "loop_id must be an integer",
+                                },
+                            }
+                        )
+                        failed += 1
+                        continue
+
+                    try:
+                        loop_status = LoopStatus(status_str)
+                        if not is_terminal_status(loop_status):
+                            raise ValidationError("status", "must be completed or dropped")
+                        record = _close_single(loop_id, loop_status, note)
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": True,
+                                "loop": record,
+                            }
+                        )
+                        succeeded += 1
+                    except Exception as exc:
+                        error_code = _classify_error(exc)
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {"code": error_code, "message": str(exc)},
+                            }
+                        )
+                        failed += 1
+
+                if failed > 0:
+                    raise _Rollback()
+        except _Rollback:
+            return {
+                "ok": False,
+                "transactional": True,
+                "results": _rollback_transaction_results(results),
+                "succeeded": 0,
+                "failed": len(items),
+            }
+    else:
+        for idx, item in enumerate(items):
+            loop_id = item.get("loop_id")
+            status_str = item.get("status", "completed")
+            note = item.get("note")
+
+            if not isinstance(loop_id, int):
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {
+                            "code": "validation_error",
+                            "message": "loop_id must be an integer",
+                        },
+                    }
+                )
+                failed += 1
+                continue
+
+            try:
+                with conn:
+                    loop_status = LoopStatus(status_str)
+                    if not is_terminal_status(loop_status):
+                        raise ValidationError("status", "must be completed or dropped")
+                    record = _close_single(loop_id, loop_status, note)
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": True,
+                        "loop": record,
+                    }
+                )
+                succeeded += 1
+            except Exception as exc:
+                error_code = _classify_error(exc)
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {"code": error_code, "message": str(exc)},
+                    }
+                )
+                failed += 1
+
+    return {
+        "ok": failed == 0,
+        "transactional": transactional,
+        "results": results,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+@typingx.validate_io()
+def bulk_snooze_loops(
+    *,
+    items: list[Mapping[str, Any]],
+    transactional: bool,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Bulk snooze multiple loops.
+
+    Args:
+        items: List of items with loop_id and snooze_until_utc
+        transactional: If True, rollback all on any failure
+        conn: Database connection
+
+    Returns:
+        Dict with ok, transactional, results (per-item), succeeded, failed
+    """
+
+    class _Rollback(Exception):
+        pass
+
+    def _snooze_single(loop_id: int, snooze_until_utc: str) -> dict[str, Any]:
+        record = repo.read_loop(loop_id=loop_id, conn=conn)
+        if record is None:
+            raise LoopNotFoundError(loop_id)
+        locked_fields = set(record.user_locks)
+        if "snooze_until_utc" in _LOCKABLE_FIELDS:
+            locked_fields.add("snooze_until_utc")
+        updated_fields = {
+            "snooze_until_utc": snooze_until_utc,
+            "user_locks_json": json.dumps(sorted(locked_fields)),
+        }
+        updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
+        repo.insert_loop_event(
+            loop_id=updated.id,
+            event_type=LoopEventType.UPDATE.value,
+            payload={"fields": {"snooze_until_utc": snooze_until_utc}},
+            conn=conn,
+        )
+        project = repo.read_project_name(project_id=updated.project_id, conn=conn)
+        tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
+        return _record_to_dict(updated, project=project, tags=tags)
+
+    results: list[dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+
+    if transactional:
+        try:
+            with conn:
+                for idx, item in enumerate(items):
+                    loop_id = item.get("loop_id")
+                    snooze_until_utc = item.get("snooze_until_utc")
+
+                    if not isinstance(loop_id, int):
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {
+                                    "code": "validation_error",
+                                    "message": "loop_id must be an integer",
+                                },
+                            }
+                        )
+                        failed += 1
+                        continue
+
+                    if not snooze_until_utc:
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {
+                                    "code": "validation_error",
+                                    "message": "snooze_until_utc is required",
+                                },
+                            }
+                        )
+                        failed += 1
+                        continue
+
+                    try:
+                        record = _snooze_single(loop_id, snooze_until_utc)
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": True,
+                                "loop": record,
+                            }
+                        )
+                        succeeded += 1
+                    except Exception as exc:
+                        error_code = _classify_error(exc)
+                        results.append(
+                            {
+                                "index": idx,
+                                "loop_id": loop_id,
+                                "ok": False,
+                                "error": {"code": error_code, "message": str(exc)},
+                            }
+                        )
+                        failed += 1
+
+                if failed > 0:
+                    raise _Rollback()
+        except _Rollback:
+            return {
+                "ok": False,
+                "transactional": True,
+                "results": _rollback_transaction_results(results),
+                "succeeded": 0,
+                "failed": len(items),
+            }
+    else:
+        for idx, item in enumerate(items):
+            loop_id = item.get("loop_id")
+            snooze_until_utc = item.get("snooze_until_utc")
+
+            if not isinstance(loop_id, int):
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {
+                            "code": "validation_error",
+                            "message": "loop_id must be an integer",
+                        },
+                    }
+                )
+                failed += 1
+                continue
+
+            if not snooze_until_utc:
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {
+                            "code": "validation_error",
+                            "message": "snooze_until_utc is required",
+                        },
+                    }
+                )
+                failed += 1
+                continue
+
+            try:
+                with conn:
+                    record = _snooze_single(loop_id, snooze_until_utc)
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": True,
+                        "loop": record,
+                    }
+                )
+                succeeded += 1
+            except Exception as exc:
+                error_code = _classify_error(exc)
+                results.append(
+                    {
+                        "index": idx,
+                        "loop_id": loop_id,
+                        "ok": False,
+                        "error": {"code": error_code, "message": str(exc)},
+                    }
+                )
+                failed += 1
+
+    return {
+        "ok": failed == 0,
+        "transactional": transactional,
+        "results": results,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+def _classify_error(exc: Exception) -> str:
+    """Classify exception into a stable error code."""
+    if isinstance(exc, LoopNotFoundError):
+        return "not_found"
+    if isinstance(exc, TransitionError):
+        return "transition_error"
+    if isinstance(exc, ValidationError):
+        return "validation_error"
+    return "internal_error"
+
+
+def _rollback_transaction_results(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark transactional results as rolled back while preserving root-cause failures."""
+    rolled_back: list[dict[str, Any]] = []
+    for result in results:
+        if result.get("ok", False):
+            rolled_back.append(
+                {
+                    "index": result["index"],
+                    "loop_id": result["loop_id"],
+                    "ok": False,
+                    "error": {
+                        "code": "transaction_rollback",
+                        "message": "rolled back due to other failures",
+                        "rolled_back": True,
+                    },
+                }
+            )
+            continue
+
+        error = result.get("error")
+        if isinstance(error, Mapping):
+            merged_error = dict(error)
+        else:
+            merged_error = {
+                "code": "internal_error",
+                "message": "operation failed and transaction was rolled back",
+            }
+        merged_error["rolled_back"] = True
+        rolled_back.append(
+            {
+                "index": result["index"],
+                "loop_id": result["loop_id"],
+                "ok": False,
+                "error": merged_error,
+            }
+        )
+    return rolled_back
