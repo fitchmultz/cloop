@@ -535,3 +535,192 @@ def next_loops(
             payloads.append(_record_to_dict(record, project=project, tags=tags))
         response[label] = payloads
     return response
+
+
+@typingx.validate_io()
+def search_loops_by_query(
+    *,
+    query: str,
+    limit: int,
+    offset: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Search loops using the DSL query language.
+
+    This is the canonical query path used by API, CLI, MCP, and UI.
+    Results are enriched with project names and tags.
+
+    Args:
+        query: DSL query string (e.g., 'status:inbox tag:work due:today')
+        limit: Maximum number of results
+        offset: Pagination offset
+        conn: Database connection
+
+    Returns:
+        List of enriched loop dicts
+    """
+    records = repo.search_loops_by_query(
+        query=query,
+        limit=limit,
+        offset=offset,
+        conn=conn,
+    )
+    return _enrich_records_batch(records, conn=conn)
+
+
+@typingx.validate_io()
+def create_loop_view(
+    *,
+    name: str,
+    query: str,
+    description: str | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Create a new saved view.
+
+    Args:
+        name: Unique view name
+        query: DSL query string
+        description: Optional description
+        conn: Database connection
+
+    Returns:
+        Created view record
+
+    Raises:
+        ValidationError: If name already exists or query is invalid
+    """
+    return repo.create_loop_view(
+        name=name,
+        query=query,
+        description=description,
+        conn=conn,
+    )
+
+
+@typingx.validate_io()
+def list_loop_views(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """List all saved views.
+
+    Args:
+        conn: Database connection
+
+    Returns:
+        List of view records, ordered by name
+    """
+    return repo.list_loop_views(conn=conn)
+
+
+@typingx.validate_io()
+def get_loop_view(*, view_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
+    """Get a saved view by ID.
+
+    Args:
+        view_id: View ID
+        conn: Database connection
+
+    Returns:
+        View record
+
+    Raises:
+        ValidationError: If view not found
+    """
+    view = repo.get_loop_view(view_id=view_id, conn=conn)
+    if view is None:
+        raise ValidationError("view_id", f"view {view_id} not found")
+    return view
+
+
+@typingx.validate_io()
+def update_loop_view(
+    *,
+    view_id: int,
+    name: str | None = None,
+    query: str | None = None,
+    description: str | None = None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Update a saved view.
+
+    Args:
+        view_id: View ID
+        name: New name (optional)
+        query: New query string (optional)
+        description: New description (optional)
+        conn: Database connection
+
+    Returns:
+        Updated view record
+
+    Raises:
+        ValidationError: If view not found, name conflict, or query invalid
+    """
+    return repo.update_loop_view(
+        view_id=view_id,
+        name=name,
+        query=query,
+        description=description,
+        conn=conn,
+    )
+
+
+@typingx.validate_io()
+def delete_loop_view(*, view_id: int, conn: sqlite3.Connection) -> bool:
+    """Delete a saved view.
+
+    Args:
+        view_id: View ID
+        conn: Database connection
+
+    Returns:
+        True if deleted
+
+    Raises:
+        ValidationError: If view not found
+    """
+    deleted = repo.delete_loop_view(view_id=view_id, conn=conn)
+    if not deleted:
+        raise ValidationError("view_id", f"view {view_id} not found")
+    return True
+
+
+@typingx.validate_io()
+def apply_loop_view(
+    *,
+    view_id: int,
+    limit: int,
+    offset: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Apply a saved view and return matching loops.
+
+    Args:
+        view_id: View ID
+        limit: Maximum number of results
+        offset: Pagination offset
+        conn: Database connection
+
+    Returns:
+        Dict with view info and matching loops
+
+    Raises:
+        ValidationError: If view not found or query invalid
+    """
+    view = repo.get_loop_view(view_id=view_id, conn=conn)
+    if view is None:
+        raise ValidationError("view_id", f"view {view_id} not found")
+
+    loops = search_loops_by_query(
+        query=view["query"],
+        limit=limit,
+        offset=offset,
+        conn=conn,
+    )
+
+    return {
+        "view": view,
+        "query": view["query"],
+        "limit": limit,
+        "offset": offset,
+        "items": loops,
+    }

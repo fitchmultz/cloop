@@ -38,19 +38,25 @@ from .loops.models import (
     validate_iso8601_timestamp,
 )
 from .loops.service import (
+    apply_loop_view,
     capture_loop,
+    create_loop_view,
+    delete_loop_view,
     export_loops,
     get_loop,
+    get_loop_view,
     import_loops,
+    list_loop_views,
     list_loops,
     list_loops_by_statuses,
     list_loops_by_tag,
     list_tags,
     next_loops,
     request_enrichment,
-    search_loops,
+    search_loops_by_query,
     transition_status,
     update_loop,
+    update_loop_view,
 )
 from .rag import ingest_paths, retrieve_similar_chunks
 from .settings import Settings, get_settings
@@ -278,15 +284,32 @@ def _loop_list_command(args: argparse.Namespace, settings: Settings) -> int:
 
 
 def _loop_search_command(args: argparse.Namespace, settings: Settings) -> int:
-    with db.core_connection(settings) as conn:
-        records = search_loops(
-            query=args.query,
-            limit=args.limit,
-            offset=args.offset,
-            conn=conn,
-        )
-    _emit_output(records, args.format)
-    return 0
+    positional_query = args.query
+    flag_query = args.query_flag
+    if positional_query and flag_query:
+        print("error: provide either positional query or --query, not both", file=sys.stderr)
+        return 1
+    query = flag_query or positional_query
+    if not query:
+        print("error: missing query (use positional value or --query)", file=sys.stderr)
+        return 1
+
+    try:
+        with db.core_connection(settings) as conn:
+            records = search_loops_by_query(
+                query=query,
+                limit=args.limit,
+                offset=args.offset,
+                conn=conn,
+            )
+        _emit_output(records, args.format)
+        return 0
+    except ValidationError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
 
 
 def _loop_update_command(args: argparse.Namespace, settings: Settings) -> int:
@@ -476,6 +499,90 @@ def _import_command(args: argparse.Namespace, settings: Settings) -> int:
         return 1
 
 
+def _loop_view_create_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            view = create_loop_view(
+                name=args.name,
+                query=args.query,
+                description=args.description,
+                conn=conn,
+            )
+        _emit_output(view, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_view_list_command(args: argparse.Namespace, settings: Settings) -> int:
+    with db.core_connection(settings) as conn:
+        views = list_loop_views(conn=conn)
+    _emit_output(views, args.format)
+    return 0
+
+
+def _loop_view_get_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            view = get_loop_view(view_id=args.id, conn=conn)
+        _emit_output(view, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_view_update_command(args: argparse.Namespace, settings: Settings) -> int:
+    fields: Dict[str, Any] = {}
+    if args.name is not None:
+        fields["name"] = args.name
+    if args.query is not None:
+        fields["query"] = args.query
+    if args.description is not None:
+        fields["description"] = args.description
+
+    if not fields:
+        print("error: no fields to update", file=sys.stderr)
+        return 1
+
+    try:
+        with db.core_connection(settings) as conn:
+            view = update_loop_view(view_id=args.id, conn=conn, **fields)
+        _emit_output(view, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_view_delete_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            delete_loop_view(view_id=args.id, conn=conn)
+        _emit_output({"deleted": True}, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_view_apply_command(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        with db.core_connection(settings) as conn:
+            result = apply_loop_view(
+                view_id=args.id,
+                limit=args.limit,
+                offset=args.offset,
+                conn=conn,
+            )
+        _emit_output(result, args.format)
+        return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cloop",
@@ -489,13 +596,19 @@ Examples:
   cloop loop update 1 --next-action "Go to store" --due-at "2026-02-15T18:00:00Z"
   cloop loop close 1 --note "Done"
 
+  # Query with DSL
+  cloop loop search "status:inbox tag:work due:today"
+  cloop loop search "project:ClientAlpha blocked"
+  cloop loop search "status:open groceries"
+
+  # Saved views
+  cloop loop view create --name "Today's tasks" --query "status:open due:today"
+  cloop loop view list
+  cloop loop view apply 1
+
   # Data portability
   cloop export --output backup.json
   cloop import --file backup.json
-
-  # Query
-  cloop loop search "groceries"
-  cloop loop get 1
 
 Exit codes:
   0  success
@@ -619,8 +732,9 @@ def _add_loop_parser(subparsers: Any) -> None:
     list_parser.add_argument("--offset", type=int, default=0, help="Pagination offset (default: 0)")
     _add_format_option(list_parser)
 
-    search_parser = loop_subparsers.add_parser("search", help="Search loops by text")
-    search_parser.add_argument("query", help="Search query")
+    search_parser = loop_subparsers.add_parser("search", help="Search loops with DSL query")
+    search_parser.add_argument("query", nargs="?", help="DSL query string")
+    search_parser.add_argument("--query", dest="query_flag", help="DSL query string")
     search_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
     search_parser.add_argument(
         "--offset", type=int, default=0, help="Pagination offset (default: 0)"
@@ -692,6 +806,39 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(snooze_parser)
 
+    view_parser = loop_subparsers.add_parser("view", help="Saved view operations")
+    view_subparsers = view_parser.add_subparsers(dest="view_command", required=True)
+
+    view_create_parser = view_subparsers.add_parser("create", help="Create a saved view")
+    view_create_parser.add_argument("--name", required=True, help="View name")
+    view_create_parser.add_argument("--query", required=True, help="DSL query string")
+    view_create_parser.add_argument("--description", help="Optional description")
+    _add_format_option(view_create_parser)
+
+    view_list_parser = view_subparsers.add_parser("list", help="List saved views")
+    _add_format_option(view_list_parser)
+
+    view_get_parser = view_subparsers.add_parser("get", help="Get a saved view")
+    view_get_parser.add_argument("id", type=int, help="View ID")
+    _add_format_option(view_get_parser)
+
+    view_update_parser = view_subparsers.add_parser("update", help="Update a saved view")
+    view_update_parser.add_argument("id", type=int, help="View ID")
+    view_update_parser.add_argument("--name", help="New view name")
+    view_update_parser.add_argument("--query", help="New DSL query string")
+    view_update_parser.add_argument("--description", help="New description")
+    _add_format_option(view_update_parser)
+
+    view_delete_parser = view_subparsers.add_parser("delete", help="Delete a saved view")
+    view_delete_parser.add_argument("id", type=int, help="View ID")
+    _add_format_option(view_delete_parser)
+
+    view_apply_parser = view_subparsers.add_parser("apply", help="Apply a saved view")
+    view_apply_parser.add_argument("id", type=int, help="View ID")
+    view_apply_parser.add_argument("--limit", type=int, default=50, help="Max results")
+    view_apply_parser.add_argument("--offset", type=int, default=0, help="Pagination offset")
+    _add_format_option(view_apply_parser)
+
 
 def _add_tags_parser(subparsers: Any) -> None:
     tags_parser = subparsers.add_parser("tags", help="List all tags")
@@ -750,6 +897,21 @@ def main(argv: List[str] | None = None) -> int:
             return _loop_enrich_command(args, settings)
         if args.loop_command == "snooze":
             return _loop_snooze_command(args, settings)
+        if args.loop_command == "view":
+            if args.view_command == "create":
+                return _loop_view_create_command(args, settings)
+            if args.view_command == "list":
+                return _loop_view_list_command(args, settings)
+            if args.view_command == "get":
+                return _loop_view_get_command(args, settings)
+            if args.view_command == "update":
+                return _loop_view_update_command(args, settings)
+            if args.view_command == "delete":
+                return _loop_view_delete_command(args, settings)
+            if args.view_command == "apply":
+                return _loop_view_apply_command(args, settings)
+            parser.error(f"Unknown view command: {args.view_command}")
+            return 2
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 
