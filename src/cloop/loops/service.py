@@ -91,6 +91,79 @@ _LOCKABLE_FIELDS = {
 }
 
 
+def _handle_recurrence_on_completion(
+    *,
+    record: LoopRecord,
+    conn: sqlite3.Connection,
+) -> int | None:
+    """Handle recurring loop completion by creating next occurrence.
+
+    When a recurring loop is completed, this creates a new loop for the
+    next scheduled occurrence and disables recurrence on the completed loop.
+
+    Args:
+        record: The loop being completed
+        conn: Database connection
+
+    Returns:
+        The next loop ID if created, None otherwise
+    """
+    if not record.is_recurring():
+        return None
+    if record.recurrence_rrule is None or record.recurrence_tz is None:
+        return None
+
+    from .recurrence import RecurrenceError, compute_next_due
+
+    now = utc_now()
+    try:
+        next_due = compute_next_due(
+            record.recurrence_rrule,
+            record.recurrence_tz,
+            now,
+        )
+    except RecurrenceError:
+        # If recurrence computation fails (e.g., corrupted RRULE),
+        # don't prevent completion - just don't create next occurrence
+        return None
+    if next_due is None:
+        return None
+
+    # Create new loop for next occurrence
+    next_captured_at = format_utc_datetime(now)
+    next_loop = repo.create_loop(
+        raw_text=record.raw_text,
+        captured_at_utc=next_captured_at,
+        captured_tz_offset_min=record.captured_tz_offset_min,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    # Update new loop with recurrence info and next due date
+    next_due_str = format_utc_datetime(next_due)
+    repo.update_loop_fields(
+        loop_id=next_loop.id,
+        fields={
+            "title": record.title,
+            "summary": record.summary,
+            "definition_of_done": record.definition_of_done,
+            "time_minutes": record.time_minutes,
+            "activation_energy": record.activation_energy,
+            "project_id": record.project_id,
+            "recurrence_rrule": record.recurrence_rrule,
+            "recurrence_tz": record.recurrence_tz,
+            "next_due_at_utc": next_due_str,
+            "recurrence_enabled": 1,
+        },
+        conn=conn,
+    )
+    # Copy tags to new loop
+    existing_tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+    if existing_tags:
+        repo.replace_loop_tags(loop_id=next_loop.id, tag_names=existing_tags, conn=conn)
+
+    return next_loop.id
+
+
 def _record_to_dict(
     record: LoopRecord,
     *,
@@ -123,6 +196,12 @@ def _record_to_dict(
         "user_locks": list(record.user_locks),
         "provenance": dict(record.provenance),
         "enrichment_state": record.enrichment_state.value,
+        "recurrence_rrule": record.recurrence_rrule,
+        "recurrence_tz": record.recurrence_tz,
+        "next_due_at_utc": (
+            format_utc_datetime(record.next_due_at_utc) if record.next_due_at_utc else None
+        ),
+        "recurrence_enabled": record.recurrence_enabled,
         "created_at_utc": format_utc_datetime(record.created_at_utc),
         "updated_at_utc": format_utc_datetime(record.updated_at_utc),
         "closed_at_utc": (
@@ -169,26 +248,68 @@ def capture_loop(
     client_tz_offset_min: int,
     status: LoopStatus,
     conn: sqlite3.Connection,
+    recurrence_rrule: str | None = None,
+    recurrence_tz: str | None = None,
 ) -> dict[str, Any]:
     captured_at_utc = parse_client_datetime(
         captured_at_iso,
         tz_offset_min=client_tz_offset_min,
     )
     captured_at_utc_str = format_utc_datetime(captured_at_utc)
+
+    # Handle recurrence setup
+    recurrence_enabled = False
+    next_due_at_utc: str | None = None
+
+    if recurrence_rrule:
+        from .recurrence import (
+            compute_next_due,
+            is_valid_timezone,
+            offset_minutes_to_timezone,
+            validate_rrule,
+        )
+
+        # Validate and normalize RRULE
+        validated_rrule = validate_rrule(recurrence_rrule)
+
+        # Determine timezone - use provided or derive from offset
+        if recurrence_tz:
+            if not is_valid_timezone(recurrence_tz):
+                raise ValidationError("recurrence_tz", f"Invalid timezone: {recurrence_tz}")
+        else:
+            recurrence_tz = offset_minutes_to_timezone(client_tz_offset_min)
+
+        # Compute first due date
+        next_due = compute_next_due(validated_rrule, recurrence_tz, captured_at_utc)
+        if next_due:
+            next_due_at_utc = format_utc_datetime(next_due)
+            recurrence_enabled = True
+            recurrence_rrule = validated_rrule
+
     with conn:
+        # Create the loop with recurrence fields (single operation)
         record = repo.create_loop(
             raw_text=raw_text,
             captured_at_utc=captured_at_utc_str,
             captured_tz_offset_min=client_tz_offset_min,
             status=status,
             conn=conn,
+            recurrence_rrule=recurrence_rrule,
+            recurrence_tz=recurrence_tz,
+            next_due_at_utc=next_due_at_utc,
+            recurrence_enabled=recurrence_enabled,
         )
+
         event_payload = {
             "raw_text": raw_text,
             "status": status.value,
             "captured_at_utc": captured_at_utc_str,
             "captured_tz_offset_min": client_tz_offset_min,
         }
+        if recurrence_rrule:
+            event_payload["recurrence_rrule"] = recurrence_rrule
+            event_payload["recurrence_tz"] = recurrence_tz
+
         event_id = repo.insert_loop_event(
             loop_id=record.id,
             event_type=LoopEventType.CAPTURE.value,
@@ -432,10 +553,19 @@ def transition_status(
     closed_at = None
     if is_terminal_status(to_status):
         closed_at = format_utc_datetime(utc_now())
+
+    # Handle recurring loop completion - create next occurrence
+    next_loop_id: int | None = None
+    if to_status == LoopStatus.COMPLETED:
+        next_loop_id = _handle_recurrence_on_completion(record=record, conn=conn)
+
     with conn:
         updates = {"status": to_status.value, "closed_at": closed_at}
         if to_status is LoopStatus.COMPLETED and note and note.strip():
             updates["completion_note"] = note.strip()
+        # Disable recurrence on completed loop so it doesn't generate more
+        if to_status == LoopStatus.COMPLETED and record.is_recurring():
+            updates["recurrence_enabled"] = 0
         updated = repo.update_loop_fields(
             loop_id=loop_id,
             fields=updates,
@@ -451,6 +581,8 @@ def transition_status(
             payload["note"] = note
         if closed_at:
             payload["closed_at_utc"] = closed_at
+        if next_loop_id is not None:
+            payload["next_occurrence_loop_id"] = next_loop_id
         event_id = repo.insert_loop_event(
             loop_id=loop_id,
             event_type=event_type,
@@ -1216,9 +1348,18 @@ def bulk_close_loops(
         closed_at = None
         if is_terminal_status(to_status):
             closed_at = format_utc_datetime(utc_now())
+
+        # Handle recurring loop completion - create next occurrence
+        next_loop_id: int | None = None
+        if to_status == LoopStatus.COMPLETED:
+            next_loop_id = _handle_recurrence_on_completion(record=record, conn=conn)
+
         updates = {"status": to_status.value, "closed_at": closed_at}
         if to_status is LoopStatus.COMPLETED and note and note.strip():
             updates["completion_note"] = note.strip()
+        # Disable recurrence on completed loop so it doesn't generate more
+        if to_status == LoopStatus.COMPLETED and record.is_recurring():
+            updates["recurrence_enabled"] = 0
         updated = repo.update_loop_fields(
             loop_id=loop_id,
             fields=updates,
@@ -1234,6 +1375,8 @@ def bulk_close_loops(
             payload["note"] = note
         if closed_at:
             payload["closed_at_utc"] = closed_at
+        if next_loop_id is not None:
+            payload["next_occurrence_loop_id"] = next_loop_id
         event_id = repo.insert_loop_event(
             loop_id=loop_id,
             event_type=event_type,

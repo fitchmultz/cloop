@@ -46,6 +46,10 @@ _ALLOWED_UPDATE_FIELDS = {
     "user_locks_json",
     "provenance_json",
     "enrichment_state",
+    "recurrence_rrule",
+    "recurrence_tz",
+    "next_due_at_utc",
+    "recurrence_enabled",
 }
 
 
@@ -106,6 +110,24 @@ def _row_to_record(row: sqlite3.Row) -> LoopRecord:
         user_locks=_parse_json_list(row["user_locks_json"]),
         provenance=_parse_json_dict(row["provenance_json"]),
         enrichment_state=EnrichmentState(row["enrichment_state"] or EnrichmentState.IDLE.value),
+        recurrence_rrule=(
+            row["recurrence_rrule"]
+            if "recurrence_rrule" in row.keys() and row["recurrence_rrule"] is not None
+            else None
+        ),
+        recurrence_tz=(
+            row["recurrence_tz"]
+            if "recurrence_tz" in row.keys() and row["recurrence_tz"] is not None
+            else None
+        ),
+        next_due_at_utc=(
+            parse_utc_datetime(row["next_due_at_utc"])
+            if "next_due_at_utc" in row.keys() and row["next_due_at_utc"]
+            else None
+        ),
+        recurrence_enabled=(
+            bool(row["recurrence_enabled"]) if "recurrence_enabled" in row.keys() else False
+        ),
         created_at_utc=parse_utc_datetime(row["created_at"]),
         updated_at_utc=parse_utc_datetime(row["updated_at"]),
         closed_at_utc=parse_utc_datetime(row["closed_at"]) if row["closed_at"] else None,
@@ -119,6 +141,10 @@ def create_loop(
     captured_tz_offset_min: int,
     status: LoopStatus,
     conn: sqlite3.Connection,
+    recurrence_rrule: str | None = None,
+    recurrence_tz: str | None = None,
+    next_due_at_utc: str | None = None,
+    recurrence_enabled: bool = False,
 ) -> LoopRecord:
     cursor = conn.execute(
         """
@@ -127,11 +153,24 @@ def create_loop(
             title,
             status,
             captured_at_utc,
-            captured_tz_offset_min
+            captured_tz_offset_min,
+            recurrence_rrule,
+            recurrence_tz,
+            next_due_at_utc,
+            recurrence_enabled
         )
-        VALUES (?, NULL, ?, ?, ?)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (raw_text, status.value, captured_at_utc, captured_tz_offset_min),
+        (
+            raw_text,
+            status.value,
+            captured_at_utc,
+            captured_tz_offset_min,
+            recurrence_rrule,
+            recurrence_tz,
+            next_due_at_utc,
+            1 if recurrence_enabled else 0,
+        ),
     )
     row = conn.execute("SELECT * FROM loops WHERE id = ?", (cursor.lastrowid,)).fetchone()
     if row is None:

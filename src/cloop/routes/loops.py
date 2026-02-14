@@ -106,6 +106,19 @@ def loop_capture_endpoint(
         actionable=request.actionable,
     )
 
+    # Resolve recurrence RRULE from schedule phrase or direct rrule
+    recurrence_rrule: str | None = None
+    if request.schedule:
+        from ..loops.recurrence import parse_recurrence_schedule
+
+        try:
+            parsed = parse_recurrence_schedule(request.schedule)
+            recurrence_rrule = parsed.rrule
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid schedule: {e}") from None
+    elif request.rrule:
+        recurrence_rrule = request.rrule
+
     if idempotency_key is not None:
         try:
             key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
@@ -142,6 +155,8 @@ def loop_capture_endpoint(
                 client_tz_offset_min=request.client_tz_offset_min,
                 status=status,
                 conn=conn,
+                recurrence_rrule=recurrence_rrule,
+                recurrence_tz=request.timezone,
             )
             if settings.autopilot_enabled:
                 record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
@@ -162,6 +177,8 @@ def loop_capture_endpoint(
                 client_tz_offset_min=request.client_tz_offset_min,
                 status=status,
                 conn=conn,
+                recurrence_rrule=recurrence_rrule,
+                recurrence_tz=request.timezone,
             )
             if settings.autopilot_enabled:
                 record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)

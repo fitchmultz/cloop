@@ -22,7 +22,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 13
+SCHEMA_VERSION: int = 14
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -95,6 +95,10 @@ CREATE TABLE loops (
     user_locks_json TEXT NOT NULL DEFAULT '[]',
     provenance_json TEXT NOT NULL DEFAULT '{}',
     enrichment_state TEXT NOT NULL DEFAULT 'idle',
+    recurrence_rrule TEXT,
+    recurrence_tz TEXT,
+    next_due_at_utc TEXT,
+    recurrence_enabled INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at TEXT,
@@ -103,6 +107,8 @@ CREATE TABLE loops (
 
 CREATE INDEX idx_loops_status ON loops(status);
 CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
+CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
+CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
 
 CREATE TABLE loop_tags (
     loop_id INTEGER NOT NULL,
@@ -457,6 +463,15 @@ _CORE_MIGRATIONS: dict[int, str] = {
     );
 
     CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
+    """,
+    14: """
+    ALTER TABLE loops ADD COLUMN recurrence_rrule TEXT;
+    ALTER TABLE loops ADD COLUMN recurrence_tz TEXT;
+    ALTER TABLE loops ADD COLUMN next_due_at_utc TEXT;
+    ALTER TABLE loops ADD COLUMN recurrence_enabled INTEGER NOT NULL DEFAULT 0;
+
+    CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
+    CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
     """,
 }
 

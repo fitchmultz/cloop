@@ -209,6 +209,20 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
         actionable=args.actionable,
     )
 
+    # Resolve recurrence RRULE from schedule phrase or direct rrule
+    recurrence_rrule: str | None = None
+    if getattr(args, "schedule", None):
+        from .loops.recurrence import parse_recurrence_schedule
+
+        try:
+            parsed = parse_recurrence_schedule(args.schedule)
+            recurrence_rrule = parsed.rrule
+        except Exception as e:
+            print(f"error: invalid schedule: {e}", file=sys.stderr)
+            return 1
+    elif getattr(args, "rrule", None):
+        recurrence_rrule = args.rrule
+
     with db.core_connection(settings) as conn:
         record = capture_loop(
             raw_text=args.text,
@@ -216,6 +230,8 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
             client_tz_offset_min=tz_offset_min,
             status=status,
             conn=conn,
+            recurrence_rrule=recurrence_rrule,
+            recurrence_tz=getattr(args, "timezone", None),
         )
         if settings.autopilot_enabled:
             record = request_enrichment(loop_id=record["id"], conn=conn)
@@ -837,6 +853,24 @@ def _add_capture_parser(subparsers: Any) -> None:
         action="store_true",
         dest="blocked",
         help="Alias for --blocked",
+    )
+    capture_parser.add_argument(
+        "--schedule",
+        dest="schedule",
+        help=(
+            "Natural-language recurrence schedule (e.g., 'every weekday', "
+            "'every 2 weeks', 'every 1st business day')"
+        ),
+    )
+    capture_parser.add_argument(
+        "--rrule",
+        dest="rrule",
+        help="RFC 5545 RRULE string (e.g., 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')",
+    )
+    capture_parser.add_argument(
+        "--timezone",
+        dest="timezone",
+        help="IANA timezone name (e.g., 'America/New_York'). Defaults to client offset.",
     )
 
 

@@ -12,12 +12,15 @@ Requires-Dist: numpy>=2.0.0
 Requires-Dist: litellm>=1.41.0
 Requires-Dist: pypdf>=4.1.0
 Requires-Dist: mcp>=0.3.0
+Requires-Dist: python-dateutil>=2.9.0
+Requires-Dist: tzdata>=2024.1
 Provides-Extra: dev
 Requires-Dist: ruff>=0.6.0; extra == "dev"
 Requires-Dist: pytest>=8.3.0; extra == "dev"
 Requires-Dist: httpx>=0.27.0; extra == "dev"
 Requires-Dist: hypothesis>=6.108.0; extra == "dev"
 Requires-Dist: ty>=0.0.16; extra == "dev"
+Requires-Dist: freezegun>=1.5.0; extra == "dev"
 
 # Cloop (Closed Loop): Your Private, Local-First AI Knowledge Base
 
@@ -105,11 +108,13 @@ Retrieve the most relevant chunks for a question:
 uv run cloop ask "What does the onboarding process say about PTO?" --k 5
 ```
 
-Capture a loop and see your inbox:
+Capture a loop and manage your tasks:
 
 ```bash
 uv run cloop capture "Return Amazon package by Friday" --tz-offset-min -420
-uv run cloop inbox
+uv run cloop loop list --status inbox
+uv run cloop loop update 1 --next-action "Go to post office" --due-at "2026-02-15T18:00:00Z"
+uv run cloop loop close 1 --note "Done"
 uv run cloop next
 ```
 
@@ -117,6 +122,126 @@ Notes:
 
 - `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
 - For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
+- Loop lifecycle and utility commands support `--format json|table` (default: `json`).
+
+## CLI Reference
+
+### Loop Lifecycle Commands
+
+Full loop lifecycle management from the terminal:
+
+```bash
+# Get a loop by ID
+cloop loop get <id> [--format json|table]
+
+# List loops with filters
+cloop loop list [--status STATUS] [--tag TAG] [--limit N] [--offset N] [--format json|table]
+# Status options: inbox, actionable, blocked, scheduled, completed, dropped, open (default), all
+
+# Search loops by text
+cloop loop search <query> [--limit N] [--offset N] [--format json|table]
+
+# Update loop fields
+cloop loop update <id> [OPTIONS] [--format json|table]
+  --title TEXT              Update title
+  --summary TEXT            Update summary
+  --next-action TEXT        Update next action
+  --due-at ISO8601          Update due date
+  --snooze-until ISO8601    Update snooze time
+  --time-minutes N          Estimated time
+  --activation-energy N     0-3 scale
+  --urgency FLOAT           0.0-1.0
+  --importance FLOAT        0.0-1.0
+  --project TEXT            Project name
+  --blocked-reason TEXT     Reason for blocked status
+  --tags TAGS               Comma-separated tags (clears existing)
+
+# Transition loop status
+cloop loop status <id> <status> [--note TEXT] [--format json|table]
+# Status options: inbox, actionable, blocked, scheduled, completed, dropped
+
+# Close a loop (completed or dropped)
+cloop loop close <id> [--dropped] [--note TEXT] [--format json|table]
+
+# Request AI enrichment
+cloop loop enrich <id> [--format json|table]
+
+# Snooze a loop
+cloop loop snooze <id> <duration> [--format json|table]
+# Duration examples: 30m, 1h, 2d, 1w, or ISO8601 timestamp
+```
+
+### Utility Commands
+
+```bash
+# List all tags in use
+cloop tags [--format json|table]
+
+# List all projects
+cloop projects [--format json|table]
+
+# Export loops
+cloop export [--output FILE] [--format json|table]
+# Writes to stdout if no --output specified
+
+# Import loops
+cloop import [--file FILE] [--format json|table]
+# Reads from stdin if no --file specified
+```
+
+### RAG Commands
+
+```bash
+# Ingest documents
+cloop ingest <paths...> [--mode MODE] [--no-recursive]
+# Mode options: add (default), reindex, purge, sync
+
+# Query knowledge base
+cloop ask <question> [--k N] [--scope SCOPE]
+```
+
+### Capture Commands
+
+```bash
+# Capture a loop
+cloop capture <text> [STATUS_FLAGS] [--captured-at ISO8601] [--tz-offset-min N]
+# Status flags: --actionable, --scheduled, --blocked
+# Aliases: --urgent (same as --actionable), --waiting (same as --blocked)
+
+# View inbox
+cloop inbox [--limit N]
+
+# View next actions (prioritized)
+cloop next [--limit N]
+```
+
+### Exit Codes
+
+- `0`: Success
+- `1`: Validation error (invalid arguments, no fields to update, etc.)
+- `2`: Not found error (loop not found, invalid transition, etc.)
+
+### Example Workflows
+
+**Capture and complete a task:**
+```bash
+uv run cloop capture "Review PR #123" --actionable
+uv run cloop loop update 1 --next-action "Open PR" --due-at "2026-02-14T17:00:00Z"
+uv run cloop loop list --status actionable
+uv run cloop loop close 1 --note "Approved and merged"
+```
+
+**Export and import data:**
+```bash
+uv run cloop export --output backup.json
+uv run cloop import --file backup.json
+```
+
+**Search and update:**
+```bash
+uv run cloop loop search "groceries"
+uv run cloop loop update 5 --tags "shopping,weekly"
+```
 
 ## Running the Server
 
@@ -141,6 +266,13 @@ Endpoints:
 - `POST /loops/{id}/close`: close a loop (completed or dropped).
 - `POST /loops/{id}/enrich`: request enrichment for a loop.
 - `GET /loops/next`: deterministic “Next 5” buckets.
+- `GET /loops/tags`: list all tags in use.
+- `GET /loops/events/stream`: SSE stream of loop events (capture, update, status changes, enrichment).
+- `POST /loops/webhooks/subscriptions`: create webhook subscription for outbound events.
+- `GET /loops/webhooks/subscriptions`: list webhook subscriptions.
+- `PATCH /loops/webhooks/subscriptions/{id}`: update a webhook subscription.
+- `DELETE /loops/webhooks/subscriptions/{id}`: delete a webhook subscription.
+- `GET /loops/webhooks/subscriptions/{id}/deliveries`: list delivery history for a subscription.
 
 Example requests:
 
@@ -214,6 +346,133 @@ OpenRouter:
 - `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
 - `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `true`)
 - `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
+
+### Idempotency (safe retries)
+
+All mutating endpoints support idempotency for safe retries over unreliable networks:
+
+- `CLOOP_IDEMPOTENCY_TTL_SECONDS`: retention window for idempotency keys (default: `86400` = 24 hours)
+- `CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH`: max key length (default: `255`)
+
+**HTTP API**: Include `Idempotency-Key` header with any mutating request (POST/PATCH).
+- Same key + same payload: replays prior response without additional writes
+- Same key + different payload: returns 409 Conflict
+
+**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.snooze`, `loop.enrich`).
+- Same request_id + same args: replays prior response
+- Same request_id + different args: raises `ToolError`
+
+Example HTTP retry:
+```bash
+curl -X POST http://127.0.0.1:8000/loops/capture \
+  -H 'content-type: application/json' \
+  -H 'Idempotency-Key: my-unique-key-123' \
+  -d '{"raw_text": "Buy groceries", "captured_at": "2026-02-13T10:00:00Z", "client_tz_offset_min": 0}'
+```
+
+Example MCP tool call with idempotency:
+```python
+loop_create(
+    raw_text="Buy groceries",
+    captured_at="2026-02-13T10:00:00Z",
+    client_tz_offset_min=0,
+    request_id="my-unique-key-123"
+)
+```
+
+## Webhooks and SSE
+
+Cloop supports real-time event delivery via webhooks (outbound HTTP) and SSE (Server-Sent Events).
+
+### Server-Sent Events (SSE)
+
+Stream loop events in real-time:
+
+```bash
+curl -N http://127.0.0.1:8000/loops/events/stream
+```
+
+**Reconnection support**: Pass `Last-Event-ID` header or `?cursor=` query param to resume from a specific event ID:
+
+```bash
+curl -N -H "Last-Event-ID: 42" http://127.0.0.1:8000/loops/events/stream
+```
+
+**Event types**:
+- `capture`: New loop created
+- `update`: Loop fields modified
+- `status_change`: Status transition
+- `close`: Loop completed or dropped
+- `enrich_request`/`enrich_success`: Enrichment lifecycle
+
+### Webhooks
+
+Register HTTPS endpoints to receive loop events with HMAC-SHA256 signatures.
+
+**Create a subscription**:
+
+```bash
+curl -X POST http://127.0.0.1:8000/loops/webhooks/subscriptions \
+  -H 'content-type: application/json' \
+  -d '{
+    "url": "https://example.com/webhook",
+    "event_types": ["capture", "update", "close"],
+    "description": "My webhook"
+  }'
+```
+
+Response includes a `secret` for signature verification. Store this securely.
+
+**Webhook security model**:
+
+- **HTTPS only**: Only HTTPS URLs are accepted (no HTTP)
+- **HMAC-SHA256 signatures**: Each payload is signed with the subscription secret
+- **Replay protection**: Signatures include timestamps valid for ±5 minutes
+- **Exponential backoff**: Failed deliveries retry with jitter (3 retries by default)
+- **Dead letter tracking**: Failed deliveries after max retries are preserved for inspection
+
+**Signature verification** (Python example):
+
+```python
+import hmac
+import hashlib
+import json
+import time
+
+def verify_webhook(payload: dict, secret: str, signature_header: str) -> bool:
+    """Verify webhook signature with replay protection."""
+    # Header format: t=<timestamp>,v1=<hex_signature>
+    parts = signature_header.split(",")
+    timestamp = parts[0].split("=")[1]
+    
+    # Check timestamp is recent (prevent replay attacks)
+    if abs(int(timestamp) - int(time.time())) > 300:
+        return False
+    
+    # Reconstruct expected signature
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    signed_payload = f"{timestamp}.{payload_bytes.decode()}".encode("utf-8")
+    expected_sig = hmac.new(
+        secret.encode(),
+        signed_payload,
+        hashlib.sha256
+    ).hexdigest()
+    expected = f"t={timestamp},v1={expected_sig}"
+    
+    return hmac.compare_digest(expected, signature_header)
+```
+
+**Webhook headers**:
+- `X-Webhook-Signature`: `t=<timestamp>,v1=<signature>`
+- `X-Webhook-Event`: Event type (e.g., `capture`)
+- `X-Webhook-Event-Id`: Loop event ID for idempotency
+
+**Configuration**:
+
+- `CLOOP_WEBHOOK_MAX_RETRIES`: Max retry attempts (default: 3)
+- `CLOOP_WEBHOOK_RETRY_BASE_DELAY`: Initial retry delay in seconds (default: 5.0)
+- `CLOOP_WEBHOOK_RETRY_MAX_DELAY`: Max retry delay cap (default: 300.0)
+- `CLOOP_WEBHOOK_TIMEOUT_SECONDS`: HTTP request timeout (default: 30.0)
 
 ## MCP Server
 

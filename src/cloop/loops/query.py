@@ -45,12 +45,13 @@ from datetime import datetime, timedelta
 
 from .errors import ValidationError
 
-_ALLOWED_FIELDS = frozenset({"status", "tag", "project", "due", "text"})
+_ALLOWED_FIELDS = frozenset({"status", "tag", "project", "due", "text", "recurring"})
 _ALLOWED_STATUSES = frozenset(
     {"open", "all", "inbox", "actionable", "blocked", "scheduled", "completed", "dropped"}
 )
 _OPEN_STATUSES = frozenset({"inbox", "actionable", "blocked", "scheduled"})
 _ALLOWED_DUE_VALUES = frozenset({"today", "tomorrow", "overdue", "none", "next7d"})
+_ALLOWED_RECURRING_VALUES = frozenset({"yes", "no", "true", "false", "1", "0"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,7 @@ class LoopQuery:
     projects: tuple[str, ...] = ()
     due_filters: tuple[str, ...] = ()
     text_terms: tuple[str, ...] = ()
+    recurring: bool | None = None
 
 
 def _tokenize(raw: str) -> list[tuple[str, str]]:
@@ -164,6 +166,7 @@ def parse_loop_query(raw: str) -> LoopQuery:
     projects: set[str] = set()
     due_filters: set[str] = set()
     text_terms: set[str] = set()
+    recurring: bool | None = None
 
     for field_name, value in tokens:
         if field_name not in _ALLOWED_FIELDS:
@@ -188,6 +191,13 @@ def parse_loop_query(raw: str) -> LoopQuery:
             due_filters.add(value)
         elif field_name == "text":
             text_terms.add(value)
+        elif field_name == "recurring":
+            if value not in _ALLOWED_RECURRING_VALUES:
+                raise ValidationError(
+                    "query",
+                    f"invalid recurring filter '{value}' (allowed: yes, no)",
+                )
+            recurring = value in ("yes", "true", "1")
 
     return LoopQuery(
         statuses=tuple(sorted(statuses)),
@@ -195,6 +205,7 @@ def parse_loop_query(raw: str) -> LoopQuery:
         projects=tuple(sorted(projects)),
         due_filters=tuple(sorted(due_filters)),
         text_terms=tuple(sorted(text_terms)),
+        recurring=recurring,
     )
 
 
@@ -302,6 +313,12 @@ def compile_loop_query(query: LoopQuery, *, now_utc: datetime) -> tuple[str, lis
             )
             params.extend([like_pattern, like_pattern, like_pattern, like_pattern])
         conditions.append(" AND ".join(text_conditions))
+
+    if query.recurring is not None:
+        if query.recurring:
+            conditions.append("loops.recurrence_enabled = 1")
+        else:
+            conditions.append("loops.recurrence_enabled = 0")
 
     if not conditions:
         return ("", [])
