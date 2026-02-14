@@ -22,7 +22,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 11
+SCHEMA_VERSION: int = 12
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -188,6 +188,43 @@ CREATE TABLE loop_views (
 );
 
 CREATE INDEX idx_loop_views_name ON loop_views(name);
+
+CREATE TABLE webhook_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    secret TEXT NOT NULL,
+    event_types TEXT NOT NULL DEFAULT '["*"]',
+    active BOOLEAN NOT NULL DEFAULT 1,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_webhook_subscriptions_active ON webhook_subscriptions(active);
+
+CREATE TABLE webhook_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subscription_id INTEGER NOT NULL,
+    event_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    http_status INTEGER,
+    response_body TEXT,
+    error_message TEXT,
+    signature TEXT NOT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+    FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
+CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
+    WHERE status = 'pending';
+CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
@@ -359,6 +396,44 @@ _CORE_MIGRATIONS: dict[int, str] = {
     );
 
     CREATE INDEX idx_loop_views_name ON loop_views(name);
+    """,
+    12: """
+    CREATE TABLE webhook_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        secret TEXT NOT NULL,
+        event_types TEXT NOT NULL DEFAULT '["*"]',
+        active BOOLEAN NOT NULL DEFAULT 1,
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_webhook_subscriptions_active ON webhook_subscriptions(active);
+
+    CREATE TABLE webhook_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER NOT NULL,
+        event_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        http_status INTEGER,
+        response_body TEXT,
+        error_message TEXT,
+        signature TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        next_retry_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
+    CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
+        WHERE status = 'pending';
+    CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
     """,
 }
 

@@ -12,6 +12,11 @@ Endpoints:
 - POST /loops/{id}/status: Transition status
 - POST /loops/{id}/enrich: Request AI enrichment
 - GET /loops/next: Prioritized "Next Actions"
+- GET /loops/events/stream: SSE stream of loop events
+- POST /loops/webhooks/subscriptions: Create webhook subscription
+- GET /loops/webhooks/subscriptions: List webhook subscriptions
+- PATCH /loops/webhooks/subscriptions/{id}: Update webhook subscription
+- DELETE /loops/webhooks/subscriptions/{id}: Delete webhook subscription
 
 Idempotency:
 All mutating endpoints support the Idempotency-Key header for safe retries.
@@ -19,9 +24,15 @@ Same key + same payload replays prior response without additional writes.
 Same key + different payload returns 409 Conflict.
 """
 
+import json
+import secrets
+import sqlite3
+import time
+from collections.abc import Iterator
 from typing import Annotated, Any, List, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from starlette.responses import JSONResponse
 
 from .. import db
@@ -53,8 +64,15 @@ from ..schemas.loops import (
     LoopViewCreateRequest,
     LoopViewResponse,
     LoopViewUpdateRequest,
+    WebhookDeliveryResponse,
+    WebhookSubscriptionCreate,
+    WebhookSubscriptionCreateResponse,
+    WebhookSubscriptionResponse,
+    WebhookSubscriptionUpdate,
 )
 from ..settings import Settings, get_settings
+from ..sse import format_sse_comment, format_sse_event
+from ..webhooks import repo as webhooks_repo
 
 router = APIRouter(prefix="/loops", tags=["loops"])
 
@@ -696,3 +714,285 @@ def loop_enrich_endpoint(
         settings=settings,
     )
     return LoopResponse(**response)
+
+
+@router.get("/events/stream")
+def loop_events_stream(
+    settings: SettingsDep,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+    cursor: Annotated[
+        str | None, Query(description="Cursor for replay from specific event ID")
+    ] = None,
+) -> StreamingResponse:
+    """SSE stream of loop events with cursor replay support.
+
+    Clients can reconnect using Last-Event-ID header to resume from
+    where they left off. Events are delivered in order with monotonic IDs.
+
+    Heartbeat comments are sent every 30 seconds to keep connection alive.
+    """
+    heartbeat_interval = settings.webhook_heartbeat_interval
+    # For testing: if heartbeat is very short, also limit stream duration
+    max_iterations = 100 if heartbeat_interval < 1 else None
+
+    def event_generator() -> Iterator[str]:
+        conn = None
+        iterations = 0
+        try:
+            # Open database connection
+            conn = sqlite3.connect(settings.core_db_path)
+            conn.row_factory = sqlite3.Row
+            for pragma, value in db.PRAGMAS:
+                conn.execute(f"PRAGMA {pragma}={value}")
+
+            # Determine starting point for replay
+            start_id = 0
+            if last_event_id is not None:
+                try:
+                    start_id = int(last_event_id)
+                except ValueError:
+                    pass
+            elif cursor is not None:
+                try:
+                    start_id = int(cursor)
+                except ValueError:
+                    pass
+
+            # Send historical events first (for replay)
+            if start_id > 0:
+                rows = conn.execute(
+                    """
+                    SELECT id, loop_id, event_type, payload_json, created_at
+                    FROM loop_events
+                    WHERE id > ?
+                    ORDER BY id ASC
+                    """,
+                    (start_id,),
+                ).fetchall()
+                for row in rows:
+                    payload = json.loads(row["payload_json"])
+                    event_data = {
+                        "event_id": row["id"],
+                        "event_type": row["event_type"],
+                        "loop_id": row["loop_id"],
+                        "payload": payload,
+                        "timestamp": row["created_at"],
+                    }
+                    yield format_sse_event(
+                        event="loop_event",
+                        payload=event_data,
+                        event_id=str(row["id"]),
+                    )
+
+            # Send live events via polling
+            last_id = start_id
+            last_heartbeat = time.monotonic()
+
+            while True:
+                iterations += 1
+                if max_iterations is not None and iterations > max_iterations:
+                    break
+
+                # Send heartbeat if needed
+                now = time.monotonic()
+                if now - last_heartbeat >= heartbeat_interval:
+                    yield format_sse_comment(f"heartbeat {now}")
+                    last_heartbeat = now
+
+                # Check for new events
+                rows = conn.execute(
+                    """
+                    SELECT id, loop_id, event_type, payload_json, created_at
+                    FROM loop_events
+                    WHERE id > ?
+                    ORDER BY id ASC
+                    """,
+                    (last_id,),
+                ).fetchall()
+
+                for row in rows:
+                    payload = json.loads(row["payload_json"])
+                    event_data = {
+                        "event_id": row["id"],
+                        "event_type": row["event_type"],
+                        "loop_id": row["loop_id"],
+                        "payload": payload,
+                        "timestamp": row["created_at"],
+                    }
+                    yield format_sse_event(
+                        event="loop_event",
+                        payload=event_data,
+                        event_id=str(row["id"]),
+                    )
+                    last_id = row["id"]
+
+                # Short sleep to prevent tight loop
+                time.sleep(0.5)
+
+        finally:
+            if conn is not None:
+                conn.close()
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering
+        },
+    )
+
+
+def _generate_webhook_secret() -> str:
+    """Generate a secure random webhook secret.
+
+    Returns:
+        A URL-safe base64-encoded secret string.
+    """
+    return secrets.token_urlsafe(32)
+
+
+@router.post("/webhooks/subscriptions", response_model=WebhookSubscriptionCreateResponse)
+def create_webhook_subscription(
+    request: WebhookSubscriptionCreate,
+    settings: SettingsDep,
+) -> WebhookSubscriptionCreateResponse:
+    """Create a new webhook subscription.
+
+    The secret returned in the response is the ONLY time it will be
+    provided. Store it securely to verify webhook signatures.
+    """
+    secret = _generate_webhook_secret()
+    with db.core_connection(settings) as conn:
+        subscription = webhooks_repo.create_subscription(
+            url=request.url,
+            secret=secret,
+            event_types=request.event_types,
+            description=request.description,
+            conn=conn,
+        )
+    return WebhookSubscriptionCreateResponse(
+        id=subscription.id,
+        url=subscription.url,
+        event_types=subscription.event_types,
+        active=subscription.active,
+        description=subscription.description,
+        created_at_utc=subscription.created_at,
+        updated_at_utc=subscription.updated_at,
+        secret=secret,
+    )
+
+
+@router.get("/webhooks/subscriptions", response_model=List[WebhookSubscriptionResponse])
+def list_webhook_subscriptions(settings: SettingsDep) -> List[WebhookSubscriptionResponse]:
+    """List all webhook subscriptions."""
+    with db.core_connection(settings) as conn:
+        subscriptions = webhooks_repo.list_subscriptions(conn=conn)
+    return [
+        WebhookSubscriptionResponse(
+            id=sub.id,
+            url=sub.url,
+            event_types=sub.event_types,
+            active=sub.active,
+            description=sub.description,
+            created_at_utc=sub.created_at,
+            updated_at_utc=sub.updated_at,
+        )
+        for sub in subscriptions
+    ]
+
+
+@router.patch(
+    "/webhooks/subscriptions/{subscription_id}", response_model=WebhookSubscriptionResponse
+)
+def update_webhook_subscription(
+    subscription_id: int,
+    request: WebhookSubscriptionUpdate,
+    settings: SettingsDep,
+) -> WebhookSubscriptionResponse:
+    """Update a webhook subscription."""
+    fields = request.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="no_fields_to_update")
+
+    with db.core_connection(settings) as conn:
+        subscription = webhooks_repo.update_subscription(
+            subscription_id=subscription_id,
+            url=fields.get("url"),
+            event_types=fields.get("event_types"),
+            active=fields.get("active"),
+            description=fields.get("description"),
+            conn=conn,
+        )
+        if subscription is None:
+            raise HTTPException(status_code=404, detail="subscription_not_found")
+
+    return WebhookSubscriptionResponse(
+        id=subscription.id,
+        url=subscription.url,
+        event_types=subscription.event_types,
+        active=subscription.active,
+        description=subscription.description,
+        created_at_utc=subscription.created_at,
+        updated_at_utc=subscription.updated_at,
+    )
+
+
+@router.delete("/webhooks/subscriptions/{subscription_id}")
+def delete_webhook_subscription(
+    subscription_id: int,
+    settings: SettingsDep,
+) -> dict[str, bool]:
+    """Delete a webhook subscription."""
+    with db.core_connection(settings) as conn:
+        deleted = webhooks_repo.delete_subscription(
+            subscription_id=subscription_id,
+            conn=conn,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="subscription_not_found")
+    return {"deleted": True}
+
+
+@router.get(
+    "/webhooks/subscriptions/{subscription_id}/deliveries",
+    response_model=List[WebhookDeliveryResponse],
+)
+def list_webhook_deliveries(
+    subscription_id: int,
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> List[WebhookDeliveryResponse]:
+    """List recent deliveries for a webhook subscription."""
+    with db.core_connection(settings) as conn:
+        # Verify subscription exists
+        subscription = webhooks_repo.get_subscription(
+            subscription_id=subscription_id,
+            conn=conn,
+        )
+        if subscription is None:
+            raise HTTPException(status_code=404, detail="subscription_not_found")
+
+        deliveries = webhooks_repo.list_deliveries_for_subscription(
+            subscription_id=subscription_id,
+            conn=conn,
+            limit=limit,
+        )
+
+    return [
+        WebhookDeliveryResponse(
+            id=d.id,
+            subscription_id=d.subscription_id,
+            event_id=d.event_id,
+            event_type=d.event_type,
+            status=d.status.value,
+            http_status=d.http_status,
+            error_message=d.error_message,
+            attempt_count=d.attempt_count,
+            next_retry_at=d.next_retry_at,
+            created_at_utc=d.created_at,
+            updated_at_utc=d.updated_at,
+        )
+        for d in deliveries
+    ]

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 from .. import db
 from ..providers import resolve_provider_kwargs
 from ..settings import Settings, get_settings
+from ..webhooks.service import queue_deliveries
 from . import repo
 from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
@@ -289,8 +290,14 @@ def enrich_loop(
                 fields={"enrichment_state": EnrichmentState.FAILED.value},
                 conn=conn,
             )
-            repo.insert_loop_event(
+            event_id = repo.insert_loop_event(
                 loop_id=loop_id,
+                event_type=LoopEventType.ENRICH_FAILURE.value,
+                payload={"error": f"JSON decode error: {exc}"},
+                conn=conn,
+            )
+            queue_deliveries(
+                event_id=event_id,
                 event_type=LoopEventType.ENRICH_FAILURE.value,
                 payload={"error": f"JSON decode error: {exc}"},
                 conn=conn,
@@ -303,8 +310,14 @@ def enrich_loop(
                 fields={"enrichment_state": EnrichmentState.FAILED.value},
                 conn=conn,
             )
-            repo.insert_loop_event(
+            event_id = repo.insert_loop_event(
                 loop_id=loop_id,
+                event_type=LoopEventType.ENRICH_FAILURE.value,
+                payload={"error": f"Validation error: {exc}"},
+                conn=conn,
+            )
+            queue_deliveries(
+                event_id=event_id,
                 event_type=LoopEventType.ENRICH_FAILURE.value,
                 payload={"error": f"Validation error: {exc}"},
                 conn=conn,
@@ -318,8 +331,14 @@ def enrich_loop(
                 fields={"enrichment_state": EnrichmentState.FAILED.value},
                 conn=conn,
             )
-            repo.insert_loop_event(
+            event_id = repo.insert_loop_event(
                 loop_id=loop_id,
+                event_type=LoopEventType.ENRICH_FAILURE.value,
+                payload={"error": str(exc)},
+                conn=conn,
+            )
+            queue_deliveries(
+                event_id=event_id,
                 event_type=LoopEventType.ENRICH_FAILURE.value,
                 payload={"error": str(exc)},
                 conn=conn,
@@ -346,8 +365,17 @@ def enrich_loop(
             fields={"enrichment_state": EnrichmentState.COMPLETE.value},
             conn=conn,
         )
-        repo.insert_loop_event(
+        event_id = repo.insert_loop_event(
             loop_id=loop_id,
+            event_type=LoopEventType.ENRICH_SUCCESS.value,
+            payload={
+                "suggestion_id": suggestion_id,
+                "applied_fields": sorted(set(applied_fields)),
+            },
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
             event_type=LoopEventType.ENRICH_SUCCESS.value,
             payload={
                 "suggestion_id": suggestion_id,

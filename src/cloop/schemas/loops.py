@@ -224,3 +224,91 @@ class LoopViewApplyResponse(BaseModel):
     limit: int
     offset: int
     items: List[LoopResponse]
+
+
+class LoopEventStreamResponse(BaseModel):
+    """SSE event envelope for loop events."""
+
+    event_id: int
+    event_type: str
+    loop_id: int
+    payload: Dict[str, Any]
+    timestamp: str
+
+
+class WebhookSubscriptionCreate(BaseModel):
+    """Request to create a webhook subscription."""
+
+    url: str = Field(..., min_length=1, description="Webhook URL (https recommended)")
+    event_types: List[str] = Field(
+        default=["*"], description="Event types to subscribe to, ['*'] for all"
+    )
+    description: str | None = Field(default=None, description="Optional description")
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must use http or https")
+        return v
+
+
+class WebhookSubscriptionUpdate(BaseModel):
+    """Request to update a webhook subscription."""
+
+    url: str | None = Field(default=None, min_length=1)
+    event_types: List[str] | None = None
+    active: bool | None = None
+    description: str | None = None
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None and not v.startswith(("http://", "https://")):
+            raise ValueError("URL must use http or https")
+        return v
+
+
+class WebhookSubscriptionResponse(BaseModel):
+    """Webhook subscription response."""
+
+    id: int
+    url: str
+    event_types: List[str]
+    active: bool
+    description: str | None
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class WebhookSubscriptionCreateResponse(BaseModel):
+    """Webhook subscription creation response.
+
+    Includes the secret that was generated - this is the ONLY time
+    the secret will be returned. Store it securely for signature verification.
+    """
+
+    id: int
+    url: str
+    event_types: List[str]
+    active: bool
+    description: str | None
+    created_at_utc: str
+    updated_at_utc: str
+    secret: str
+
+
+class WebhookDeliveryResponse(BaseModel):
+    """Webhook delivery response."""
+
+    id: int
+    subscription_id: int
+    event_id: int
+    event_type: str
+    status: str
+    http_status: int | None
+    error_message: str | None
+    attempt_count: int
+    next_retry_at: str | None
+    created_at_utc: str
+    updated_at_utc: str

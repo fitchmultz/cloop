@@ -6,6 +6,7 @@ from typing import Any, Mapping
 
 from .. import typingx
 from ..settings import Settings, get_settings
+from ..webhooks.service import queue_deliveries
 from . import repo
 from .errors import LoopNotFoundError, TransitionError, ValidationError
 from .models import (
@@ -174,15 +175,22 @@ def capture_loop(
             status=status,
             conn=conn,
         )
-        repo.insert_loop_event(
+        event_payload = {
+            "raw_text": raw_text,
+            "status": status.value,
+            "captured_at_utc": captured_at_utc_str,
+            "captured_tz_offset_min": client_tz_offset_min,
+        }
+        event_id = repo.insert_loop_event(
             loop_id=record.id,
             event_type=LoopEventType.CAPTURE.value,
-            payload={
-                "raw_text": raw_text,
-                "status": status.value,
-                "captured_at_utc": captured_at_utc_str,
-                "captured_tz_offset_min": client_tz_offset_min,
-            },
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.CAPTURE.value,
+            payload=event_payload,
             conn=conn,
         )
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
@@ -368,10 +376,17 @@ def update_loop(
         if tags is not None:
             normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
-        repo.insert_loop_event(
+        event_payload = {"fields": dict(fields)}
+        event_id = repo.insert_loop_event(
             loop_id=updated.id,
             event_type=LoopEventType.UPDATE.value,
-            payload={"fields": dict(fields)},
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.UPDATE.value,
+            payload=event_payload,
             conn=conn,
         )
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
@@ -419,8 +434,14 @@ def transition_status(
             payload["note"] = note
         if closed_at:
             payload["closed_at_utc"] = closed_at
-        repo.insert_loop_event(
+        event_id = repo.insert_loop_event(
             loop_id=loop_id,
+            event_type=event_type,
+            payload=payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
             event_type=event_type,
             payload=payload,
             conn=conn,
@@ -441,10 +462,17 @@ def request_enrichment(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, A
             fields={"enrichment_state": EnrichmentState.PENDING.value},
             conn=conn,
         )
-        repo.insert_loop_event(
+        event_payload = {"state": EnrichmentState.PENDING.value}
+        event_id = repo.insert_loop_event(
             loop_id=loop_id,
             event_type=LoopEventType.ENRICH_REQUEST.value,
-            payload={"state": EnrichmentState.PENDING.value},
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.ENRICH_REQUEST.value,
+            payload=event_payload,
             conn=conn,
         )
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
@@ -997,10 +1025,17 @@ def bulk_update_loops(
         if tags is not None:
             normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
-        repo.insert_loop_event(
+        event_payload = {"fields": dict(fields)}
+        event_id = repo.insert_loop_event(
             loop_id=updated.id,
             event_type=LoopEventType.UPDATE.value,
-            payload={"fields": dict(fields)},
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.UPDATE.value,
+            payload=event_payload,
             conn=conn,
         )
         project = repo.read_project_name(project_id=updated.project_id, conn=conn)
@@ -1172,8 +1207,14 @@ def bulk_close_loops(
             payload["note"] = note
         if closed_at:
             payload["closed_at_utc"] = closed_at
-        repo.insert_loop_event(
+        event_id = repo.insert_loop_event(
             loop_id=loop_id,
+            event_type=event_type,
+            payload=payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
             event_type=event_type,
             payload=payload,
             conn=conn,
@@ -1335,10 +1376,17 @@ def bulk_snooze_loops(
             "user_locks_json": json.dumps(sorted(locked_fields)),
         }
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
-        repo.insert_loop_event(
+        event_payload = {"fields": {"snooze_until_utc": snooze_until_utc}}
+        event_id = repo.insert_loop_event(
             loop_id=updated.id,
             event_type=LoopEventType.UPDATE.value,
-            payload={"fields": {"snooze_until_utc": snooze_until_utc}},
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.UPDATE.value,
+            payload=event_payload,
             conn=conn,
         )
         project = repo.read_project_name(project_id=updated.project_id, conn=conn)
