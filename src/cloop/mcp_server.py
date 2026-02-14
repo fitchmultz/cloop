@@ -333,15 +333,25 @@ def loop_close(
 @with_db_init
 @with_mcp_error_handling
 def loop_list(
-    status: str | None = None, limit: int = DEFAULT_LOOP_LIST_LIMIT, offset: int = 0
-) -> list[dict[str, Any]]:
+    status: str | None = None, limit: int = DEFAULT_LOOP_LIST_LIMIT, cursor: str | None = None
+) -> dict[str, Any]:
+    """List loops with optional status filter and cursor-based pagination.
+
+    Args:
+        status: Optional status filter (inbox, actionable, blocked, scheduled, completed, dropped)
+        limit: Maximum number of results (default: 50)
+        cursor: Optional cursor token for continuation
+
+    Returns:
+        Dict with items, next_cursor (or None), and limit
+    """
     settings = get_settings()
     parsed_status = LoopStatus(status) if status else None
     with db.core_connection(settings) as conn:
-        return loop_service.list_loops(
+        return loop_service.list_loops_page(
             status=parsed_status,
             limit=limit,
-            offset=offset,
+            cursor=cursor,
             conn=conn,
         )
 
@@ -350,9 +360,9 @@ def loop_list(
 @with_db_init
 @with_mcp_error_handling
 def loop_search(
-    query: str, limit: int = DEFAULT_LOOP_LIST_LIMIT, offset: int = 0
-) -> list[dict[str, Any]]:
-    """Search loops using the DSL query language.
+    query: str, limit: int = DEFAULT_LOOP_LIST_LIMIT, cursor: str | None = None
+) -> dict[str, Any]:
+    """Search loops using the DSL query language with cursor-based pagination.
 
     Query syntax:
         - status:<value> where value in {open, all, inbox, actionable,
@@ -367,11 +377,19 @@ def loop_search(
         - "status:inbox tag:work due:today"
         - "project:ClientAlpha blocked"
         - "status:open groceries"
+
+    Args:
+        query: DSL query string
+        limit: Maximum number of results (default: 50)
+        cursor: Optional cursor token for continuation
+
+    Returns:
+        Dict with items, next_cursor (or None), and limit
     """
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.search_loops_by_query(
-            query=query, limit=limit, offset=offset, conn=conn
+        return loop_service.search_loops_by_query_page(
+            query=query, limit=limit, cursor=cursor, conn=conn
         )
 
 
@@ -595,26 +613,196 @@ def loop_view_delete(
 def loop_view_apply(
     view_id: int,
     limit: int = DEFAULT_LOOP_LIST_LIMIT,
-    offset: int = 0,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
-    """Apply a saved view and return matching loops.
+    """Apply a saved view and return matching loops with cursor-based pagination.
 
     Args:
         view_id: View ID to apply
         limit: Max results (default: 50)
-        offset: Pagination offset (default: 0)
+        cursor: Optional cursor token for continuation
 
     Returns:
-        Dict with view info and matching loops in 'items' key
+        Dict with view info, query, limit, cursor, next_cursor (or None), and items
     """
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.apply_loop_view(
+        return loop_service.apply_loop_view_page(
             view_id=view_id,
             limit=limit,
-            offset=offset,
+            cursor=cursor,
             conn=conn,
         )
+
+
+@mcp.tool(name="loop.bulk_update")
+@with_db_init
+@with_mcp_error_handling
+def loop_bulk_update(
+    updates: list[dict[str, Any]],
+    transactional: bool = False,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Bulk update multiple loops with per-item result envelopes.
+
+    Args:
+        updates: List of updates, each with:
+            - loop_id: int (required)
+            - fields: dict (required) - fields to update (not status)
+        transactional: If True, rollback all on any failure (default: False)
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with:
+            - ok: bool (True if all succeeded)
+            - transactional: bool
+            - results: list of per-item results with index, loop_id, ok, loop/error
+            - succeeded: int count
+            - failed: int count
+    """
+    settings = get_settings()
+
+    payload = {"updates": updates, "transactional": transactional}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.bulk_update",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.bulk_update_loops(
+            updates=updates,
+            transactional=transactional,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.bulk_update",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.bulk_close")
+@with_db_init
+@with_mcp_error_handling
+def loop_bulk_close(
+    items: list[dict[str, Any]],
+    transactional: bool = False,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Bulk close multiple loops with per-item result envelopes.
+
+    Args:
+        items: List of items, each with:
+            - loop_id: int (required)
+            - status: str (optional, default: "completed", must be completed or dropped)
+            - note: str (optional, completion note)
+        transactional: If True, rollback all on any failure (default: False)
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with:
+            - ok: bool (True if all succeeded)
+            - transactional: bool
+            - results: list of per-item results with index, loop_id, ok, loop/error
+            - succeeded: int count
+            - failed: int count
+    """
+    settings = get_settings()
+
+    payload = {"items": items, "transactional": transactional}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.bulk_close",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.bulk_close_loops(
+            items=items,
+            transactional=transactional,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.bulk_close",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.bulk_snooze")
+@with_db_init
+@with_mcp_error_handling
+def loop_bulk_snooze(
+    items: list[dict[str, Any]],
+    transactional: bool = False,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Bulk snooze multiple loops with per-item result envelopes.
+
+    Args:
+        items: List of items, each with:
+            - loop_id: int (required)
+            - snooze_until_utc: str (required, ISO 8601 timestamp)
+        transactional: If True, rollback all on any failure (default: False)
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with:
+            - ok: bool (True if all succeeded)
+            - transactional: bool
+            - results: list of per-item results with index, loop_id, ok, loop/error
+            - succeeded: int count
+            - failed: int count
+    """
+    settings = get_settings()
+
+    for item in items:
+        if "snooze_until_utc" in item and item["snooze_until_utc"] is not None:
+            validate_iso8601_timestamp(item["snooze_until_utc"], "snooze_until_utc")
+
+    payload = {"items": items, "transactional": transactional}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.bulk_snooze",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.bulk_snooze_loops(
+            items=items,
+            transactional=transactional,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.bulk_snooze",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
 
 
 @mcp.tool(name="project.list")

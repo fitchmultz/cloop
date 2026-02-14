@@ -360,7 +360,6 @@ def test_loop_list_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test listing all loops."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create some loops
     for i in range(3):
         loop_create(
             raw_text=f"Loop {i}",
@@ -370,14 +369,15 @@ def test_loop_list_all(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = loop_list()
 
-    assert len(result) == 3
+    assert len(result["items"]) == 3
+    assert "next_cursor" in result
+    assert result["limit"] == 50
 
 
 def test_loop_list_by_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test listing loops filtered by status."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create inbox and actionable loops
     loop_create(
         raw_text="Inbox item",
         captured_at=_now_iso(),
@@ -392,19 +392,18 @@ def test_loop_list_by_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
 
     inbox_results = loop_list(status="inbox")
-    assert len(inbox_results) == 1
-    assert inbox_results[0]["status"] == "inbox"
+    assert len(inbox_results["items"]) == 1
+    assert inbox_results["items"][0]["status"] == "inbox"
 
     actionable_results = loop_list(status="actionable")
-    assert len(actionable_results) == 1
-    assert actionable_results[0]["status"] == "actionable"
+    assert len(actionable_results["items"]) == 1
+    assert actionable_results["items"][0]["status"] == "actionable"
 
 
-def test_loop_list_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test loop list pagination with limit and offset."""
+def test_loop_list_cursor_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop list cursor-based pagination."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create multiple loops
     for i in range(5):
         loop_create(
             raw_text=f"Loop {i}",
@@ -412,13 +411,23 @@ def test_loop_list_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
             client_tz_offset_min=0,
         )
 
-    page1 = loop_list(limit=2, offset=0)
-    page2 = loop_list(limit=2, offset=2)
-    page3 = loop_list(limit=2, offset=4)
+    page1 = loop_list(limit=2, cursor=None)
+    assert len(page1["items"]) == 2
+    assert page1["next_cursor"] is not None
 
-    assert len(page1) == 2
-    assert len(page2) == 2
-    assert len(page3) == 1
+    page2 = loop_list(limit=2, cursor=page1["next_cursor"])
+    assert len(page2["items"]) == 2
+    assert page2["next_cursor"] is not None
+
+    page3 = loop_list(limit=2, cursor=page2["next_cursor"])
+    assert len(page3["items"]) == 1
+    assert page3["next_cursor"] is None
+
+    page1_ids = {item["id"] for item in page1["items"]}
+    page2_ids = {item["id"] for item in page2["items"]}
+    page3_ids = {item["id"] for item in page3["items"]}
+    assert page1_ids.isdisjoint(page2_ids)
+    assert page2_ids.isdisjoint(page3_ids)
 
 
 def test_loop_list_returns_all_open_statuses(
@@ -427,7 +436,6 @@ def test_loop_list_returns_all_open_statuses(
     """Test that list without status returns all open loops."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create loops in various open statuses
     loop_create(
         raw_text="Inbox loop",
         captured_at=_now_iso(),
@@ -441,10 +449,9 @@ def test_loop_list_returns_all_open_statuses(
         status="actionable",
     )
 
-    # Default list should show all open loops
     result = loop_list()
-    assert len(result) == 2
-    statuses = {r["status"] for r in result}
+    assert len(result["items"]) == 2
+    statuses = {r["status"] for r in result["items"]}
     assert statuses == {"inbox", "actionable"}
 
 
@@ -460,8 +467,8 @@ def test_loop_list_completed_status(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     loop_close(loop_id=created["id"], status="completed")
 
     completed = loop_list(status="completed")
-    assert len(completed) == 1
-    assert completed[0]["status"] == "completed"
+    assert len(completed["items"]) == 1
+    assert completed["items"][0]["status"] == "completed"
 
 
 # =============================================================================
@@ -486,8 +493,8 @@ def test_loop_search_finds_matching_text(tmp_path: Path, monkeypatch: pytest.Mon
 
     results = loop_search(query="groceries")
 
-    assert len(results) == 1
-    assert "groceries" in results[0]["raw_text"]
+    assert len(results["items"]) == 1
+    assert "groceries" in results["items"][0]["raw_text"]
 
 
 def test_loop_search_case_insensitive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -503,8 +510,8 @@ def test_loop_search_case_insensitive(tmp_path: Path, monkeypatch: pytest.Monkey
     results_lower = loop_search(query="groceries")
     results_upper = loop_search(query="GROCERIES")
 
-    assert len(results_lower) == 1
-    assert len(results_upper) == 1
+    assert len(results_lower["items"]) == 1
+    assert len(results_upper["items"]) == 1
 
 
 def test_loop_search_no_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -519,14 +526,13 @@ def test_loop_search_no_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     results = loop_search(query="nonexistent")
 
-    assert results == []
+    assert results["items"] == []
 
 
 def test_loop_search_with_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test search respects limit parameter."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create multiple matching loops
     for i in range(5):
         loop_create(
             raw_text=f"Task {i} with common keyword",
@@ -536,30 +542,28 @@ def test_loop_search_with_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
     results = loop_search(query="common", limit=3)
 
-    assert len(results) == 3
+    assert len(results["items"]) == 3
 
 
 def test_loop_search_escapes_sql_wildcards(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that SQL wildcards are escaped in search."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create loop with % in text
     loop_create(
         raw_text="50% discount",
         captured_at=_now_iso(),
         client_tz_offset_min=0,
     )
     loop_create(
-        raw_text="500 discount",  # Should not match
+        raw_text="500 discount",
         captured_at=_now_iso(),
         client_tz_offset_min=0,
     )
 
     results = loop_search(query="50%")
 
-    # Should only match the literal "50%"
-    assert len(results) == 1
-    assert "50%" in results[0]["raw_text"]
+    assert len(results["items"]) == 1
+    assert "50%" in results["items"][0]["raw_text"]
 
 
 # =============================================================================
@@ -702,10 +706,9 @@ def test_loop_enrich_sets_pending_state(tmp_path: Path, monkeypatch: pytest.Monk
     with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
         loop_enrich(loop_id=created["id"])
 
-    # Verify loop is in COMPLETE state after enrichment
     result = loop_list(status="inbox")
-    assert len(result) == 1
-    assert result[0]["enrichment_state"] == "complete"
+    assert len(result["items"]) == 1
+    assert result["items"][0]["enrichment_state"] == "complete"
 
 
 # =============================================================================
@@ -818,7 +821,6 @@ def test_multiple_loops_search_and_filter(tmp_path: Path, monkeypatch: pytest.Mo
     """Test creating multiple loops and filtering/searching them."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    # Create loops with different statuses and projects
     loop1 = loop_create(
         raw_text="Buy groceries",
         captured_at=_now_iso(),
@@ -843,21 +845,18 @@ def test_multiple_loops_search_and_filter(tmp_path: Path, monkeypatch: pytest.Mo
     )
     loop_update(loop_id=loop3["id"], fields={"project": "Work", "tags": ["meeting"]})
 
-    # Test filtering by status
     actionable_loops = loop_list(status="actionable")
-    assert len(actionable_loops) == 1
-    assert actionable_loops[0]["raw_text"] == "Buy groceries"
+    assert len(actionable_loops["items"]) == 1
+    assert actionable_loops["items"][0]["raw_text"] == "Buy groceries"
 
     blocked_loops = loop_list(status="blocked")
-    assert len(blocked_loops) == 1
+    assert len(blocked_loops["items"]) == 1
 
-    # Test search
     search_results = loop_search(query="groceries")
-    assert len(search_results) == 1
+    assert len(search_results["items"]) == 1
 
-    # Test project list
     projects = project_list()
-    assert len(projects) == 2  # Personal and Work
+    assert len(projects) == 2
 
 
 # =============================================================================
@@ -1461,3 +1460,600 @@ def test_mcp_different_tools_allow_same_request_id(
     with sqlite3.connect(settings.core_db_path) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
+
+
+# =============================================================================
+# Cursor pagination tests
+# =============================================================================
+
+
+def test_loop_list_cursor_first_page_structure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor first page returns items, next_cursor, limit."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(3):
+        loop_create(
+            raw_text=f"Loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    result = loop_list(limit=2, cursor=None)
+
+    assert "items" in result
+    assert "next_cursor" in result
+    assert "limit" in result
+    assert result["limit"] == 2
+    assert len(result["items"]) == 2
+    assert result["next_cursor"] is not None
+
+
+def test_loop_list_cursor_subsequent_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Subsequent page with cursor returns non-overlapping segment."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(5):
+        loop_create(
+            raw_text=f"Loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    page1 = loop_list(limit=2, cursor=None)
+    page2 = loop_list(limit=2, cursor=page1["next_cursor"])
+
+    page1_ids = {item["id"] for item in page1["items"]}
+    page2_ids = {item["id"] for item in page2["items"]}
+    assert page1_ids.isdisjoint(page2_ids)
+
+
+def test_loop_list_cursor_final_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Final page yields next_cursor is None."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(3):
+        loop_create(
+            raw_text=f"Loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    page1 = loop_list(limit=2, cursor=None)
+    page2 = loop_list(limit=2, cursor=page1["next_cursor"])
+
+    assert page2["next_cursor"] is None
+
+
+def test_loop_list_malformed_cursor_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Malformed cursor raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="invalid cursor"):
+        loop_list(cursor="not-a-valid-cursor")
+
+
+def test_loop_list_cursor_query_mismatch_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor/query mismatch raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(5):
+        loop_create(
+            raw_text=f"Loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    page_inbox = loop_list(status="inbox", limit=2, cursor=None)
+
+    with pytest.raises(ToolError, match="cursor does not match"):
+        loop_list(status="actionable", cursor=page_inbox["next_cursor"])
+
+
+def test_loop_list_cursor_stability_under_concurrent_writes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor pagination is deterministic under concurrent writes."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(5):
+        loop_create(
+            raw_text=f"Loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    page1 = loop_list(limit=3, cursor=None)
+
+    loop_create(
+        raw_text="New loop inserted",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    page2 = loop_list(limit=3, cursor=page1["next_cursor"])
+
+    page1_ids = [item["id"] for item in page1["items"]]
+    page2_ids = [item["id"] for item in page2["items"]]
+
+    assert page1_ids == sorted(page1_ids, reverse=True)
+    assert page2_ids == sorted(page2_ids, reverse=True)
+    assert set(page1_ids).isdisjoint(set(page2_ids))
+
+
+def test_loop_list_cursor_includes_imported_same_day_iso_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cursor list includes imported rows whose updated_at uses ISO8601 format."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.loops import service as loop_service
+
+    settings = get_settings()
+    same_day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    with db.core_connection(settings) as conn:
+        loop_service.import_loops(
+            loops=[
+                {
+                    "raw_text": "Imported same-day",
+                    "status": "inbox",
+                    "captured_at_utc": same_day.isoformat(),
+                    "created_at_utc": same_day.isoformat(),
+                    "updated_at_utc": same_day.isoformat(),
+                }
+            ],
+            conn=conn,
+        )
+
+    result = loop_list(limit=10, cursor=None)
+    assert [item["raw_text"] for item in result["items"]] == ["Imported same-day"]
+
+
+def test_loop_search_cursor_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Search uses cursor-based pagination."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(5):
+        loop_create(
+            raw_text=f"Task {i} with keyword",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    page1 = loop_search(query="keyword", limit=2, cursor=None)
+    assert len(page1["items"]) == 2
+    assert page1["next_cursor"] is not None
+
+    page2 = loop_search(query="keyword", limit=2, cursor=page1["next_cursor"])
+    assert len(page2["items"]) == 2
+    assert page2["next_cursor"] is not None
+
+    page3 = loop_search(query="keyword", limit=2, cursor=page2["next_cursor"])
+    assert len(page3["items"]) == 1
+    assert page3["next_cursor"] is None
+
+    page1_ids = {item["id"] for item in page1["items"]}
+    page2_ids = {item["id"] for item in page2["items"]}
+    page3_ids = {item["id"] for item in page3["items"]}
+    assert page1_ids.isdisjoint(page2_ids)
+    assert page1_ids.isdisjoint(page3_ids)
+    assert page2_ids.isdisjoint(page3_ids)
+
+
+def test_loop_search_cursor_mismatch_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search cursor/query mismatch raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    for i in range(5):
+        loop_create(
+            raw_text=f"Task {i} keyword",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+
+    page1 = loop_search(query="keyword", limit=2, cursor=None)
+
+    with pytest.raises(ToolError, match="cursor does not match"):
+        loop_search(query="different", cursor=page1["next_cursor"])
+
+
+def test_loop_search_status_all_enforces_snapshot_cutoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Search status:all still applies snapshot filter at row level."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.loops import service as loop_service
+
+    loop_create(
+        raw_text="Visible now",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    settings = get_settings()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    future = now + timedelta(days=1)
+    with db.core_connection(settings) as conn:
+        loop_service.import_loops(
+            loops=[
+                {
+                    "raw_text": "Future imported",
+                    "status": "inbox",
+                    "captured_at_utc": now.isoformat(),
+                    "created_at_utc": now.isoformat(),
+                    "updated_at_utc": future.isoformat(),
+                }
+            ],
+            conn=conn,
+        )
+
+    result = loop_search(query="status:all", limit=50, cursor=None)
+    texts = {item["raw_text"] for item in result["items"]}
+    assert "Visible now" in texts
+    assert "Future imported" not in texts
+
+
+# =============================================================================
+# Bulk mutation tests
+# =============================================================================
+
+
+def test_loop_bulk_update_mixed_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bulk update with mixed valid/invalid returns mixed results."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_update
+
+    valid1 = loop_create(
+        raw_text="Valid 1",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    valid2 = loop_create(
+        raw_text="Valid 2",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result = loop_bulk_update(
+        updates=[
+            {"loop_id": valid1["id"], "fields": {"title": "Updated 1"}},
+            {"loop_id": 99999, "fields": {"title": "Invalid"}},
+            {"loop_id": valid2["id"], "fields": {"title": "Updated 2"}},
+        ],
+        transactional=False,
+    )
+
+    assert result["ok"] is False
+    assert result["transactional"] is False
+    assert result["succeeded"] == 2
+    assert result["failed"] == 1
+    assert len(result["results"]) == 3
+
+    assert result["results"][0]["ok"] is True
+    assert result["results"][0]["loop"]["title"] == "Updated 1"
+
+    assert result["results"][1]["ok"] is False
+    assert result["results"][1]["error"]["code"] == "not_found"
+
+    assert result["results"][2]["ok"] is True
+
+
+def test_loop_bulk_update_transactional_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bulk update transactional mode rolls back all on single invalid."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_update
+
+    valid = loop_create(
+        raw_text="Valid",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result = loop_bulk_update(
+        updates=[
+            {"loop_id": valid["id"], "fields": {"title": "Should Rollback"}},
+            {"loop_id": 99999, "fields": {"title": "Invalid"}},
+        ],
+        transactional=True,
+    )
+
+    assert result["ok"] is False
+    assert result["transactional"] is True
+    assert result["succeeded"] == 0
+    assert result["failed"] == 2
+
+    assert result["results"][0]["ok"] is False
+    assert result["results"][0]["error"]["code"] == "transaction_rollback"
+    assert result["results"][0]["error"]["rolled_back"] is True
+    assert result["results"][1]["ok"] is False
+    assert result["results"][1]["error"]["code"] == "not_found"
+    assert result["results"][1]["error"]["rolled_back"] is True
+
+    check = loop_list(status="inbox")
+    assert len(check["items"]) == 1
+    assert check["items"][0]["title"] is None
+
+
+def test_loop_bulk_close_mixed_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bulk close with mixed valid/invalid returns mixed results."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_close
+
+    valid1 = loop_create(
+        raw_text="Valid 1",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    valid2 = loop_create(
+        raw_text="Valid 2",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result = loop_bulk_close(
+        items=[
+            {"loop_id": valid1["id"], "status": "completed", "note": "Done 1"},
+            {"loop_id": 99999, "status": "completed"},
+            {"loop_id": valid2["id"], "status": "dropped"},
+        ],
+        transactional=False,
+    )
+
+    assert result["ok"] is False
+    assert result["succeeded"] == 2
+    assert result["failed"] == 1
+
+    assert result["results"][0]["ok"] is True
+    assert result["results"][0]["loop"]["status"] == "completed"
+    assert result["results"][0]["loop"]["completion_note"] == "Done 1"
+
+    assert result["results"][1]["ok"] is False
+    assert result["results"][1]["error"]["code"] == "not_found"
+
+    assert result["results"][2]["ok"] is True
+    assert result["results"][2]["loop"]["status"] == "dropped"
+
+
+def test_loop_bulk_close_transactional_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bulk close transactional mode rolls back all on single invalid."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_close
+
+    valid = loop_create(
+        raw_text="Valid",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result = loop_bulk_close(
+        items=[
+            {"loop_id": valid["id"], "status": "completed"},
+            {"loop_id": 99999, "status": "completed"},
+        ],
+        transactional=True,
+    )
+
+    assert result["ok"] is False
+    assert result["transactional"] is True
+    assert result["succeeded"] == 0
+    assert result["failed"] == 2
+
+    assert result["results"][0]["error"]["code"] == "transaction_rollback"
+    assert result["results"][0]["error"]["rolled_back"] is True
+    assert result["results"][1]["error"]["code"] == "not_found"
+    assert result["results"][1]["error"]["rolled_back"] is True
+
+    check = loop_list(status="inbox")
+    assert len(check["items"]) == 1
+
+
+def test_loop_bulk_snooze_mixed_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bulk snooze with mixed valid/invalid returns mixed results."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_snooze
+
+    valid1 = loop_create(
+        raw_text="Valid 1",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    valid2 = loop_create(
+        raw_text="Valid 2",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    snooze_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(timespec="seconds")
+
+    result = loop_bulk_snooze(
+        items=[
+            {"loop_id": valid1["id"], "snooze_until_utc": snooze_time},
+            {"loop_id": 99999, "snooze_until_utc": snooze_time},
+            {"loop_id": valid2["id"], "snooze_until_utc": snooze_time},
+        ],
+        transactional=False,
+    )
+
+    assert result["ok"] is False
+    assert result["succeeded"] == 2
+    assert result["failed"] == 1
+
+    assert result["results"][0]["ok"] is True
+    assert result["results"][0]["loop"]["snooze_until_utc"] == snooze_time
+
+    assert result["results"][1]["ok"] is False
+    assert result["results"][1]["error"]["code"] == "not_found"
+
+    assert result["results"][2]["ok"] is True
+
+
+def test_loop_bulk_snooze_transactional_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bulk snooze transactional mode rolls back all on single invalid."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_snooze
+
+    valid = loop_create(
+        raw_text="Valid",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    snooze_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(timespec="seconds")
+
+    result = loop_bulk_snooze(
+        items=[
+            {"loop_id": valid["id"], "snooze_until_utc": snooze_time},
+            {"loop_id": 99999, "snooze_until_utc": snooze_time},
+        ],
+        transactional=True,
+    )
+
+    assert result["ok"] is False
+    assert result["transactional"] is True
+    assert result["succeeded"] == 0
+    assert result["failed"] == 2
+    assert result["results"][0]["error"]["code"] == "transaction_rollback"
+    assert result["results"][0]["error"]["rolled_back"] is True
+    assert result["results"][1]["error"]["code"] == "not_found"
+    assert result["results"][1]["error"]["rolled_back"] is True
+
+    check = loop_list(status="inbox")
+    assert len(check["items"]) == 1
+    assert check["items"][0]["snooze_until_utc"] is None
+
+
+def test_loop_bulk_update_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id + same args for bulk_update replays."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_update
+
+    valid = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result1 = loop_bulk_update(
+        updates=[{"loop_id": valid["id"], "fields": {"title": "Updated"}}],
+        transactional=False,
+        request_id="bulk-update-key",
+    )
+
+    result2 = loop_bulk_update(
+        updates=[{"loop_id": valid["id"], "fields": {"title": "Updated"}}],
+        transactional=False,
+        request_id="bulk-update-key",
+    )
+
+    assert result1 == result2
+
+
+def test_loop_bulk_update_idempotency_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id + different bulk_update args raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_update
+
+    valid = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    loop_bulk_update(
+        updates=[{"loop_id": valid["id"], "fields": {"title": "First"}}],
+        transactional=False,
+        request_id="bulk-update-conflict",
+    )
+
+    with pytest.raises(ToolError, match="Idempotency conflict"):
+        loop_bulk_update(
+            updates=[{"loop_id": valid["id"], "fields": {"title": "Different"}}],
+            transactional=False,
+            request_id="bulk-update-conflict",
+        )
+
+
+def test_loop_bulk_close_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id + same args for bulk_close replays."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_close
+
+    valid = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    result1 = loop_bulk_close(
+        items=[{"loop_id": valid["id"], "status": "completed"}],
+        transactional=False,
+        request_id="bulk-close-key",
+    )
+
+    result2 = loop_bulk_close(
+        items=[{"loop_id": valid["id"], "status": "completed"}],
+        transactional=False,
+        request_id="bulk-close-key",
+    )
+
+    assert result1 == result2
+
+
+def test_loop_bulk_snooze_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id + same args for bulk_snooze replays."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    from cloop.mcp_server import loop_bulk_snooze
+
+    valid = loop_create(
+        raw_text="Test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    snooze_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(timespec="seconds")
+
+    result1 = loop_bulk_snooze(
+        items=[{"loop_id": valid["id"], "snooze_until_utc": snooze_time}],
+        transactional=False,
+        request_id="bulk-snooze-key",
+    )
+
+    result2 = loop_bulk_snooze(
+        items=[{"loop_id": valid["id"], "snooze_until_utc": snooze_time}],
+        transactional=False,
+        request_id="bulk-snooze-key",
+    )
+
+    assert result1 == result2

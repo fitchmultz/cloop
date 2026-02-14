@@ -526,8 +526,8 @@ def test_cross_surface_parity_search(
         cli_items = _parse_last_json(capsys)
         cli_ids = [item["id"] for item in cli_items]
 
-        mcp_items = mcp_loop_search(query=query, limit=50, offset=0)
-        mcp_ids = [item["id"] for item in mcp_items]
+        mcp_items = mcp_loop_search(query=query, limit=50, cursor=None)
+        mcp_ids = [item["id"] for item in mcp_items["items"]]
 
         assert api_ids == cli_ids == mcp_ids
 
@@ -591,13 +591,14 @@ def test_cross_surface_saved_view_apply_parity(
     cli_payload = _parse_last_json(capsys)
     cli_ids = [item["id"] for item in cli_payload["items"]]
 
-    mcp_payload = mcp_loop_view_apply(view_id=view_id, limit=10, offset=0)
+    mcp_payload = mcp_loop_view_apply(view_id=view_id, limit=10, cursor=None)
     mcp_ids = [item["id"] for item in mcp_payload["items"]]
 
     assert cli_payload["view"]["id"] == view_id
     assert cli_payload["query"] == "project:alpha tag:work"
     assert cli_payload["limit"] == 10
-    assert cli_payload["offset"] == 0
+    assert "offset" in cli_payload
+    assert "next_cursor" in mcp_payload
     assert api_ids == cli_ids == mcp_ids
 
 
