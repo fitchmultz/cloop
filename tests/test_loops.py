@@ -1,3 +1,4 @@
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -530,6 +531,68 @@ def test_tag_normalization_and_filter(tmp_path: Path, monkeypatch: pytest.Monkey
     tags_after = client.get("/loops/tags")
     assert tags_after.status_code == 200
     assert tags_after.json() == []
+
+
+def test_replace_loop_tags_query_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify replace_loop_tags uses O(1) queries, not O(n)."""
+    from cloop.db import core_connection
+    from cloop.loops import repo
+
+    _make_client(tmp_path, monkeypatch)  # Sets up the test database
+
+    class CountingConnection:
+        """Wrapper that counts execute and executemany calls."""
+
+        def __init__(self, conn: sqlite3.Connection):
+            self._conn = conn
+            self.execute_count = 0
+            self.executemany_count = 0
+
+        def execute(self, *args, **kwargs):
+            self.execute_count += 1
+            return self._conn.execute(*args, **kwargs)
+
+        def executemany(self, *args, **kwargs):
+            self.executemany_count += 1
+            return self._conn.executemany(*args, **kwargs)
+
+        def __getattr__(self, name):
+            return getattr(self._conn, name)
+
+    with core_connection(get_settings()) as conn:
+        # Create a loop
+        record = repo.create_loop(
+            raw_text="test loop",
+            captured_at_utc=_now_iso(),
+            captured_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+
+        counting_conn = CountingConnection(conn)
+
+        # Replace tags with 10 tags
+        tags = [f"tag{i}" for i in range(10)]
+        repo.replace_loop_tags(loop_id=record.id, tag_names=tags, conn=counting_conn)  # type: ignore[arg-type]
+
+        # With batch operations, we expect:
+        # - 1 DELETE loop_tags
+        # - 1 SELECT existing tags
+        # - 1 executemany INSERT new tags (or 0 if all exist)
+        # - 1 SELECT to get new tag IDs (if any inserted)
+        # - 1 executemany INSERT loop_tags
+        # - 1 DELETE orphaned tags
+        # Total: ~5-6 execute calls + 2 executemany calls
+
+        # Before fix: ~30+ execute calls (N+1 pattern)
+        # After fix: <= 6 execute calls
+        assert counting_conn.execute_count <= 6, (
+            f"Expected <= 6 execute calls with batch operations, "
+            f"got {counting_conn.execute_count} (N+1 pattern detected)"
+        )
+        assert counting_conn.executemany_count >= 1, (
+            "Expected executemany to be used for batch inserts"
+        )
 
 
 def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
