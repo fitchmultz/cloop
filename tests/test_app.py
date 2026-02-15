@@ -501,6 +501,102 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert "rag-sources" in html
 
 
+def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify the index.html contains Next Actions tab and bucket elements."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    # Check for Next tab
+    assert 'data-tab="next"' in html
+
+    # Check for Next view container
+    assert 'id="next-main"' in html
+    assert 'id="next-buckets"' in html
+
+    # Check for bucket CSS classes
+    assert "next-bucket" in html
+    assert "bucket-due_soon" in html.replace(" ", "") or "due_soon" in html
+    assert "bucket-quick_wins" in html.replace(" ", "") or "quick_wins" in html
+    assert "bucket-high_leverage" in html.replace(" ", "") or "high_leverage" in html
+
+    # Check for refresh button
+    assert 'id="refresh-next-btn"' in html
+
+    # Check for priority badge styles
+    assert "priority-score" in html or "priority-" in html
+
+
+def test_loops_next_endpoint_data_flow(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify /loops/next returns expected bucket structure that UI can render.
+
+    This test ensures the API returns data in the format the Next view expects,
+    with all fields needed for renderLoop() and renderPriorityBadges().
+    """
+    # Create some loops with enrichment data (use inbox status to avoid autopilot)
+    for i in range(3):
+        response = test_client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Task {i} for next view",
+                "captured_at": "2024-01-01T12:00:00Z",
+                "client_tz_offset_min": 0,
+                "actionable": False,  # inbox status - no autopilot
+            },
+        )
+        assert response.status_code == 200
+        loop_id = response.json()["id"]
+
+        # Update with next_action and enrichment data to make it appear in next view
+        test_client.patch(
+            f"/loops/{loop_id}",
+            json={
+                "next_action": f"Do task {i}",
+                "urgency": 0.8 if i == 0 else 0.5,
+                "importance": 0.9 if i == 1 else 0.4,
+                "time_minutes": 15 if i == 0 else 60,
+                "activation_energy": 1 if i == 0 else 2,
+            },
+        )
+
+    # Get next loops
+    next_response = test_client.get("/loops/next?limit=10")
+    assert next_response.status_code == 200
+    data = next_response.json()
+
+    # Verify bucket structure matches UI expectations
+    assert "due_soon" in data
+    assert "quick_wins" in data
+    assert "high_leverage" in data
+    assert "standard" in data
+
+    # Each bucket should be a list
+    for bucket_name in ["due_soon", "quick_wins", "high_leverage", "standard"]:
+        assert isinstance(data[bucket_name], list)
+
+    # Verify at least some loops were categorized
+    total_loops = sum(len(data[b]) for b in ["due_soon", "quick_wins", "high_leverage", "standard"])
+    assert total_loops > 0, "Expected at least one loop to be categorized"
+
+    # Verify fields needed by renderLoop() and renderPriorityBadges()
+    for bucket_name in ["due_soon", "quick_wins", "high_leverage", "standard"]:
+        for loop in data[bucket_name]:
+            # Core fields needed by renderLoop()
+            assert "id" in loop, "Loop missing id field"
+            assert "raw_text" in loop, "Loop missing raw_text field"
+            assert "status" in loop, "Loop missing status field"
+            assert "captured_at_utc" in loop, "Loop missing captured_at_utc field"
+            assert "updated_at_utc" in loop, "Loop missing updated_at_utc field"
+            assert "tags" in loop, "Loop missing tags field"
+            assert isinstance(loop["tags"], list), "tags should be a list"
+
+            # Fields needed by renderPriorityBadges()
+            # These may be null for unenriched loops, but the fields should exist
+            assert "urgency" in loop, "Loop missing urgency field"
+            assert "importance" in loop, "Loop missing importance field"
+            assert "activation_energy" in loop, "Loop missing activation_energy field"
+
+
 def test_chat_streaming_ui_flow(test_client: TestClient, tmp_data_dir: Path) -> None:
     """Test chat streaming works end-to-end for UI consumption."""
     payload = {"messages": [{"role": "user", "content": "Hello"}], "tool_mode": "none"}

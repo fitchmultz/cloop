@@ -181,10 +181,14 @@ def test_client(
 
     This fixture:
     1. Sets up a temporary data directory
-    2. Patches litellm.completion and litellm.embedding
-    3. Patches stream_completion in all modules that import it
-    4. Returns a TestClient ready for API testing
+    2. Disables autopilot to avoid background enrichment
+    3. Patches litellm.completion and litellm.embedding
+    4. Patches stream_completion in all modules that import it
+    5. Returns a TestClient ready for API testing
     """
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+
     monkeypatch.setattr("cloop.llm.litellm.completion", mock_completion)
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding_response)
     monkeypatch.setattr("cloop.llm.stream_completion", mock_stream_completion)
