@@ -610,6 +610,53 @@
       .priority-urgency { color: #c0392b; }
       .priority-importance { color: #d68910; }
       .priority-energy { color: #27ae60; }
+
+      /* Timer styles */
+      .timer-btn {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 4px 10px;
+        cursor: pointer;
+        font-size: 13px;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .timer-btn:hover {
+        background: var(--bg-accent);
+        border-color: var(--brand);
+      }
+      .timer-btn.running {
+        background: var(--brand);
+        color: white;
+        border-color: var(--brand);
+        animation: pulse 2s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+      .timer-display {
+        font-family: "Space Grotesk", monospace;
+        font-size: 13px;
+        color: var(--muted);
+        min-width: 50px;
+        display: inline-block;
+      }
+      .timer-display.active {
+        color: var(--brand);
+        font-weight: 600;
+      }
+      .timer-section {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        border-top: 1px dashed var(--border);
+        margin-top: 6px;
+      }
       @keyframes rise {
         from {
           opacity: 0;
@@ -950,13 +997,23 @@
               placeholder="What's blocking this?"
             >
           </div>
-          <div class="loop-actions">
-            <button class="secondary" data-action="complete" data-id="${loop.id}">
-              Complete
-            </button>
-            <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich</button>
-            <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
-          </div>
+          <div class="timer-section">
+          <button class="timer-btn ${loop.timer_running ? 'running' : ''}" data-action="timer-toggle" data-id="${loop.id}" data-running="${loop.timer_running ? 'true' : 'false'}">
+            ${loop.timer_running ? '⏹ Stop' : '▶ Start'}
+          </button>
+          <span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">
+            ${loop.timer_display || ''}
+          </span>
+          ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
+          ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
+        </div>
+        <div class="loop-actions">
+          <button class="secondary" data-action="complete" data-id="${loop.id}">
+            Complete
+          </button>
+          <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich</button>
+          <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
+        </div>
           <div class="completion-note-row ${completionVisible ? "visible" : ""}">
             <span class="inline-label">completion note</span>
             <input
@@ -1055,6 +1112,155 @@
         queueNextActionResize(inbox);
         await loadTags();
         await loadViews();
+        // Load timer statuses after loops are rendered
+        await loadAllTimerStatuses();
+      }
+
+      // Timer state management
+      const activeTimers = new Map(); // loop_id -> { session_id, started_at, interval_id }
+
+      async function loadTimerStatus(loopId) {
+        try {
+          const response = await fetch(`/loops/${loopId}/timer/status`);
+          if (!response.ok) return null;
+          return await response.json();
+        } catch (e) {
+          console.warn("Failed to load timer status:", e);
+          return null;
+        }
+      }
+
+      function formatDuration(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        if (mins === 0) return `${secs}s`;
+        return `${mins}m ${secs.toString().padStart(2, '0')}s`;
+      }
+
+      function updateTimerDisplay(loopId, elapsedSeconds) {
+        const display = document.querySelector(`[data-timer-display="${loopId}"]`);
+        if (display) {
+          display.textContent = formatDuration(elapsedSeconds);
+        }
+      }
+
+      function startTimerUI(loopId, timerData) {
+        // Clear any existing timer
+        stopTimerUI(loopId);
+
+        const btn = document.querySelector(`button[data-action="timer-toggle"][data-id="${loopId}"]`);
+        const display = document.querySelector(`[data-timer-display="${loopId}"]`);
+
+        if (btn) {
+          btn.classList.add('running');
+          btn.textContent = '⏹ Stop';
+          btn.dataset.running = 'true';
+        }
+        if (display) {
+          display.classList.add('active');
+        }
+
+        // Calculate elapsed time
+        const startedAt = new Date(timerData.active_session?.started_at_utc || timerData.started_at_utc);
+        const updateDisplay = () => {
+          const elapsed = Math.floor((Date.now() - startedAt.getTime()) / 1000);
+          updateTimerDisplay(loopId, elapsed);
+        };
+
+        // Update immediately and then every second
+        updateDisplay();
+        const intervalId = setInterval(updateDisplay, 1000);
+
+        activeTimers.set(loopId, {
+          session_id: timerData.active_session?.id || timerData.session_id,
+          started_at: startedAt,
+          interval_id: intervalId
+        });
+      }
+
+      function stopTimerUI(loopId) {
+        const timer = activeTimers.get(loopId);
+        if (timer) {
+          clearInterval(timer.interval_id);
+          activeTimers.delete(loopId);
+        }
+
+        const btn = document.querySelector(`button[data-action="timer-toggle"][data-id="${loopId}"]`);
+        const display = document.querySelector(`[data-timer-display="${loopId}"]`);
+
+        if (btn) {
+          btn.classList.remove('running');
+          btn.textContent = '▶ Start';
+          btn.dataset.running = 'false';
+        }
+        if (display) {
+          display.classList.remove('active');
+          // Keep the last displayed time
+        }
+      }
+
+      async function toggleTimer(loopId) {
+        const btn = document.querySelector(`button[data-action="timer-toggle"][data-id="${loopId}"]`);
+        const isRunning = btn && btn.dataset.running === 'true';
+
+        try {
+          if (isRunning) {
+            // Stop timer
+            const response = await fetch(`/loops/${loopId}/timer/stop`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({})
+            });
+            if (response.ok) {
+              const session = await response.json();
+              stopTimerUI(loopId);
+              status.textContent = `Timer stopped: ${formatDuration(session.duration_seconds || 0)}`;
+              // Refresh loop to update tracked time display
+              await refreshLoop(loopId);
+            } else {
+              const error = await response.json();
+              status.textContent = error.detail?.message || "Failed to stop timer.";
+            }
+          } else {
+            // Start timer
+            const response = await fetch(`/loops/${loopId}/timer/start`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+            });
+            if (response.ok) {
+              const session = await response.json();
+              startTimerUI(loopId, { active_session: session });
+              status.textContent = "Timer started.";
+            } else if (response.status === 409) {
+              status.textContent = "Timer already running for this loop.";
+              // Reload timer status
+              const timerStatus = await loadTimerStatus(loopId);
+              if (timerStatus?.has_active_session) {
+                startTimerUI(loopId, timerStatus);
+              }
+            } else {
+              const error = await response.json();
+              status.textContent = error.detail || "Failed to start timer.";
+            }
+          }
+        } catch (e) {
+          console.error("Timer error:", e);
+          status.textContent = "Timer operation failed.";
+        }
+      }
+
+      // Load timer status for all visible loops
+      async function loadAllTimerStatuses() {
+        const cards = inbox.querySelectorAll('.loop-card');
+        for (const card of cards) {
+          const loopId = card.dataset.loopId;
+          if (!loopId) continue;
+
+          const timerStatus = await loadTimerStatus(loopId);
+          if (timerStatus?.has_active_session && timerStatus.active_session) {
+            startTimerUI(loopId, timerStatus);
+          }
+        }
       }
 
       async function refreshLoop(loopId) {
@@ -1064,7 +1270,24 @@
           return;
         }
         const loop = await response.json();
+
+        // Check timer status
+        const timerStatus = await loadTimerStatus(loopId);
+        loop.timer_running = timerStatus?.has_active_session || false;
+        loop.timer_display = '';
+        if (timerStatus?.has_active_session && timerStatus.active_session) {
+          const elapsed = timerStatus.active_session.elapsed_seconds ||
+            Math.floor((Date.now() - new Date(timerStatus.active_session.started_at_utc).getTime()) / 1000);
+          loop.timer_display = formatDuration(elapsed);
+        }
+        loop.total_tracked_minutes = timerStatus ? Math.floor(timerStatus.total_tracked_seconds / 60) : 0;
+
         replaceLoop(loop);
+
+        // Restore timer UI if running
+        if (timerStatus?.has_active_session) {
+          startTimerUI(loopId, timerStatus);
+        }
       }
 
       function pollLoop(loopId, attempt = 0) {
@@ -1496,6 +1719,8 @@
             enrichLoop(button.dataset.id);
           } else if (button.dataset.action === "refresh") {
             refreshLoop(button.dataset.id);
+          } else if (button.dataset.action === "timer-toggle") {
+            toggleTimer(button.dataset.id);
           } else if (button.dataset.action === "edit-tags") {
             const tagsWrap = button.closest(".tags-edit");
             if (tagsWrap) {

@@ -59,6 +59,7 @@ from .loops.service import (
     get_loop_blocking,
     get_loop_dependencies,
     get_loop_view,
+    get_timer_status,
     import_loops,
     list_active_claims,
     list_loop_views,
@@ -66,12 +67,15 @@ from .loops.service import (
     list_loops_by_statuses,
     list_loops_by_tag,
     list_tags,
+    list_time_sessions,
     next_loops,
     release_claim,
     remove_loop_dependency,
     renew_claim,
     request_enrichment,
     search_loops_by_query,
+    start_timer,
+    stop_timer,
     transition_status,
     update_loop,
     update_loop_view,
@@ -805,6 +809,127 @@ def _loop_dep_command(args: argparse.Namespace, settings: Settings) -> int:
         return 1
 
 
+def _timer_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle timer start/stop/status commands."""
+    from .loops.service import ActiveTimerExistsError, NoActiveTimerError
+
+    action = args.timer_action
+    loop_id = args.id
+
+    try:
+        with db.core_connection(settings) as conn:
+            if action == "start":
+                try:
+                    session = start_timer(loop_id=loop_id, conn=conn)
+                    print(f"Timer started for loop {loop_id}")
+                    print(f"  Session ID: {session.id}")
+                    print(f"  Started at: {format_utc_datetime(session.started_at_utc)}")
+                    return 0
+                except ActiveTimerExistsError as e:
+                    print(f"Error: Timer already running for loop {loop_id}", file=sys.stderr)
+                    print(f"  Session ID: {e.session.id}", file=sys.stderr)
+                    print(
+                        f"  Started at: {format_utc_datetime(e.session.started_at_utc)}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                except LoopNotFoundError:
+                    print(f"Error: Loop {loop_id} not found", file=sys.stderr)
+                    return 2
+
+            elif action == "stop":
+                try:
+                    notes = getattr(args, "notes", None)
+                    session = stop_timer(loop_id=loop_id, notes=notes, conn=conn)
+                    print(f"Timer stopped for loop {loop_id}")
+                    print(f"  Session ID: {session.id}")
+                    duration = session.duration_seconds or 0
+                    duration_mins = duration // 60
+                    print(f"  Duration: {duration}s ({duration_mins}m)")
+                    if session.notes:
+                        print(f"  Notes: {session.notes}")
+                    return 0
+                except NoActiveTimerError:
+                    print(f"Error: No active timer for loop {loop_id}", file=sys.stderr)
+                    return 1
+                except LoopNotFoundError:
+                    print(f"Error: Loop {loop_id} not found", file=sys.stderr)
+                    return 2
+
+            elif action == "status":
+                try:
+                    status = get_timer_status(loop_id=loop_id, conn=conn)
+                    print(f"Timer status for loop {loop_id}:")
+                    if status.has_active_session and status.active_session:
+                        elapsed = status.active_session.elapsed_seconds
+                        print("  Status: RUNNING")
+                        print(f"  Session ID: {status.active_session.id}")
+                        started = format_utc_datetime(status.active_session.started_at_utc)
+                        print(f"  Started: {started}")
+                        print(f"  Elapsed: {elapsed}s ({elapsed // 60}m {elapsed % 60}s)")
+                    else:
+                        print("  Status: STOPPED")
+
+                    total_min = status.total_tracked_seconds // 60
+                    total_sec = status.total_tracked_seconds % 60
+                    print(f"  Total tracked: {total_min}m {total_sec}s")
+
+                    if status.estimated_minutes:
+                        print(f"  Estimated: {status.estimated_minutes}m")
+                        if total_min > 0:
+                            ratio = round(total_min / status.estimated_minutes, 2)
+                            print(f"  Actual/Estimate: {ratio}x")
+                    return 0
+                except LoopNotFoundError:
+                    print(f"Error: Loop {loop_id} not found", file=sys.stderr)
+                    return 2
+
+            else:
+                print(f"Error: Unknown timer action: {action}", file=sys.stderr)
+                return 2
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _sessions_command(args: argparse.Namespace, settings: Settings) -> int:
+    """List time sessions for a loop."""
+    loop_id = args.id
+    limit = getattr(args, "limit", 20)
+
+    try:
+        with db.core_connection(settings) as conn:
+            sessions = list_time_sessions(
+                loop_id=loop_id,
+                limit=limit,
+                offset=0,
+                conn=conn,
+            )
+
+            if not sessions:
+                print(f"No time sessions for loop {loop_id}")
+                return 0
+
+            print(f"Time sessions for loop {loop_id}:")
+            print("-" * 60)
+
+            for s in sessions:
+                status = "ACTIVE" if s.is_active else f"{s.duration_seconds}s"
+                duration = f"{s.duration_seconds // 60}m" if s.duration_seconds else "running"
+                started = format_utc_datetime(s.started_at_utc)
+                print(f"  [{s.id}] {started} - {duration} ({status})")
+                if s.notes:
+                    print(f"       Notes: {s.notes}")
+
+            return 0
+    except LoopNotFoundError:
+        print(f"Error: Loop {loop_id} not found", file=sys.stderr)
+        return 2
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cloop",
@@ -827,6 +952,12 @@ Examples:
   cloop loop view create --name "Today's tasks" --query "status:open due:today"
   cloop loop view list
   cloop loop view apply 1
+
+  # Time tracking
+  cloop loop timer start 1
+  cloop loop timer status 1
+  cloop loop timer stop 1 --notes "Completed the task"
+  cloop loop sessions 1 --limit 10
 
   # Loop claims (multi-agent coordination)
   cloop loop claim 1 --owner agent-alpha
@@ -1171,6 +1302,25 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(dep_blocking_parser)
 
+    # Timer parsers
+    timer_parser = loop_subparsers.add_parser("timer", help="Start/stop timer for a loop")
+    timer_subparsers = timer_parser.add_subparsers(dest="timer_action", required=True)
+
+    timer_start_parser = timer_subparsers.add_parser("start", help="Start timer")
+    timer_start_parser.add_argument("id", type=int, help="Loop ID")
+
+    timer_stop_parser = timer_subparsers.add_parser("stop", help="Stop timer")
+    timer_stop_parser.add_argument("id", type=int, help="Loop ID")
+    timer_stop_parser.add_argument("--notes", help="Optional notes for this session")
+
+    timer_status_parser = timer_subparsers.add_parser("status", help="Get timer status")
+    timer_status_parser.add_argument("id", type=int, help="Loop ID")
+
+    # Sessions parser
+    sessions_parser = loop_subparsers.add_parser("sessions", help="List time sessions for a loop")
+    sessions_parser.add_argument("id", type=int, help="Loop ID")
+    sessions_parser.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
+
 
 def _add_tags_parser(subparsers: Any) -> None:
     tags_parser = subparsers.add_parser("tags", help="List all tags")
@@ -1258,6 +1408,10 @@ def main(argv: List[str] | None = None) -> int:
             return _loop_force_release_claim_command(args, settings)
         if args.loop_command == "dep":
             return _loop_dep_command(args, settings)
+        if args.loop_command == "timer":
+            return _timer_command(args, settings)
+        if args.loop_command == "sessions":
+            return _sessions_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 
