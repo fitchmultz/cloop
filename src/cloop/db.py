@@ -38,7 +38,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 17
+SCHEMA_VERSION: int = 18
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -302,6 +302,23 @@ CREATE TABLE loop_templates (
 CREATE INDEX idx_loop_templates_name ON loop_templates(name);
 CREATE INDEX idx_loop_templates_is_system ON loop_templates(is_system);
 
+-- Create loop_comments table for threaded discussion on loops
+CREATE TABLE loop_comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    parent_id INTEGER REFERENCES loop_comments(id) ON DELETE CASCADE,
+    author TEXT NOT NULL,
+    body_md TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TEXT,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
+CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
+CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
@@ -312,6 +329,24 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    18: """
+    -- Create loop_comments table for threaded discussion on loops
+    CREATE TABLE loop_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        parent_id INTEGER REFERENCES loop_comments(id) ON DELETE CASCADE,
+        author TEXT NOT NULL,
+        body_md TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TEXT,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
+    CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
+    CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
+    """,
     17: """
     -- Create loop_templates table for reusable loop patterns
     CREATE TABLE loop_templates (

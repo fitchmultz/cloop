@@ -1326,6 +1326,202 @@
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
+
+      /* Comments Section Styles */
+      .comments-section {
+        margin-top: 12px;
+        border-top: 1px dashed var(--border);
+        padding-top: 12px;
+      }
+      .comments-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        padding: 6px 8px;
+        background: var(--bg);
+        border-radius: 8px;
+        transition: background 150ms ease;
+      }
+      .comments-header:hover {
+        background: var(--bg-accent);
+      }
+      .comments-count {
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .comments-toggle {
+        font-size: 12px;
+        color: var(--muted);
+        transition: transform 200ms ease;
+      }
+      .comments-header.expanded .comments-toggle {
+        transform: rotate(180deg);
+      }
+      .comments-body {
+        display: none;
+        padding: 12px 0 4px;
+      }
+      .comments-body.visible {
+        display: block;
+        animation: rise 200ms ease;
+      }
+      .comments-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+      .comment {
+        padding: 10px 12px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        border-left: 3px solid var(--brand);
+      }
+      .comment.reply {
+        margin-left: 24px;
+        border-left-color: var(--muted);
+      }
+      .comment.deleted {
+        opacity: 0.5;
+        border-left-color: var(--border);
+      }
+      .comment-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .comment-author {
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--ink);
+      }
+      .comment-time {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .comment-body {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--ink);
+        white-space: pre-wrap;
+      }
+      .comment-body p {
+        margin: 0 0 8px;
+      }
+      .comment-body p:last-child {
+        margin-bottom: 0;
+      }
+      .comment-body code {
+        background: var(--bg-accent);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: "Space Grotesk", monospace;
+        font-size: 12px;
+      }
+      .comment-body pre {
+        background: var(--bg-accent);
+        padding: 10px;
+        border-radius: 8px;
+        overflow-x: auto;
+        margin: 8px 0;
+      }
+      .comment-body pre code {
+        background: none;
+        padding: 0;
+      }
+      .comment-actions {
+        display: flex;
+        gap: 12px;
+        margin-top: 8px;
+        font-size: 12px;
+      }
+      .comment-action-btn {
+        background: none;
+        border: none;
+        color: var(--brand);
+        cursor: pointer;
+        padding: 0;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .comment-action-btn:hover {
+        text-decoration: underline;
+      }
+      .comment-form {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px;
+        background: var(--bg);
+        border-radius: 10px;
+      }
+      .comment-form-row {
+        display: flex;
+        gap: 8px;
+      }
+      .comment-author-input {
+        flex: 0 0 140px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 13px;
+        font-family: inherit;
+        background: #fffefb;
+      }
+      .comment-author-input:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+      .comment-textarea {
+        width: 100%;
+        min-height: 60px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+        font-family: inherit;
+        background: #fffefb;
+        resize: vertical;
+      }
+      .comment-textarea:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+      .comment-submit-btn {
+        align-self: flex-start;
+        background: var(--brand);
+        border: none;
+        border-radius: 999px;
+        padding: 8px 16px;
+        color: white;
+        font-weight: 600;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .comment-submit-btn:hover {
+        opacity: 0.9;
+      }
+      .reply-form {
+        display: none;
+        margin-top: 8px;
+        padding: 10px;
+        background: var(--bg);
+        border-radius: 8px;
+      }
+      .reply-form.visible {
+        display: block;
+        animation: rise 200ms ease;
+      }
+      .comment-replies {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 8px;
+      }
     </style>
   </head>
   <body>
@@ -1693,13 +1889,13 @@
 
         if (response.ok) {
           const template = await response.json();
-          statusEl.textContent = `Template "${template.name}" created!`;
+          status.textContent = `Template "${template.name}" created!`;
           // Refresh template cache and dropdown
           templatesCache = null;
           populateTemplateDropdown();
         } else {
           const error = await response.json();
-          statusEl.textContent = `Failed: ${error.detail?.message || response.statusText}`;
+          status.textContent = `Failed: ${error.detail?.message || response.statusText}`;
         }
       }
 
@@ -1808,7 +2004,7 @@
         const loopIds = Array.from(selectedLoopIds);
         const items = loopIds.map((id) => ({ loop_id: id, status }));
 
-        statusEl.textContent = `Closing ${items.length} loops...`;
+        status.textContent = `Closing ${items.length} loops...`;
 
         try {
           const response = await fetch("/loops/bulk/close", {
@@ -1819,17 +2015,17 @@
 
           if (!response.ok) {
             const error = await response.json();
-            statusEl.textContent = error.detail?.message || "Bulk close failed.";
+            status.textContent = error.detail?.message || "Bulk close failed.";
             return;
           }
 
           const result = await response.json();
-          statusEl.textContent = `Closed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          status.textContent = `Closed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
           clearLoopSelection();
           // SSE will auto-refresh the affected loops
         } catch (e) {
           console.error("Bulk close error:", e);
-          statusEl.textContent = "Bulk close failed.";
+          status.textContent = "Bulk close failed.";
         }
       }
 
@@ -1837,7 +2033,7 @@
         const loopIds = Array.from(selectedLoopIds);
         const items = loopIds.map((id) => ({ loop_id: id, snooze_until_utc: snoozeUntilUtc }));
 
-        statusEl.textContent = `Snoozing ${items.length} loops...`;
+        status.textContent = `Snoozing ${items.length} loops...`;
 
         try {
           const response = await fetch("/loops/bulk/snooze", {
@@ -1848,16 +2044,16 @@
 
           if (!response.ok) {
             const error = await response.json();
-            statusEl.textContent = error.detail?.message || "Bulk snooze failed.";
+            status.textContent = error.detail?.message || "Bulk snooze failed.";
             return;
           }
 
           const result = await response.json();
-          statusEl.textContent = `Snoozed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          status.textContent = `Snoozed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
           clearLoopSelection();
         } catch (e) {
           console.error("Bulk snooze error:", e);
-          statusEl.textContent = "Bulk snooze failed.";
+          status.textContent = "Bulk snooze failed.";
         }
       }
 
@@ -1868,7 +2064,7 @@
           fields: { status: newStatus },
         }));
 
-        statusEl.textContent = `Updating ${updates.length} loops...`;
+        status.textContent = `Updating ${updates.length} loops...`;
 
         try {
           const response = await fetch("/loops/bulk/update", {
@@ -1879,16 +2075,16 @@
 
           if (!response.ok) {
             const error = await response.json();
-            statusEl.textContent = error.detail?.message || "Bulk update failed.";
+            status.textContent = error.detail?.message || "Bulk update failed.";
             return;
           }
 
           const result = await response.json();
-          statusEl.textContent = `Updated ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          status.textContent = `Updated ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
           clearLoopSelection();
         } catch (e) {
           console.error("Bulk update error:", e);
-          statusEl.textContent = "Bulk update failed.";
+          status.textContent = "Bulk update failed.";
         }
       }
 
@@ -1905,7 +2101,7 @@
           };
         });
 
-        statusEl.textContent = `Adding tags to ${updates.length} loops...`;
+        status.textContent = `Adding tags to ${updates.length} loops...`;
 
         try {
           const response = await fetch("/loops/bulk/update", {
@@ -1916,17 +2112,17 @@
 
           if (!response.ok) {
             const error = await response.json();
-            statusEl.textContent = error.detail?.message || "Bulk tag failed.";
+            status.textContent = error.detail?.message || "Bulk tag failed.";
             return;
           }
 
           const result = await response.json();
-          statusEl.textContent = `Tagged ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          status.textContent = `Tagged ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
           clearLoopSelection();
           await loadTags(); // Refresh tag filter
         } catch (e) {
           console.error("Bulk tag error:", e);
-          statusEl.textContent = "Bulk tag failed.";
+          status.textContent = "Bulk tag failed.";
         }
       }
 
@@ -2184,6 +2380,32 @@
             <button class="completion-cancel" data-action="cancel-complete" data-id="${loop.id}">
               ×
             </button>
+          </div>
+          <!-- Comments Section -->
+          <div class="comments-section" data-comments-section="${loop.id}">
+            <div class="comments-header" data-comments-toggle="${loop.id}">
+              <span class="comments-count" data-comments-count="${loop.id}">Loading comments...</span>
+              <span class="comments-toggle">▼</span>
+            </div>
+            <div class="comments-body" data-comments-body="${loop.id}">
+              <div class="comments-list" data-comments-list="${loop.id}"></div>
+              <div class="comment-form">
+                <input
+                  type="text"
+                  class="comment-author-input"
+                  data-comment-author="${loop.id}"
+                  placeholder="Your name"
+                >
+                <textarea
+                  class="comment-textarea"
+                  data-comment-body="${loop.id}"
+                  placeholder="Add a note or context... (markdown supported)"
+                ></textarea>
+                <button class="comment-submit-btn" data-action="post-comment" data-loop-id="${loop.id}">
+                  Post Comment
+                </button>
+              </div>
+            </div>
           </div>
         `;
         const titleInput = card.querySelector('[data-field="title"]');
@@ -3939,7 +4161,7 @@
           if (!isInputFocused()) {
             event.preventDefault();
             selectAllVisibleLoops();
-            statusEl.textContent = `Selected ${selectedLoopIds.size} loops.`;
+            status.textContent = `Selected ${selectedLoopIds.size} loops.`;
             return;
           }
         }
@@ -3967,7 +4189,7 @@
           // If selection is active, clear it first
           if (selectedLoopIds.size > 0) {
             clearLoopSelection();
-            statusEl.textContent = "Selection cleared.";
+            status.textContent = "Selection cleared.";
             event.preventDefault();
             return;
           }
@@ -4144,7 +4366,7 @@
             if (newStatus && ["inbox", "actionable", "blocked", "scheduled"].includes(newStatus.toLowerCase())) {
               executeBulkStatus(newStatus.toLowerCase());
             } else if (newStatus) {
-              statusEl.textContent = "Invalid status. Must be one of: inbox, actionable, blocked, scheduled.";
+              status.textContent = "Invalid status. Must be one of: inbox, actionable, blocked, scheduled.";
             }
             break;
           }
@@ -4156,7 +4378,7 @@
               if (!Number.isNaN(date.getTime())) {
                 executeBulkSnooze(date.toISOString());
               } else {
-                statusEl.textContent = "Invalid date format.";
+                status.textContent = "Invalid date format.";
               }
             }
             break;
@@ -4302,6 +4524,233 @@
           });
         }
       }
+
+      // ========================================
+      // Comment Functions
+      // ========================================
+
+      // Simple markdown to HTML converter
+      function markdownToHtml(markdown) {
+        if (!markdown) return "";
+        let html = escapeHtml(markdown);
+        // Bold
+        html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        // Italic
+        html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+        // Code inline
+        html = html.replace(/`(.+?)`/g, "<code>$1</code>");
+        // Links (with XSS protection - only allow safe protocols)
+        html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+          const safeUrl = /^(https?:|mailto:)/i.test(url) ? url : '#';
+          return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+        });
+        // Line breaks
+        html = html.replace(/\n/g, "<br>");
+        return html;
+      }
+
+      function formatRelativeTime(isoString) {
+        const date = new Date(isoString);
+        const now = new Date();
+        const diff = now - date;
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days = Math.floor(diff / 86400000);
+
+        if (minutes < 1) return "just now";
+        if (minutes < 60) return `${minutes}m ago`;
+        if (hours < 24) return `${hours}h ago`;
+        if (days < 7) return `${days}d ago`;
+        return date.toLocaleDateString();
+      }
+
+      function renderComment(comment, loopId, isReply = false) {
+        const bodyHtml = comment.is_deleted
+          ? '<em>[deleted]</em>'
+          : markdownToHtml(comment.body_md);
+
+        const replyFormHtml = `
+          <div class="reply-form" data-reply-form="${comment.id}">
+            <textarea
+              class="comment-textarea"
+              data-reply-body="${comment.id}"
+              placeholder="Write a reply..."
+            ></textarea>
+            <button class="comment-submit-btn" data-action="submit-reply" data-loop-id="${loopId}" data-parent-id="${comment.id}">
+              Reply
+            </button>
+          </div>
+        `;
+
+        const repliesHtml = comment.replies?.length
+          ? `<div class="comment-replies">${comment.replies.map(r => renderComment(r, loopId, true)).join("")}</div>`
+          : "";
+
+        return `
+          <div class="comment ${isReply ? 'reply' : ''} ${comment.is_deleted ? 'deleted' : ''}" data-comment-id="${comment.id}">
+            <div class="comment-meta">
+              <span class="comment-author">${escapeHtml(comment.author)}</span>
+              <span class="comment-time" title="${formatTime(comment.created_at_utc)}">${formatRelativeTime(comment.created_at_utc)}</span>
+            </div>
+            <div class="comment-body">${bodyHtml}</div>
+            ${!comment.is_deleted ? `
+              <div class="comment-actions">
+                <button class="comment-action-btn" data-action="reply-comment" data-comment-id="${comment.id}">Reply</button>
+                <button class="comment-action-btn" data-action="delete-comment" data-loop-id="${loopId}" data-comment-id="${comment.id}">Delete</button>
+              </div>
+              ${replyFormHtml}
+            ` : ""}
+            ${repliesHtml}
+          </div>
+        `;
+      }
+
+      async function loadComments(loopId) {
+        const countEl = document.querySelector(`[data-comments-count="${loopId}"]`);
+        const listEl = document.querySelector(`[data-comments-list="${loopId}"]`);
+
+        if (!countEl || !listEl) return;
+
+        try {
+          const response = await fetch(`/loops/${loopId}/comments`);
+          if (!response.ok) {
+            countEl.textContent = "Comments unavailable";
+            return;
+          }
+
+          const data = await response.json();
+          const total = data.total_count;
+
+          countEl.textContent = total === 0 ? "No comments" : `${total} comment${total !== 1 ? "s" : ""}`;
+
+          if (total === 0) {
+            listEl.innerHTML = "";
+          } else {
+            listEl.innerHTML = data.comments.map(c => renderComment(c, loopId)).join("");
+          }
+        } catch (err) {
+          console.error("loadComments error:", err);
+          countEl.textContent = "Comments error";
+        }
+      }
+
+      async function postComment(loopId, author, body, parentId = null) {
+        if (!author.trim() || !body.trim()) return false;
+
+        try {
+          const response = await fetch(`/loops/${loopId}/comments`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ author, body_md: body, parent_id: parentId }),
+          });
+
+          if (response.ok) {
+            await loadComments(loopId);
+            return true;
+          }
+        } catch (err) {
+          console.error("postComment error:", err);
+        }
+        return false;
+      }
+
+      async function deleteComment(loopId, commentId) {
+        try {
+          const response = await fetch(`/loops/${loopId}/comments/${commentId}`, {
+            method: "DELETE",
+          });
+
+          if (response.ok) {
+            await loadComments(loopId);
+            return true;
+          }
+        } catch (err) {
+          console.error("deleteComment error:", err);
+        }
+        return false;
+      }
+
+      // Comment event handlers
+      document.addEventListener("click", async (event) => {
+        // Toggle comments section
+        const toggle = event.target.closest("[data-comments-toggle]");
+        if (toggle) {
+          const loopId = toggle.dataset.commentsToggle;
+          const body = document.querySelector(`[data-comments-body="${loopId}"]`);
+          const header = toggle.closest(".comments-header");
+
+          if (body && header) {
+            const isVisible = body.classList.contains("visible");
+            if (!isVisible) {
+              await loadComments(loopId);
+            }
+            body.classList.toggle("visible");
+            header.classList.toggle("expanded");
+          }
+          return;
+        }
+
+        // Post comment
+        const postBtn = event.target.closest("[data-action='post-comment']");
+        if (postBtn) {
+          const loopId = postBtn.dataset.loopId;
+          const authorInput = document.querySelector(`[data-comment-author="${loopId}"]`);
+          const bodyInput = document.querySelector(`[data-comment-body="${loopId}"]`);
+
+          if (authorInput && bodyInput) {
+            const success = await postComment(loopId, authorInput.value, bodyInput.value);
+            if (success) {
+              bodyInput.value = "";
+            }
+          }
+          return;
+        }
+
+        // Reply button
+        const replyBtn = event.target.closest("[data-action='reply-comment']");
+        if (replyBtn) {
+          const commentId = replyBtn.dataset.commentId;
+          const replyForm = document.querySelector(`[data-reply-form="${commentId}"]`);
+          if (replyForm) {
+            replyForm.classList.toggle("visible");
+            if (replyForm.classList.contains("visible")) {
+              replyForm.querySelector("textarea")?.focus();
+            }
+          }
+          return;
+        }
+
+        // Submit reply
+        const submitReplyBtn = event.target.closest("[data-action='submit-reply']");
+        if (submitReplyBtn) {
+          const loopId = submitReplyBtn.dataset.loopId;
+          const parentId = parseInt(submitReplyBtn.dataset.parentId, 10);
+          const bodyInput = document.querySelector(`[data-reply-body="${parentId}"]`);
+          const authorInput = document.querySelector(`[data-comment-author="${loopId}"]`);
+
+          if (bodyInput && authorInput) {
+            const success = await postComment(loopId, authorInput.value, bodyInput.value, parentId);
+            if (success) {
+              bodyInput.value = "";
+              const replyForm = document.querySelector(`[data-reply-form="${parentId}"]`);
+              if (replyForm) replyForm.classList.remove("visible");
+            }
+          }
+          return;
+        }
+
+        // Delete comment
+        const deleteBtn = event.target.closest("[data-action='delete-comment']");
+        if (deleteBtn) {
+          const loopId = deleteBtn.dataset.loopId;
+          const commentId = deleteBtn.dataset.commentId;
+
+          if (confirm("Delete this comment?")) {
+            await deleteComment(loopId, commentId);
+          }
+          return;
+        }
+      });
     </script>
   </body>
 </html>
