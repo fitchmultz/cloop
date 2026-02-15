@@ -23,6 +23,8 @@ Tool Handlers:
     - loop.search: Search loops by text
     - loop.snooze: Set snooze timer on a loop
     - loop.enrich: Trigger AI enrichment for a loop
+    - loop.events: Get event history for a loop
+    - loop.undo: Undo the most recent reversible event
     - loop.tags: List all unique tags used across loops
     - project.list: List all projects
 
@@ -63,6 +65,7 @@ from .loops.errors import (
     LoopClaimedError,
     NotFoundError,
     TransitionError,
+    UndoNotPossibleError,
     ValidationError,
 )
 from .loops.models import (
@@ -109,6 +112,8 @@ def _to_tool_error(exc: Exception) -> ToolError:
         return ToolError(exc.message)
     if isinstance(exc, DependencyCycleError):
         return ToolError(exc.message)
+    if isinstance(exc, UndoNotPossibleError):
+        return ToolError(f"Cannot undo: {exc.message}")
     if isinstance(exc, CloopError):
         return ToolError(exc.message)
 
@@ -500,6 +505,87 @@ def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
 
     _finalize_mcp_idempotency(
         tool_name="loop.enrich",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.events")
+@with_db_init
+@with_mcp_error_handling
+def loop_events(
+    loop_id: int,
+    limit: int = 50,
+    before_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Get event history for a loop.
+
+    Returns events in reverse chronological order (newest first).
+    Use before_id cursor for pagination.
+
+    Args:
+        loop_id: Loop ID to query
+        limit: Max results (default 50)
+        before_id: Pagination cursor - only events with id < before_id
+
+    Returns:
+        List of event dicts with id, event_type, payload, created_at_utc, is_reversible
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.get_loop_events(
+            loop_id=loop_id,
+            limit=limit,
+            before_id=before_id,
+            conn=conn,
+        )
+
+
+@mcp.tool(name="loop.undo")
+@with_db_init
+@with_mcp_error_handling
+def loop_undo(
+    loop_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Undo the most recent reversible event for a loop.
+
+    Reversible events include: update, status_change, close.
+    Enrichment, claim, and timer events cannot be undone.
+
+    Args:
+        loop_id: Loop ID to modify
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with updated loop and undo details:
+        - loop: The updated loop dict
+        - undone_event_id: ID of the event that was undone
+        - undone_event_type: Type of the undone event
+    """
+    settings = get_settings()
+    payload = {"loop_id": loop_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.undo",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.undo_last_event(
+            loop_id=loop_id,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.undo",
         request_id=request_id,
         payload=payload,
         response=result,

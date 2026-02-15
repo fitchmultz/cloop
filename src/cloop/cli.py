@@ -362,6 +362,54 @@ def _review_command(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _loop_events_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop loop events' command."""
+    from .loops.service import get_loop_events
+
+    try:
+        with db.core_connection(settings) as conn:
+            events = get_loop_events(
+                loop_id=args.id,
+                limit=args.limit,
+                before_id=args.before,
+                conn=conn,
+            )
+        _emit_output(events, args.format)
+        return 0
+    except LoopNotFoundError:
+        print(f"error: loop {args.id} not found", file=sys.stderr)
+        return 2
+
+
+def _loop_undo_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop loop undo' command."""
+    from .loops.errors import UndoNotPossibleError
+    from .loops.service import undo_last_event
+
+    try:
+        with db.core_connection(settings) as conn:
+            result = undo_last_event(
+                loop_id=args.id,
+                conn=conn,
+            )
+        output = {
+            "loop": result["loop"],
+            "undone_event_id": result["undone_event_id"],
+            "undone_event_type": result["undone_event_type"],
+        }
+        _emit_output(output, args.format)
+        return 0
+    except LoopNotFoundError:
+        print(f"error: loop {args.id} not found", file=sys.stderr)
+        return 2
+    except UndoNotPossibleError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except LoopClaimedError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def _loop_get_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         with db.core_connection(settings) as conn:
@@ -2203,6 +2251,50 @@ Examples:
     )
     _add_format_option(review_parser)
 
+    # Events parser
+    events_parser = loop_subparsers.add_parser(
+        "events",
+        help="Show event history for a loop",
+        description="Display the activity timeline for a loop",
+        epilog="""
+Examples:
+  # Show recent events for a loop
+  cloop loop events 123
+
+  # Show events with pagination
+  cloop loop events 123 --limit 20 --before 500
+
+  # Show in table format
+  cloop loop events 123 --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    events_parser.add_argument("id", type=int, help="Loop ID")
+    events_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    events_parser.add_argument("--before", type=int, help="Show events before this event ID")
+    _add_format_option(events_parser)
+
+    # Undo parser
+    undo_parser = loop_subparsers.add_parser(
+        "undo",
+        help="Undo the last reversible action",
+        description=(
+            "Undo the most recent reversible event (update, status_change, close). "
+            "This restores the loop to its previous state."
+        ),
+        epilog="""
+Examples:
+  # Undo the most recent change
+  cloop loop undo 123
+
+  # Show result in table format
+  cloop loop undo 123 --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    undo_parser.add_argument("id", type=int, help="Loop ID")
+    _add_format_option(undo_parser)
+
 
 def _add_tags_parser(subparsers: Any) -> None:
     tags_parser = subparsers.add_parser(
@@ -2590,6 +2682,10 @@ def main(argv: List[str] | None = None) -> int:
             return _sessions_command(args, settings)
         if args.loop_command == "review":
             return _review_command(args, settings)
+        if args.loop_command == "events":
+            return _loop_events_command(args, settings)
+        if args.loop_command == "undo":
+            return _loop_undo_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 
