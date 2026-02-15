@@ -89,12 +89,38 @@ def _iter_candidate_files(targets: Sequence[Path], recursive: bool) -> Iterable[
                     yield normalized
 
 
-def _document_file_metadata(path: Path) -> Dict[str, Any]:
+def _file_stat_metadata(path: Path) -> Dict[str, Any]:
+    """
+    Get file metadata via stat only (no content read).
+
+    Returns:
+        Dict with path, mtime_ns, size_bytes (no sha256)
+    """
     stat = path.stat()
-    file_bytes = path.read_bytes()
     return {
         "path": str(_normalize_path(path)),
         "mtime_ns": int(stat.st_mtime_ns),
         "size_bytes": int(stat.st_size),
-        "sha256": hashlib.sha256(file_bytes).hexdigest(),
     }
+
+
+def _document_file_metadata(
+    path: Path,
+    *,
+    compute_hash: bool = True,
+) -> Dict[str, Any]:
+    """
+    Get file metadata, optionally with SHA256 hash.
+
+    Args:
+        path: File path
+        compute_hash: If True, compute SHA256; if False, skip hash
+
+    Returns:
+        Dict with path, mtime_ns, size_bytes, and optionally sha256
+    """
+    meta = _file_stat_metadata(path)
+    if compute_hash:
+        file_bytes = path.read_bytes()
+        meta["sha256"] = hashlib.sha256(file_bytes).hexdigest()
+    return meta

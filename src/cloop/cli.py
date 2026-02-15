@@ -178,6 +178,7 @@ def _ingest_command(args: argparse.Namespace, settings: Settings) -> int:
         args.paths,
         mode=args.mode,
         recursive=not args.no_recursive,
+        force_rehash=args.force_rehash,
         settings=settings,
     )
     print(json.dumps(result, indent=2))
@@ -1473,6 +1474,11 @@ Examples:
         "--no-recursive",
         action="store_true",
         help="Disable directory recursion",
+    )
+    ingest_parser.add_argument(
+        "--force-rehash",
+        action="store_true",
+        help="Force SHA256 recomputation for all files (ignores mtime/size cache)",
     )
 
 
