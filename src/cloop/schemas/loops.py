@@ -7,7 +7,7 @@ Models for the /loops/* endpoints supporting:
 - Export/import for data portability
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -502,3 +502,98 @@ class TimeSessionListResponse(BaseModel):
     loop_id: int
     sessions: list[TimeSessionResponse]
     total_count: int
+
+
+# ============================================================================
+# Bulk Operation Schemas
+# ============================================================================
+
+
+class BulkUpdateItem(BaseModel):
+    """Single item in a bulk update request."""
+
+    loop_id: int
+    fields: LoopUpdateRequest
+
+
+class BulkCloseItem(BaseModel):
+    """Single item in a bulk close request."""
+
+    loop_id: int
+    status: Literal[LoopStatus.COMPLETED, LoopStatus.DROPPED] = LoopStatus.COMPLETED
+    note: str | None = None
+
+
+class BulkSnoozeItem(BaseModel):
+    """Single item in a bulk snooze request."""
+
+    loop_id: int
+    snooze_until_utc: str
+
+    @field_validator("snooze_until_utc", mode="before")
+    @classmethod
+    def validate_snooze_until_utc(cls, v: str) -> str:
+        from ..loops.models import validate_iso8601_timestamp
+
+        return validate_iso8601_timestamp(v, "snooze_until_utc")
+
+
+class BulkUpdateRequest(BaseModel):
+    """Request for bulk loop update."""
+
+    updates: List[BulkUpdateItem] = Field(..., min_length=1, max_length=100)
+    transactional: bool = Field(default=False, description="Rollback all on any failure")
+
+
+class BulkCloseRequest(BaseModel):
+    """Request for bulk loop close."""
+
+    items: List[BulkCloseItem] = Field(..., min_length=1, max_length=100)
+    transactional: bool = Field(default=False, description="Rollback all on any failure")
+
+
+class BulkSnoozeRequest(BaseModel):
+    """Request for bulk loop snooze."""
+
+    items: List[BulkSnoozeItem] = Field(..., min_length=1, max_length=100)
+    transactional: bool = Field(default=False, description="Rollback all on any failure")
+
+
+class BulkResultItem(BaseModel):
+    """Result for a single item in bulk operation."""
+
+    index: int
+    loop_id: int
+    ok: bool
+    loop: LoopResponse | None = None
+    error: Dict[str, Any] | None = None
+
+
+class BulkUpdateResponse(BaseModel):
+    """Response for bulk update operation."""
+
+    ok: bool
+    transactional: bool
+    results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+class BulkCloseResponse(BaseModel):
+    """Response for bulk close operation."""
+
+    ok: bool
+    transactional: bool
+    results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+class BulkSnoozeResponse(BaseModel):
+    """Response for bulk snooze operation."""
+
+    ok: bool
+    transactional: bool
+    results: List[BulkResultItem]
+    succeeded: int
+    failed: int
