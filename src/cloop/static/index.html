@@ -679,6 +679,115 @@
           width: 100%;
         }
       }
+
+      /* Help Modal Styles */
+      .help-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(47, 42, 36, 0.6);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+        backdrop-filter: blur(4px);
+      }
+      .help-modal-overlay.visible {
+        display: flex;
+      }
+      .help-modal {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 24px;
+        max-width: 480px;
+        width: 90%;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 20px 60px rgba(47, 42, 36, 0.3);
+        animation: rise 200ms ease;
+      }
+      .help-modal h2 {
+        margin: 0 0 16px;
+        font-family: "Space Grotesk", sans-serif;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .help-modal-close {
+        background: transparent;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 0;
+        line-height: 1;
+      }
+      .help-modal-close:hover,
+      .help-modal-close:focus-visible {
+        color: var(--ink);
+      }
+      .help-modal-close:focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+      .help-section {
+        margin-bottom: 16px;
+      }
+      .help-section h3 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        font-family: "Space Grotesk", sans-serif;
+      }
+      .help-shortcut {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .help-shortcut:last-child {
+        border-bottom: none;
+      }
+      .help-key {
+        font-family: "Space Grotesk", monospace;
+        background: var(--bg-accent);
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        border: 1px solid var(--border);
+        min-width: 32px;
+        text-align: center;
+      }
+      .help-keys {
+        display: flex;
+        gap: 4px;
+      }
+      .help-desc {
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      /* Shortcut Hints on UI Elements */
+      .shortcut-hint {
+        display: inline-block;
+        font-size: 10px;
+        font-family: "Space Grotesk", monospace;
+        background: rgba(255,255,255,0.5);
+        color: var(--muted);
+        padding: 1px 5px;
+        border-radius: 4px;
+        margin-left: 6px;
+        border: 1px solid var(--border);
+        opacity: 0.7;
+      }
+      .tab .shortcut-hint {
+        font-size: 9px;
+        padding: 1px 4px;
+      }
     </style>
   </head>
   <body>
@@ -687,10 +796,10 @@
       <p>Capture fast. Organize later.</p>
     </header>
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="inbox" role="tab" aria-selected="true">Inbox</button>
-      <button class="tab" data-tab="next" role="tab" aria-selected="false">Next</button>
-      <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat</button>
-      <button class="tab" data-tab="rag" role="tab" aria-selected="false">RAG</button>
+      <button class="tab active" data-tab="inbox" role="tab" aria-selected="true">Inbox<span class="shortcut-hint">1</span></button>
+      <button class="tab" data-tab="next" role="tab" aria-selected="false">Next<span class="shortcut-hint">2</span></button>
+      <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat<span class="shortcut-hint">3</span></button>
+      <button class="tab" data-tab="rag" role="tab" aria-selected="false">RAG<span class="shortcut-hint">4</span></button>
     </nav>
     <main id="inbox-main">
       <section class="panel">
@@ -810,6 +919,81 @@
       <button class="tag-add" type="button" id="import-btn">import</button>
       <input type="file" id="import-file" accept="application/json" hidden>
     </div>
+
+    <!-- Keyboard Shortcuts Help Modal -->
+    <div class="help-modal-overlay" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+      <div class="help-modal" tabindex="-1">
+        <h2 id="help-modal-title">
+          Keyboard Shortcuts
+          <button class="help-modal-close" data-action="close-help" aria-label="Close keyboard shortcuts help">&times;</button>
+        </h2>
+        <div class="help-section">
+          <h3>Navigation</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Inbox</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">i</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Next</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">n</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Chat</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">c</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to RAG</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">r</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Switch tabs (1-4)</span>
+            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>Capture &amp; Search</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">New loop (focus capture)</span>
+            <div class="help-keys"><span class="help-key">n</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Search / query</span>
+            <div class="help-keys"><span class="help-key">/</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>Actions (on selected loop)</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Complete</span>
+            <div class="help-keys"><span class="help-key">c</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Enrich</span>
+            <div class="help-keys"><span class="help-key">e</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Refresh</span>
+            <div class="help-keys"><span class="help-key">r</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Toggle timer</span>
+            <div class="help-keys"><span class="help-key">t</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>General</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Show this help</span>
+            <div class="help-keys"><span class="help-key">?</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Close modal / blur input</span>
+            <div class="help-keys"><span class="help-key">Esc</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       const inbox = document.getElementById("inbox");
       const nextBuckets = document.getElementById("next-buckets");
@@ -999,7 +1183,7 @@
           </div>
           <div class="timer-section">
           <button class="timer-btn ${loop.timer_running ? 'running' : ''}" data-action="timer-toggle" data-id="${loop.id}" data-running="${loop.timer_running ? 'true' : 'false'}">
-            ${loop.timer_running ? '⏹ Stop' : '▶ Start'}
+            ${loop.timer_running ? '⏹ Stop' : '▶ Start'}<span class="shortcut-hint">t</span>
           </button>
           <span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">
             ${loop.timer_display || ''}
@@ -1009,10 +1193,10 @@
         </div>
         <div class="loop-actions">
           <button class="secondary" data-action="complete" data-id="${loop.id}">
-            Complete
+            Complete<span class="shortcut-hint">c</span>
           </button>
-          <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich</button>
-          <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh</button>
+          <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich<span class="shortcut-hint">e</span></button>
+          <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh<span class="shortcut-hint">r</span></button>
         </div>
           <div class="completion-note-row ${completionVisible ? "visible" : ""}">
             <span class="inline-label">completion note</span>
@@ -1339,7 +1523,9 @@
       }
 
       function showCompletionNote(loopId) {
-        const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
+        // Search in both inbox and nextBuckets containers
+        const card = inbox.querySelector(`[data-loop-id="${loopId}"]`) ||
+                     nextBuckets.querySelector(`[data-loop-id="${loopId}"]`);
         if (!card) return;
         const noteRow = card.querySelector(".completion-note-row");
         if (noteRow) {
@@ -1355,7 +1541,9 @@
       }
 
       function hideCompletionNote(loopId) {
-        const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
+        // Search in both inbox and nextBuckets containers
+        const card = inbox.querySelector(`[data-loop-id="${loopId}"]`) ||
+                     nextBuckets.querySelector(`[data-loop-id="${loopId}"]`);
         if (!card) return;
         const noteRow = card.querySelector(".completion-note-row");
         if (!noteRow) return;
@@ -2203,6 +2391,192 @@
 
       // Add refresh button handler
       refreshNextBtn.addEventListener("click", loadNext);
+
+      // ========================================
+      // Keyboard Shortcuts System
+      // ========================================
+
+      const helpModal = document.getElementById("help-modal");
+      let pendingGKey = false; // For `g i`, `g n`, etc. sequences
+      let gKeyTimeout = null;
+      let focusedLoopId = null; // Track which loop has focus for actions
+
+      function isInputFocused() {
+        const active = document.activeElement;
+        return active && (
+          active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          active.isContentEditable
+        );
+      }
+
+      function isModalOpen() {
+        return helpModal.classList.contains("visible");
+      }
+
+      function showHelpModal() {
+        helpModal.classList.add("visible");
+        // Focus the modal for accessibility
+        helpModal.querySelector(".help-modal").focus();
+      }
+
+      function hideHelpModal() {
+        helpModal.classList.remove("visible");
+      }
+
+      function getFirstVisibleLoopId() {
+        // Get the first loop card in the current view
+        const visibleMain = [inboxMain, nextMain, chatMain, ragMain].find(
+          el => el.style.display !== "none"
+        );
+        if (!visibleMain) return null;
+        const firstCard = visibleMain.querySelector(".loop-card");
+        return firstCard?.dataset?.loopId || null;
+      }
+
+      function handleKeyboardShortcuts(event) {
+        // Ignore shortcuts if modifier keys are pressed (Ctrl, Cmd, Alt)
+        // This prevents blocking browser shortcuts like Ctrl+R, Cmd+R, etc.
+        if (event.ctrlKey || event.metaKey || event.altKey) {
+          return;
+        }
+
+        // Handle Escape key first (works even in inputs when modal is open)
+        if (event.key === "Escape") {
+          if (isModalOpen()) {
+            hideHelpModal();
+            event.preventDefault();
+            return;
+          }
+          // If in an input, let the existing handlers deal with it
+          if (isInputFocused()) {
+            return;
+          }
+          // Clear any pending g-key state
+          if (pendingGKey) {
+            pendingGKey = false;
+            if (gKeyTimeout) clearTimeout(gKeyTimeout);
+            status.textContent = "Ready.";
+          }
+          focusedLoopId = null;
+          return;
+        }
+
+        // Don't process other shortcuts if typing in an input
+        if (isInputFocused()) {
+          return;
+        }
+
+        const key = event.key.toLowerCase();
+
+        // Handle `g` key sequences (g i, g n, g c, g r)
+        if (pendingGKey) {
+          pendingGKey = false;
+          if (gKeyTimeout) clearTimeout(gKeyTimeout);
+
+          const gMappings = {
+            "i": "inbox",
+            "n": "next",
+            "c": "chat",
+            "r": "rag"
+          };
+
+          if (gMappings[key]) {
+            switchTab(gMappings[key]);
+            status.textContent = `Switched to ${gMappings[key]}`;
+            event.preventDefault();
+            return;
+          }
+          // Unknown sequence, treat as normal key
+        }
+
+        // Start g-key sequence
+        if (key === "g") {
+          pendingGKey = true;
+          status.textContent = "g pressed. Press i, n, c, or r...";
+          gKeyTimeout = setTimeout(() => {
+            pendingGKey = false;
+            status.textContent = "Ready.";
+          }, 1500);
+          event.preventDefault();
+          return;
+        }
+
+        // Direct tab switching with 1-4
+        const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "rag" };
+        if (tabNumbers[key]) {
+          switchTab(tabNumbers[key]);
+          status.textContent = `Switched to ${tabNumbers[key]}`;
+          event.preventDefault();
+          return;
+        }
+
+        // Show help modal
+        if (key === "?") {
+          showHelpModal();
+          event.preventDefault();
+          return;
+        }
+
+        // Focus capture textarea
+        if (key === "n") {
+          switchTab("inbox");
+          rawText.focus();
+          status.textContent = "Type your loop...";
+          event.preventDefault();
+          return;
+        }
+
+        // Focus search/query
+        if (key === "/") {
+          switchTab("inbox");
+          queryFilter.focus();
+          status.textContent = "Search loops...";
+          event.preventDefault();
+          return;
+        }
+
+        // Loop actions (require a focused/first visible loop)
+        const loopId = focusedLoopId || getFirstVisibleLoopId();
+        if (loopId) {
+          if (key === "c") {
+            showCompletionNote(loopId);
+            status.textContent = "Complete loop (add note or press Enter)";
+            event.preventDefault();
+            return;
+          }
+          if (key === "e") {
+            enrichLoop(loopId);
+            event.preventDefault();
+            return;
+          }
+          if (key === "r") {
+            refreshLoop(loopId);
+            status.textContent = "Loop refreshed.";
+            event.preventDefault();
+            return;
+          }
+          if (key === "t") {
+            toggleTimer(loopId);
+            event.preventDefault();
+            return;
+          }
+        }
+      }
+
+      // Global keyboard listener
+      document.addEventListener("keydown", handleKeyboardShortcuts);
+
+      // Close modal on overlay click
+      helpModal.addEventListener("click", (event) => {
+        if (event.target === helpModal) {
+          hideHelpModal();
+        }
+      });
+
+      // Close modal button handler
+      helpModal.querySelector("[data-action=close-help]").addEventListener("click", hideHelpModal);
     </script>
   </body>
 </html>
