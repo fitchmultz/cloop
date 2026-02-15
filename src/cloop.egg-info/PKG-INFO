@@ -358,7 +358,7 @@ All mutating endpoints support idempotency for safe retries over unreliable netw
 - Same key + same payload: replays prior response without additional writes
 - Same key + different payload: returns 409 Conflict
 
-**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.snooze`, `loop.enrich`).
+**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`).
 - Same request_id + same args: replays prior response
 - Same request_id + different args: raises `ToolError`
 
@@ -482,8 +482,9 @@ Run the MCP server (stdio transport):
 uv run cloop-mcp
 ```
 
-Exposed tools include `loop.create`, `loop.update`, `loop.close`, `loop.list`, `loop.search`,
-`loop.snooze`, `loop.enrich`, and `project.list`.
+Exposed tools include `loop.create`, `loop.update`, `loop.close`, `loop.get`, `loop.next`,
+`loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.snooze`, `loop.enrich`,
+and `project.list`.
 
 ## Development
 

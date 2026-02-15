@@ -233,9 +233,47 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
     elif getattr(args, "rrule", None):
         recurrence_rrule = args.rrule
 
+    # If template specified, fetch and apply
+    template_defaults: dict[str, Any] = {}
+    raw_text = args.text
+    if getattr(args, "template", None):
+        from .loops.repo import get_loop_template, get_loop_template_by_name
+        from .loops.templates import (
+            apply_template_to_capture,
+            extract_update_fields_from_template,
+        )
+
+        with db.core_connection(settings) as conn:
+            try:
+                template_id = int(args.template)
+                template = get_loop_template(template_id=template_id, conn=conn)
+            except ValueError:
+                template = get_loop_template_by_name(name=args.template, conn=conn)
+
+        if not template:
+            print(f"Template not found: {args.template}", file=sys.stderr)
+            return 2
+
+        applied = apply_template_to_capture(
+            template=template,
+            raw_text_override=args.text,
+            now_utc=utc_now(),
+            tz_offset_min=tz_offset_min,
+        )
+        raw_text = applied["raw_text"]
+        template_defaults = applied
+
+        # Merge status flags from template if not explicitly set
+        if not args.actionable and not args.scheduled and not args.blocked:
+            status = resolve_status_from_flags(
+                scheduled=applied.get("scheduled", False),
+                blocked=applied.get("blocked", False),
+                actionable=applied.get("actionable", False),
+            )
+
     with db.core_connection(settings) as conn:
         record = capture_loop(
-            raw_text=args.text,
+            raw_text=raw_text,
             captured_at_iso=captured_at,
             client_tz_offset_min=tz_offset_min,
             status=status,
@@ -243,6 +281,17 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
             recurrence_rrule=recurrence_rrule,
             recurrence_tz=getattr(args, "timezone", None),
         )
+
+        # Apply template defaults (tags, time_minutes, etc.)
+        if template_defaults:
+            update_fields = extract_update_fields_from_template(template_defaults)
+            if update_fields:
+                record = update_loop(
+                    loop_id=record["id"],
+                    fields=update_fields,
+                    conn=conn,
+                )
+
         if settings.autopilot_enabled:
             record = request_enrichment(loop_id=record["id"], conn=conn)
 
@@ -930,6 +979,135 @@ def _sessions_command(args: argparse.Namespace, settings: Settings) -> int:
         return 1
 
 
+def _template_list_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.repo import list_loop_templates
+
+    with db.core_connection(settings) as conn:
+        templates = list_loop_templates(conn=conn)
+
+    payload = [
+        {
+            "id": t["id"],
+            "name": t["name"],
+            "description": t["description"],
+            "is_system": bool(t["is_system"]),
+        }
+        for t in templates
+    ]
+    _emit_output(payload, args.format)
+    return 0
+
+
+def _template_show_command(args: argparse.Namespace, settings: Settings) -> int:
+    import json
+
+    from .loops.repo import get_loop_template, get_loop_template_by_name
+
+    with db.core_connection(settings) as conn:
+        # Try as ID first
+        try:
+            template_id = int(args.name_or_id)
+            template = get_loop_template(template_id=template_id, conn=conn)
+        except ValueError:
+            template = get_loop_template_by_name(name=args.name_or_id, conn=conn)
+
+    if not template:
+        print(f"Template not found: {args.name_or_id}", file=sys.stderr)
+        return 2
+
+    defaults = json.loads(template["defaults_json"]) if template["defaults_json"] else {}
+    payload = {
+        "id": template["id"],
+        "name": template["name"],
+        "description": template["description"],
+        "pattern": template["raw_text_pattern"],
+        "defaults": defaults,
+        "is_system": bool(template["is_system"]),
+    }
+    _emit_output(payload, args.format)
+    return 0
+
+
+def _template_create_command(args: argparse.Namespace, settings: Settings) -> int:
+
+    from .loops.errors import ValidationError
+    from .loops.repo import create_loop_template
+
+    defaults: dict[str, Any] = {}
+    if args.tags:
+        defaults["tags"] = [t.strip().lower() for t in args.tags.split(",")]
+    if args.time:
+        defaults["time_minutes"] = args.time
+    if args.actionable:
+        defaults["actionable"] = True
+
+    with db.core_connection(settings) as conn:
+        try:
+            template = create_loop_template(
+                name=args.name,
+                description=args.description,
+                raw_text_pattern=args.pattern,
+                defaults_json=defaults,
+                is_system=False,
+                conn=conn,
+            )
+        except ValidationError as e:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 1
+
+    _emit_output({"id": template["id"], "name": template["name"]}, args.format)
+    return 0
+
+
+def _template_delete_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.errors import ValidationError
+    from .loops.repo import delete_loop_template, get_loop_template, get_loop_template_by_name
+
+    with db.core_connection(settings) as conn:
+        try:
+            template_id = int(args.name_or_id)
+            template = get_loop_template(template_id=template_id, conn=conn)
+        except ValueError:
+            template = get_loop_template_by_name(name=args.name_or_id, conn=conn)
+
+        if not template:
+            print(f"Template not found: {args.name_or_id}", file=sys.stderr)
+            return 2
+
+        try:
+            deleted = delete_loop_template(template_id=template["id"], conn=conn)
+        except ValidationError as e:
+            print(f"Cannot delete: {e.message}", file=sys.stderr)
+            return 1
+
+    if deleted:
+        print(f"Deleted template: {template['name']}")
+        return 0
+    return 1
+
+
+def _template_from_loop_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.errors import LoopNotFoundError, ValidationError
+    from .loops.service import create_template_from_loop
+
+    with db.core_connection(settings) as conn:
+        try:
+            template = create_template_from_loop(
+                loop_id=args.loop_id,
+                template_name=args.name,
+                conn=conn,
+            )
+        except LoopNotFoundError:
+            print(f"Loop not found: {args.loop_id}", file=sys.stderr)
+            return 2
+        except ValidationError as e:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 1
+
+    _emit_output({"id": template["id"], "name": template["name"]}, args.format)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cloop",
@@ -984,6 +1162,7 @@ Exit codes:
     _add_next_parser(subparsers)
 
     _add_loop_parser(subparsers)
+    _add_template_parser(subparsers)
 
     _add_tags_parser(subparsers)
     _add_projects_parser(subparsers)
@@ -1073,6 +1252,12 @@ def _add_capture_parser(subparsers: Any) -> None:
         "--timezone",
         dest="timezone",
         help="IANA timezone name (e.g., 'America/New_York'). Defaults to client offset.",
+    )
+    capture_parser.add_argument(
+        "--template",
+        "-t",
+        dest="template",
+        help="Template name or ID to apply",
     )
 
 
@@ -1344,6 +1529,43 @@ def _add_import_parser(subparsers: Any) -> None:
     _add_format_option(import_parser)
 
 
+def _add_template_parser(subparsers: Any) -> None:
+    template_parser = subparsers.add_parser(
+        "template",
+        help="Manage loop templates",
+    )
+    template_sub = template_parser.add_subparsers(dest="template_command", required=True)
+
+    # template list
+    list_parser = template_sub.add_parser("list", help="List all templates")
+    _add_format_option(list_parser)
+
+    # template show
+    show_parser = template_sub.add_parser("show", help="Show template details")
+    show_parser.add_argument("name_or_id", help="Template name or ID")
+    _add_format_option(show_parser)
+
+    # template create
+    create_parser = template_sub.add_parser("create", help="Create a template")
+    create_parser.add_argument("name", help="Template name")
+    create_parser.add_argument("--description", "-d", help="Template description")
+    create_parser.add_argument("--pattern", "-p", default="", help="Raw text pattern")
+    create_parser.add_argument("--tags", help="Comma-separated default tags")
+    create_parser.add_argument("--time", type=int, help="Default time estimate (minutes)")
+    create_parser.add_argument("--actionable", action="store_true", help="Default to actionable")
+    _add_format_option(create_parser)
+
+    # template delete
+    delete_parser = template_sub.add_parser("delete", help="Delete a template")
+    delete_parser.add_argument("name_or_id", help="Template name or ID")
+
+    # template from-loop
+    from_loop_parser = template_sub.add_parser("from-loop", help="Create template from loop")
+    from_loop_parser.add_argument("loop_id", type=int, help="Loop ID")
+    from_loop_parser.add_argument("name", help="Template name")
+    _add_format_option(from_loop_parser)
+
+
 def main(argv: List[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1413,6 +1635,20 @@ def main(argv: List[str] | None = None) -> int:
         if args.loop_command == "sessions":
             return _sessions_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
+        return 2
+
+    if args.command == "template":
+        if args.template_command == "list":
+            return _template_list_command(args, settings)
+        if args.template_command == "show":
+            return _template_show_command(args, settings)
+        if args.template_command == "create":
+            return _template_create_command(args, settings)
+        if args.template_command == "delete":
+            return _template_delete_command(args, settings)
+        if args.template_command == "from-loop":
+            return _template_from_loop_command(args, settings)
+        parser.error(f"Unknown template command: {args.template_command}")
         return 2
 
     if args.command == "tags":

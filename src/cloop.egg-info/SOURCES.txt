@@ -33,6 +33,7 @@ src/cloop/loops/recurrence.py
 src/cloop/loops/related.py
 src/cloop/loops/repo.py
 src/cloop/loops/service.py
+src/cloop/loops/templates.py
 src/cloop/rag/__init__.py
 src/cloop/rag/chunking.py
 src/cloop/rag/documents.py
@@ -65,6 +66,7 @@ tests/test_loops.py
 tests/test_loops_query.py
 tests/test_mcp_server.py
 tests/test_rag.py
+tests/test_recurrence.py
 tests/test_settings.py
 tests/test_tools.py
 tests/test_typingx.py
