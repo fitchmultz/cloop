@@ -1487,6 +1487,112 @@
         to { transform: rotate(360deg); }
       }
 
+      /* Metrics Panel Styles */
+      .metrics-main {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 16px 20px 40px;
+        display: none;
+      }
+      .metrics-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .metrics-header h2 {
+        margin: 0;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+      }
+      .metrics-content {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        margin-bottom: 4px;
+      }
+      .metric-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+        text-align: center;
+        transition: all 150ms ease;
+      }
+      .metric-card:hover {
+        box-shadow: var(--shadow);
+        transform: translateY(-2px);
+      }
+      .metric-value {
+        font-size: 32px;
+        font-weight: 600;
+        font-family: "Space Grotesk", sans-serif;
+        color: var(--ink);
+      }
+      .metric-label {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 6px;
+        line-height: 1.3;
+      }
+      .metric-card.alert {
+        border-color: #c0392b;
+        background: #fef5f5;
+      }
+      .metric-card.alert .metric-value {
+        color: #c0392b;
+      }
+      .metric-card.warning {
+        border-color: #d68910;
+        background: #fefbf5;
+      }
+      .metric-card.warning .metric-value {
+        color: #d68910;
+      }
+      .metric-card.success {
+        border-color: #27ae60;
+        background: #f5fef8;
+      }
+      .metric-card.success .metric-value {
+        color: #27ae60;
+      }
+      .metrics-status-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+        padding: 12px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+      }
+      .status-badge {
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .status-badge.inbox { background: #f4efe6; color: var(--muted); }
+      .status-badge.actionable { background: #e6f4e6; color: #2d6b34; }
+      .status-badge.blocked { background: #ffe3e3; color: #8a2a2a; }
+      .status-badge.scheduled { background: #e0f0ff; color: #2a5a8a; }
+      .status-badge.completed { background: #e6f4e6; color: #2d6b34; }
+      .status-badge.dropped { background: #f0f0f0; color: #666; }
+      .metrics-section-title {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin: 8px 0 4px;
+      }
+
       /* Comments Section Styles */
       .comments-section {
         margin-top: 12px;
@@ -1701,6 +1807,7 @@
       <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat<span class="shortcut-hint">3</span></button>
       <button class="tab" data-tab="rag" role="tab" aria-selected="false">RAG<span class="shortcut-hint">4</span></button>
       <button class="tab" data-tab="review" role="tab" aria-selected="false">Review<span class="shortcut-hint">5</span></button>
+      <button class="tab" data-tab="metrics" role="tab" aria-selected="false">Metrics<span class="shortcut-hint">6</span></button>
     </nav>
     <main id="inbox-main">
       <section class="panel">
@@ -1834,6 +1941,17 @@
         <div id="review-cohorts" class="review-cohorts"></div>
       </section>
     </main>
+    <main class="metrics-main" id="metrics-main">
+      <section class="panel">
+        <div class="metrics-header">
+          <h2>Loop Health Metrics</h2>
+          <button class="secondary" id="refresh-metrics-btn" type="button">Refresh</button>
+        </div>
+        <div id="metrics-content" class="metrics-content">
+          <!-- Populated by JavaScript -->
+        </div>
+      </section>
+    </main>
     <div class="footer-actions">
       <button class="tag-add" type="button" id="export-btn">export</button>
       <button class="tag-add" type="button" id="import-btn">import</button>
@@ -1907,8 +2025,12 @@
             <div class="help-keys"><span class="help-key">g</span><span class="help-key">v</span></div>
           </div>
           <div class="help-shortcut">
-            <span class="help-desc">Switch tabs (1-5)</span>
-            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span><span class="help-key">5</span></div>
+            <span class="help-desc">Go to Metrics</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">m</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Switch tabs (1-6)</span>
+            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span><span class="help-key">5</span><span class="help-key">6</span></div>
           </div>
         </div>
         <div class="help-section">
@@ -3895,6 +4017,9 @@
         if (reviewMain) {
           reviewMain.style.display = tabName === "review" ? "grid" : "none";
         }
+        if (metricsMain) {
+          metricsMain.style.display = tabName === "metrics" ? "block" : "none";
+        }
 
         // Load data when switching to Next tab
         if (tabName === "next") {
@@ -3903,6 +4028,10 @@
         // Load data when switching to Review tab
         if (tabName === "review") {
           loadReviewData();
+        }
+        // Load data when switching to Metrics tab
+        if (tabName === "metrics") {
+          fetchAndRenderMetrics();
         }
       }
 
@@ -4088,6 +4217,11 @@
       // Review Functionality
       const reviewMain = document.getElementById("review-main");
       const reviewCohorts = document.getElementById("review-cohorts");
+
+      // Metrics Functionality
+      const metricsMain = document.getElementById("metrics-main");
+      const metricsContent = document.getElementById("metrics-content");
+      const refreshMetricsBtn = document.getElementById("refresh-metrics-btn");
       let reviewMode = "daily";
       let reviewData = null;
 
@@ -4187,6 +4321,102 @@
         cohorts.forEach(cohort => {
           reviewCohorts.appendChild(renderReviewCohort(cohort));
         });
+      }
+
+      // Metrics Functionality
+      async function fetchAndRenderMetrics() {
+        if (!metricsContent) return;
+
+        metricsContent.innerHTML = '<div class="cohort-loading">Loading metrics...</div>';
+
+        try {
+          const response = await fetch("/loops/metrics");
+          if (!response.ok) {
+            metricsContent.innerHTML = '<div class="cohort-empty">Failed to load metrics.</div>';
+            return;
+          }
+
+          const data = await response.json();
+          renderMetrics(data);
+        } catch (err) {
+          console.error("metrics error:", err);
+          metricsContent.innerHTML = '<div class="cohort-empty">Error loading metrics.</div>';
+        }
+      }
+
+      function renderMetrics(data) {
+        const statusHtml = `
+          <div class="metrics-section-title">Status Distribution</div>
+          <div class="metrics-status-row">
+            <span class="status-badge inbox">Inbox: ${data.status_counts.inbox}</span>
+            <span class="status-badge actionable">Actionable: ${data.status_counts.actionable}</span>
+            <span class="status-badge blocked">Blocked: ${data.status_counts.blocked}</span>
+            <span class="status-badge scheduled">Scheduled: ${data.status_counts.scheduled}</span>
+            <span class="status-badge completed">Completed: ${data.status_counts.completed}</span>
+            <span class="status-badge dropped">Dropped: ${data.status_counts.dropped}</span>
+          </div>
+        `;
+
+        // Determine alert classes based on thresholds
+        const staleClass = data.stale_open_count > 5 ? 'alert' : data.stale_open_count > 0 ? 'warning' : '';
+        const blockedClass = data.blocked_too_long_count > 3 ? 'alert' : data.blocked_too_long_count > 0 ? 'warning' : '';
+        const enrichClass = data.enrichment_failed_count > 0 ? 'alert' : '';
+
+        const healthHtml = `
+          <div class="metrics-section-title">Health Indicators</div>
+          <div class="metrics-grid">
+            <div class="metric-card ${staleClass}">
+              <div class="metric-value">${data.stale_open_count}</div>
+              <div class="metric-label">Stale Open (72h+)</div>
+            </div>
+            <div class="metric-card ${blockedClass}">
+              <div class="metric-value">${data.blocked_too_long_count}</div>
+              <div class="metric-label">Blocked 48h+</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">${data.no_next_action_count}</div>
+              <div class="metric-label">No Next Action</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">${data.enrichment_pending_count}</div>
+              <div class="metric-label">Enrichment Pending</div>
+            </div>
+            <div class="metric-card ${enrichClass}">
+              <div class="metric-value">${data.enrichment_failed_count}</div>
+              <div class="metric-label">Enrichment Failed</div>
+            </div>
+          </div>
+        `;
+
+        const throughputClass = data.completion_count_24h >= data.capture_count_24h ? 'success' : '';
+        const throughputHtml = `
+          <div class="metrics-section-title">Throughput (24h)</div>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-value">${data.capture_count_24h}</div>
+              <div class="metric-label">Captured</div>
+            </div>
+            <div class="metric-card ${throughputClass}">
+              <div class="metric-value">${data.completion_count_24h}</div>
+              <div class="metric-label">Completed</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">${data.avg_age_open_hours !== null ? data.avg_age_open_hours.toFixed(1) + 'h' : 'N/A'}</div>
+              <div class="metric-label">Avg Age Open</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-value">${data.total_loops}</div>
+              <div class="metric-label">Total Loops</div>
+            </div>
+          </div>
+        `;
+
+        metricsContent.innerHTML = statusHtml + healthHtml + throughputHtml;
+      }
+
+      // Refresh metrics button
+      if (refreshMetricsBtn) {
+        refreshMetricsBtn.addEventListener("click", fetchAndRenderMetrics);
       }
 
       // Review mode toggle handlers
@@ -4412,7 +4642,8 @@
             "n": "next",
             "c": "chat",
             "r": "rag",
-            "v": "review"
+            "v": "review",
+            "m": "metrics"
           };
 
           if (gMappings[key]) {
@@ -4436,8 +4667,8 @@
           return;
         }
 
-        // Direct tab switching with 1-5
-        const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "rag", "5": "review" };
+        // Direct tab switching with 1-6
+        const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "rag", "5": "review", "6": "metrics" };
         if (tabNumbers[key]) {
           switchTab(tabNumbers[key]);
           status.textContent = `Switched to ${tabNumbers[key]}`;

@@ -57,7 +57,9 @@ import secrets
 import sqlite3
 import time
 from collections.abc import Iterator
-from typing import Annotated, Any, List, Literal
+
+# Type-only import for metrics
+from typing import TYPE_CHECKING, Annotated, Any, List, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -76,7 +78,11 @@ from ..idempotency import (
 from ..loops import enrichment as loop_enrichment
 from ..loops import service as loop_service
 from ..loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
+from ..loops.metrics import compute_loop_metrics
 from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
+
+if TYPE_CHECKING:
+    from ..loops.metrics import LoopMetrics
 from ..schemas.loops import (
     BulkCloseRequest,
     BulkCloseResponse,
@@ -102,6 +108,7 @@ from ..schemas.loops import (
     LoopExportResponse,
     LoopImportRequest,
     LoopImportResponse,
+    LoopMetricsResponse,
     LoopNextResponse,
     LoopReleaseClaimRequest,
     LoopRenewClaimRequest,
@@ -111,6 +118,7 @@ from ..schemas.loops import (
     LoopReviewResponse,
     LoopSearchRequest,
     LoopSearchResponse,
+    LoopStatusCountsResponse,
     LoopStatusRequest,
     LoopTemplateCreateRequest,
     LoopTemplateListResponse,
@@ -860,6 +868,51 @@ def list_claims_endpoint(
     with db.core_connection(settings) as conn:
         claims = loop_service.list_active_claims(owner=owner, limit=limit, conn=conn)
     return [LoopClaimStatusResponse(**claim) for claim in claims]
+
+
+def _metrics_to_response(metrics: "LoopMetrics") -> LoopMetricsResponse:
+    """Convert LoopMetrics dataclass to LoopMetricsResponse."""
+    return LoopMetricsResponse(
+        generated_at_utc=metrics.generated_at_utc,
+        total_loops=metrics.total_loops,
+        status_counts=LoopStatusCountsResponse(
+            inbox=metrics.status_counts.inbox,
+            actionable=metrics.status_counts.actionable,
+            blocked=metrics.status_counts.blocked,
+            scheduled=metrics.status_counts.scheduled,
+            completed=metrics.status_counts.completed,
+            dropped=metrics.status_counts.dropped,
+        ),
+        stale_open_count=metrics.stale_open_count,
+        blocked_too_long_count=metrics.blocked_too_long_count,
+        no_next_action_count=metrics.no_next_action_count,
+        enrichment_pending_count=metrics.enrichment_pending_count,
+        enrichment_failed_count=metrics.enrichment_failed_count,
+        capture_count_24h=metrics.capture_count_24h,
+        completion_count_24h=metrics.completion_count_24h,
+        avg_age_open_hours=metrics.avg_age_open_hours,
+    )
+
+
+@router.get("/metrics", response_model=LoopMetricsResponse)
+def loop_metrics_endpoint(
+    settings: SettingsDep,
+) -> LoopMetricsResponse:
+    """Get operational metrics for loop workflow health.
+
+    Returns SLIs including:
+    - Total loops and counts by status
+    - Stale open loops (not updated in 72+ hours)
+    - Blocked loops stuck for 48+ hours
+    - Enrichment queue health (pending/failed)
+    - Capture and completion rates (24h window)
+    - Average age of open loops
+    """
+    from ..loops.models import utc_now
+
+    with db.core_connection(settings) as conn:
+        metrics = compute_loop_metrics(conn=conn, now_utc=utc_now())
+    return _metrics_to_response(metrics)
 
 
 @router.get("/{loop_id}", response_model=LoopResponse)

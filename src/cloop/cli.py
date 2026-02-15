@@ -318,6 +318,42 @@ def _next_command(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _loop_metrics_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop loop metrics' command."""
+    from .loops.metrics import compute_loop_metrics
+    from .loops.models import utc_now
+
+    with db.core_connection(settings) as conn:
+        metrics = compute_loop_metrics(conn=conn, now_utc=utc_now())
+
+    output = {
+        "generated_at_utc": metrics.generated_at_utc,
+        "total_loops": metrics.total_loops,
+        "status_counts": {
+            "inbox": metrics.status_counts.inbox,
+            "actionable": metrics.status_counts.actionable,
+            "blocked": metrics.status_counts.blocked,
+            "scheduled": metrics.status_counts.scheduled,
+            "completed": metrics.status_counts.completed,
+            "dropped": metrics.status_counts.dropped,
+        },
+        "health_indicators": {
+            "stale_open_count": metrics.stale_open_count,
+            "blocked_too_long_count": metrics.blocked_too_long_count,
+            "no_next_action_count": metrics.no_next_action_count,
+            "enrichment_pending_count": metrics.enrichment_pending_count,
+            "enrichment_failed_count": metrics.enrichment_failed_count,
+        },
+        "throughput_24h": {
+            "captures": metrics.capture_count_24h,
+            "completions": metrics.completion_count_24h,
+        },
+        "avg_age_open_hours": metrics.avg_age_open_hours,
+    }
+    _emit_output(output, args.format)
+    return 0
+
+
 def _review_command(args: argparse.Namespace, settings: Settings) -> int:
     """Handle 'cloop loop review' command."""
     from .loops.models import utc_now
@@ -2295,6 +2331,20 @@ Examples:
     undo_parser.add_argument("id", type=int, help="Loop ID")
     _add_format_option(undo_parser)
 
+    # Metrics parser
+    metrics_parser = loop_subparsers.add_parser(
+        "metrics",
+        help="Show operational metrics for loop health",
+        description="Display SLIs including status counts, stale loops, enrichment health.",
+        epilog="""
+Examples:
+  cloop loop metrics
+  cloop loop metrics --format json
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_format_option(metrics_parser)
+
 
 def _add_tags_parser(subparsers: Any) -> None:
     tags_parser = subparsers.add_parser(
@@ -2686,6 +2736,8 @@ def main(argv: List[str] | None = None) -> int:
             return _loop_events_command(args, settings)
         if args.loop_command == "undo":
             return _loop_undo_command(args, settings)
+        if args.loop_command == "metrics":
+            return _loop_metrics_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 

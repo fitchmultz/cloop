@@ -774,3 +774,35 @@ class LoopCommentListResponse(BaseModel):
 
 # Resolve forward references
 LoopCommentResponse.model_rebuild()
+
+
+# ============================================================================
+# Loop Metrics Schemas
+# ============================================================================
+
+
+class LoopStatusCountsResponse(BaseModel):
+    """Loop counts by status."""
+
+    inbox: int
+    actionable: int
+    blocked: int
+    scheduled: int
+    completed: int
+    dropped: int
+
+
+class LoopMetricsResponse(BaseModel):
+    """Operational metrics for loop workflow health."""
+
+    generated_at_utc: str
+    total_loops: int
+    status_counts: LoopStatusCountsResponse
+    stale_open_count: int
+    blocked_too_long_count: int
+    no_next_action_count: int
+    enrichment_pending_count: int
+    enrichment_failed_count: int
+    capture_count_24h: int
+    completion_count_24h: int
+    avg_age_open_hours: float | None
