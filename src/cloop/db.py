@@ -839,6 +839,40 @@ def init_databases(settings: Settings | None = None) -> None:
         _assert_schema(rag_conn, RAG_SCHEMA_VERSION)
 
 
+def get_core_schema_version(settings: Settings | None = None) -> int:
+    """Get current core database schema version.
+
+    Args:
+        settings: Application settings. Uses global settings if not provided.
+
+    Returns:
+        The current schema version number (PRAGMA user_version).
+        Returns 0 if database doesn't exist or is uninitialized.
+    """
+    settings = settings or get_settings()
+    if not settings.core_db_path.exists():
+        return 0
+    with core_connection(settings) as conn:
+        return _user_version(conn)
+
+
+def get_rag_schema_version(settings: Settings | None = None) -> int:
+    """Get current RAG database schema version.
+
+    Args:
+        settings: Application settings. Uses global settings if not provided.
+
+    Returns:
+        The current schema version number (PRAGMA user_version).
+        Returns 0 if database doesn't exist or is uninitialized.
+    """
+    settings = settings or get_settings()
+    if not settings.rag_db_path.exists():
+        return 0
+    with rag_connection(settings) as conn:
+        return _user_version(conn)
+
+
 def record_interaction(
     *,
     endpoint: str,

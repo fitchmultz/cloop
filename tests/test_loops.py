@@ -62,6 +62,9 @@ def _test_settings() -> Settings:
         claim_default_ttl_seconds=300,
         claim_max_ttl_seconds=3600,
         claim_token_bytes=32,
+        backup_dir=Path("./data/backups"),
+        backup_keep_count=10,
+        backup_compress=True,
     )
 
 
