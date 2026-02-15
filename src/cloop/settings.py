@@ -89,6 +89,7 @@ class Settings:
     priority_weight_activation_penalty: float
     # Related loop settings
     related_similarity_threshold: float
+    duplicate_similarity_threshold: float
     related_max_candidates: int
     # Idempotency settings
     idempotency_ttl_seconds: int
@@ -211,6 +212,9 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_PRIORITY_WEIGHT_ACTIVATION_PENALTY", "0.3")
         ),
         related_similarity_threshold=float(os.getenv("CLOOP_RELATED_SIMILARITY_THRESHOLD", "0.78")),
+        duplicate_similarity_threshold=float(
+            os.getenv("CLOOP_DUPLICATE_SIMILARITY_THRESHOLD", "0.95")
+        ),
         related_max_candidates=int(os.getenv("CLOOP_RELATED_MAX_CANDIDATES", "1000")),
         idempotency_ttl_seconds=int(os.getenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")),
         idempotency_max_key_length=int(os.getenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")),
@@ -275,6 +279,13 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
+    if not 0.9 <= settings.duplicate_similarity_threshold <= 1.0:
+        raise ValueError("CLOOP_DUPLICATE_SIMILARITY_THRESHOLD must be between 0.9 and 1.0")
+    if settings.duplicate_similarity_threshold <= settings.related_similarity_threshold:
+        raise ValueError(
+            "CLOOP_DUPLICATE_SIMILARITY_THRESHOLD must be greater than "
+            "CLOOP_RELATED_SIMILARITY_THRESHOLD"
+        )
     if settings.idempotency_ttl_seconds < 1:
         raise ValueError("CLOOP_IDEMPOTENCY_TTL_SECONDS must be at least 1")
     if settings.idempotency_max_key_length < 16:

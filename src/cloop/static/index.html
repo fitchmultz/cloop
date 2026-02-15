@@ -920,6 +920,166 @@
         font-size: 14px;
       }
 
+      /* Duplicate Badge on Loop Cards */
+      .duplicate-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        border-radius: 999px;
+        font-size: 11px;
+        color: #92400e;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 150ms ease;
+      }
+      .duplicate-badge:hover {
+        background: #fde68a;
+        border-color: #f59e0b;
+      }
+
+      /* Merge Modal */
+      .merge-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(47, 42, 36, 0.6);
+        display: none;
+        justify-content: center;
+        align-items: flex-start;
+        padding: 40px 20px;
+        z-index: 1002;
+        backdrop-filter: blur(4px);
+        overflow-y: auto;
+      }
+      .merge-modal-overlay.visible {
+        display: flex;
+      }
+      .merge-modal {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 24px;
+        max-width: 720px;
+        width: 100%;
+        box-shadow: 0 20px 60px rgba(47, 42, 36, 0.3);
+        animation: rise 280ms ease;
+      }
+      .merge-modal h2 {
+        margin: 0 0 8px;
+        font-family: "Space Grotesk", sans-serif;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .merge-modal-close {
+        background: transparent;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: var(--muted);
+        padding: 0;
+        line-height: 1;
+      }
+      .merge-warning {
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        border-radius: 10px;
+        padding: 12px 16px;
+        margin-bottom: 16px;
+        font-size: 14px;
+        color: #92400e;
+      }
+      .merge-comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+      }
+      .merge-column {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .merge-column h4 {
+        margin: 0 0 12px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 14px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .merge-column.surviving {
+        border-color: #27ae60;
+        background: #f0fdf4;
+      }
+      .merge-column.duplicate {
+        border-color: var(--brand);
+        background: #fff7f0;
+      }
+      .merge-field {
+        margin-bottom: 12px;
+      }
+      .merge-field-label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 4px;
+      }
+      .merge-field-value {
+        font-size: 14px;
+        color: var(--ink);
+      }
+      .merge-field-value.conflict {
+        background: #fef3c7;
+        padding: 4px 8px;
+        border-radius: 6px;
+      }
+      .merge-field-input {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 6px 10px;
+        font-size: 14px;
+        font-family: inherit;
+        background: #fffefb;
+      }
+      .merge-field-input:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+      .merge-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 16px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border);
+      }
+      .merge-btn-cancel {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      .merge-btn-cancel:hover {
+        background: var(--bg-accent);
+      }
+      .merge-btn-confirm {
+        background: #dc2626;
+      }
+      .merge-btn-confirm:hover {
+        background: #b91c1c;
+      }
+
+      @media (max-width: 640px) {
+        .merge-comparison {
+          grid-template-columns: 1fr;
+        }
+      }
+
       /* Shortcut Hints on UI Elements */
       .shortcut-hint {
         display: inline-block;
@@ -1810,6 +1970,34 @@
             <span class="help-desc">Close modal / blur input</span>
             <div class="help-keys"><span class="help-key">Esc</span></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Merge Confirmation Modal -->
+    <div id="mergeModal" class="merge-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="merge-modal-title">
+      <div class="merge-modal" tabindex="-1">
+        <h2 id="merge-modal-title">
+          <span>Merge Loops</span>
+          <button class="merge-modal-close" onclick="closeMergeModal()" aria-label="Close merge dialog">&times;</button>
+        </h2>
+        <div class="merge-warning">
+          This will close the duplicate loop as "dropped" and merge its content into the surviving loop.
+          This action cannot be undone.
+        </div>
+        <div class="merge-comparison">
+          <div class="merge-column surviving">
+            <h4>Surviving Loop</h4>
+            <div id="mergeSurvivingContent"></div>
+          </div>
+          <div class="merge-column duplicate">
+            <h4>Duplicate (will be closed)</h4>
+            <div id="mergeDuplicateContent"></div>
+          </div>
+        </div>
+        <div class="merge-actions">
+          <button class="merge-btn-cancel" onclick="closeMergeModal()">Cancel</button>
+          <button class="merge-btn-confirm" onclick="confirmMerge()">Merge & Close Duplicate</button>
         </div>
       </div>
     </div>
@@ -4750,6 +4938,161 @@
           }
           return;
         }
+      });
+
+      // ============================================================
+      // Duplicate Detection and Merge Functions
+      // ============================================================
+
+      let currentDuplicateLoopId = null;
+      let currentSurvivingLoopId = null;
+      let currentMergePreview = null;
+
+      // Check for duplicates after rendering loops
+      async function checkAndShowDuplicateBadges() {
+        const cards = document.querySelectorAll('.loop-card[data-loop-id]');
+        for (const card of cards) {
+          const loopId = card.dataset.loopId;
+          if (!loopId) continue;
+          await checkDuplicateStatus(parseInt(loopId, 10), card);
+        }
+      }
+
+      async function checkDuplicateStatus(loopId, card) {
+        try {
+          const resp = await fetch(`/loops/${loopId}/duplicates`);
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (data.candidates && data.candidates.length > 0) {
+            showDuplicateBadge(card, loopId, data.candidates);
+          }
+        } catch (err) {
+          // Silently ignore duplicate check failures
+          console.warn('Failed to check duplicate status:', err);
+        }
+      }
+
+      function showDuplicateBadge(card, loopId, candidates) {
+        const badges = card.querySelector('.badges');
+        if (!badges) return;
+
+        // Check if badge already exists
+        if (badges.querySelector('.duplicate-badge')) return;
+
+        const badge = document.createElement('span');
+        badge.className = 'duplicate-badge';
+        badge.innerHTML = `Possible duplicate`;
+        badge.onclick = (e) => {
+          e.stopPropagation();
+          openMergeModal(loopId, candidates[0].loop_id);
+        };
+        badges.appendChild(badge);
+      }
+
+      async function openMergeModal(duplicateLoopId, survivingLoopId) {
+        currentDuplicateLoopId = duplicateLoopId;
+        currentSurvivingLoopId = survivingLoopId;
+
+        try {
+          const resp = await fetch(`/loops/${duplicateLoopId}/merge-preview/${survivingLoopId}`);
+          if (!resp.ok) {
+            const err = await resp.json();
+            alert('Failed to load merge preview: ' + (err.detail?.message || resp.statusText));
+            return;
+          }
+          currentMergePreview = await resp.json();
+          renderMergeModal(currentMergePreview);
+          document.getElementById('mergeModal').classList.add('visible');
+        } catch (err) {
+          console.error('Failed to load merge preview:', err);
+          alert('Failed to load merge preview');
+        }
+      }
+
+      function renderMergeModal(preview) {
+        // Surviving loop content
+        const survivingHtml = `
+          <div class="merge-field">
+            <div class="merge-field-label">Title</div>
+            <div class="merge-field-value ${preview.field_conflicts.title ? 'conflict' : ''}">${preview.merged_title || '<em>empty</em>'}</div>
+          </div>
+          <div class="merge-field">
+            <div class="merge-field-label">Summary</div>
+            <div class="merge-field-value ${preview.field_conflicts.summary ? 'conflict' : ''}">${preview.merged_summary || '<em>empty</em>'}</div>
+          </div>
+          <div class="merge-field">
+            <div class="merge-field-label">Next Action</div>
+            <div class="merge-field-value ${preview.field_conflicts.next_action ? 'conflict' : ''}">${preview.merged_next_action || '<em>empty</em>'}</div>
+          </div>
+          <div class="merge-field">
+            <div class="merge-field-label">Tags</div>
+            <div class="merge-field-value">${preview.merged_tags.join(', ') || '<em>none</em>'}</div>
+          </div>
+        `;
+        document.getElementById('mergeSurvivingContent').innerHTML = survivingHtml;
+
+        // Duplicate side shows link to the loop
+        const duplicateHtml = `
+          <div class="merge-field">
+            <div class="merge-field-label">Loop ID</div>
+            <div class="merge-field-value">#${preview.duplicate_loop_id}</div>
+          </div>
+          <p style="color: var(--muted); font-size: 13px; margin-top: 12px;">
+            This loop will be closed with status "dropped" after merge.
+          </p>
+        `;
+        document.getElementById('mergeDuplicateContent').innerHTML = duplicateHtml;
+      }
+
+      function closeMergeModal() {
+        document.getElementById('mergeModal').classList.remove('visible');
+        currentDuplicateLoopId = null;
+        currentSurvivingLoopId = null;
+        currentMergePreview = null;
+      }
+
+      async function confirmMerge() {
+        if (!currentDuplicateLoopId || !currentSurvivingLoopId) return;
+
+        try {
+          const resp = await fetch(`/loops/${currentDuplicateLoopId}/merge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              target_loop_id: currentSurvivingLoopId,
+              field_overrides: {},
+            }),
+          });
+
+          if (!resp.ok) {
+            const err = await resp.json();
+            alert('Merge failed: ' + (err.detail?.message || resp.statusText));
+            return;
+          }
+
+          closeMergeModal();
+          // Reload to show updated state
+          await loadInbox();
+        } catch (err) {
+          console.error('Merge failed:', err);
+          alert('Merge failed');
+        }
+      }
+
+      // Close merge modal on escape key
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const mergeModal = document.getElementById('mergeModal');
+          if (mergeModal && mergeModal.classList.contains('visible')) {
+            closeMergeModal();
+          }
+        }
+      });
+
+      // Check for duplicates after initial load
+      window.addEventListener('load', () => {
+        // Give time for loops to load
+        setTimeout(checkAndShowDuplicateBadges, 2000);
       });
     </script>
   </body>
