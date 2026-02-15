@@ -173,3 +173,24 @@ class DependencyNotMetError(CloopError):
         )
         self.loop_id = loop_id
         self.open_dependencies = open_dependencies
+
+
+class UndoNotPossibleError(CloopError):
+    """Raised when an undo operation cannot be performed.
+
+    Maps to HTTP 400 Bad Request.
+    """
+
+    def __init__(
+        self,
+        loop_id: int,
+        reason: str,
+        message: str,
+    ) -> None:
+        super().__init__(
+            f"Cannot undo: {message}",
+            detail=f"loop_id={loop_id}, reason={reason}",
+        )
+        self.loop_id = loop_id
+        self.reason = reason
+        self.message = message

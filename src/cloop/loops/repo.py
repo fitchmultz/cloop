@@ -455,6 +455,76 @@ def list_loop_events(
     return [dict(row) for row in rows]
 
 
+def list_loop_events_paginated(
+    *,
+    loop_id: int,
+    limit: int = 50,
+    before_id: int | None = None,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List loop events with pagination support.
+
+    Returns events in reverse chronological order (newest first).
+
+    Args:
+        loop_id: Loop to query
+        limit: Max results
+        before_id: Only return events with id < before_id
+        conn: Database connection
+
+    Returns:
+        List of event dicts with id, event_type, payload_json, created_at
+    """
+    sql = (
+        "SELECT id, loop_id, event_type, payload_json, created_at "
+        "FROM loop_events WHERE loop_id = ?"
+    )
+    params: list[Any] = [loop_id]
+
+    if before_id is not None:
+        sql += " AND id < ?"
+        params.append(before_id)
+
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_latest_reversible_event(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Get the most recent reversible event for a loop.
+
+    Reversible events are: update, status_change, close
+
+    Args:
+        loop_id: Loop to query
+        conn: Database connection
+
+    Returns:
+        Event dict or None if no reversible events exist
+    """
+    reversible_types = ("update", "status_change", "close")
+    placeholders = ", ".join("?" for _ in reversible_types)
+
+    row = conn.execute(
+        f"""
+        SELECT id, loop_id, event_type, payload_json, created_at
+        FROM loop_events
+        WHERE loop_id = ? AND event_type IN ({placeholders})
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        [loop_id, *reversible_types],
+    ).fetchone()
+
+    return dict(row) if row else None
+
+
 def insert_loop_suggestion(
     *,
     loop_id: int,

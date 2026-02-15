@@ -692,3 +692,36 @@ class LoopReviewResponse(BaseModel):
     daily: List[LoopReviewCohortResponse]
     weekly: List[LoopReviewCohortResponse]
     generated_at_utc: str
+
+
+# ============================================================================
+# Loop Event History and Undo Schemas
+# ============================================================================
+
+
+class LoopEventResponse(BaseModel):
+    """Single event in loop event history."""
+
+    id: int
+    loop_id: int
+    event_type: str
+    payload: Dict[str, Any]
+    created_at_utc: str
+    is_reversible: bool
+
+
+class LoopEventListResponse(BaseModel):
+    """Paginated event history response."""
+
+    loop_id: int
+    events: List[LoopEventResponse]
+    has_more: bool
+    next_cursor: int | None = None
+
+
+class LoopUndoResponse(BaseModel):
+    """Response from undo operation."""
+
+    loop: LoopResponse
+    undone_event_id: int
+    undone_event_type: str

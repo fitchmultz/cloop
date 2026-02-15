@@ -24,6 +24,8 @@ Endpoints:
 - POST /loops/{id}/close: Close loop (completed/dropped)
 - POST /loops/{id}/status: Transition status
 - POST /loops/{id}/enrich: Request AI enrichment
+- GET /loops/{id}/events: Get event history for a loop
+- POST /loops/{id}/undo: Undo the most recent reversible event
 - POST /loops/{id}/dependencies: Add dependency
 - DELETE /loops/{id}/dependencies/{depends_on_id}: Remove dependency
 - GET /loops/{id}/dependencies: List dependencies (blockers)
@@ -68,7 +70,7 @@ from ..idempotency import (
 )
 from ..loops import enrichment as loop_enrichment
 from ..loops import service as loop_service
-from ..loops.errors import ClaimNotFoundError, LoopClaimedError
+from ..loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
 from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
 from ..schemas.loops import (
     BulkCloseRequest,
@@ -85,6 +87,8 @@ from ..schemas.loops import (
     LoopClaimResponse,
     LoopClaimStatusResponse,
     LoopCloseRequest,
+    LoopEventListResponse,
+    LoopEventResponse,
     LoopExportItem,
     LoopExportResponse,
     LoopImportRequest,
@@ -103,6 +107,7 @@ from ..schemas.loops import (
     LoopTemplateListResponse,
     LoopTemplateResponse,
     LoopTemplateUpdateRequest,
+    LoopUndoResponse,
     LoopUpdateRequest,
     LoopViewApplyResponse,
     LoopViewCreateRequest,
@@ -1237,6 +1242,185 @@ def loop_enrich_endpoint(
         settings=settings,
     )
     return LoopResponse(**response)
+
+
+# ============================================================================
+# Event History and Undo Endpoints
+# ============================================================================
+
+
+@router.get("/{loop_id}/events", response_model=LoopEventListResponse)
+def loop_events_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    before_id: Annotated[int | None, Query(description="Pagination cursor")] = None,
+) -> LoopEventListResponse:
+    """Get event history for a loop.
+
+    Returns events in reverse chronological order (newest first).
+    Use before_id cursor for pagination.
+    """
+    from ..loops.errors import LoopNotFoundError
+
+    with db.core_connection(settings) as conn:
+        try:
+            events = loop_service.get_loop_events(
+                loop_id=loop_id,
+                limit=limit + 1,  # Fetch one extra to detect has_more
+                before_id=before_id,
+                conn=conn,
+            )
+        except LoopNotFoundError:
+            raise HTTPException(status_code=404, detail="Loop not found") from None
+
+    has_more = len(events) > limit
+    if has_more:
+        events = events[:limit]
+
+    return LoopEventListResponse(
+        loop_id=loop_id,
+        events=[LoopEventResponse(**e) for e in events],
+        has_more=has_more,
+        next_cursor=events[-1]["id"] if has_more else None,
+    )
+
+
+@router.post("/{loop_id}/undo", response_model=LoopUndoResponse)
+def loop_undo_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> LoopUndoResponse | JSONResponse:
+    """Undo the most recent reversible event for a loop.
+
+    Reversible events include: update, status_change, close.
+    Enrichment, claim, and timer events cannot be undone.
+
+    Returns the updated loop and details of the undone event.
+    """
+    from ..loops.errors import LoopNotFoundError
+
+    if idempotency_key is not None:
+        try:
+            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+        scope = build_http_scope("POST", f"/loops/{loop_id}/undo")
+        payload = {"loop_id": loop_id}
+        request_hash = canonical_request_hash(payload)
+        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+
+        with db.core_connection(settings) as conn:
+            try:
+                claim = db.claim_or_replay_idempotency(
+                    scope=scope,
+                    idempotency_key=key,
+                    request_hash=request_hash,
+                    expires_at=expires_at,
+                    conn=conn,
+                )
+            except IdempotencyConflictError as e:
+                raise _idempotency_conflict(str(e)) from None
+
+            if not claim["is_new"] and claim["replay"]:
+                replay = claim["replay"]
+                return JSONResponse(
+                    content=replay["response_body"],
+                    status_code=replay["status_code"],
+                )
+
+            try:
+                result = loop_service.undo_last_event(
+                    loop_id=loop_id,
+                    conn=conn,
+                )
+            except UndoNotPossibleError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "undo_not_possible",
+                        "reason": e.reason,
+                        "message": e.message,
+                    },
+                ) from None
+            except LoopNotFoundError:
+                raise HTTPException(status_code=404, detail="Loop not found") from None
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
+
+            response = LoopUndoResponse(
+                loop=LoopResponse(**result["loop"]),
+                undone_event_id=result["undone_event_id"],
+                undone_event_type=result["undone_event_type"],
+            ).model_dump()
+            db.finalize_idempotency_response(
+                scope=scope,
+                idempotency_key=key,
+                response_status=200,
+                response_body=response,
+                conn=conn,
+            )
+    else:
+        with db.core_connection(settings) as conn:
+            try:
+                result = loop_service.undo_last_event(
+                    loop_id=loop_id,
+                    conn=conn,
+                )
+            except UndoNotPossibleError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "undo_not_possible",
+                        "reason": e.reason,
+                        "message": e.message,
+                    },
+                ) from None
+            except LoopNotFoundError:
+                raise HTTPException(status_code=404, detail="Loop not found") from None
+            except LoopClaimedError as e:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "loop_claimed",
+                        "message": str(e),
+                        "owner": e.owner,
+                        "lease_until": e.lease_until,
+                    },
+                ) from None
+            except ClaimNotFoundError:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "invalid_claim_token",
+                        "message": "Invalid or expired claim token",
+                    },
+                ) from None
+        response = LoopUndoResponse(
+            loop=LoopResponse(**result["loop"]),
+            undone_event_id=result["undone_event_id"],
+            undone_event_type=result["undone_event_type"],
+        ).model_dump()
+
+    return LoopUndoResponse(**response)
 
 
 @router.get("/events/stream")
