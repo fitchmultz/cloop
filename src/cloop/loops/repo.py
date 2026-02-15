@@ -686,23 +686,92 @@ def list_loop_tags(*, loop_id: int, conn: sqlite3.Connection) -> list[str]:
     return [row["name"] for row in rows]
 
 
-def replace_loop_tags(*, loop_id: int, tag_names: list[str], conn: sqlite3.Connection) -> None:
-    conn.execute("DELETE FROM loop_tags WHERE loop_id = ?", (loop_id,))
-    for name in tag_names:
-        normalized = name.strip().lower()
-        if not normalized:
-            continue
-        tag_id = upsert_tag(name=normalized, conn=conn)
-        conn.execute(
-            "INSERT OR IGNORE INTO loop_tags (loop_id, tag_id) VALUES (?, ?)",
-            (loop_id, tag_id),
+def _upsert_tags_batch(*, tag_names: list[str], conn: sqlite3.Connection) -> dict[str, int]:
+    """Batch upsert tags and return mapping of normalized_name -> tag_id.
+
+    Performs O(1) queries regardless of tag count:
+    1. SELECT existing tags WHERE name IN (...)
+    2. INSERT new tags (if any) using executemany
+
+    Args:
+        tag_names: List of tag names (will be normalized)
+        conn: Database connection
+
+    Returns:
+        Dict mapping normalized tag name to tag_id
+    """
+    # Normalize and dedupe while preserving order
+    normalized = list(dict.fromkeys(name.strip().lower() for name in tag_names if name.strip()))
+
+    if not normalized:
+        return {}
+
+    # Batch fetch existing tags
+    placeholders = ", ".join("?" for _ in normalized)
+    rows = conn.execute(
+        f"SELECT id, name FROM tags WHERE name IN ({placeholders})",
+        normalized,
+    ).fetchall()
+
+    existing: dict[str, int] = {row["name"]: int(row["id"]) for row in rows}
+
+    # Find new tags to insert
+    new_tags = [name for name in normalized if name not in existing]
+
+    if new_tags:
+        # Batch insert new tags
+        conn.executemany(
+            "INSERT INTO tags (name) VALUES (?)",
+            [(name,) for name in new_tags],
         )
-    conn.execute(
-        """
-        DELETE FROM tags
-        WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags)
-        """
+
+        # Fetch IDs of newly inserted tags
+        new_placeholders = ", ".join("?" for _ in new_tags)
+        new_rows = conn.execute(
+            f"SELECT id, name FROM tags WHERE name IN ({new_placeholders})",
+            new_tags,
+        ).fetchall()
+        for row in new_rows:
+            existing[row["name"]] = int(row["id"])
+
+    return existing
+
+
+def replace_loop_tags(*, loop_id: int, tag_names: list[str], conn: sqlite3.Connection) -> None:
+    """Replace all tags for a loop with batch operations.
+
+    Uses O(1) queries regardless of tag count:
+    1. DELETE existing loop_tags
+    2. Batch upsert tags (see _upsert_tags_batch)
+    3. Batch insert loop_tags relationships
+    4. DELETE orphaned tags
+
+    Args:
+        loop_id: Loop to update
+        tag_names: New set of tag names
+        conn: Database connection
+    """
+    # Step 1: Remove existing tag associations
+    conn.execute("DELETE FROM loop_tags WHERE loop_id = ?", (loop_id,))
+
+    # Step 2: Normalize and filter empty
+    normalized = [name.strip().lower() for name in tag_names if name.strip()]
+    if not normalized:
+        # Still clean up orphaned tags
+        conn.execute("DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags)")
+        return
+
+    # Step 3: Batch upsert all tags, get name->id mapping
+    name_to_id = _upsert_tags_batch(tag_names=normalized, conn=conn)
+
+    # Step 4: Batch insert loop_tags relationships
+    conn.executemany(
+        "INSERT OR IGNORE INTO loop_tags (loop_id, tag_id) VALUES (?, ?)",
+        [(loop_id, name_to_id[name]) for name in normalized],
     )
+
+    # Step 5: Clean up orphaned tags
+    conn.execute("DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags)")
 
 
 def insert_loop_link(
