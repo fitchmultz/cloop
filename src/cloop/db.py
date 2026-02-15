@@ -22,7 +22,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 14
+SCHEMA_VERSION: int = 15
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -99,6 +99,7 @@ CREATE TABLE loops (
     recurrence_tz TEXT,
     next_due_at_utc TEXT,
     recurrence_enabled INTEGER NOT NULL DEFAULT 0,
+    parent_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at TEXT,
@@ -109,6 +110,7 @@ CREATE INDEX idx_loops_status ON loops(status);
 CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
 CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
 CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
+CREATE INDEX idx_loops_parent_id ON loops(parent_loop_id);
 
 CREATE TABLE loop_tags (
     loop_id INTEGER NOT NULL,
@@ -242,6 +244,19 @@ CREATE TABLE loop_claims (
 );
 
 CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
+
+CREATE TABLE loop_dependencies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    depends_on_loop_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+    FOREIGN KEY(depends_on_loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+    UNIQUE(loop_id, depends_on_loop_id)
+);
+
+CREATE INDEX idx_loop_dependencies_loop_id ON loop_dependencies(loop_id);
+CREATE INDEX idx_loop_dependencies_depends_on ON loop_dependencies(depends_on_loop_id);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
@@ -472,6 +487,30 @@ _CORE_MIGRATIONS: dict[int, str] = {
 
     CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
     CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
+    """,
+    15: """
+    -- Add parent_loop_id for hierarchical subtask relationships
+    ALTER TABLE loops ADD COLUMN parent_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL;
+
+    -- Create index for parent-child queries
+    CREATE INDEX idx_loops_parent_id ON loops(parent_loop_id);
+
+    -- Create loop_dependencies table for explicit blocked-by relationships
+    CREATE TABLE loop_dependencies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        depends_on_loop_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY(depends_on_loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        UNIQUE(loop_id, depends_on_loop_id)
+    );
+
+    -- Index for finding what blocks a loop
+    CREATE INDEX idx_loop_dependencies_loop_id ON loop_dependencies(loop_id);
+
+    -- Index for finding what depends on a loop (for cascade checks)
+    CREATE INDEX idx_loop_dependencies_depends_on ON loop_dependencies(depends_on_loop_id);
     """,
 }
 

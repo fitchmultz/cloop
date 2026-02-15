@@ -133,3 +133,34 @@ class RecurrenceError(CloopError):
 
     def __init__(self, message: str, *, detail: str | None = None) -> None:
         super().__init__(message, detail=detail)
+
+
+class DependencyCycleError(CloopError):
+    """Raised when adding a dependency would create a cycle.
+
+    Maps to HTTP 400 Bad Request.
+    """
+
+    def __init__(self, loop_id: int, depends_on_id: int) -> None:
+        super().__init__(
+            f"Cannot add dependency: loop {loop_id} -> {depends_on_id} would create a cycle",
+            detail=f"loop_id={loop_id}, depends_on_id={depends_on_id}",
+        )
+        self.loop_id = loop_id
+        self.depends_on_id = depends_on_id
+
+
+class DependencyNotMetError(CloopError):
+    """Raised when attempting to transition to actionable with open dependencies.
+
+    Maps to HTTP 400 Bad Request.
+    """
+
+    def __init__(self, loop_id: int, open_dependencies: list[int]) -> None:
+        super().__init__(
+            f"Cannot transition loop {loop_id} to actionable: "
+            f"{len(open_dependencies)} open dependencies",
+            detail=f"loop_id={loop_id}, open_dependencies={open_dependencies}",
+        )
+        self.loop_id = loop_id
+        self.open_dependencies = open_dependencies

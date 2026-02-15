@@ -138,6 +138,7 @@ class LoopBase(BaseModel):
     recurrence_tz: str | None = None
     next_due_at_utc: str | None = None
     recurrence_enabled: bool = False
+    parent_loop_id: int | None = None
     created_at_utc: str
     updated_at_utc: str
     closed_at_utc: str | None = None
@@ -158,6 +159,7 @@ class LoopNextResponse(BaseModel):
     due_soon: List[LoopResponse]
     quick_wins: List[LoopResponse]
     high_leverage: List[LoopResponse]
+    standard: List[LoopResponse]
 
 
 class LoopExportItem(LoopBase):
@@ -380,3 +382,36 @@ class LoopClaimStatusResponse(BaseModel):
     owner: str
     leased_at_utc: str
     lease_until_utc: str
+
+
+# ============================================================================
+# Loop Dependency Schemas
+# ============================================================================
+
+
+class DependencyAddRequest(BaseModel):
+    """Request to add a dependency."""
+
+    depends_on_loop_id: int = Field(..., description="Loop ID that this loop depends on")
+
+
+class DependencyInfo(BaseModel):
+    """Information about a dependency relationship."""
+
+    id: int = Field(..., description="Loop ID")
+    title: str = Field(..., description="Loop title or truncated raw_text")
+    status: str = Field(..., description="Loop status")
+
+
+class LoopWithDependenciesResponse(BaseModel):
+    """Loop response with dependency information."""
+
+    id: int
+    raw_text: str
+    title: str | None
+    status: str
+    dependencies: list[DependencyInfo] = Field(default_factory=list)
+    blocking: list[DependencyInfo] = Field(default_factory=list)
+    has_open_dependencies: bool = Field(
+        default=False, description="True if loop has unclosed dependencies"
+    )

@@ -118,6 +118,7 @@ class LoopRecord:
     recurrence_tz: str | None
     next_due_at_utc: datetime | None
     recurrence_enabled: bool
+    parent_loop_id: int | None
     created_at_utc: datetime
     updated_at_utc: datetime
     closed_at_utc: datetime | None

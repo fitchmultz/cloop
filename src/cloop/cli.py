@@ -31,6 +31,8 @@ from .constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from .loops import repo
 from .loops.errors import (
     ClaimNotFoundError,
+    DependencyCycleError,
+    DependencyNotMetError,
     LoopClaimedError,
     LoopNotFoundError,
     TransitionError,
@@ -44,6 +46,7 @@ from .loops.models import (
     validate_iso8601_timestamp,
 )
 from .loops.service import (
+    add_loop_dependency,
     apply_loop_view,
     capture_loop,
     claim_loop,
@@ -53,6 +56,8 @@ from .loops.service import (
     force_release_claim,
     get_claim_status,
     get_loop,
+    get_loop_blocking,
+    get_loop_dependencies,
     get_loop_view,
     import_loops,
     list_active_claims,
@@ -63,6 +68,7 @@ from .loops.service import (
     list_tags,
     next_loops,
     release_claim,
+    remove_loop_dependency,
     renew_claim,
     request_enrichment,
     search_loops_by_query,
@@ -424,6 +430,12 @@ def _loop_status_command(args: argparse.Namespace, settings: Settings) -> int:
     except TransitionError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    except DependencyNotMetError as e:
+        print(f"error: {e.message} (open dependencies: {e.open_dependencies})", file=sys.stderr)
+        return 2
+    except DependencyCycleError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 2
 
 
 def _loop_close_command(args: argparse.Namespace, settings: Settings) -> int:
@@ -729,6 +741,65 @@ def _loop_force_release_claim_command(args: argparse.Namespace, settings: Settin
             released = force_release_claim(loop_id=args.id, conn=conn)
         _emit_output({"ok": True, "released": released, "loop_id": args.id}, args.format)
         return 0
+    except Exception as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _loop_dep_command(args: argparse.Namespace, settings: Settings) -> int:
+    action = args.dep_action
+    try:
+        with db.core_connection(settings) as conn:
+            if action == "add":
+                if not args.loop_id or not args.depends_on:
+                    print("error: --loop and --on required for add", file=sys.stderr)
+                    return 2
+                try:
+                    result = add_loop_dependency(
+                        loop_id=args.loop_id,
+                        depends_on_loop_id=args.depends_on,
+                        conn=conn,
+                    )
+                    _emit_output(result, args.format)
+                    return 0
+                except DependencyCycleError as e:
+                    print(f"error: {e.message}", file=sys.stderr)
+                    return 1
+
+            elif action == "remove":
+                if not args.loop_id or not args.depends_on:
+                    print("error: --loop and --on required for remove", file=sys.stderr)
+                    return 2
+                result = remove_loop_dependency(
+                    loop_id=args.loop_id,
+                    depends_on_loop_id=args.depends_on,
+                    conn=conn,
+                )
+                _emit_output(result, args.format)
+                return 0
+
+            elif action == "list":
+                if not args.loop_id:
+                    print("error: --loop required for list", file=sys.stderr)
+                    return 2
+                deps = get_loop_dependencies(loop_id=args.loop_id, conn=conn)
+                _emit_output(deps, args.format)
+                return 0
+
+            elif action == "blocking":
+                if not args.loop_id:
+                    print("error: --loop required for blocking", file=sys.stderr)
+                    return 2
+                blocking = get_loop_blocking(loop_id=args.loop_id, conn=conn)
+                _emit_output(blocking, args.format)
+                return 0
+
+            else:
+                print(f"error: unknown dep action: {action}", file=sys.stderr)
+                return 2
+    except LoopNotFoundError as e:
+        print(f"error: loop not found: {e.loop_id}", file=sys.stderr)
+        return 2
     except Exception as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
@@ -1066,6 +1137,40 @@ def _add_loop_parser(subparsers: Any) -> None:
     force_release_parser.add_argument("id", type=int, help="Loop ID")
     _add_format_option(force_release_parser)
 
+    # Dependency parsers
+    dep_parser = loop_subparsers.add_parser("dep", help="Manage loop dependencies")
+    dep_subparsers = dep_parser.add_subparsers(dest="dep_action", required=True)
+
+    dep_add_parser = dep_subparsers.add_parser("add", help="Add a dependency")
+    dep_add_parser.add_argument(
+        "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
+    )
+    dep_add_parser.add_argument(
+        "--on", "-o", type=int, dest="depends_on", required=True, help="Depends on loop ID"
+    )
+    _add_format_option(dep_add_parser)
+
+    dep_remove_parser = dep_subparsers.add_parser("remove", help="Remove a dependency")
+    dep_remove_parser.add_argument(
+        "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
+    )
+    dep_remove_parser.add_argument(
+        "--on", "-o", type=int, dest="depends_on", required=True, help="Depends on loop ID"
+    )
+    _add_format_option(dep_remove_parser)
+
+    dep_list_parser = dep_subparsers.add_parser("list", help="List dependencies")
+    dep_list_parser.add_argument(
+        "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
+    )
+    _add_format_option(dep_list_parser)
+
+    dep_blocking_parser = dep_subparsers.add_parser("blocking", help="List what this loop blocks")
+    dep_blocking_parser.add_argument(
+        "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
+    )
+    _add_format_option(dep_blocking_parser)
+
 
 def _add_tags_parser(subparsers: Any) -> None:
     tags_parser = subparsers.add_parser("tags", help="List all tags")
@@ -1151,6 +1256,8 @@ def main(argv: List[str] | None = None) -> int:
             return _loop_list_claims_command(args, settings)
         if args.loop_command == "force-release":
             return _loop_force_release_claim_command(args, settings)
+        if args.loop_command == "dep":
+            return _loop_dep_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 

@@ -47,6 +47,7 @@ from .loops import service as loop_service
 from .loops.errors import (
     ClaimNotFoundError,
     CloopError,
+    DependencyCycleError,
     LoopClaimedError,
     NotFoundError,
     TransitionError,
@@ -93,6 +94,8 @@ def _to_tool_error(exc: Exception) -> ToolError:
     if isinstance(exc, LoopClaimedError):
         return ToolError(f"Loop {exc.loop_id} is claimed by '{exc.owner}' until {exc.lease_until}")
     if isinstance(exc, ClaimNotFoundError):
+        return ToolError(exc.message)
+    if isinstance(exc, DependencyCycleError):
         return ToolError(exc.message)
     if isinstance(exc, CloopError):
         return ToolError(exc.message)
@@ -1075,6 +1078,147 @@ def loop_force_release_claim(
         settings=settings,
     )
     return result
+
+
+# ============================================================================
+# Loop Dependency MCP Tools
+# ============================================================================
+
+
+@mcp.tool(name="loop.dependency.add")
+@with_db_init
+@with_mcp_error_handling
+def loop_dependency_add(
+    loop_id: int,
+    depends_on_loop_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Add a dependency relationship (loop_id depends on depends_on_loop_id).
+
+    Args:
+        loop_id: The loop that is blocked
+        depends_on_loop_id: The loop that blocks it
+        request_id: Optional idempotency key
+
+    Returns:
+        Updated loop with dependencies
+    """
+    from cloop.loops.service import add_loop_dependency
+
+    settings = get_settings()
+    payload = {"loop_id": loop_id, "depends_on_loop_id": depends_on_loop_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.dependency.add",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = add_loop_dependency(
+            loop_id=loop_id,
+            depends_on_loop_id=depends_on_loop_id,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.dependency.add",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.dependency.remove")
+@with_db_init
+@with_mcp_error_handling
+def loop_dependency_remove(
+    loop_id: int,
+    depends_on_loop_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Remove a dependency relationship.
+
+    Args:
+        loop_id: The blocked loop
+        depends_on_loop_id: The loop it depended on
+        request_id: Optional idempotency key
+
+    Returns:
+        Updated loop with dependencies
+    """
+    from cloop.loops.service import remove_loop_dependency
+
+    settings = get_settings()
+    payload = {"loop_id": loop_id, "depends_on_loop_id": depends_on_loop_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.dependency.remove",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = remove_loop_dependency(
+            loop_id=loop_id,
+            depends_on_loop_id=depends_on_loop_id,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.dependency.remove",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.dependency.list")
+@with_db_init
+@with_mcp_error_handling
+def loop_dependency_list(loop_id: int) -> list[dict[str, Any]]:
+    """List all dependencies (blockers) for a loop.
+
+    Args:
+        loop_id: The loop to check
+
+    Returns:
+        List of dependency loops with status
+    """
+    from cloop.loops.service import get_loop_dependencies
+
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return get_loop_dependencies(loop_id=loop_id, conn=conn)
+
+
+@mcp.tool(name="loop.dependency.blocking")
+@with_db_init
+@with_mcp_error_handling
+def loop_dependency_blocking(loop_id: int) -> list[dict[str, Any]]:
+    """List all loops that depend on this loop.
+
+    Args:
+        loop_id: The loop to check
+
+    Returns:
+        List of dependent loops
+    """
+    from cloop.loops.service import get_loop_blocking
+
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return get_loop_blocking(loop_id=loop_id, conn=conn)
 
 
 @mcp.tool(name="project.list")

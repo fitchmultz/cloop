@@ -3435,3 +3435,364 @@ def test_multiple_recurrence_completions(tmp_path: Path, monkeypatch: pytest.Mon
     all_loops = all_response.json()
     completed_count = sum(1 for loop in all_loops if loop["status"] == "completed")
     assert completed_count == 2
+
+
+# ============================================================================
+# Loop Dependency Tests
+# ============================================================================
+
+
+class TestLoopDependencies:
+    """Tests for loop dependency functionality."""
+
+    def test_add_dependency(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Adding a dependency creates the relationship."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        # Create two loops
+        loop_a = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Loop A",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        loop_b = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Loop B",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        # Add dependency: B depends on A
+        result = client.post(
+            f"/loops/{loop_b['id']}/dependencies",
+            json={"depends_on_loop_id": loop_a["id"]},
+        ).json()
+
+        assert result["id"] == loop_b["id"]
+        assert len(result["dependencies"]) == 1
+        assert result["dependencies"][0]["id"] == loop_a["id"]
+        assert result["has_open_dependencies"] is True
+
+    def test_cycle_detection(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Adding a dependency that creates a cycle is rejected."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        # Create three loops
+        loop_a = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "A",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        loop_b = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "B",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        loop_c = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "C",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        # A -> B
+        client.post(
+            f"/loops/{loop_a['id']}/dependencies", json={"depends_on_loop_id": loop_b["id"]}
+        )
+        # B -> C
+        client.post(
+            f"/loops/{loop_b['id']}/dependencies", json={"depends_on_loop_id": loop_c["id"]}
+        )
+
+        # Try to create cycle: C -> A (should fail)
+        result = client.post(
+            f"/loops/{loop_c['id']}/dependencies",
+            json={"depends_on_loop_id": loop_a["id"]},
+        )
+        assert result.status_code == 400
+        error = result.json()
+        assert error["error"]["type"] == "dependency_cycle"
+
+    def test_self_dependency_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A loop cannot depend on itself."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        loop = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Self",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        result = client.post(
+            f"/loops/{loop['id']}/dependencies",
+            json={"depends_on_loop_id": loop["id"]},
+        )
+        assert result.status_code == 400
+        assert result.json()["error"]["type"] == "dependency_cycle"
+
+    def test_transition_to_actionable_blocked_by_dependency(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cannot transition to actionable while dependencies are open."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        # Create blocker (inbox = open)
+        blocker = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Blocker task",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        # Create dependent and add dependency
+        dependent = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Dependent task",
+                "actionable": True,
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        client.post(
+            f"/loops/{dependent['id']}/dependencies", json={"depends_on_loop_id": blocker["id"]}
+        )
+
+        # Transition dependent to blocked
+        client.post(f"/loops/{dependent['id']}/status", json={"status": "blocked"})
+
+        # Try to transition to actionable (should fail)
+        result = client.post(f"/loops/{dependent['id']}/status", json={"status": "actionable"})
+        assert result.status_code == 400
+        error = result.json()
+        assert error["error"]["type"] == "dependency_not_met"
+        assert blocker["id"] in error["error"]["details"]["open_dependencies"]
+
+    def test_transition_allowed_after_dependency_completed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Can transition to actionable after all dependencies are completed."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        # Create blocker
+        blocker = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Blocker",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        # Create dependent
+        dependent = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Dependent",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        client.post(
+            f"/loops/{dependent['id']}/dependencies", json={"depends_on_loop_id": blocker["id"]}
+        )
+
+        # Transition dependent to blocked
+        client.post(f"/loops/{dependent['id']}/status", json={"status": "blocked"})
+
+        # Complete the blocker
+        client.post(f"/loops/{blocker['id']}/status", json={"status": "completed"})
+
+        # Now dependent can transition to actionable
+        result = client.post(f"/loops/{dependent['id']}/status", json={"status": "actionable"})
+        assert result.status_code == 200
+        assert result.json()["status"] == "actionable"
+
+    def test_next_loops_excludes_blocked_by_dependencies(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """next_loops excludes loops with open dependencies."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        # Create blocker with next_action
+        blocker = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Blocker",
+                "actionable": True,
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        client.patch(f"/loops/{blocker['id']}", json={"next_action": "Do blocker"})
+
+        # Create dependent with next_action
+        dependent = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Dependent",
+                "actionable": True,
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        client.patch(f"/loops/{dependent['id']}", json={"next_action": "Do dependent"})
+
+        # Add dependency: dependent -> blocker
+        client.post(
+            f"/loops/{dependent['id']}/dependencies", json={"depends_on_loop_id": blocker["id"]}
+        )
+
+        # Get next loops
+        result = client.get("/loops/next").json()
+
+        # Should only include blocker, not dependent
+        next_ids = [loop["id"] for bucket in result.values() for loop in bucket]
+        assert blocker["id"] in next_ids
+        assert dependent["id"] not in next_ids
+
+    def test_remove_dependency(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Removing a dependency works correctly."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        loop_a = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "A",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        loop_b = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "B",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        # Add dependency
+        client.post(
+            f"/loops/{loop_b['id']}/dependencies", json={"depends_on_loop_id": loop_a["id"]}
+        )
+
+        # Verify added
+        deps = client.get(f"/loops/{loop_b['id']}/dependencies").json()
+        assert len(deps) == 1
+
+        # Remove dependency
+        client.delete(f"/loops/{loop_b['id']}/dependencies/{loop_a['id']}")
+
+        # Verify removed
+        deps = client.get(f"/loops/{loop_b['id']}/dependencies").json()
+        assert len(deps) == 0
+
+    def test_blocking_lists_dependents(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """blocking endpoint lists loops that depend on this one."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        loop_a = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "A",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        loop_b = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "B",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        loop_c = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "C",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+
+        # B and C depend on A
+        client.post(
+            f"/loops/{loop_b['id']}/dependencies", json={"depends_on_loop_id": loop_a["id"]}
+        )
+        client.post(
+            f"/loops/{loop_c['id']}/dependencies", json={"depends_on_loop_id": loop_a["id"]}
+        )
+
+        # Get blocking for A
+        blocking = client.get(f"/loops/{loop_a['id']}/blocking").json()
+        blocking_ids = [b["id"] for b in blocking]
+
+        assert set(blocking_ids) == {loop_b["id"], loop_c["id"]}
+
+    def test_dependency_persists_after_reopen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dependencies persist after completing and reopening a loop."""
+        client = _make_client(tmp_path, monkeypatch)
+
+        # Create loops with dependency
+        blocker = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Blocker",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        dependent = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Dependent",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        ).json()
+        client.post(
+            f"/loops/{dependent['id']}/dependencies", json={"depends_on_loop_id": blocker["id"]}
+        )
+
+        # Complete the blocker
+        client.post(f"/loops/{blocker['id']}/status", json={"status": "completed"})
+
+        # Reopen the blocker
+        client.post(f"/loops/{blocker['id']}/status", json={"status": "inbox"})
+
+        # Verify dependency still exists and is now open again
+        deps = client.get(f"/loops/{dependent['id']}/dependencies").json()
+        assert len(deps) == 1
+        assert deps[0]["status"] == "inbox"
+
+        # Should not be able to transition to actionable
+        result = client.post(f"/loops/{dependent['id']}/status", json={"status": "actionable"})
+        assert result.status_code == 400
+        assert result.json()["error"]["type"] == "dependency_not_met"
+        assert blocker["id"] in result.json()["error"]["details"]["open_dependencies"]

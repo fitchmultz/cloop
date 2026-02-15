@@ -11,6 +11,10 @@ Endpoints:
 - POST /loops/{id}/close: Close loop (completed/dropped)
 - POST /loops/{id}/status: Transition status
 - POST /loops/{id}/enrich: Request AI enrichment
+- POST /loops/{id}/dependencies: Add dependency
+- DELETE /loops/{id}/dependencies/{depends_on_id}: Remove dependency
+- GET /loops/{id}/dependencies: List dependencies (blockers)
+- GET /loops/{id}/blocking: List dependents (what this loop blocks)
 - GET /loops/next: Prioritized "Next Actions"
 - GET /loops/events/stream: SSE stream of loop events
 - POST /loops/webhooks/subscriptions: Create webhook subscription
@@ -49,6 +53,8 @@ from ..loops import service as loop_service
 from ..loops.errors import ClaimNotFoundError, LoopClaimedError
 from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags
 from ..schemas.loops import (
+    DependencyAddRequest,
+    DependencyInfo,
     LoopCaptureRequest,
     LoopClaimRequest,
     LoopClaimResponse,
@@ -70,6 +76,7 @@ from ..schemas.loops import (
     LoopViewCreateRequest,
     LoopViewResponse,
     LoopViewUpdateRequest,
+    LoopWithDependenciesResponse,
     WebhookDeliveryResponse,
     WebhookSubscriptionCreate,
     WebhookSubscriptionCreateResponse,
@@ -91,6 +98,71 @@ def _idempotency_conflict(detail: str) -> HTTPException:
         status_code=409,
         detail={"message": "idempotency_key_conflict", "detail": detail},
     )
+
+
+# Dependency endpoints
+@router.post("/{loop_id}/dependencies", response_model=LoopWithDependenciesResponse)
+def add_dependency_endpoint(
+    loop_id: int,
+    request: DependencyAddRequest,
+    settings: SettingsDep,
+) -> LoopWithDependenciesResponse:
+    """Add a dependency to a loop."""
+    from ..loops.service import add_loop_dependency
+
+    with db.core_connection(settings) as conn:
+        result = add_loop_dependency(
+            loop_id=loop_id,
+            depends_on_loop_id=request.depends_on_loop_id,
+            conn=conn,
+        )
+    return LoopWithDependenciesResponse(**result)
+
+
+@router.delete(
+    "/{loop_id}/dependencies/{depends_on_id}", response_model=LoopWithDependenciesResponse
+)
+async def remove_dependency_endpoint(
+    loop_id: int,
+    depends_on_id: int,
+    settings: SettingsDep,
+) -> LoopWithDependenciesResponse:
+    """Remove a dependency from a loop."""
+    from ..loops.service import remove_loop_dependency
+
+    with db.core_connection(settings) as conn:
+        result = remove_loop_dependency(
+            loop_id=loop_id,
+            depends_on_loop_id=depends_on_id,
+            conn=conn,
+        )
+    return LoopWithDependenciesResponse(**result)
+
+
+@router.get("/{loop_id}/dependencies", response_model=list[DependencyInfo])
+async def list_dependencies_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+) -> list[DependencyInfo]:
+    """List all dependencies (blockers) for a loop."""
+    from ..loops.service import get_loop_dependencies
+
+    with db.core_connection(settings) as conn:
+        deps = get_loop_dependencies(loop_id=loop_id, conn=conn)
+    return [DependencyInfo(**dep) for dep in deps]
+
+
+@router.get("/{loop_id}/blocking", response_model=list[DependencyInfo])
+async def list_blocking_endpoint(
+    loop_id: int,
+    settings: SettingsDep,
+) -> list[DependencyInfo]:
+    """List all loops that depend on this loop (dependents)."""
+    from ..loops.service import get_loop_blocking
+
+    with db.core_connection(settings) as conn:
+        blocking = get_loop_blocking(loop_id=loop_id, conn=conn)
+    return [DependencyInfo(**blk) for blk in blocking]
 
 
 @router.post("/capture", response_model=LoopResponse)
@@ -323,6 +395,7 @@ def loop_next_endpoint(
         due_soon=[LoopResponse(**item) for item in result["due_soon"]],
         quick_wins=[LoopResponse(**item) for item in result["quick_wins"]],
         high_leverage=[LoopResponse(**item) for item in result["high_leverage"]],
+        standard=[LoopResponse(**item) for item in result["standard"]],
     )
 
 
