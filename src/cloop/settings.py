@@ -91,6 +91,8 @@ class Settings:
     related_similarity_threshold: float
     duplicate_similarity_threshold: float
     related_max_candidates: int
+    # Next-loop candidate limit for performance
+    next_candidates_limit: int
     # Idempotency settings
     idempotency_ttl_seconds: int
     idempotency_max_key_length: int
@@ -216,6 +218,7 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_DUPLICATE_SIMILARITY_THRESHOLD", "0.95")
         ),
         related_max_candidates=int(os.getenv("CLOOP_RELATED_MAX_CANDIDATES", "1000")),
+        next_candidates_limit=int(os.getenv("CLOOP_NEXT_CANDIDATES_LIMIT", "500")),
         idempotency_ttl_seconds=int(os.getenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")),
         idempotency_max_key_length=int(os.getenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")),
         # Webhook settings
@@ -279,6 +282,10 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
+    if settings.next_candidates_limit < 1:
+        raise ValueError("CLOOP_NEXT_CANDIDATES_LIMIT must be at least 1")
+    if settings.next_candidates_limit > 10000:
+        raise ValueError("CLOOP_NEXT_CANDIDATES_LIMIT must be at most 10000")
     if not 0.9 <= settings.duplicate_similarity_threshold <= 1.0:
         raise ValueError("CLOOP_DUPLICATE_SIMILARITY_THRESHOLD must be between 0.9 and 1.0")
     if settings.duplicate_similarity_threshold <= settings.related_similarity_threshold:
