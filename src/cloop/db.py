@@ -38,7 +38,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 18
+SCHEMA_VERSION: int = 19
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -329,6 +329,13 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    19: """
+    -- Partial index for next-loop candidate queries
+    -- Filters to actionable candidates with next_action defined
+    CREATE INDEX idx_loops_next_candidates
+        ON loops(status, updated_at DESC, captured_at_utc DESC, id DESC)
+        WHERE next_action IS NOT NULL;
+    """,
     18: """
     -- Create loop_comments table for threaded discussion on loops
     CREATE TABLE loop_comments (

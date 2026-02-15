@@ -905,18 +905,15 @@ def next_loops(
     settings: Settings | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     settings = settings or get_settings()
-    candidates = repo.list_loops_by_statuses(
-        statuses=[LoopStatus.INBOX, LoopStatus.ACTIONABLE],
+    now = utc_now()
+    candidates = repo.list_next_loop_candidates(
+        limit=settings.next_candidates_limit,
+        now_utc=now,
         conn=conn,
     )
-    now = utc_now()
     actionable_records: list[LoopRecord] = []
     for record in candidates:
-        if not record.next_action:
-            continue
-        if record.snooze_until_utc and record.snooze_until_utc > now:
-            continue
-        # Skip loops with open dependencies
+        # Keep dependency check in Python (requires join)
         if repo.has_open_dependencies(loop_id=record.id, conn=conn):
             continue
         actionable_records.append(record)

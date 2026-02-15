@@ -251,6 +251,56 @@ def list_loops_by_statuses(
     return [_row_to_record(row) for row in rows]
 
 
+def list_next_loop_candidates(
+    *,
+    limit: int,
+    now_utc: datetime,
+    conn: sqlite3.Connection,
+) -> list[LoopRecord]:
+    """Fetch candidate loops for next-loops with SQL-level filtering.
+
+    Applies predicates in SQL:
+    - status IN ('inbox', 'actionable')
+    - next_action IS NOT NULL
+    - snooze_until_utc IS NULL OR snooze_until_utc <= now_utc
+
+    Uses UNION ALL with individual status equality to leverage the
+    idx_loops_next_candidates partial index effectively.
+
+    Note: Does NOT filter by open dependencies; that remains in service layer.
+
+    Args:
+        limit: Maximum candidates to return
+        now_utc: Current UTC time for snooze comparison
+        conn: Database connection
+
+    Returns:
+        List of candidate LoopRecords ordered by updated_at DESC
+    """
+    now_str = format_utc_datetime(now_utc)
+    rows = conn.execute(
+        """
+        SELECT * FROM (
+            SELECT *
+            FROM loops
+            WHERE status = 'inbox'
+              AND next_action IS NOT NULL
+              AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
+            UNION ALL
+            SELECT *
+            FROM loops
+            WHERE status = 'actionable'
+              AND next_action IS NOT NULL
+              AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
+        )
+        ORDER BY updated_at DESC, captured_at_utc DESC, id DESC
+        LIMIT ?
+        """,
+        (now_str, now_str, limit),
+    ).fetchall()
+    return [_row_to_record(row) for row in rows]
+
+
 def list_all_loops(*, conn: sqlite3.Connection) -> list[LoopRecord]:
     rows = conn.execute(
         "SELECT * FROM loops ORDER BY updated_at DESC, captured_at_utc DESC, id DESC"
