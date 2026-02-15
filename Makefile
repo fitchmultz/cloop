@@ -1,4 +1,4 @@
-.PHONY: help sync fmt fmt-check lint lint-fix type test check ci run
+.PHONY: help sync fmt fmt-check lint lint-fix env-sync type test check ci run
 
 help:
 	@printf "%s\n" \
@@ -12,7 +12,8 @@ help:
 		"  lint-fix   Lint + auto-fix with ruff" \
 		"  type       Type check with ty" \
 		"  test       Run tests with pytest" \
-		"  check      Run fmt-check, lint, type, test" \
+		"  env-sync   Check .env.example sync with settings.py" \
+		"  check      Run fmt-check, lint, env-sync, type, test" \
 		"  run        Run FastAPI locally (uvicorn)"
 
 sync:
@@ -30,13 +31,16 @@ lint:
 lint-fix:
 	uv run ruff check . --fix
 
+env-sync:
+	uv run python scripts/check_env_sync.py
+
 type:
 	uv run ty check
 
 test:
 	uv run pytest
 
-check: fmt-check lint type test
+check: fmt-check lint env-sync type test
 
 ci: check
 
