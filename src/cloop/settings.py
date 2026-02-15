@@ -53,6 +53,10 @@ class Settings:
     autopilot_enabled: bool
     autopilot_autoapply_min_confidence: float
     max_file_size_mb: int
+    # Backup settings
+    backup_dir: Path
+    backup_keep_count: int
+    backup_compress: bool
     # Prioritization settings
     prioritization_due_window_hours: float
     prioritization_due_soon_hours: float
@@ -129,6 +133,8 @@ def get_settings() -> Settings:
     core_db_path = _resolve_path(os.getenv("CLOOP_CORE_DB_PATH"), default_data_dir / "core.db")
     rag_db_path = _resolve_path(os.getenv("CLOOP_RAG_DB_PATH"), default_data_dir / "rag.db")
 
+    backup_dir = _resolve_path(os.getenv("CLOOP_BACKUP_DIR"), default_data_dir / "backups")
+
     settings = Settings(
         root_dir=root_dir,
         core_db_path=core_db_path,
@@ -158,6 +164,10 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE", "0.85")
         ),
         max_file_size_mb=int(os.getenv("CLOOP_MAX_FILE_SIZE_MB", "50")),
+        # Backup settings
+        backup_dir=backup_dir,
+        backup_keep_count=int(os.getenv("CLOOP_BACKUP_KEEP_COUNT", "10")),
+        backup_compress=_resolve_bool(os.getenv("CLOOP_BACKUP_COMPRESS", "true")),
         prioritization_due_window_hours=float(
             os.getenv("CLOOP_PRIORITIZATION_DUE_WINDOW_HOURS", "72.0")
         ),
@@ -270,4 +280,7 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_CLAIM_MAX_TTL_SECONDS must be >= CLOOP_CLAIM_DEFAULT_TTL_SECONDS")
     if settings.claim_token_bytes < 16:
         raise ValueError("CLOOP_CLAIM_TOKEN_BYTES must be at least 16")
+    # Validate backup settings
+    if settings.backup_keep_count < 1:
+        raise ValueError("CLOOP_BACKUP_KEEP_COUNT must be at least 1")
     return settings

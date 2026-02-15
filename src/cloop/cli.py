@@ -1108,6 +1108,129 @@ def _template_from_loop_command(args: argparse.Namespace, settings: Settings) ->
     return 0
 
 
+def _backup_create_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop backup create' command."""
+    from .backup import create_backup
+
+    result = create_backup(
+        settings=settings,
+        output_dir=args.output,
+        name=args.name,
+    )
+
+    if result.success:
+        output = {
+            "success": True,
+            "backup_path": str(result.backup_path),
+            "manifest": result.manifest.__dict__ if result.manifest else None,
+        }
+        print(json.dumps(output, indent=2))
+        return 0
+    else:
+        print(json.dumps({"success": False, "error": result.error}), file=sys.stderr)
+        return 1
+
+
+def _backup_restore_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop backup restore' command."""
+    from .backup import restore_backup
+
+    result = restore_backup(
+        settings=settings,
+        backup_path=args.backup_path,
+        dry_run=args.dry_run,
+        force=args.force,
+    )
+
+    if result.success:
+        output = {
+            "success": True,
+            "dry_run": result.dry_run,
+            "backup_path": str(result.backup_path),
+            "manifest": result.manifest.__dict__ if result.manifest else None,
+            "core_restored": result.core_restored,
+            "rag_restored": result.rag_restored,
+        }
+        print(json.dumps(output, indent=2))
+        return 0
+    else:
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": result.error,
+                    "manifest": result.manifest.__dict__ if result.manifest else None,
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 1
+
+
+def _backup_list_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop backup list' command."""
+    from .backup import list_backups
+
+    backups = list_backups(settings=settings, limit=args.limit)
+
+    output = [
+        {
+            "path": str(b.path),
+            "created_at_utc": b.created_at_utc,
+            "name": b.name,
+            "core_schema_version": b.core_schema_version,
+            "rag_schema_version": b.rag_schema_version,
+            "size_bytes": b.size_bytes,
+        }
+        for b in backups
+    ]
+    print(json.dumps(output, indent=2))
+    return 0
+
+
+def _backup_verify_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop backup verify' command."""
+    from .backup import verify_backup
+
+    result = verify_backup(backup_path=args.backup_path)
+
+    output = {
+        "valid": result.valid,
+        "backup_path": str(result.backup_path),
+        "manifest": result.manifest.__dict__ if result.manifest else None,
+        "core_integrity": result.core_integrity,
+        "rag_integrity": result.rag_integrity,
+        "errors": result.errors,
+    }
+    print(json.dumps(output, indent=2))
+    return 0 if result.valid else 1
+
+
+def _backup_rotate_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop backup rotate' command."""
+    from .backup import list_backups, rotate_backups
+
+    if args.dry_run:
+        backups = list_backups(settings=settings)
+        to_delete = backups[settings.backup_keep_count :]
+        output = {
+            "dry_run": True,
+            "keep_count": settings.backup_keep_count,
+            "total_backups": len(backups),
+            "would_delete": [str(b.path) for b in to_delete],
+        }
+        print(json.dumps(output, indent=2))
+        return 0
+
+    deleted = rotate_backups(settings=settings)
+    output = {
+        "deleted": [str(d) for d in deleted],
+        "count": len(deleted),
+    }
+    print(json.dumps(output, indent=2))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cloop",
@@ -1147,6 +1270,14 @@ Examples:
   cloop export --output backup.json
   cloop import --file backup.json
 
+  # Backup and restore
+  cloop backup create --name daily
+  cloop backup list
+  cloop backup verify <backup-path>
+  cloop backup restore <backup-path> --dry-run
+  cloop backup restore <backup-path>
+  cloop backup rotate --dry-run
+
 Exit codes:
   0  success
   1  validation/input error
@@ -1168,6 +1299,7 @@ Exit codes:
     _add_projects_parser(subparsers)
     _add_export_parser(subparsers)
     _add_import_parser(subparsers)
+    _add_backup_parser(subparsers)
 
     return parser
 
@@ -1529,6 +1661,95 @@ def _add_import_parser(subparsers: Any) -> None:
     _add_format_option(import_parser)
 
 
+def _add_backup_parser(subparsers: Any) -> None:
+    backup_parser = subparsers.add_parser(
+        "backup",
+        help="Backup and restore commands",
+        description="Manage Cloop data backups",
+    )
+    backup_subparsers = backup_parser.add_subparsers(dest="backup_command", required=True)
+
+    # cloop backup create
+    backup_create_parser = backup_subparsers.add_parser(
+        "create",
+        help="Create a new backup",
+        description="Create a timestamped backup of all Cloop data",
+    )
+    backup_create_parser.add_argument(
+        "--output",
+        "-o",
+        type=Path,
+        help="Output directory for backup (default: data_dir/backups)",
+    )
+    backup_create_parser.add_argument(
+        "--name",
+        "-n",
+        type=str,
+        default="manual",
+        help="Backup name for identification (default: manual)",
+    )
+
+    # cloop backup restore
+    backup_restore_parser = backup_subparsers.add_parser(
+        "restore",
+        help="Restore from a backup",
+        description="Restore databases from a backup archive",
+    )
+    backup_restore_parser.add_argument(
+        "backup_path",
+        type=Path,
+        help="Path to the .cloop.zip backup file",
+    )
+    backup_restore_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate backup without making changes",
+    )
+    backup_restore_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Restore even if schema versions differ",
+    )
+
+    # cloop backup list
+    backup_list_parser = backup_subparsers.add_parser(
+        "list",
+        help="List available backups",
+        description="List backups in the backup directory",
+    )
+    backup_list_parser.add_argument(
+        "--limit",
+        "-l",
+        type=int,
+        default=20,
+        help="Maximum number of backups to show (default: 20)",
+    )
+
+    # cloop backup verify
+    backup_verify_parser = backup_subparsers.add_parser(
+        "verify",
+        help="Verify backup integrity",
+        description="Validate backup archive without restoring",
+    )
+    backup_verify_parser.add_argument(
+        "backup_path",
+        type=Path,
+        help="Path to the .cloop.zip backup file",
+    )
+
+    # cloop backup rotate
+    backup_rotate_parser = backup_subparsers.add_parser(
+        "rotate",
+        help="Rotate old backups",
+        description="Delete oldest backups exceeding backup_keep_count",
+    )
+    backup_rotate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be deleted without deleting",
+    )
+
+
 def _add_template_parser(subparsers: Any) -> None:
     template_parser = subparsers.add_parser(
         "template",
@@ -1659,6 +1880,19 @@ def main(argv: List[str] | None = None) -> int:
         return _export_command(args, settings)
     if args.command == "import":
         return _import_command(args, settings)
+    if args.command == "backup":
+        if args.backup_command == "create":
+            return _backup_create_command(args, settings)
+        if args.backup_command == "restore":
+            return _backup_restore_command(args, settings)
+        if args.backup_command == "list":
+            return _backup_list_command(args, settings)
+        if args.backup_command == "verify":
+            return _backup_verify_command(args, settings)
+        if args.backup_command == "rotate":
+            return _backup_rotate_command(args, settings)
+        parser.error(f"Unknown backup command: {args.backup_command}")
+        return 2
 
     parser.error(f"Unknown command: {args.command}")
     return 2
