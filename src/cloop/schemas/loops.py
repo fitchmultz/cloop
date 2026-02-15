@@ -647,3 +647,36 @@ class LoopTemplateListResponse(BaseModel):
     """Response for listing templates."""
 
     templates: List[LoopTemplateResponse]
+
+
+# ============================================================================
+# Review Cohort Schemas
+# ============================================================================
+
+
+class LoopReviewCohortItem(BaseModel):
+    """Single loop item within a review cohort."""
+
+    id: int
+    raw_text: str
+    title: str | None = None
+    status: str
+    next_action: str | None = None
+    due_at_utc: str | None = None
+    updated_at_utc: str
+
+
+class LoopReviewCohortResponse(BaseModel):
+    """Response for a single review cohort."""
+
+    cohort: str
+    count: int
+    items: List[LoopReviewCohortItem]
+
+
+class LoopReviewResponse(BaseModel):
+    """Response for GET /loops/review with daily and weekly cohorts."""
+
+    daily: List[LoopReviewCohortResponse]
+    weekly: List[LoopReviewCohortResponse]
+    generated_at_utc: str

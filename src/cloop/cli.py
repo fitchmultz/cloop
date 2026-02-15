@@ -318,6 +318,50 @@ def _next_command(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _review_command(args: argparse.Namespace, settings: Settings) -> int:
+    """Handle 'cloop loop review' command."""
+    from .loops.models import utc_now
+    from .loops.review import compute_review_cohorts
+
+    include_daily = args.daily or (not args.weekly)  # Default to daily if neither specified
+    include_weekly = args.weekly or args.all
+
+    with db.core_connection(settings) as conn:
+        result = compute_review_cohorts(
+            settings=settings,
+            now_utc=utc_now(),
+            conn=conn,
+            include_daily=include_daily,
+            include_weekly=include_weekly,
+            limit_per_cohort=args.limit,
+        )
+
+    # Filter by specific cohort if requested
+    cohort_filter = getattr(args, "cohort", None)
+    daily_results = result.daily
+    weekly_results = result.weekly
+    if cohort_filter:
+        daily_results = [c for c in daily_results if c.cohort.value == cohort_filter]
+        weekly_results = [c for c in weekly_results if c.cohort.value == cohort_filter]
+
+    output: dict[str, Any] = {
+        "generated_at_utc": result.generated_at_utc,
+    }
+
+    if include_daily and daily_results:
+        output["daily"] = [
+            {"cohort": c.cohort.value, "count": c.count, "items": c.items} for c in daily_results
+        ]
+
+    if include_weekly and weekly_results:
+        output["weekly"] = [
+            {"cohort": c.cohort.value, "count": c.count, "items": c.items} for c in weekly_results
+        ]
+
+    _emit_output(output, args.format)
+    return 0
+
+
 def _loop_get_command(args: argparse.Namespace, settings: Settings) -> int:
     try:
         with db.core_connection(settings) as conn:
@@ -1260,6 +1304,12 @@ Examples:
   cloop loop timer stop 1 --notes "Completed the task"
   cloop loop sessions 1 --limit 10
 
+  # Review cohorts
+  cloop loop review                    # Show daily review cohorts
+  cloop loop review --weekly           # Show weekly review cohorts
+  cloop loop review --cohort stale     # Filter to stale loops only
+  cloop loop review --all --format table  # All cohorts in table format
+
   # Loop claims (multi-agent coordination)
   cloop loop claim 1 --owner agent-alpha
   cloop loop update 1 --title "Updated" --claim-token TOKEN
@@ -1638,6 +1688,40 @@ def _add_loop_parser(subparsers: Any) -> None:
     sessions_parser.add_argument("id", type=int, help="Loop ID")
     sessions_parser.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
 
+    # Review parser
+    review_parser = loop_subparsers.add_parser(
+        "review",
+        help="Show review cohorts for maintenance",
+        description="Display daily/weekly review cohorts for stale-loop cleanup",
+    )
+    review_parser.add_argument(
+        "--daily",
+        action="store_true",
+        help="Show daily review cohorts (default behavior)",
+    )
+    review_parser.add_argument(
+        "--weekly",
+        action="store_true",
+        help="Show weekly review cohorts (stale, blocked_too_long)",
+    )
+    review_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Show both daily and weekly cohorts",
+    )
+    review_parser.add_argument(
+        "--cohort",
+        choices=["stale", "no_next_action", "blocked_too_long", "due_soon_unplanned"],
+        help="Filter to specific cohort",
+    )
+    review_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Max items per cohort (default: 50)",
+    )
+    _add_format_option(review_parser)
+
 
 def _add_tags_parser(subparsers: Any) -> None:
     tags_parser = subparsers.add_parser("tags", help="List all tags")
@@ -1855,6 +1939,8 @@ def main(argv: List[str] | None = None) -> int:
             return _timer_command(args, settings)
         if args.loop_command == "sessions":
             return _sessions_command(args, settings)
+        if args.loop_command == "review":
+            return _review_command(args, settings)
         parser.error(f"Unknown loop command: {args.loop_command}")
         return 2
 

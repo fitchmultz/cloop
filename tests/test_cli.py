@@ -1788,3 +1788,111 @@ def test_subprocess_cli_lifecycle_and_export_import_roundtrip(tmp_path: Path) ->
     imported_loops = json.loads(list_result.stdout)
     assert len(imported_loops) == 1
     assert imported_loops[0]["raw_text"] == "Subprocess task"
+
+
+# =============================================================================
+# Review Cohort CLI Tests
+# =============================================================================
+
+
+def test_loop_review_command_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop review command with default (daily) cohorts."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    # Create actionable loop without next_action
+    cli._capture_command(parser.parse_args(["capture", "Test task", "--actionable"]), settings)
+    capsys.readouterr()
+
+    exit_code = cli.main(["loop", "review"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert "generated_at_utc" in output
+    assert "daily" in output
+    # Check that at least no_next_action cohort exists
+    cohort_names = {c["cohort"] for c in output["daily"]}
+    assert "no_next_action" in cohort_names
+
+
+def test_loop_review_command_weekly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop review command with --weekly flag."""
+    _make_settings(tmp_path, monkeypatch)
+
+    exit_code = cli.main(["loop", "review", "--weekly"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert "weekly" in output
+    # Weekly should only have stale and blocked_too_long
+    cohort_names = {c["cohort"] for c in output.get("weekly", [])}
+    assert "no_next_action" not in cohort_names
+    assert "due_soon_unplanned" not in cohort_names
+
+
+def test_loop_review_command_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop review command with --all flag includes both daily and weekly."""
+    _make_settings(tmp_path, monkeypatch)
+
+    exit_code = cli.main(["loop", "review", "--all"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert "daily" in output
+    assert "weekly" in output
+
+
+def test_loop_review_command_cohort_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop review command with --cohort filter."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    # Create actionable loop without next_action
+    cli._capture_command(parser.parse_args(["capture", "Test task", "--actionable"]), settings)
+    capsys.readouterr()
+
+    exit_code = cli.main(["loop", "review", "--cohort", "no_next_action"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    # Should only have no_next_action cohort
+    for cohort_list in [output.get("daily", []), output.get("weekly", [])]:
+        for cohort in cohort_list:
+            assert cohort["cohort"] == "no_next_action"
+
+
+def test_loop_review_command_with_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop review command respects --limit."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    # Create multiple actionable loops without next_action
+    for i in range(5):
+        cli._capture_command(parser.parse_args(["capture", f"Task {i}", "--actionable"]), settings)
+    capsys.readouterr()
+
+    exit_code = cli.main(["loop", "review", "--limit", "2"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    # Check that no cohort has more than 2 items
+    for cohort_list in [output.get("daily", []), output.get("weekly", [])]:
+        for cohort in cohort_list:
+            assert len(cohort["items"]) <= 2
+
+
+def test_loop_review_command_table_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop review command with table output format."""
+    _make_settings(tmp_path, monkeypatch)
+
+    exit_code = cli.main(["loop", "review", "--format", "table"])
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "generated_at_utc" in captured.out

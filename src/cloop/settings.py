@@ -84,6 +84,10 @@ class Settings:
     claim_default_ttl_seconds: int
     claim_max_ttl_seconds: int
     claim_token_bytes: int
+    # Review cohort thresholds
+    review_stale_hours: float
+    review_blocked_hours: float
+    review_due_soon_hours: float
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -201,6 +205,10 @@ def get_settings() -> Settings:
         claim_default_ttl_seconds=int(os.getenv("CLOOP_CLAIM_DEFAULT_TTL_SECONDS", "300")),
         claim_max_ttl_seconds=int(os.getenv("CLOOP_CLAIM_MAX_TTL_SECONDS", "3600")),
         claim_token_bytes=int(os.getenv("CLOOP_CLAIM_TOKEN_BYTES", "32")),
+        # Review cohort thresholds
+        review_stale_hours=float(os.getenv("CLOOP_REVIEW_STALE_HOURS", "72.0")),
+        review_blocked_hours=float(os.getenv("CLOOP_REVIEW_BLOCKED_HOURS", "48.0")),
+        review_due_soon_hours=float(os.getenv("CLOOP_REVIEW_DUE_SOON_HOURS", "48.0")),
     )
     return _validate_settings(settings)
 
@@ -283,4 +291,11 @@ def _validate_settings(settings: Settings) -> Settings:
     # Validate backup settings
     if settings.backup_keep_count < 1:
         raise ValueError("CLOOP_BACKUP_KEEP_COUNT must be at least 1")
+    # Validate review settings
+    if settings.review_stale_hours < 1:
+        raise ValueError("CLOOP_REVIEW_STALE_HOURS must be at least 1")
+    if settings.review_blocked_hours < 1:
+        raise ValueError("CLOOP_REVIEW_BLOCKED_HOURS must be at least 1")
+    if settings.review_due_soon_hours < 1:
+        raise ValueError("CLOOP_REVIEW_DUE_SOON_HOURS must be at least 1")
     return settings
