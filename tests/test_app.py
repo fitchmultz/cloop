@@ -627,3 +627,172 @@ def test_rag_returns_sources_for_ui(test_client: TestClient, tmp_data_dir: Path)
         assert "document_path" in source
         assert "chunk_index" in source
         assert "score" in source
+
+
+def test_snooze_single_loop_via_api(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Test that snooze_until_utc can be set via PATCH /loops/{id}."""
+    # Create a loop
+    create_response = test_client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Test snooze",
+            "captured_at": "2026-02-15T10:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert create_response.status_code == 200
+    loop_id = create_response.json()["id"]
+
+    # Snooze the loop
+    snooze_time = "2026-02-16T10:00:00Z"
+    snooze_response = test_client.patch(
+        f"/loops/{loop_id}",
+        json={"snooze_until_utc": snooze_time},
+    )
+    assert snooze_response.status_code == 200
+    # API may return +00:00 or Z format depending on how timestamp is formatted
+    assert snooze_response.json()["snooze_until_utc"].startswith("2026-02-16T10:00:00")
+
+    # Verify the snooze is persisted
+    get_response = test_client.get(f"/loops/{loop_id}")
+    assert get_response.status_code == 200
+    assert get_response.json()["snooze_until_utc"].startswith("2026-02-16T10:00:00")
+
+
+def test_clear_snooze(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Test that snooze can be cleared by setting snooze_until_utc to null."""
+    # Create and snooze a loop
+    create_response = test_client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Test clear snooze",
+            "captured_at": "2026-02-15T10:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    test_client.patch(
+        f"/loops/{loop_id}",
+        json={"snooze_until_utc": "2026-02-16T10:00:00Z"},
+    )
+
+    # Clear the snooze
+    clear_response = test_client.patch(
+        f"/loops/{loop_id}",
+        json={"snooze_until_utc": None},
+    )
+    assert clear_response.status_code == 200
+    assert clear_response.json()["snooze_until_utc"] is None
+
+
+def test_recurrence_via_api(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Test that recurrence can be set via PATCH /loops/{id}."""
+    # Create a loop
+    create_response = test_client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Test recurrence",
+            "captured_at": "2026-02-15T10:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    # Set recurrence
+    recurrence_response = test_client.patch(
+        f"/loops/{loop_id}",
+        json={
+            "recurrence_rrule": "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR",
+            "recurrence_tz": "America/New_York",
+            "recurrence_enabled": True,
+        },
+    )
+    assert recurrence_response.status_code == 200
+    data = recurrence_response.json()
+    assert data["recurrence_rrule"] == "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+    assert data["recurrence_tz"] == "America/New_York"
+    assert data["recurrence_enabled"] is True
+
+
+def test_capture_with_natural_language_schedule(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Test that capture with schedule phrase creates a recurring loop."""
+    response = test_client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Weekly standup",
+            "captured_at": "2026-02-15T10:00:00Z",
+            "client_tz_offset_min": -300,  # EST
+            "schedule": "every weekday",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    # Should have parsed to an RRULE
+    assert data["recurrence_rrule"] is not None
+    assert "FREQ=WEEKLY" in data["recurrence_rrule"]
+
+
+def test_bulk_snooze_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Test bulk snooze endpoint used by UI bulk actions."""
+    # Create two loops
+    ids = []
+    for i in range(2):
+        response = test_client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Bulk snooze test {i}",
+                "captured_at": "2026-02-15T10:00:00Z",
+                "client_tz_offset_min": 0,
+            },
+        )
+        ids.append(response.json()["id"])
+
+    # Bulk snooze
+    snooze_time = "2026-02-17T10:00:00Z"
+    response = test_client.post(
+        "/loops/bulk/snooze",
+        json={
+            "items": [
+                {"loop_id": ids[0], "snooze_until_utc": snooze_time},
+                {"loop_id": ids[1], "snooze_until_utc": snooze_time},
+            ],
+            "transactional": False,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["succeeded"] == 2
+    assert data["failed"] == 0
+
+
+def test_ui_contains_snooze_and_recurrence_elements(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Verify the index.html contains snooze and recurrence UI elements."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    # Check for snooze elements
+    assert 'data-action="snooze"' in html
+    assert "snooze-dropdown" in html
+    assert "snooze-option" in html
+    assert "data-snooze-duration" in html
+    assert "snooze-datetime" in html
+    assert "snooze-indicator" in html
+
+    # Check for recurrence elements
+    assert "recurrence-section" in html
+    assert "recurrence-toggle" in html
+    assert "data-recurrence-toggle" in html
+    assert "recurrence-schedule-input" in html
+    assert "data-recurrence-schedule" in html
+    assert "recurrence-preview" in html
+    assert "data-recurrence-preview" in html
+
+    # Check for keyboard shortcut hint
+    assert 'Snooze<span class="shortcut-hint">s</span>' in html

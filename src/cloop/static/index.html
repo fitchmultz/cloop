@@ -912,6 +912,206 @@
         color: var(--ink);
       }
 
+      /* Snooze Button and Dropdown */
+      .snooze-wrapper {
+        position: relative;
+        display: inline-block;
+      }
+      .snooze-dropdown {
+        position: absolute;
+        top: 100%;
+        right: 0;
+        margin-top: 4px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        padding: 6px 0;
+        min-width: 160px;
+        z-index: 100;
+        display: none;
+      }
+      .snooze-dropdown.visible {
+        display: block;
+        animation: rise 200ms ease;
+      }
+      .snooze-option {
+        padding: 10px 14px;
+        cursor: pointer;
+        font-size: 13px;
+        color: var(--ink);
+        transition: background 120ms ease;
+      }
+      .snooze-option:hover {
+        background: var(--bg-accent);
+      }
+      .snooze-custom {
+        border-top: 1px solid var(--border);
+        padding: 10px 14px;
+      }
+      .snooze-custom label {
+        display: block;
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+      }
+      .snooze-datetime {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 13px;
+        font-family: inherit;
+        background: #fffefb;
+        color: var(--ink);
+      }
+      .snooze-datetime:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+
+      /* Snoozed Loop Indicator */
+      .snooze-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        background: #fff3e0;
+        border: 1px solid #ffd8a8;
+        border-radius: 999px;
+        font-size: 11px;
+        color: #8f5a2a;
+        font-weight: 500;
+      }
+      .snooze-indicator::before {
+        content: "⏰";
+        font-size: 12px;
+      }
+
+      /* Recurrence Section */
+      .recurrence-section {
+        margin-top: 8px;
+        padding: 10px 12px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        transition: all 200ms ease;
+      }
+      .recurrence-section.expanded {
+        background: #fffefb;
+      }
+      .recurrence-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 0;
+        transition: margin-bottom 200ms ease;
+      }
+      .recurrence-section.expanded .recurrence-header {
+        margin-bottom: 8px;
+      }
+      .recurrence-label {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--ink);
+      }
+      /* Toggle Switch */
+      .recurrence-toggle {
+        position: relative;
+        width: 40px;
+        height: 22px;
+        flex-shrink: 0;
+      }
+      .recurrence-toggle input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+      .recurrence-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: var(--border);
+        transition: 200ms ease;
+        border-radius: 11px;
+      }
+      .recurrence-slider::before {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: 200ms ease;
+        border-radius: 50%;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      }
+      .recurrence-toggle input:checked + .recurrence-slider {
+        background-color: var(--brand);
+      }
+      .recurrence-toggle input:checked + .recurrence-slider::before {
+        transform: translateX(18px);
+      }
+      .recurrence-toggle input:focus-visible + .recurrence-slider {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+      }
+      .recurrence-config {
+        display: none;
+        animation: rise 200ms ease;
+      }
+      .recurrence-config.visible {
+        display: block;
+      }
+      .recurrence-schedule-input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 13px;
+        font-family: inherit;
+        background: #fffefb;
+        color: var(--ink);
+        margin-bottom: 6px;
+      }
+      .recurrence-schedule-input:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+      .recurrence-schedule-input::placeholder {
+        color: var(--muted);
+      }
+      .recurrence-preview {
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .recurrence-preview::before {
+        content: "📅";
+        font-size: 11px;
+      }
+      .recurrence-error {
+        font-size: 11px;
+        color: #c0392b;
+        margin-top: 4px;
+        padding: 4px 8px;
+        background: #ffe3e3;
+        border-radius: 6px;
+        display: none;
+      }
+      .recurrence-error.visible {
+        display: block;
+        animation: rise 150ms ease;
+      }
+
       /* Bulk Confirmation Modal */
       .bulk-confirm-overlay {
         position: fixed;
@@ -1189,6 +1389,10 @@
           <div class="help-shortcut">
             <span class="help-desc">Toggle timer</span>
             <div class="help-keys"><span class="help-key">t</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Snooze</span>
+            <div class="help-keys"><span class="help-key">s</span></div>
           </div>
         </div>
         <div class="help-section">
@@ -1604,6 +1808,19 @@
               : enrichmentState === "failed"
                 ? "Enrichment failed"
                 : "Enrichment idle";
+
+        // Snooze indicator
+        const snoozedUntil = loop.snooze_until_utc;
+        const isSnoozed = snoozedUntil && new Date(snoozedUntil) > new Date();
+        const snoozeIndicatorHtml = isSnoozed
+          ? `<span class="snooze-indicator">Snoozed until ${formatTime(snoozedUntil)}</span>`
+          : "";
+
+        // Recurrence section
+        const recurrenceEnabled = loop.recurrence_enabled || false;
+        const recurrenceRrule = loop.recurrence_rrule || "";
+        const nextDueAt = loop.next_due_at_utc || "";
+
         card.innerHTML = `
           ${checkboxHtml}
           <input
@@ -1638,6 +1855,7 @@
             >
             ${closed ? `<span class="badge">${closed}</span>` : ""}
             <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+            ${snoozeIndicatorHtml}
           </div>
           ${tags}
           <div class="blocked-reason-row ${loop.status === "blocked" ? "visible" : ""}">
@@ -1659,10 +1877,47 @@
           ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
           ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
         </div>
+        <div class="recurrence-section ${recurrenceEnabled ? 'expanded' : ''}" data-recurrence-section="${loop.id}">
+          <div class="recurrence-header">
+            <label class="recurrence-toggle">
+              <input type="checkbox" data-recurrence-toggle="${loop.id}" ${recurrenceEnabled ? 'checked' : ''}>
+              <span class="recurrence-slider"></span>
+            </label>
+            <span class="recurrence-label">Recurring</span>
+          </div>
+          <div class="recurrence-config ${recurrenceEnabled ? 'visible' : ''}">
+            <input
+              type="text"
+              class="recurrence-schedule-input"
+              data-recurrence-schedule="${loop.id}"
+              placeholder="e.g., 'every weekday', 'every Monday at 9am', 'every 2 weeks'"
+              value="${escapeHtml(recurrenceRrule)}"
+            >
+            <div class="recurrence-preview" data-recurrence-preview="${loop.id}">
+              ${nextDueAt ? `Next: ${formatTime(nextDueAt)}` : 'Enter a schedule to see next occurrence'}
+            </div>
+            <div class="recurrence-error" data-recurrence-error="${loop.id}"></div>
+          </div>
+        </div>
         <div class="loop-actions">
           <button class="secondary" data-action="complete" data-id="${loop.id}">
             Complete<span class="shortcut-hint">c</span>
           </button>
+          <div class="snooze-wrapper">
+            <button class="secondary snooze-btn" data-action="snooze" data-id="${loop.id}">
+              Snooze<span class="shortcut-hint">s</span>
+            </button>
+            <div class="snooze-dropdown" data-snooze-dropdown="${loop.id}">
+              <div class="snooze-option" data-snooze-duration="1h">1 hour</div>
+              <div class="snooze-option" data-snooze-duration="4h">4 hours</div>
+              <div class="snooze-option" data-snooze-duration="1d">1 day</div>
+              <div class="snooze-option" data-snooze-duration="1w">1 week</div>
+              <div class="snooze-custom">
+                <label>Custom</label>
+                <input type="datetime-local" class="snooze-datetime" data-snooze-custom="${loop.id}">
+              </div>
+            </div>
+          </div>
           <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich<span class="shortcut-hint">e</span></button>
           <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh<span class="shortcut-hint">r</span></button>
         </div>
@@ -2084,6 +2339,142 @@
         if (timerStatus?.has_active_session) {
           startTimerUI(loopId, timerStatus);
         }
+      }
+
+      // ========================================
+      // Snooze Functions
+      // ========================================
+
+      function snoozeDurationToUtc(duration) {
+        const now = new Date();
+        let ms = 0;
+
+        if (duration.endsWith('h')) {
+          ms = parseInt(duration) * 60 * 60 * 1000;
+        } else if (duration.endsWith('d')) {
+          ms = parseInt(duration) * 24 * 60 * 60 * 1000;
+        } else if (duration.endsWith('w')) {
+          ms = parseInt(duration) * 7 * 24 * 60 * 60 * 1000;
+        } else {
+          return null;
+        }
+
+        return new Date(now.getTime() + ms).toISOString();
+      }
+
+      async function snoozeLoop(loopId, snoozeUntilUtc) {
+        try {
+          const response = await fetch(`/loops/${loopId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ snooze_until_utc: snoozeUntilUtc }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            status.textContent = error.detail || 'Snooze failed.';
+            return null;
+          }
+
+          const updated = await response.json();
+          replaceLoop(updated);
+          status.textContent = snoozeUntilUtc ? 'Loop snoozed successfully.' : 'Snooze cleared.';
+          return updated;
+        } catch (e) {
+          console.error('Snooze error:', e);
+          status.textContent = 'Snooze failed.';
+          return null;
+        }
+      }
+
+      async function clearSnooze(loopId) {
+        return snoozeLoop(loopId, null);
+      }
+
+      function toggleSnoozeDropdown(loopId) {
+        const dropdown = document.querySelector(`[data-snooze-dropdown="${loopId}"]`);
+        if (!dropdown) return;
+
+        // Close other dropdowns
+        document.querySelectorAll('.snooze-dropdown.visible').forEach(d => {
+          if (d !== dropdown) d.classList.remove('visible');
+        });
+
+        dropdown.classList.toggle('visible');
+      }
+
+      // ========================================
+      // Recurrence Functions
+      // ========================================
+
+      async function updateRecurrence(loopId, rrule, tz, enabled) {
+        try {
+          const payload = {
+            recurrence_rrule: enabled ? rrule : null,
+            recurrence_tz: enabled ? tz : null,
+            recurrence_enabled: enabled,
+          };
+
+          const response = await fetch(`/loops/${loopId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            status.textContent = error.detail || 'Recurrence update failed.';
+
+            // Show error in UI
+            const errorEl = document.querySelector(`[data-recurrence-error="${loopId}"]`);
+            if (errorEl) {
+              errorEl.textContent = error.detail || 'Failed to update recurrence';
+              errorEl.classList.add('visible');
+            }
+            return null;
+          }
+
+          const updated = await response.json();
+          replaceLoop(updated);
+
+          // Update preview
+          const preview = document.querySelector(`[data-recurrence-preview="${loopId}"]`);
+          if (preview) {
+            if (updated.next_due_at_utc) {
+              preview.textContent = `Next: ${formatTime(updated.next_due_at_utc)}`;
+              preview.style.display = 'flex';
+            } else if (enabled) {
+              preview.textContent = 'Enter a schedule to see next occurrence';
+              preview.style.display = 'flex';
+            } else {
+              preview.style.display = 'none';
+            }
+          }
+
+          // Clear error
+          const errorEl = document.querySelector(`[data-recurrence-error="${loopId}"]`);
+          if (errorEl) {
+            errorEl.classList.remove('visible');
+          }
+
+          status.textContent = enabled ? 'Recurrence enabled.' : 'Recurrence disabled.';
+          return updated;
+        } catch (e) {
+          console.error('Recurrence update error:', e);
+          status.textContent = 'Recurrence update failed.';
+          return null;
+        }
+      }
+
+      function toggleRecurrenceSection(loopId, show) {
+        const section = document.querySelector(`[data-recurrence-section="${loopId}"]`);
+        if (!section) return;
+
+        const config = section.querySelector('.recurrence-config');
+        if (config) {
+          config.classList.toggle('visible', show);
+        }
+        section.classList.toggle('expanded', show);
       }
 
 
@@ -2548,6 +2939,10 @@
             refreshLoop(button.dataset.id);
           } else if (button.dataset.action === "timer-toggle") {
             toggleTimer(button.dataset.id);
+          } else if (button.dataset.action === "snooze") {
+            event.stopPropagation();
+            const loopId = button.dataset.id;
+            toggleSnoozeDropdown(loopId);
           } else if (button.dataset.action === "edit-tags") {
             const tagsWrap = button.closest(".tags-edit");
             if (tagsWrap) {
@@ -2562,6 +2957,70 @@
             const card = button.closest(".loop-card");
             if (card) {
               removeTag(card.dataset.loopId, button.dataset.tag, card);
+            }
+          }
+
+          // Handle snooze option clicks
+          const snoozeOption = event.target.closest('.snooze-option');
+          if (snoozeOption) {
+            const dropdown = snoozeOption.closest('.snooze-dropdown');
+            const loopId = dropdown?.dataset?.snoozeDropdown;
+            const duration = snoozeOption.dataset?.snoozeDuration;
+
+            if (loopId && duration) {
+              const utcTime = snoozeDurationToUtc(duration);
+              if (utcTime) {
+                snoozeLoop(loopId, utcTime);
+                dropdown.classList.remove('visible');
+              }
+            }
+          }
+
+        });
+
+        // Handle custom snooze datetime change
+        container.addEventListener("change", (event) => {
+          const snoozeDatetime = event.target.closest('.snooze-datetime');
+          if (snoozeDatetime) {
+            const loopId = snoozeDatetime.dataset?.snoozeCustom;
+            const localTime = snoozeDatetime.value;
+
+            if (loopId && localTime) {
+              const utcTime = new Date(localTime).toISOString();
+              snoozeLoop(loopId, utcTime);
+              const dropdown = snoozeDatetime.closest('.snooze-dropdown');
+              if (dropdown) dropdown.classList.remove('visible');
+            }
+          }
+
+          // Handle recurrence toggle (change event fires reliably for checkbox)
+          const recurrenceToggle = event.target.closest('[data-recurrence-toggle]');
+          if (recurrenceToggle && event.target.type === 'checkbox') {
+            const loopId = recurrenceToggle.dataset?.recurrenceToggle;
+            const card = recurrenceToggle.closest('.loop-card');
+            const scheduleInput = card?.querySelector(`[data-recurrence-schedule="${loopId}"]`);
+            const rrule = scheduleInput?.value?.trim() || '';
+
+            toggleRecurrenceSection(loopId, event.target.checked);
+
+            if (event.target.checked && rrule) {
+              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              updateRecurrence(loopId, rrule, tz, true);
+            } else if (!event.target.checked) {
+              updateRecurrence(loopId, null, null, false);
+            }
+          }
+
+          // Handle recurrence schedule input change
+          const scheduleInput = event.target.closest('.recurrence-schedule-input');
+          if (scheduleInput) {
+            const loopId = scheduleInput.dataset?.recurrenceSchedule;
+            const card = scheduleInput.closest('.loop-card');
+            const toggle = card?.querySelector(`[data-recurrence-toggle="${loopId}"]`);
+
+            if (toggle?.checked && scheduleInput.value.trim()) {
+              const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+              updateRecurrence(loopId, scheduleInput.value.trim(), tz, true);
             }
           }
         });
@@ -3226,6 +3685,11 @@
             event.preventDefault();
             return;
           }
+          if (key === "s") {
+            toggleSnoozeDropdown(loopId);
+            event.preventDefault();
+            return;
+          }
         }
       }
 
@@ -3236,6 +3700,15 @@
       helpModal.addEventListener("click", (event) => {
         if (event.target === helpModal) {
           hideHelpModal();
+        }
+      });
+
+      // Close snooze dropdowns when clicking outside
+      document.addEventListener('click', (event) => {
+        if (!event.target.closest('.snooze-wrapper')) {
+          document.querySelectorAll('.snooze-dropdown.visible').forEach(d => {
+            d.classList.remove('visible');
+          });
         }
       });
 
