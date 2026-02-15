@@ -6,6 +6,7 @@ Purpose:
 Responsibilities:
     - Mount static assets directory
     - Serve index.html at root path
+    - Serve PWA manifest and service worker with correct headers
 
 Non-scope:
     - API endpoints (see routes/)
@@ -18,7 +19,7 @@ Entrypoint:
 from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -30,6 +31,31 @@ router = APIRouter()
 def serve_index() -> HTMLResponse:
     html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
     return HTMLResponse(html)
+
+
+@router.get("/manifest.json")
+def serve_manifest() -> FileResponse:
+    """Serve the web app manifest with correct content type."""
+    manifest_path = _STATIC_DIR / "manifest.json"
+    return FileResponse(
+        manifest_path,
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/sw.js")
+def serve_service_worker() -> FileResponse:
+    """Serve service worker with correct headers for SW registration."""
+    sw_path = _STATIC_DIR / "sw.js"
+    return FileResponse(
+        sw_path,
+        media_type="application/javascript",
+        headers={
+            "Cache-Control": "no-cache",
+            "Service-Worker-Allowed": "/",
+        },
+    )
 
 
 router.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

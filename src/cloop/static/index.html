@@ -3,6 +3,12 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#d66b3f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Cloop">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
     <title>Cloop Loops</title>
     <style>
       @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap");
@@ -1284,6 +1290,42 @@
       .bulk-confirm-btn:hover {
         background: #a93226;
       }
+      /* PWA Offline Indicator */
+      .offline-banner {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--brand);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 600;
+        box-shadow: var(--shadow);
+        display: none;
+        z-index: 1000;
+        animation: rise 300ms ease;
+      }
+      .offline-banner.visible {
+        display: block;
+      }
+      .sync-status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .sync-status .spinner {
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
     </style>
   </head>
   <body>
@@ -1291,6 +1333,12 @@
       <h1>Cloop Loops <span id="sse-status" class="sse-status reconnecting" title="Connecting..."></span></h1>
       <p>Capture fast. Organize later.</p>
     </header>
+    <div id="offline-banner" class="offline-banner">
+      <span class="sync-status">
+        <span class="spinner"></span>
+        Offline - captures will sync when connected
+      </span>
+    </div>
     <nav class="tabs" role="tablist">
       <button class="tab active" data-tab="inbox" role="tab" aria-selected="true">Inbox<span class="shortcut-hint">1</span></button>
       <button class="tab" data-tab="next" role="tab" aria-selected="false">Next<span class="shortcut-hint">2</span></button>
@@ -2684,7 +2732,6 @@
 
       async function captureLoop(event) {
         event.preventDefault();
-        status.textContent = "Saving...";
         const now = new Date();
         const templateId = templateSelect.value;
         const payload = {
@@ -2702,24 +2749,43 @@
           status.textContent = "Type something first.";
           return;
         }
+
+        // Show offline indicator immediately if offline
+        if (!navigator.onLine) {
+          offlineBanner.classList.add("visible");
+          status.textContent = "Saving offline...";
+        } else {
+          status.textContent = "Saving...";
+        }
+
+        // Service worker will intercept and queue if offline
         const response = await fetch("/loops/capture", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(payload),
         });
+
         if (!response.ok) {
           status.textContent = "Capture failed. Check server logs and .env.";
           return;
         }
-        const loop = await response.json();
-        replaceLoop(loop);
-        // SSE will handle enrichment updates - no polling needed
+
+        const result = await response.json();
+
+        // Handle service worker's offline queued response
+        if (result.queued && result.offline) {
+          status.textContent = "Saved offline - will sync when connected";
+        } else {
+          replaceLoop(result);
+          status.textContent = "Saved. Enrichment queued.";
+        }
+
+        // Clear form
         rawText.value = "";
         actionable.checked = false;
         scheduled.checked = false;
         blocked.checked = false;
         templateSelect.value = "";
-        status.textContent = "Saved. Enrichment queued.";
       }
 
       function showCompletionNote(loopId) {
@@ -4151,6 +4217,91 @@
           connectSSE();
         }
       });
+
+      // ========================================
+      // PWA Service Worker Registration
+      // ========================================
+
+      const offlineBanner = document.getElementById("offline-banner");
+
+      async function registerServiceWorker() {
+        if ("serviceWorker" in navigator) {
+          try {
+            const registration = await navigator.serviceWorker.register("/sw.js");
+            console.log("Service worker registered:", registration.scope);
+
+            // Check for background sync support
+            if ("sync" in registration) {
+              console.log("Background sync supported");
+            }
+          } catch (error) {
+            console.error("Service worker registration failed:", error);
+          }
+        }
+      }
+
+      // Online/offline detection
+      function updateOnlineStatus() {
+        if (navigator.onLine) {
+          offlineBanner.classList.remove("visible");
+          // Trigger background sync for pending captures
+          if ("serviceWorker" in navigator && "SyncManager" in window) {
+            navigator.serviceWorker.ready.then((registration) => {
+              registration.sync.register("sync-captures");
+            });
+          }
+        } else {
+          offlineBanner.classList.add("visible");
+        }
+      }
+
+      window.addEventListener("online", updateOnlineStatus);
+      window.addEventListener("offline", updateOnlineStatus);
+
+      // Initial check
+      updateOnlineStatus();
+      registerServiceWorker();
+
+      // ========================================
+      // Notification Permission for Due Loops
+      // ========================================
+
+      async function requestNotificationPermission() {
+        if (!("Notification" in window)) {
+          return false;
+        }
+        if (Notification.permission === "granted") {
+          return true;
+        }
+        if (Notification.permission !== "denied") {
+          const permission = await Notification.requestPermission();
+          return permission === "granted";
+        }
+        return false;
+      }
+
+      // Request notification permission on first capture
+      let notificationPermissionRequested = false;
+      const originalCaptureLoop = captureLoop;
+      captureLoop = async function (event) {
+        if (!notificationPermissionRequested) {
+          notificationPermissionRequested = true;
+          requestNotificationPermission();
+        }
+        return originalCaptureLoop(event);
+      };
+
+      // Show notification for due loops (called from SSE handler)
+      function showDueNotification(loopTitle, loopId) {
+        if (Notification.permission === "granted") {
+          new Notification("Loop Due", {
+            body: loopTitle,
+            icon: "/static/icons/icon-192.png",
+            tag: `loop-${loopId}`,
+            data: { url: `/?highlight=${loopId}` },
+          });
+        }
+      }
     </script>
   </body>
 </html>
