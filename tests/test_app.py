@@ -796,3 +796,62 @@ def test_ui_contains_snooze_and_recurrence_elements(
 
     # Check for keyboard shortcut hint
     assert 'Snooze<span class="shortcut-hint">s</span>' in html
+
+
+def test_loop_metrics_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify /loops/metrics returns expected SLI structure and values."""
+    # Create some loops with various states
+    for i in range(5):
+        response = test_client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Metrics test loop {i}",
+                "captured_at": "2026-02-15T10:00:00Z",
+                "client_tz_offset_min": 0,
+                "actionable": i < 3,  # 3 actionable, 2 inbox
+            },
+        )
+        assert response.status_code == 200
+
+    # Get metrics
+    metrics_response = test_client.get("/loops/metrics")
+    assert metrics_response.status_code == 200
+    data = metrics_response.json()
+
+    # Verify required fields exist
+    assert "generated_at_utc" in data
+    assert "total_loops" in data
+    assert "status_counts" in data
+    assert "stale_open_count" in data
+    assert "blocked_too_long_count" in data
+    assert "no_next_action_count" in data
+    assert "enrichment_pending_count" in data
+    assert "enrichment_failed_count" in data
+    assert "capture_count_24h" in data
+    assert "completion_count_24h" in data
+    assert "avg_age_open_hours" in data
+
+    # Verify status_counts structure
+    status_counts = data["status_counts"]
+    assert "inbox" in status_counts
+    assert "actionable" in status_counts
+    assert "blocked" in status_counts
+    assert "scheduled" in status_counts
+    assert "completed" in status_counts
+    assert "dropped" in status_counts
+
+    # Verify counts match created loops
+    assert data["total_loops"] == 5
+    assert status_counts["inbox"] == 2
+    assert status_counts["actionable"] == 3
+
+
+def test_loop_metrics_empty_db(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify metrics endpoint handles empty database gracefully."""
+    response = test_client.get("/loops/metrics")
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["total_loops"] == 0
+    assert data["stale_open_count"] == 0
+    assert data["avg_age_open_hours"] is None  # No open loops
