@@ -1,9 +1,28 @@
+"""Loop service layer for business logic and orchestration.
+
+Purpose:
+    Provide high-level business operations for loop lifecycle management,
+    including capture, enrichment, status transitions, claims, dependencies,
+    and time tracking.
+
+Responsibilities:
+    - Enforce business rules and validation constraints
+    - Orchestrate multi-step operations (capture + enrich, transition + event)
+    - Coordinate between repository layer and external services (LLM, webhooks)
+    - Emit domain events for audit trail and webhook delivery
+
+Non-scope:
+    - Direct database access (see repo.py)
+    - HTTP request/response handling (see routes/loops.py)
+    - Query DSL parsing (see query.py)
+"""
+
 from __future__ import annotations
 
 import json
 import sqlite3
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .. import typingx
 from ..settings import Settings, get_settings
@@ -31,6 +50,9 @@ from .models import (
     utc_now,
 )
 from .prioritization import PriorityWeights, bucketize, compute_priority_score
+
+if TYPE_CHECKING:
+    from .models import TimerStatus, TimeSession
 
 _ALLOWED_TRANSITIONS: dict[LoopStatus, set[LoopStatus]] = {
     LoopStatus.INBOX: {
@@ -2305,3 +2327,228 @@ def list_active_claims(
         }
         for claim in claims
     ]
+
+
+# ============================================================================
+# Time Tracking Service Functions
+# ============================================================================
+
+
+class TimerError(Exception):
+    """Base error for timer operations."""
+
+    pass
+
+
+class ActiveTimerExistsError(TimerError):
+    """Raised when trying to start a timer but one is already active."""
+
+    def __init__(self, loop_id: int, session: "TimeSession"):
+        self.loop_id = loop_id
+        self.session = session
+        super().__init__(
+            f"Loop {loop_id} already has an active timer started at {session.started_at_utc}"
+        )
+
+
+class NoActiveTimerError(TimerError):
+    """Raised when trying to stop a timer but none is active."""
+
+    def __init__(self, loop_id: int):
+        self.loop_id = loop_id
+        super().__init__(f"Loop {loop_id} has no active timer to stop")
+
+
+@typingx.validate_io()
+def start_timer(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> "TimeSession":
+    """Start a timer for a loop.
+
+    Enforces the single-active-timer-per-loop rule.
+
+    Args:
+        loop_id: Loop to start timer for
+        conn: Database connection
+
+    Returns:
+        The newly created TimeSession
+
+    Raises:
+        LoopNotFoundError: If loop doesn't exist
+        ActiveTimerExistsError: If a timer is already running for this loop
+    """
+    from .models import utc_now
+
+    # Verify loop exists
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
+    # Check for existing active session
+    active = repo.get_active_time_session(loop_id=loop_id, conn=conn)
+    if active is not None:
+        raise ActiveTimerExistsError(loop_id, active)
+
+    # Create new session
+    session = repo.create_time_session(
+        loop_id=loop_id,
+        started_at=utc_now(),
+        conn=conn,
+    )
+
+    # Record event
+    event_payload = {"session_id": session.id}
+    event_id = repo.insert_loop_event(
+        loop_id=loop_id,
+        event_type=LoopEventType.TIMER_STARTED.value,
+        payload=event_payload,
+        conn=conn,
+    )
+    queue_deliveries(
+        event_id=event_id,
+        event_type=LoopEventType.TIMER_STARTED.value,
+        payload=event_payload,
+        conn=conn,
+    )
+
+    return session
+
+
+@typingx.validate_io()
+def stop_timer(
+    *,
+    loop_id: int,
+    notes: str | None = None,
+    conn: sqlite3.Connection,
+) -> "TimeSession":
+    """Stop the active timer for a loop.
+
+    Args:
+        loop_id: Loop to stop timer for
+        notes: Optional notes for this session
+        conn: Database connection
+
+    Returns:
+        The completed TimeSession with calculated duration
+
+    Raises:
+        LoopNotFoundError: If loop doesn't exist
+        NoActiveTimerError: If no timer is running for this loop
+    """
+    from .models import utc_now
+
+    # Verify loop exists first
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
+    # Get active session
+    active = repo.get_active_time_session(loop_id=loop_id, conn=conn)
+    if active is None:
+        raise NoActiveTimerError(loop_id)
+
+    # Calculate duration
+    now = utc_now()
+    duration_seconds = int((now - active.started_at_utc).total_seconds())
+
+    # Stop the session
+    session = repo.stop_time_session(
+        session_id=active.id,
+        ended_at=now,
+        duration_seconds=duration_seconds,
+        notes=notes,
+        conn=conn,
+    )
+
+    # Record event
+    event_payload = {
+        "session_id": session.id,
+        "duration_seconds": duration_seconds,
+    }
+    event_id = repo.insert_loop_event(
+        loop_id=loop_id,
+        event_type=LoopEventType.TIMER_STOPPED.value,
+        payload=event_payload,
+        conn=conn,
+    )
+    queue_deliveries(
+        event_id=event_id,
+        event_type=LoopEventType.TIMER_STOPPED.value,
+        payload=event_payload,
+        conn=conn,
+    )
+
+    return session
+
+
+@typingx.validate_io()
+def get_timer_status(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> "TimerStatus":
+    """Get the current timer status for a loop.
+
+    Args:
+        loop_id: Loop to get status for
+        conn: Database connection
+
+    Returns:
+        TimerStatus with active session (if any) and totals
+
+    Raises:
+        LoopNotFoundError: If loop doesn't exist
+    """
+    from .models import TimerStatus
+
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
+    active = repo.get_active_time_session(loop_id=loop_id, conn=conn)
+    total_seconds = repo.get_total_tracked_time(loop_id=loop_id, conn=conn)
+
+    return TimerStatus(
+        loop_id=loop_id,
+        has_active_session=active is not None,
+        active_session=active,
+        total_tracked_seconds=total_seconds,
+        estimated_minutes=loop.time_minutes,
+    )
+
+
+@typingx.validate_io()
+def list_time_sessions(
+    *,
+    loop_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    conn: sqlite3.Connection,
+) -> list["TimeSession"]:
+    """List time sessions for a loop.
+
+    Args:
+        loop_id: Loop to list sessions for
+        limit: Maximum number of sessions
+        offset: Pagination offset
+        conn: Database connection
+
+    Returns:
+        List of TimeSession objects
+
+    Raises:
+        LoopNotFoundError: If loop doesn't exist
+    """
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
+    return repo.list_time_sessions(
+        loop_id=loop_id,
+        limit=limit,
+        offset=offset,
+        conn=conn,
+    )

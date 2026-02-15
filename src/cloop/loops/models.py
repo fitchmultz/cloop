@@ -1,3 +1,19 @@
+"""
+Loop domain models.
+
+Purpose: Define core domain types for the loop management system including
+loop records, events, claims, and time tracking sessions.
+
+Responsibilities:
+- Loop status enum and transitions
+- LoopRecord dataclass with all loop fields
+- LoopEvent types for audit trail
+- TimeSession and TimerStatus for time tracking
+- Datetime parsing/formatting helpers (always UTC internally)
+
+Non-scope: Database operations (see repo.py), business logic (see service.py)
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -82,6 +98,8 @@ class LoopEventType(StrEnum):
     CLAIM = "claim"
     CLAIM_RELEASED = "claim_released"
     CLAIM_EXPIRED = "claim_expired"
+    TIMER_STARTED = "timer_started"
+    TIMER_STOPPED = "timer_stopped"
 
 
 class EnrichmentState(StrEnum):
@@ -145,6 +163,43 @@ class LoopClaimSummary:
     owner: str
     leased_at_utc: datetime
     lease_until_utc: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TimeSession:
+    """A time tracking session for a loop."""
+
+    id: int
+    loop_id: int
+    started_at_utc: datetime
+    ended_at_utc: datetime | None
+    duration_seconds: int | None
+    notes: str | None
+    created_at_utc: datetime
+
+    @property
+    def is_active(self) -> bool:
+        """Returns True if this session is still running."""
+        return self.ended_at_utc is None
+
+    @property
+    def elapsed_seconds(self) -> int:
+        """Returns duration if stopped, or current elapsed if active."""
+        if self.duration_seconds is not None:
+            return self.duration_seconds
+        # Calculate elapsed time for active session
+        return int((utc_now() - self.started_at_utc).total_seconds())
+
+
+@dataclass(frozen=True, slots=True)
+class TimerStatus:
+    """Current timer status for a loop."""
+
+    loop_id: int
+    has_active_session: bool
+    active_session: TimeSession | None
+    total_tracked_seconds: int
+    estimated_minutes: int | None
 
 
 def _normalize_iso(value: str) -> str:

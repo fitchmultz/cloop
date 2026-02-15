@@ -1,3 +1,19 @@
+"""Database connection management and schema migrations.
+
+Purpose:
+    Provide SQLite connection handling, schema versioning, and migrations
+    for both core (loops/notes) and RAG (documents/chunks) databases.
+
+Responsibilities:
+    - Manage database connections with proper PRAGMA settings
+    - Track and apply schema migrations via PRAGMA user_version
+    - Support optional vector extensions (vec, vss) for similarity search
+
+Non-scope:
+    - Business logic and domain operations (see loops/service.py)
+    - Query construction (see loops/repo.py)
+"""
+
 import json
 import logging
 import sqlite3
@@ -22,7 +38,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 15
+SCHEMA_VERSION: int = 16
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -257,6 +273,20 @@ CREATE TABLE loop_dependencies (
 
 CREATE INDEX idx_loop_dependencies_loop_id ON loop_dependencies(loop_id);
 CREATE INDEX idx_loop_dependencies_depends_on ON loop_dependencies(depends_on_loop_id);
+
+CREATE TABLE time_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    duration_seconds INTEGER,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_time_sessions_loop_id ON time_sessions(loop_id);
+CREATE INDEX idx_time_sessions_active ON time_sessions(loop_id, ended_at) WHERE ended_at IS NULL;
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
@@ -511,6 +541,26 @@ _CORE_MIGRATIONS: dict[int, str] = {
 
     -- Index for finding what depends on a loop (for cascade checks)
     CREATE INDEX idx_loop_dependencies_depends_on ON loop_dependencies(depends_on_loop_id);
+    """,
+    16: """
+    -- Create time_sessions table for tracking actual time spent on loops
+    CREATE TABLE time_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_seconds INTEGER,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    -- Index for finding sessions by loop
+    CREATE INDEX idx_time_sessions_loop_id ON time_sessions(loop_id);
+
+    -- Index for finding active sessions (where ended_at IS NULL)
+    CREATE INDEX idx_time_sessions_active ON time_sessions(loop_id, ended_at)
+        WHERE ended_at IS NULL;
     """,
 }
 
