@@ -809,6 +809,159 @@
         font-size: 9px;
         padding: 1px 4px;
       }
+
+      /* Bulk Selection Styles */
+      .loop-card {
+        position: relative;
+      }
+      .loop-select {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        display: flex;
+        align-items: center;
+      }
+      .loop-checkbox {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+        accent-color: var(--brand);
+        border-radius: 4px;
+        margin: 0;
+      }
+      .loop-checkbox:focus-visible {
+        outline: 2px solid var(--brand);
+        outline-offset: 2px;
+      }
+      .loop-card.has-checkbox {
+        padding-left: 42px;
+      }
+      .loop-card.selected {
+        border-color: var(--brand);
+        background: #fff7f0;
+        box-shadow: 0 0 0 2px rgba(214, 107, 63, 0.15);
+      }
+      .loop-card .loop-checkbox {
+        opacity: 0.4;
+        transition: opacity 150ms ease;
+      }
+      .loop-card:hover .loop-checkbox,
+      .loop-card.selected .loop-checkbox {
+        opacity: 1;
+      }
+
+      /* Bulk Action Bar */
+      .bulk-action-bar {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%) translateY(120px);
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 12px 20px;
+        box-shadow: 0 8px 32px rgba(47, 42, 36, 0.2);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        z-index: 100;
+        opacity: 0;
+        pointer-events: none;
+        transition: transform 250ms ease, opacity 250ms ease;
+      }
+      .bulk-action-bar.visible {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .bulk-count {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+        color: var(--brand);
+        min-width: 120px;
+        font-size: 14px;
+      }
+      .bulk-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .bulk-btn {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 14px;
+        background: var(--card);
+        color: var(--ink);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 150ms ease;
+        font-family: inherit;
+      }
+      .bulk-btn:hover {
+        background: var(--bg-accent);
+        border-color: var(--brand);
+      }
+      .bulk-btn-cancel {
+        background: transparent;
+        color: var(--muted);
+        border-color: var(--border);
+      }
+      .bulk-btn-cancel:hover {
+        background: #f0e8e0;
+        color: var(--ink);
+      }
+
+      /* Bulk Confirmation Modal */
+      .bulk-confirm-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(47, 42, 36, 0.6);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1001;
+        backdrop-filter: blur(4px);
+      }
+      .bulk-confirm-overlay.visible {
+        display: flex;
+      }
+      .bulk-confirm-modal {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 20px;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 20px 60px rgba(47, 42, 36, 0.3);
+        animation: rise 200ms ease;
+      }
+      .bulk-confirm-modal h3 {
+        margin: 0 0 8px;
+        font-family: "Space Grotesk", sans-serif;
+      }
+      .bulk-confirm-modal p {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+      .bulk-confirm-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .bulk-confirm-btn {
+        background: #c0392b;
+        border: none;
+        border-radius: 999px;
+        padding: 8px 16px;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .bulk-confirm-btn:hover {
+        background: #a93226;
+      }
     </style>
   </head>
   <body>
@@ -941,6 +1094,43 @@
       <input type="file" id="import-file" accept="application/json" hidden>
     </div>
 
+    <!-- Bulk Action Bar -->
+    <div class="bulk-action-bar" id="bulk-action-bar">
+      <span class="bulk-count">0 loops selected</span>
+      <div class="bulk-actions">
+        <button class="bulk-btn" data-bulk-action="complete" title="Complete selected">
+          Complete
+        </button>
+        <button class="bulk-btn" data-bulk-action="drop" title="Drop selected">
+          Drop
+        </button>
+        <button class="bulk-btn" data-bulk-action="status" title="Change status">
+          Status
+        </button>
+        <button class="bulk-btn" data-bulk-action="snooze" title="Snooze selected">
+          Snooze
+        </button>
+        <button class="bulk-btn" data-bulk-action="tags" title="Add tags">
+          + Tags
+        </button>
+        <button class="bulk-btn bulk-btn-cancel" data-bulk-action="clear">
+          Cancel
+        </button>
+      </div>
+    </div>
+
+    <!-- Bulk Confirmation Modal -->
+    <div class="bulk-confirm-overlay" id="bulk-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title">
+      <div class="bulk-confirm-modal">
+        <h3 id="bulk-confirm-title">Confirm Action</h3>
+        <p id="bulk-confirm-message">Are you sure you want to proceed?</p>
+        <div class="bulk-confirm-actions">
+          <button class="secondary" data-action="cancel-bulk-confirm">Cancel</button>
+          <button class="bulk-confirm-btn" data-action="confirm-bulk">Confirm</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Keyboard Shortcuts Help Modal -->
     <div class="help-modal-overlay" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
       <div class="help-modal" tabindex="-1">
@@ -1002,6 +1192,21 @@
           </div>
         </div>
         <div class="help-section">
+          <h3>Bulk Selection</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Select all visible loops</span>
+            <div class="help-keys"><span class="help-key">Ctrl</span><span class="help-key">A</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Clear selection</span>
+            <div class="help-keys"><span class="help-key">Esc</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Range select</span>
+            <div class="help-keys"><span class="help-key">Shift</span><span class="help-desc">+Click</span></div>
+          </div>
+        </div>
+        <div class="help-section">
           <h3>General</h3>
           <div class="help-shortcut">
             <span class="help-desc">Show this help</span>
@@ -1042,6 +1247,233 @@
         "completed",
         "dropped",
       ];
+
+      // ========================================
+      // Bulk Selection State
+      // ========================================
+
+      const selectedLoopIds = new Set();
+      let lastClickedLoopId = null;
+      let bulkActionBar = null;
+      let pendingBulkAction = null;
+
+      function updateBulkActionBar() {
+        const count = selectedLoopIds.size;
+        if (!bulkActionBar) {
+          bulkActionBar = document.getElementById("bulk-action-bar");
+        }
+        if (!bulkActionBar) return;
+
+        if (count > 0) {
+          bulkActionBar.classList.add("visible");
+          bulkActionBar.querySelector(".bulk-count").textContent =
+            `${count} loop${count !== 1 ? "s" : ""} selected`;
+        } else {
+          bulkActionBar.classList.remove("visible");
+        }
+
+        // Update selected state on cards
+        document.querySelectorAll(".loop-card").forEach((card) => {
+          const loopId = parseInt(card.dataset.loopId, 10);
+          const checkbox = card.querySelector(".loop-checkbox");
+          if (selectedLoopIds.has(loopId)) {
+            card.classList.add("selected");
+            if (checkbox) checkbox.checked = true;
+          } else {
+            card.classList.remove("selected");
+            if (checkbox) checkbox.checked = false;
+          }
+        });
+      }
+
+      function toggleLoopSelection(loopId, isSelected) {
+        if (isSelected) {
+          selectedLoopIds.add(loopId);
+        } else {
+          selectedLoopIds.delete(loopId);
+        }
+        updateBulkActionBar();
+      }
+
+      function clearLoopSelection() {
+        selectedLoopIds.clear();
+        lastClickedLoopId = null;
+        updateBulkActionBar();
+      }
+
+      function selectAllVisibleLoops() {
+        document.querySelectorAll(".loop-card").forEach((card) => {
+          const loopId = parseInt(card.dataset.loopId, 10);
+          if (!Number.isNaN(loopId)) {
+            selectedLoopIds.add(loopId);
+          }
+        });
+        updateBulkActionBar();
+      }
+
+      function getVisibleLoopIds() {
+        return Array.from(document.querySelectorAll(".loop-card"))
+          .map((card) => parseInt(card.dataset.loopId, 10))
+          .filter((id) => !Number.isNaN(id));
+      }
+
+      function selectLoopRange(fromId, toId) {
+        const visibleIds = getVisibleLoopIds();
+        const fromIndex = visibleIds.indexOf(fromId);
+        const toIndex = visibleIds.indexOf(toId);
+
+        if (fromIndex === -1 || toIndex === -1) return;
+
+        const start = Math.min(fromIndex, toIndex);
+        const end = Math.max(fromIndex, toIndex);
+
+        for (let i = start; i <= end; i++) {
+          selectedLoopIds.add(visibleIds[i]);
+        }
+        updateBulkActionBar();
+      }
+
+      // ========================================
+      // Bulk Action Handlers
+      // ========================================
+
+      function showBulkConfirm(title, message, action) {
+        pendingBulkAction = action;
+        document.getElementById("bulk-confirm-title").textContent = title;
+        document.getElementById("bulk-confirm-message").textContent = message;
+        document.getElementById("bulk-confirm-modal").classList.add("visible");
+      }
+
+      function hideBulkConfirm() {
+        pendingBulkAction = null;
+        document.getElementById("bulk-confirm-modal").classList.remove("visible");
+      }
+
+      async function executeBulkClose(status) {
+        const loopIds = Array.from(selectedLoopIds);
+        const items = loopIds.map((id) => ({ loop_id: id, status }));
+
+        statusEl.textContent = `Closing ${items.length} loops...`;
+
+        try {
+          const response = await fetch("/loops/bulk/close", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ items, transactional: false }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            statusEl.textContent = error.detail?.message || "Bulk close failed.";
+            return;
+          }
+
+          const result = await response.json();
+          statusEl.textContent = `Closed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          clearLoopSelection();
+          // SSE will auto-refresh the affected loops
+        } catch (e) {
+          console.error("Bulk close error:", e);
+          statusEl.textContent = "Bulk close failed.";
+        }
+      }
+
+      async function executeBulkSnooze(snoozeUntilUtc) {
+        const loopIds = Array.from(selectedLoopIds);
+        const items = loopIds.map((id) => ({ loop_id: id, snooze_until_utc: snoozeUntilUtc }));
+
+        statusEl.textContent = `Snoozing ${items.length} loops...`;
+
+        try {
+          const response = await fetch("/loops/bulk/snooze", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ items, transactional: false }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            statusEl.textContent = error.detail?.message || "Bulk snooze failed.";
+            return;
+          }
+
+          const result = await response.json();
+          statusEl.textContent = `Snoozed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          clearLoopSelection();
+        } catch (e) {
+          console.error("Bulk snooze error:", e);
+          statusEl.textContent = "Bulk snooze failed.";
+        }
+      }
+
+      async function executeBulkStatus(newStatus) {
+        const loopIds = Array.from(selectedLoopIds);
+        const updates = loopIds.map((id) => ({
+          loop_id: id,
+          fields: { status: newStatus },
+        }));
+
+        statusEl.textContent = `Updating ${updates.length} loops...`;
+
+        try {
+          const response = await fetch("/loops/bulk/update", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ updates, transactional: false }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            statusEl.textContent = error.detail?.message || "Bulk update failed.";
+            return;
+          }
+
+          const result = await response.json();
+          statusEl.textContent = `Updated ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          clearLoopSelection();
+        } catch (e) {
+          console.error("Bulk update error:", e);
+          statusEl.textContent = "Bulk update failed.";
+        }
+      }
+
+      async function executeBulkAddTags(newTags) {
+        const loopIds = Array.from(selectedLoopIds);
+        // Merge new tags with existing tags for each loop
+        const updates = loopIds.map((id) => {
+          const card = document.querySelector(`.loop-card[data-loop-id="${id}"]`);
+          const existingTags = card ? JSON.parse(card.dataset.tags || "[]") : [];
+          const mergedTags = [...new Set([...existingTags, ...newTags])];
+          return {
+            loop_id: id,
+            fields: { tags: mergedTags },
+          };
+        });
+
+        statusEl.textContent = `Adding tags to ${updates.length} loops...`;
+
+        try {
+          const response = await fetch("/loops/bulk/update", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ updates, transactional: false }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            statusEl.textContent = error.detail?.message || "Bulk tag failed.";
+            return;
+          }
+
+          const result = await response.json();
+          statusEl.textContent = `Tagged ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+          clearLoopSelection();
+          await loadTags(); // Refresh tag filter
+        } catch (e) {
+          console.error("Bulk tag error:", e);
+          statusEl.textContent = "Bulk tag failed.";
+        }
+      }
 
       function formatTime(value) {
         try {
@@ -1108,9 +1540,23 @@
 
       function renderLoop(loop) {
         const card = document.createElement("div");
-        card.className = "loop-card";
+        card.className = "loop-card has-checkbox";
         card.dataset.loopId = loop.id;
         card.dataset.status = loop.status;
+        // Store existing tags for bulk add operations
+        card.dataset.tags = JSON.stringify(loop.tags || []);
+
+        // Add checkbox for bulk selection
+        const checkboxHtml = `
+          <div class="loop-select">
+            <input
+              type="checkbox"
+              class="loop-checkbox"
+              data-loop-id="${loop.id}"
+              aria-label="Select loop ${loop.id}"
+            >
+          </div>
+        `;
         const title = loop.title || loop.raw_text;
         const summary = loop.summary || loop.definition_of_done || "";
         const nextAction = loop.next_action || "";
@@ -1159,6 +1605,7 @@
                 ? "Enrichment failed"
                 : "Enrichment idle";
         card.innerHTML = `
+          ${checkboxHtml}
           <input
             class="title-input"
             type="text"
@@ -2049,6 +2496,45 @@
 
       // Attach event listeners to both inbox and nextBuckets containers
       function attachLoopCardListeners(container) {
+        // Checkbox change handler for bulk selection
+        container.addEventListener("change", (event) => {
+          const checkbox = event.target.closest(".loop-checkbox");
+          if (checkbox) {
+            const loopId = parseInt(checkbox.dataset.loopId, 10);
+            // Handle shift-click for range selection on checkboxes
+            if (event.shiftKey && lastClickedLoopId !== null && lastClickedLoopId !== loopId) {
+              selectLoopRange(lastClickedLoopId, loopId);
+              // Ensure the clicked checkbox is checked after range selection
+              checkbox.checked = true;
+            } else {
+              toggleLoopSelection(loopId, checkbox.checked);
+            }
+            lastClickedLoopId = loopId;
+            event.stopPropagation();
+            return;
+          }
+        });
+
+        // Card click for shift-select (when clicking on card, not inputs)
+        container.addEventListener("click", (event) => {
+          // Check if clicking on checkbox itself (handled by change event)
+          if (event.target.closest(".loop-checkbox")) {
+            return;
+          }
+
+          // Shift+click for range selection
+          if (event.shiftKey && lastClickedLoopId !== null) {
+            const card = event.target.closest(".loop-card");
+            if (card) {
+              const currentLoopId = parseInt(card.dataset.loopId, 10);
+              if (!Number.isNaN(currentLoopId) && currentLoopId !== lastClickedLoopId) {
+                selectLoopRange(lastClickedLoopId, currentLoopId);
+                event.preventDefault();
+              }
+            }
+          }
+        });
+
         container.addEventListener("click", (event) => {
           const button = event.target.closest("button");
           if (!button) return;
@@ -2589,6 +3075,17 @@
       }
 
       function handleKeyboardShortcuts(event) {
+        // Handle Ctrl+A for select all (before the general modifier check)
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+          // Only in inbox/next view, not in text inputs
+          if (!isInputFocused()) {
+            event.preventDefault();
+            selectAllVisibleLoops();
+            statusEl.textContent = `Selected ${selectedLoopIds.size} loops.`;
+            return;
+          }
+        }
+
         // Ignore shortcuts if modifier keys are pressed (Ctrl, Cmd, Alt)
         // This prevents blocking browser shortcuts like Ctrl+R, Cmd+R, etc.
         if (event.ctrlKey || event.metaKey || event.altKey) {
@@ -2599,6 +3096,20 @@
         if (event.key === "Escape") {
           if (isModalOpen()) {
             hideHelpModal();
+            event.preventDefault();
+            return;
+          }
+          // If bulk confirm modal is open, close it
+          const bulkConfirmModal = document.getElementById("bulk-confirm-modal");
+          if (bulkConfirmModal && bulkConfirmModal.classList.contains("visible")) {
+            hideBulkConfirm();
+            event.preventDefault();
+            return;
+          }
+          // If selection is active, clear it first
+          if (selectedLoopIds.size > 0) {
+            clearLoopSelection();
+            statusEl.textContent = "Selection cleared.";
             event.preventDefault();
             return;
           }
@@ -2730,6 +3241,93 @@
 
       // Close modal button handler
       helpModal.querySelector("[data-action=close-help]").addEventListener("click", hideHelpModal);
+
+      // Bulk action bar button handlers
+      document.addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-bulk-action]");
+        if (!btn) return;
+
+        const action = btn.dataset.bulkAction;
+
+        switch (action) {
+          case "complete":
+            showBulkConfirm(
+              "Complete Loops",
+              `Mark ${selectedLoopIds.size} loop${selectedLoopIds.size !== 1 ? "s" : ""} as completed?`,
+              () => executeBulkClose("completed")
+            );
+            break;
+
+          case "drop":
+            showBulkConfirm(
+              "Drop Loops",
+              `Mark ${selectedLoopIds.size} loop${selectedLoopIds.size !== 1 ? "s" : ""} as dropped? This cannot be undone.`,
+              () => executeBulkClose("dropped")
+            );
+            break;
+
+          case "status": {
+            const newStatus = prompt("Enter new status (inbox, actionable, blocked, scheduled):");
+            if (newStatus && ["inbox", "actionable", "blocked", "scheduled"].includes(newStatus.toLowerCase())) {
+              executeBulkStatus(newStatus.toLowerCase());
+            } else if (newStatus) {
+              statusEl.textContent = "Invalid status. Must be one of: inbox, actionable, blocked, scheduled.";
+            }
+            break;
+          }
+
+          case "snooze": {
+            const snoozeDate = prompt("Enter snooze date (YYYY-MM-DD HH:MM):");
+            if (snoozeDate) {
+              const date = new Date(snoozeDate);
+              if (!Number.isNaN(date.getTime())) {
+                executeBulkSnooze(date.toISOString());
+              } else {
+                statusEl.textContent = "Invalid date format.";
+              }
+            }
+            break;
+          }
+
+          case "tags": {
+            const tags = prompt("Enter tags to add (comma-separated):");
+            if (tags) {
+              const tagList = tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+              if (tagList.length > 0) {
+                executeBulkAddTags(tagList);
+              }
+            }
+            break;
+          }
+
+          case "clear":
+            clearLoopSelection();
+            break;
+        }
+      });
+
+      // Confirmation modal handlers
+      document.addEventListener("click", (event) => {
+        if (event.target.closest("[data-action='cancel-bulk-confirm']")) {
+          hideBulkConfirm();
+        }
+        if (event.target.closest("[data-action='confirm-bulk']")) {
+          if (pendingBulkAction) {
+            pendingBulkAction();
+          }
+          hideBulkConfirm();
+        }
+      });
+
+      // Close bulk confirm modal on overlay click
+      const bulkConfirmModal = document.getElementById("bulk-confirm-modal");
+      if (bulkConfirmModal) {
+        bulkConfirmModal.addEventListener("click", (event) => {
+          if (event.target === bulkConfirmModal) {
+            hideBulkConfirm();
+          }
+        });
+      }
 
       // Initialize SSE connection for real-time updates
       connectSSE();
