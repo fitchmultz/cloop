@@ -8,10 +8,14 @@ Tool Handlers:
     - loop.create: Capture a new loop
     - loop.update: Update loop fields
     - loop.close: Close a loop as completed/dropped
+    - loop.get: Retrieve a single loop by ID
+    - loop.next: Get prioritized loops organized into action buckets
+    - loop.transition: Transition loop to a non-terminal status
     - loop.list: List loops with optional status filter
     - loop.search: Search loops by text
     - loop.snooze: Set snooze timer on a loop
     - loop.enrich: Trigger AI enrichment for a loop
+    - loop.tags: List all unique tags used across loops
     - project.list: List all projects
 
 Idempotency:
@@ -1219,6 +1223,142 @@ def loop_dependency_blocking(loop_id: int) -> list[dict[str, Any]]:
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return get_loop_blocking(loop_id=loop_id, conn=conn)
+
+
+@mcp.tool(name="loop.get")
+@with_db_init
+@with_mcp_error_handling
+def loop_get(loop_id: int) -> dict[str, Any]:
+    """Retrieve a single loop by its ID.
+
+    Args:
+        loop_id: The unique identifier of the loop to retrieve.
+
+    Returns:
+        The full loop object with all fields including tags and project name.
+
+    Raises:
+        LoopNotFoundError: If no loop exists with the given ID.
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.get_loop(loop_id=loop_id, conn=conn)
+
+
+@mcp.tool(name="loop.next")
+@with_db_init
+@with_mcp_error_handling
+def loop_next(limit: int = 5) -> dict[str, list[dict[str, Any]]]:
+    """Get prioritized loops organized into action buckets.
+
+    Returns loops ready for action, sorted into priority buckets:
+    - due_soon: Items with imminent due dates
+    - quick_wins: Low effort, high impact items
+    - high_leverage: Important strategic items
+    - standard: Other actionable items
+
+    Only includes loops from inbox and actionable statuses that:
+    - Have a next_action defined
+    - Are not snoozed
+    - Have no open dependencies (blocked items excluded)
+
+    Args:
+        limit: Maximum number of loops to return per bucket (default: 5).
+
+    Returns:
+        Dict with keys: due_soon, quick_wins, high_leverage, standard.
+        Each key maps to a list of loop objects sorted by priority score.
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.next_loops(limit=limit, conn=conn, settings=settings)
+
+
+@mcp.tool(name="loop.transition")
+@with_db_init
+@with_mcp_error_handling
+def loop_transition(
+    loop_id: int,
+    status: str,
+    note: str | None = None,
+    claim_token: str | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Transition a loop to a new non-terminal status.
+
+    Valid status transitions depend on current state:
+    - inbox -> actionable, blocked, scheduled
+    - actionable -> inbox, blocked, scheduled
+    - blocked -> inbox, actionable, scheduled
+    - scheduled -> inbox, actionable, blocked
+    - completed/dropped -> can reopen to inbox or actionable
+
+    Use loop.close for terminal transitions (completed, dropped).
+
+    Args:
+        loop_id: The unique identifier of the loop to transition.
+        status: Target status: inbox, actionable, blocked, or scheduled.
+        note: Optional note explaining the transition.
+        claim_token: Optional claim token for protected loops.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        The updated loop object.
+
+    Raises:
+        LoopNotFoundError: If no loop exists with the given ID.
+        TransitionError: If the status transition is not allowed.
+        ValueError: If status is not a valid LoopStatus value.
+    """
+    settings = get_settings()
+    loop_status = LoopStatus(status)
+
+    # Validate that status is non-terminal (use loop.close for terminal statuses)
+    if is_terminal_status(loop_status):
+        raise ValidationError("status", "use loop.close for terminal statuses (completed, dropped)")
+
+    payload = {"loop_id": loop_id, "status": status, "note": note, "claim_token": claim_token}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.transition",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        result = loop_service.transition_status(
+            loop_id=loop_id,
+            to_status=loop_status,
+            note=note,
+            claim_token=claim_token,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.transition",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.tags")
+@with_db_init
+@with_mcp_error_handling
+def loop_tags() -> list[str]:
+    """List all unique tags used across loops.
+
+    Returns:
+        Alphabetically sorted list of tag names (lowercase).
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_service.list_tags(conn=conn)
 
 
 @mcp.tool(name="project.list")
