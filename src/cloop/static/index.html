@@ -189,6 +189,128 @@
         max-height: 80px;
         overflow-y: auto;
       }
+      /* Review panel styles */
+      .review-main {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 16px 20px 40px;
+        display: none;
+      }
+      .review-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .review-header h2 {
+        margin: 0;
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 600;
+      }
+      .review-toggle {
+        display: flex;
+        gap: 8px;
+      }
+      .toggle-btn {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 14px;
+        background: var(--card);
+        color: var(--muted);
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 150ms ease;
+        font-family: inherit;
+      }
+      .toggle-btn.active {
+        background: var(--brand);
+        color: white;
+        border-color: var(--brand);
+      }
+      .review-cohorts {
+        display: grid;
+        gap: 16px;
+      }
+      .cohort-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: var(--shadow);
+        animation: rise 320ms ease both;
+      }
+      .cohort-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .cohort-name {
+        font-weight: 600;
+        font-family: "Space Grotesk", sans-serif;
+        text-transform: capitalize;
+      }
+      .cohort-count {
+        background: var(--bg-accent);
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .cohort-count.alert {
+        background: #fef3c7;
+        color: #92400e;
+      }
+      .cohort-items {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .cohort-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        background: var(--bg);
+        border-radius: 10px;
+        font-size: 14px;
+        transition: background 150ms ease;
+      }
+      .cohort-item:hover {
+        background: var(--bg-accent);
+      }
+      .cohort-item-link {
+        color: var(--ink);
+        text-decoration: none;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .cohort-item-link:hover {
+        color: var(--brand);
+      }
+      .cohort-item-status {
+        font-size: 12px;
+        color: var(--muted);
+        background: var(--card);
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        text-transform: capitalize;
+      }
+      .cohort-empty {
+        color: var(--muted);
+        font-style: italic;
+        font-size: 14px;
+        padding: 12px 0;
+      }
+      .cohort-loading {
+        color: var(--muted);
+        font-style: italic;
+        padding: 20px;
+        text-align: center;
+      }
       .chat-placeholder, .rag-placeholder {
         color: var(--muted);
         text-align: center;
@@ -1174,6 +1296,7 @@
       <button class="tab" data-tab="next" role="tab" aria-selected="false">Next<span class="shortcut-hint">2</span></button>
       <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat<span class="shortcut-hint">3</span></button>
       <button class="tab" data-tab="rag" role="tab" aria-selected="false">RAG<span class="shortcut-hint">4</span></button>
+      <button class="tab" data-tab="review" role="tab" aria-selected="false">Review<span class="shortcut-hint">5</span></button>
     </nav>
     <main id="inbox-main">
       <section class="panel">
@@ -1295,6 +1418,18 @@
         </div>
       </section>
     </main>
+    <main class="review-main" id="review-main">
+      <section class="panel review-panel">
+        <div class="review-header">
+          <h2>Loop Review</h2>
+          <div class="review-toggle">
+            <button class="toggle-btn active" data-review-mode="daily">Daily</button>
+            <button class="toggle-btn" data-review-mode="weekly">Weekly</button>
+          </div>
+        </div>
+        <div id="review-cohorts" class="review-cohorts"></div>
+      </section>
+    </main>
     <div class="footer-actions">
       <button class="tag-add" type="button" id="export-btn">export</button>
       <button class="tag-add" type="button" id="import-btn">import</button>
@@ -1364,8 +1499,12 @@
             <div class="help-keys"><span class="help-key">g</span><span class="help-key">r</span></div>
           </div>
           <div class="help-shortcut">
-            <span class="help-desc">Switch tabs (1-4)</span>
-            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span></div>
+            <span class="help-desc">Go to Review</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">v</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Switch tabs (1-5)</span>
+            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span><span class="help-key">5</span></div>
           </div>
         </div>
         <div class="help-section">
@@ -3277,10 +3416,17 @@
         nextMain.style.display = tabName === "next" ? "grid" : "none";
         chatMain.style.display = tabName === "chat" ? "grid" : "none";
         ragMain.style.display = tabName === "rag" ? "grid" : "none";
+        if (reviewMain) {
+          reviewMain.style.display = tabName === "review" ? "grid" : "none";
+        }
 
         // Load data when switching to Next tab
         if (tabName === "next") {
           loadNext();
+        }
+        // Load data when switching to Review tab
+        if (tabName === "review") {
+          loadReviewData();
         }
       }
 
@@ -3463,6 +3609,120 @@
         submitRagQuestion(question);
       });
 
+      // Review Functionality
+      const reviewMain = document.getElementById("review-main");
+      const reviewCohorts = document.getElementById("review-cohorts");
+      let reviewMode = "daily";
+      let reviewData = null;
+
+      const COHORT_CONFIG = {
+        stale: { icon: "🕰️", title: "Stale Loops" },
+        no_next_action: { icon: "⚠️", title: "Missing Next Action" },
+        blocked_too_long: { icon: "🚧", title: "Blocked Too Long" },
+        due_soon_unplanned: { icon: "⏰", title: "Due Soon (Unplanned)" }
+      };
+
+      function formatCohortName(name) {
+        return name.replace(/_/g, " ");
+      }
+
+      function renderReviewCohort(cohort) {
+        const config = COHORT_CONFIG[cohort.cohort] || { icon: "📋", title: formatCohortName(cohort.cohort) };
+        const card = document.createElement("div");
+        card.className = "cohort-card";
+
+        const hasItems = cohort.items && cohort.items.length > 0;
+        const countClass = cohort.count > 0 ? "alert" : "";
+
+        let itemsHtml = "";
+        if (hasItems) {
+          itemsHtml = cohort.items.map(item => `
+            <div class="cohort-item">
+              <span class="cohort-item-link" data-loop-id="${item.id}">
+                ${escapeHtml(item.title || item.raw_text || "Untitled")}
+              </span>
+              <span class="cohort-item-status">${item.status}</span>
+            </div>
+          `).join("");
+        } else {
+          itemsHtml = '<div class="cohort-empty">No items in this cohort</div>';
+        }
+
+        card.innerHTML = `
+          <div class="cohort-header">
+            <span class="cohort-name">${config.icon} ${config.title}</span>
+            <span class="cohort-count ${countClass}">${cohort.count} items</span>
+          </div>
+          <div class="cohort-items">${itemsHtml}</div>
+        `;
+
+        // Add click handlers for loop links
+        card.querySelectorAll(".cohort-item-link").forEach(link => {
+          link.addEventListener("click", () => {
+            const loopId = link.dataset.loopId;
+            switchTab("inbox");
+            // Wait for inbox to render then scroll to the loop
+            setTimeout(() => {
+              const loopCard = document.querySelector(`.loop-card[data-loop-id="${loopId}"]`);
+              if (loopCard) {
+                loopCard.scrollIntoView({ behavior: "smooth", block: "center" });
+                loopCard.style.animation = "pulse 1s ease";
+                setTimeout(() => loopCard.style.animation = "", 1000);
+              }
+            }, 100);
+          });
+        });
+
+        return card;
+      }
+
+      async function loadReviewData() {
+        reviewCohorts.innerHTML = '<div class="cohort-loading">Loading review data...</div>';
+
+        try {
+          const params = new URLSearchParams({ daily: "true", weekly: "true", limit: "10" });
+          const response = await fetch(`/loops/review?${params}`);
+
+          if (!response.ok) {
+            reviewCohorts.innerHTML = '<div class="cohort-empty">Failed to load review data.</div>';
+            return;
+          }
+
+          reviewData = await response.json();
+          renderReviewCohorts();
+        } catch (err) {
+          console.error("loadReview error:", err);
+          reviewCohorts.innerHTML = '<div class="cohort-empty">Error loading review data.</div>';
+        }
+      }
+
+      function renderReviewCohorts() {
+        reviewCohorts.innerHTML = "";
+
+        if (!reviewData) return;
+
+        const cohorts = reviewMode === "daily" ? reviewData.daily : reviewData.weekly;
+
+        if (!cohorts || cohorts.length === 0) {
+          reviewCohorts.innerHTML = '<div class="cohort-empty">No cohorts available.</div>';
+          return;
+        }
+
+        cohorts.forEach(cohort => {
+          reviewCohorts.appendChild(renderReviewCohort(cohort));
+        });
+      }
+
+      // Review mode toggle handlers
+      document.querySelectorAll("[data-review-mode]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          reviewMode = btn.dataset.reviewMode;
+          document.querySelectorAll("[data-review-mode]").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          renderReviewCohorts();
+        });
+      });
+
       // Next View Functionality
       const BUCKET_CONFIG = {
         due_soon: { icon: "🔥", title: "Due Soon", description: "Tasks with upcoming deadlines" },
@@ -3598,8 +3858,8 @@
 
       function getFirstVisibleLoopId() {
         // Get the first loop card in the current view
-        const visibleMain = [inboxMain, nextMain, chatMain, ragMain].find(
-          el => el.style.display !== "none"
+        const visibleMain = [inboxMain, nextMain, chatMain, ragMain, reviewMain].find(
+          el => el && el.style.display !== "none"
         );
         if (!visibleMain) return null;
         const firstCard = visibleMain.querySelector(".loop-card");
@@ -3675,7 +3935,8 @@
             "i": "inbox",
             "n": "next",
             "c": "chat",
-            "r": "rag"
+            "r": "rag",
+            "v": "review"
           };
 
           if (gMappings[key]) {
@@ -3699,8 +3960,8 @@
           return;
         }
 
-        // Direct tab switching with 1-4
-        const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "rag" };
+        // Direct tab switching with 1-5
+        const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "rag", "5": "review" };
         if (tabNumbers[key]) {
           switchTab(tabNumbers[key]);
           status.textContent = `Switched to ${tabNumbers[key]}`;

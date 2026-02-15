@@ -20,6 +20,7 @@ Endpoints:
 - GET /loops/{id}/timer/status: Get timer status and totals
 - GET /loops/{id}/sessions: List time tracking sessions
 - GET /loops/next: Prioritized "Next Actions"
+- GET /loops/review: Review cohorts for daily/weekly maintenance
 - GET /loops/events/stream: SSE stream of loop events
 - POST /loops/webhooks/subscriptions: Create webhook subscription
 - GET /loops/webhooks/subscriptions: List webhook subscriptions
@@ -79,6 +80,9 @@ from ..schemas.loops import (
     LoopReleaseClaimRequest,
     LoopRenewClaimRequest,
     LoopResponse,
+    LoopReviewCohortItem,
+    LoopReviewCohortResponse,
+    LoopReviewResponse,
     LoopSearchRequest,
     LoopSearchResponse,
     LoopStatusRequest,
@@ -473,6 +477,58 @@ def loop_next_endpoint(
         quick_wins=[LoopResponse(**item) for item in result["quick_wins"]],
         high_leverage=[LoopResponse(**item) for item in result["high_leverage"]],
         standard=[LoopResponse(**item) for item in result["standard"]],
+    )
+
+
+@router.get("/review", response_model=LoopReviewResponse)
+def loop_review_endpoint(
+    settings: SettingsDep,
+    daily: Annotated[bool, Query(description="Include daily cohorts")] = True,
+    weekly: Annotated[bool, Query(description="Include weekly cohorts")] = True,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> LoopReviewResponse:
+    """Get review cohorts for daily/weekly maintenance.
+
+    Returns deterministic cohorts:
+    - stale: Open loops not updated in 72+ hours
+    - no_next_action: Actionable/scheduled without next_action
+    - blocked_too_long: Blocked for 48+ hours
+    - due_soon_unplanned: Due within 48h but no next_action
+
+    Daily includes all four cohorts. Weekly includes stale and blocked_too_long.
+    Thresholds are configurable via environment variables.
+    """
+    from ..loops.models import utc_now
+    from ..loops.review import compute_review_cohorts
+
+    with db.core_connection(settings) as conn:
+        result = compute_review_cohorts(
+            settings=settings,
+            now_utc=utc_now(),
+            conn=conn,
+            include_daily=daily,
+            include_weekly=weekly,
+            limit_per_cohort=limit,
+        )
+
+    return LoopReviewResponse(
+        daily=[
+            LoopReviewCohortResponse(
+                cohort=c.cohort.value,
+                count=c.count,
+                items=[LoopReviewCohortItem(**item) for item in c.items],
+            )
+            for c in result.daily
+        ],
+        weekly=[
+            LoopReviewCohortResponse(
+                cohort=c.cohort.value,
+                count=c.count,
+                items=[LoopReviewCohortItem(**item) for item in c.items],
+            )
+            for c in result.weekly
+        ],
+        generated_at_utc=result.generated_at_utc,
     )
 
 
