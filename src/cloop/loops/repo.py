@@ -679,6 +679,34 @@ def insert_loop_link(
     )
 
 
+def list_loop_links_by_type(
+    *,
+    loop_id: int,
+    relationship_type: str,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List loop links of a specific relationship type.
+
+    Args:
+        loop_id: Loop to query
+        relationship_type: Type of relationship (e.g., 'duplicate', 'related')
+        conn: Database connection
+
+    Returns:
+        List of link dicts with related_loop_id, confidence, source, created_at
+    """
+    rows = conn.execute(
+        """
+        SELECT related_loop_id, relationship_type, confidence, source, created_at
+        FROM loop_links
+        WHERE loop_id = ? AND relationship_type = ?
+        ORDER BY confidence DESC
+        """,
+        (loop_id, relationship_type),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def fetch_loop_embeddings(
     *,
     conn: sqlite3.Connection,

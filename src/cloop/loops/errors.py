@@ -194,3 +194,24 @@ class UndoNotPossibleError(CloopError):
         self.loop_id = loop_id
         self.reason = reason
         self.message = message
+
+
+class MergeConflictError(CloopError):
+    """Raised when a merge operation cannot proceed due to conflicting state.
+
+    Maps to HTTP 409 Conflict.
+    """
+
+    def __init__(
+        self,
+        loop_id: int,
+        target_id: int,
+        reason: str,
+    ) -> None:
+        super().__init__(
+            f"Cannot merge loop {loop_id} into {target_id}: {reason}",
+            detail=f"loop_id={loop_id}, target_id={target_id}, reason={reason}",
+        )
+        self.loop_id = loop_id
+        self.target_id = target_id
+        self.reason = reason

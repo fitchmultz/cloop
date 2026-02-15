@@ -37,7 +37,7 @@ from . import repo
 from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
-from .related import suggest_links, upsert_loop_embedding
+from .related import find_duplicate_candidates, suggest_links, upsert_loop_embedding
 
 
 class LoopSuggestion(BaseModel):
@@ -419,6 +419,17 @@ def enrich_loop(
                     loop_id=loop_id, text=text_for_embedding, conn=conn, settings=settings
                 )
                 suggest_links(loop_id=loop_id, conn=conn, settings=settings)
+                # Detect and link potential duplicates
+                dupes = find_duplicate_candidates(loop_id=loop_id, conn=conn, settings=settings)
+                for dupe in dupes:
+                    repo.insert_loop_link(
+                        loop_id=loop_id,
+                        related_loop_id=dupe.loop_id,
+                        relationship_type="duplicate",
+                        confidence=dupe.score,
+                        source="ai",
+                        conn=conn,
+                    )
         except Exception as exc:
             # Log embedding/suggestion failures but don't fail the enrichment
             logging.warning(

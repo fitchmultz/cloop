@@ -2,11 +2,13 @@
 
 Purpose:
     Suggest related loops based on vector similarity of embeddings.
+    Also provides duplicate detection with higher similarity threshold.
 
 Responsibilities:
     - Upsert loop embeddings into vector store
     - Query similar loops by vector distance
     - Provide suggestion links between related items
+    - Detect potential duplicate loops with high similarity
 
 Non-scope:
     - Embedding generation (see embeddings.py)
@@ -15,11 +17,13 @@ Non-scope:
 Entrypoints:
     - upsert_loop_embedding(loop_id, text, conn, settings) -> None
     - suggest_links(loop_id, conn, settings) -> List[Dict]
+    - find_duplicate_candidates(loop_id, conn, settings) -> List[DuplicateCandidate]
 """
 
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -27,6 +31,19 @@ import numpy as np
 from ..embeddings import embed_texts
 from ..settings import Settings, get_settings
 from . import repo
+from .models import format_utc_datetime, is_terminal_status
+
+
+@dataclass(frozen=True, slots=True)
+class DuplicateCandidate:
+    """A loop identified as a potential duplicate."""
+
+    loop_id: int
+    score: float  # cosine similarity 0-1
+    title: str | None
+    raw_text_preview: str  # first 100 chars
+    status: str
+    captured_at_utc: str
 
 
 def upsert_loop_embedding(
@@ -108,6 +125,101 @@ def find_related_loops(
     return [
         {"loop_id": loop_id_value, "score": score} for loop_id_value, score in candidates[:top_k]
     ]
+
+
+def find_duplicate_candidates(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+    settings: Settings | None = None,
+) -> list[DuplicateCandidate]:
+    """Find loops that are likely duplicates of the given loop.
+
+    Uses a higher similarity threshold (default 0.95) than related loops
+    to identify near-identical content.
+
+    Args:
+        loop_id: The source loop to check for duplicates
+        conn: Database connection
+        settings: Optional settings override
+
+    Returns:
+        List of DuplicateCandidate sorted by score descending.
+        Only includes non-terminal loops (not completed/dropped).
+    """
+    settings = settings or get_settings()
+
+    # Fetch current loop's embedding directly by loop_id
+    rows = conn.execute(
+        """
+        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm
+        FROM loop_embeddings
+        WHERE loop_id = ?
+        """,
+        (loop_id,),
+    ).fetchall()
+
+    current = next((row for row in rows if int(row["loop_id"]) == loop_id), None)
+    if current is None:
+        return []
+
+    dim = int(current["embedding_dim"])
+    query_vec = np.frombuffer(current["embedding_blob"], dtype=np.float32, count=dim)
+
+    # Find candidates above duplicate threshold
+    candidates = find_related_loops(
+        loop_id=loop_id,
+        query_vec=query_vec,
+        threshold=settings.duplicate_similarity_threshold,
+        top_k=10,  # Duplicates should be rare; limit to top 10
+        conn=conn,
+        settings=settings,
+    )
+
+    if not candidates:
+        return []
+
+    # Enrich with loop details, filter out terminal statuses
+    loop_ids = [c["loop_id"] for c in candidates]
+    loops = repo.read_loops_batch(loop_ids=loop_ids, conn=conn)
+
+    # Get loops that already have a duplicate relationship with this loop
+    existing_duplicate_ids = set(
+        row["related_loop_id"]
+        for row in conn.execute(
+            """
+            SELECT related_loop_id
+            FROM loop_links
+            WHERE loop_id = ? AND relationship_type IN ('duplicate', 'duplicate_resolved')
+            """,
+            (loop_id,),
+        ).fetchall()
+    )
+
+    results: list[DuplicateCandidate] = []
+    for cand in candidates:
+        lid = int(cand["loop_id"])
+        # Skip if already linked as duplicate
+        if lid in existing_duplicate_ids:
+            continue
+        loop = loops.get(lid)
+        if loop is None:
+            continue
+        if is_terminal_status(loop.status):
+            continue  # Don't suggest merging with closed loops
+
+        results.append(
+            DuplicateCandidate(
+                loop_id=lid,
+                score=float(cand["score"]),
+                title=loop.title,
+                raw_text_preview=loop.raw_text[:100] + ("..." if len(loop.raw_text) > 100 else ""),
+                status=loop.status.value,
+                captured_at_utc=format_utc_datetime(loop.captured_at_utc),
+            )
+        )
+
+    return results
 
 
 def suggest_links(
