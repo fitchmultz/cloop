@@ -1,12 +1,16 @@
 """Shared idempotency primitives for HTTP and MCP loop mutations.
 
 Purpose:
-- Provide deterministic replay/mismatch semantics for write retries.
+    Provide deterministic replay/mismatch semantics for write retries.
 
 Responsibilities:
-- Canonical request hashing
-- DB-backed claim/replay/finalize flow
-- TTL cleanup trigger
+    - Canonical request hashing
+    - DB-backed claim/replay/finalize flow
+    - TTL cleanup trigger
+
+Non-scope:
+    - HTTP-specific handling (see handlers.py)
+    - Business logic validation (see loops/service.py)
 
 Non-scope:
 - Business mutation logic itself

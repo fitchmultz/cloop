@@ -1,8 +1,16 @@
 """Cloop FastAPI application entry point.
 
-This module provides:
-- FastAPI app creation and lifespan management
-- Router mounting for modular endpoints
+Purpose:
+    Create and configure the FastAPI application with all routers.
+
+Responsibilities:
+    - FastAPI app creation and lifespan management
+    - Router mounting for modular endpoints
+    - Static file serving for web UI
+
+Non-scope:
+    - Business logic (see loops/service.py)
+    - Database schema (see db.py)
 - Exception handler registration
 - Health endpoint (kept here for simplicity)
 

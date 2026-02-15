@@ -1,3 +1,22 @@
+"""Related loop suggestions using vector similarity.
+
+Purpose:
+    Suggest related loops based on vector similarity of embeddings.
+
+Responsibilities:
+    - Upsert loop embeddings into vector store
+    - Query similar loops by vector distance
+    - Provide suggestion links between related items
+
+Non-scope:
+    - Embedding generation (see embeddings.py)
+    - Loop storage (see loops/repo.py)
+
+Entrypoints:
+    - upsert_loop_embedding(loop_id, text, conn, settings) -> None
+    - suggest_links(loop_id, conn, settings) -> List[Dict]
+"""
+
 from __future__ import annotations
 
 import sqlite3

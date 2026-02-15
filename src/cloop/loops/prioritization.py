@@ -1,3 +1,17 @@
+"""Loop prioritization scoring algorithm.
+
+Purpose:
+    Calculate priority scores for loops based on due date, urgency, importance.
+
+Responsibilities:
+    - Compute priority scores for sorting
+    - Apply priority weights from settings
+
+Non-scope:
+    - Loop retrieval (see loops/repo.py)
+    - UI display logic (see routes/loops.py)
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

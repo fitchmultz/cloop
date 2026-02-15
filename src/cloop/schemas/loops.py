@@ -1,5 +1,17 @@
 """Loop/task management request/response models.
 
+Purpose:
+    Define Pydantic models for the /loops/* endpoints.
+
+Responsibilities:
+    - Loop capture and CRUD request/response models
+    - Status transition models
+    - Export/import schemas
+
+Non-scope:
+    - Database models (see loops/models.py)
+    - Business logic validation (see loops/service.py)
+
 Models for the /loops/* endpoints supporting:
 - Loop capture and CRUD
 - Status transitions

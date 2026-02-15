@@ -1,3 +1,23 @@
+"""Runtime type validation helpers.
+
+Purpose:
+    Provide type checking and validation utilities for I/O boundaries.
+
+Responsibilities:
+    - as_type(): Coerce dicts to dataclasses with validation
+    - @validate_io decorator for function argument/response validation
+    - escape_like_pattern() for SQL LIKE safety
+
+Non-scope:
+    - Static type checking (use ty/mypy separately)
+    - Pydantic model validation (see schemas/)
+
+Entrypoints:
+    - as_type(data, cls) -> T
+    - validate_io() -> Callable (decorator)
+    - escape_like_pattern(text) -> str
+"""
+
 import functools
 import inspect
 from typing import Any, Callable, TypeVar, Union, get_args, get_origin

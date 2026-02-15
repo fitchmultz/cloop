@@ -1355,7 +1355,29 @@ Exit codes:
 
 
 def _add_ingest_parser(subparsers: Any) -> None:
-    ingest_parser = subparsers.add_parser("ingest", help="Ingest documents")
+    ingest_parser = subparsers.add_parser(
+        "ingest",
+        help="Ingest documents",
+        description="Ingest documents into the knowledge base",
+        epilog="""
+Examples:
+  # Ingest a single file
+  cloop ingest /path/to/document.md
+
+  # Ingest a directory recursively
+  cloop ingest ~/Documents/my-notes
+
+  # Ingest with reindex mode (replaces existing)
+  cloop ingest ~/notes --mode reindex
+
+  # Ingest without recursion
+  cloop ingest ~/notes --no-recursive
+
+  # Ingest multiple paths
+  cloop ingest doc1.md doc2.md ~/notes
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ingest_parser.add_argument("paths", nargs="+", help="Files or directories to ingest")
     ingest_parser.add_argument(
         "--mode",
@@ -1371,7 +1393,26 @@ def _add_ingest_parser(subparsers: Any) -> None:
 
 
 def _add_ask_parser(subparsers: Any) -> None:
-    ask_parser = subparsers.add_parser("ask", help="Query the knowledge base")
+    ask_parser = subparsers.add_parser(
+        "ask",
+        help="Query the knowledge base",
+        description="Query the knowledge base using semantic search",
+        epilog="""
+Examples:
+  # Basic question
+  cloop ask "What is the deployment process?"
+
+  # Retrieve more chunks
+  cloop ask "API authentication" --k 10
+
+  # Restrict to specific document
+  cloop ask "architecture" --scope doc:123
+
+  # Restrict by path substring
+  cloop ask "meeting notes" --scope "2026-02"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ask_parser.add_argument("question", help="Question text")
     ask_parser.add_argument("--k", type=int, default=5, help="Top-k chunks to retrieve")
     ask_parser.add_argument(
@@ -1381,7 +1422,32 @@ def _add_ask_parser(subparsers: Any) -> None:
 
 
 def _add_capture_parser(subparsers: Any) -> None:
-    capture_parser = subparsers.add_parser("capture", help="Capture a loop")
+    capture_parser = subparsers.add_parser(
+        "capture",
+        help="Capture a loop",
+        description="Capture a new loop with optional status flags and recurrence",
+        epilog="""
+Examples:
+  # Quick capture to inbox (default)
+  cloop capture "Buy groceries"
+
+  # Capture as actionable task
+  cloop capture "Review PR #42" --actionable
+
+  # Capture as blocked
+  cloop capture "Deploy to prod" --blocked
+
+  # Capture with recurrence (every weekday)
+  cloop capture "Daily standup" --schedule "every weekday" --actionable
+
+  # Capture with template
+  cloop capture "Weekly report" --template weekly-report
+
+  # Capture with explicit RRULE
+  cloop capture "Monthly review" --rrule "FREQ=MONTHLY;BYDAY=1FR"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     capture_parser.add_argument("text", help="Raw text to capture")
     capture_parser.add_argument(
         "--captured-at",
@@ -1444,14 +1510,40 @@ def _add_capture_parser(subparsers: Any) -> None:
 
 
 def _add_inbox_parser(subparsers: Any) -> None:
-    inbox_parser = subparsers.add_parser("inbox", help="List inbox loops")
+    inbox_parser = subparsers.add_parser(
+        "inbox",
+        help="List inbox loops",
+        description="List loops in inbox status",
+        epilog="""
+Examples:
+  # List inbox loops (default limit)
+  cloop inbox
+
+  # List with custom limit
+  cloop inbox --limit 20
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     inbox_parser.add_argument(
         "--limit", type=int, default=DEFAULT_LOOP_LIST_LIMIT, help="Max loops to return"
     )
 
 
 def _add_next_parser(subparsers: Any) -> None:
-    next_parser = subparsers.add_parser("next", help="Show the next loops")
+    next_parser = subparsers.add_parser(
+        "next",
+        help="Show the next loops",
+        description="Show prioritized next actions grouped by urgency/importance",
+        epilog="""
+Examples:
+  # Show next actions (default)
+  cloop next
+
+  # Show more items per bucket
+  cloop next --limit 10
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     next_parser.add_argument(
         "--limit", type=int, default=DEFAULT_LOOP_NEXT_LIMIT, help="Max loops per bucket"
     )
@@ -1461,11 +1553,46 @@ def _add_loop_parser(subparsers: Any) -> None:
     loop_parser = subparsers.add_parser("loop", help="Loop lifecycle commands")
     loop_subparsers = loop_parser.add_subparsers(dest="loop_command", required=True)
 
-    get_parser = loop_subparsers.add_parser("get", help="Get a loop by ID")
+    get_parser = loop_subparsers.add_parser(
+        "get",
+        help="Get a loop by ID",
+        description="Retrieve detailed information about a specific loop",
+        epilog="""
+Examples:
+  # Get loop by ID as JSON
+  cloop loop get 123
+
+  # Get loop in table format
+  cloop loop get 123 --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     get_parser.add_argument("id", type=int, help="Loop ID")
     _add_format_option(get_parser)
 
-    list_parser = loop_subparsers.add_parser("list", help="List loops")
+    list_parser = loop_subparsers.add_parser(
+        "list",
+        help="List loops",
+        description="List loops with optional filtering by status or tag",
+        epilog="""
+Examples:
+  # List all open loops (default)
+  cloop loop list
+
+  # List inbox items
+  cloop loop list --status inbox
+
+  # List completed loops
+  cloop loop list --status completed
+
+  # List loops with specific tag
+  cloop loop list --tag work --format table
+
+  # List all loops (no filter)
+  cloop loop list --status all --limit 100
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     list_parser.add_argument(
         "--status",
         default="open",
@@ -1476,7 +1603,29 @@ def _add_loop_parser(subparsers: Any) -> None:
     list_parser.add_argument("--offset", type=int, default=0, help="Pagination offset (default: 0)")
     _add_format_option(list_parser)
 
-    search_parser = loop_subparsers.add_parser("search", help="Search loops with DSL query")
+    search_parser = loop_subparsers.add_parser(
+        "search",
+        help="Search loops with DSL query",
+        description="Search loops using query DSL (status:, tag:, due:, full-text)",
+        epilog="""
+Examples:
+  # Full-text search
+  cloop loop search "groceries"
+
+  # DSL: status and tag
+  cloop loop search "status:inbox tag:work"
+
+  # DSL: due today
+  cloop loop search "status:open due:today"
+
+  # DSL: blocked items
+  cloop loop search "blocked"
+
+  # DSL: project filter
+  cloop loop search "project:ClientAlpha"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     search_parser.add_argument("query", nargs="?", help="DSL query string")
     search_parser.add_argument("--query", dest="query_flag", help="DSL query string")
     search_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
@@ -1485,7 +1634,26 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(search_parser)
 
-    update_parser = loop_subparsers.add_parser("update", help="Update loop fields")
+    update_parser = loop_subparsers.add_parser(
+        "update",
+        help="Update loop fields",
+        description="Update one or more fields on a loop",
+        epilog="""
+Examples:
+  # Set next action
+  cloop loop update 1 --next-action "Call client"
+
+  # Set due date
+  cloop loop update 1 --due-at "2026-02-20T17:00:00Z"
+
+  # Set tags (replaces existing)
+  cloop loop update 1 --tags "work,urgent"
+
+  # Multiple fields at once
+  cloop loop update 1 --title "Updated title" --urgency 0.8 --importance 0.9
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     update_parser.add_argument("id", type=int, help="Loop ID")
     update_parser.add_argument("--title", help="Update title")
     update_parser.add_argument("--summary", help="Update summary")
@@ -1519,7 +1687,26 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(update_parser)
 
-    status_parser = loop_subparsers.add_parser("status", help="Transition loop status")
+    status_parser = loop_subparsers.add_parser(
+        "status",
+        help="Transition loop status",
+        description="Transition a loop to a new status",
+        epilog="""
+Examples:
+  # Move to actionable
+  cloop loop status 1 actionable
+
+  # Move to scheduled
+  cloop loop status 1 scheduled
+
+  # Move to blocked
+  cloop loop status 1 blocked
+
+  # With claim token for claimed loop
+  cloop loop status 1 actionable --claim-token TOKEN
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     status_parser.add_argument("id", type=int, help="Loop ID")
     status_parser.add_argument(
         "status",
@@ -1534,7 +1721,23 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(status_parser)
 
-    close_parser = loop_subparsers.add_parser("close", help="Close a loop")
+    close_parser = loop_subparsers.add_parser(
+        "close",
+        help="Close a loop",
+        description="Close a loop as completed or dropped",
+        epilog="""
+Examples:
+  # Close as completed
+  cloop loop close 1
+
+  # Close as dropped
+  cloop loop close 1 --dropped
+
+  # With completion note
+  cloop loop close 1 --note "Finished ahead of schedule"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     close_parser.add_argument("id", type=int, help="Loop ID")
     close_parser.add_argument(
         "--dropped",
@@ -1551,7 +1754,26 @@ def _add_loop_parser(subparsers: Any) -> None:
     enrich_parser.add_argument("id", type=int, help="Loop ID")
     _add_format_option(enrich_parser)
 
-    snooze_parser = loop_subparsers.add_parser("snooze", help="Snooze a loop")
+    snooze_parser = loop_subparsers.add_parser(
+        "snooze",
+        help="Snooze a loop",
+        description="Temporarily hide a loop until a future time",
+        epilog="""
+Examples:
+  # Snooze for 30 minutes
+  cloop loop snooze 1 30m
+
+  # Snooze for 2 hours
+  cloop loop snooze 1 2h
+
+  # Snooze for 3 days
+  cloop loop snooze 1 3d
+
+  # Snooze until specific time
+  cloop loop snooze 1 "2026-02-20T09:00:00Z"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     snooze_parser.add_argument("id", type=int, help="Loop ID")
     snooze_parser.add_argument(
         "duration",
@@ -1562,38 +1784,123 @@ def _add_loop_parser(subparsers: Any) -> None:
     view_parser = loop_subparsers.add_parser("view", help="Saved view operations")
     view_subparsers = view_parser.add_subparsers(dest="view_command", required=True)
 
-    view_create_parser = view_subparsers.add_parser("create", help="Create a saved view")
+    view_create_parser = view_subparsers.add_parser(
+        "create",
+        help="Create a saved view",
+        description="Create a saved view with a DSL query",
+        epilog="""
+Examples:
+  # Create a simple view
+  cloop loop view create --name "Today's tasks" --query "status:open due:today"
+
+  # Create with description
+  cloop loop view create --name "Work items" --query "tag:work" --description "All work tasks"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     view_create_parser.add_argument("--name", required=True, help="View name")
     view_create_parser.add_argument("--query", required=True, help="DSL query string")
     view_create_parser.add_argument("--description", help="Optional description")
     _add_format_option(view_create_parser)
 
-    view_list_parser = view_subparsers.add_parser("list", help="List saved views")
+    view_list_parser = view_subparsers.add_parser(
+        "list",
+        help="List saved views",
+        description="List all saved views",
+        epilog="""
+Examples:
+  # List views as JSON
+  cloop loop view list
+
+  # List views in table format
+  cloop loop view list --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     _add_format_option(view_list_parser)
 
-    view_get_parser = view_subparsers.add_parser("get", help="Get a saved view")
+    view_get_parser = view_subparsers.add_parser(
+        "get",
+        help="Get a saved view",
+        description="Get details of a specific saved view",
+        epilog="""
+Examples:
+  # Get view by ID
+  cloop loop view get 1
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     view_get_parser.add_argument("id", type=int, help="View ID")
     _add_format_option(view_get_parser)
 
-    view_update_parser = view_subparsers.add_parser("update", help="Update a saved view")
+    view_update_parser = view_subparsers.add_parser(
+        "update",
+        help="Update a saved view",
+        description="Update an existing saved view",
+        epilog="""
+Examples:
+  # Update view query
+  cloop loop view update 1 --query "status:open tag:urgent"
+
+  # Update name and description
+  cloop loop view update 1 --name "Urgent work" --description "Urgent work items"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     view_update_parser.add_argument("id", type=int, help="View ID")
     view_update_parser.add_argument("--name", help="New view name")
     view_update_parser.add_argument("--query", help="New DSL query string")
     view_update_parser.add_argument("--description", help="New description")
     _add_format_option(view_update_parser)
 
-    view_delete_parser = view_subparsers.add_parser("delete", help="Delete a saved view")
+    view_delete_parser = view_subparsers.add_parser(
+        "delete",
+        help="Delete a saved view",
+        description="Delete a saved view by ID",
+        epilog="""
+Examples:
+  # Delete view by ID
+  cloop loop view delete 1
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     view_delete_parser.add_argument("id", type=int, help="View ID")
     _add_format_option(view_delete_parser)
 
-    view_apply_parser = view_subparsers.add_parser("apply", help="Apply a saved view")
+    view_apply_parser = view_subparsers.add_parser(
+        "apply",
+        help="Apply a saved view",
+        description="Execute a saved view query and return results",
+        epilog="""
+Examples:
+  # Apply view and get results
+  cloop loop view apply 1
+
+  # Apply with custom limit
+  cloop loop view apply 1 --limit 100
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     view_apply_parser.add_argument("id", type=int, help="View ID")
     view_apply_parser.add_argument("--limit", type=int, default=50, help="Max results")
     view_apply_parser.add_argument("--offset", type=int, default=0, help="Pagination offset")
     _add_format_option(view_apply_parser)
 
     # Claim parsers
-    claim_parser = loop_subparsers.add_parser("claim", help="Claim a loop for exclusive access")
+    claim_parser = loop_subparsers.add_parser(
+        "claim",
+        help="Claim a loop for exclusive access",
+        description="Claim a loop to prevent concurrent modifications by other agents",
+        epilog="""
+Examples:
+  # Claim a loop with default settings
+  cloop loop claim 123
+
+  # Claim with custom owner and TTL
+  cloop loop claim 123 --owner agent-alpha --ttl 600
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     claim_parser.add_argument("id", type=int, help="Loop ID")
     claim_parser.add_argument(
         "--owner", "-o", default="cli-user", help="Owner identifier (default: cli-user)"
@@ -1603,7 +1910,20 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(claim_parser)
 
-    renew_claim_parser = loop_subparsers.add_parser("renew", help="Renew an existing claim")
+    renew_claim_parser = loop_subparsers.add_parser(
+        "renew",
+        help="Renew an existing claim",
+        description="Renew a claim to extend the lease duration",
+        epilog="""
+Examples:
+  # Renew a claim with the token
+  cloop loop renew 123 --token abc123
+
+  # Renew with custom TTL
+  cloop loop renew 123 --token abc123 --ttl 600
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     renew_claim_parser.add_argument("id", type=int, help="Loop ID")
     renew_claim_parser.add_argument(
         "--token", "-t", required=True, help="Claim token from original claim"
@@ -1613,24 +1933,65 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(renew_claim_parser)
 
-    release_claim_parser = loop_subparsers.add_parser("release", help="Release a claim")
+    release_claim_parser = loop_subparsers.add_parser(
+        "release",
+        help="Release a claim",
+        description="Release a claim to allow other agents to modify the loop",
+        epilog="""
+Examples:
+  # Release a claim
+  cloop loop release 123 --token abc123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     release_claim_parser.add_argument("id", type=int, help="Loop ID")
     release_claim_parser.add_argument(
         "--token", "-t", required=True, help="Claim token from original claim"
     )
     _add_format_option(release_claim_parser)
 
-    get_claim_parser = loop_subparsers.add_parser("get-claim", help="Get claim status for a loop")
+    get_claim_parser = loop_subparsers.add_parser(
+        "get-claim",
+        help="Get claim status for a loop",
+        description="Check the current claim status for a loop",
+        epilog="""
+Examples:
+  # Get claim status
+  cloop loop get-claim 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     get_claim_parser.add_argument("id", type=int, help="Loop ID")
     _add_format_option(get_claim_parser)
 
-    list_claims_parser = loop_subparsers.add_parser("claims", help="List active claims")
+    list_claims_parser = loop_subparsers.add_parser(
+        "claims",
+        help="List active claims",
+        description="List all active loop claims",
+        epilog="""
+Examples:
+  # List all active claims
+  cloop loop claims
+
+  # Filter by owner
+  cloop loop claims --owner agent-alpha
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     list_claims_parser.add_argument("--owner", "-o", help="Filter by owner")
     list_claims_parser.add_argument("--limit", type=int, default=100, help="Max results")
     _add_format_option(list_claims_parser)
 
     force_release_parser = loop_subparsers.add_parser(
-        "force-release", help="Force-release any claim (admin override)"
+        "force-release",
+        help="Force-release any claim (admin override)",
+        description="Forcefully release a claim (admin only)",
+        epilog="""
+Examples:
+  # Force release a claim
+  cloop loop force-release 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     force_release_parser.add_argument("id", type=int, help="Loop ID")
     _add_format_option(force_release_parser)
@@ -1639,7 +2000,17 @@ def _add_loop_parser(subparsers: Any) -> None:
     dep_parser = loop_subparsers.add_parser("dep", help="Manage loop dependencies")
     dep_subparsers = dep_parser.add_subparsers(dest="dep_action", required=True)
 
-    dep_add_parser = dep_subparsers.add_parser("add", help="Add a dependency")
+    dep_add_parser = dep_subparsers.add_parser(
+        "add",
+        help="Add a dependency",
+        description="Add a dependency between loops (loop depends on another)",
+        epilog="""
+Examples:
+  # Make loop 123 depend on loop 456
+  cloop loop dep add --loop 123 --on 456
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     dep_add_parser.add_argument(
         "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
     )
@@ -1648,7 +2019,17 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(dep_add_parser)
 
-    dep_remove_parser = dep_subparsers.add_parser("remove", help="Remove a dependency")
+    dep_remove_parser = dep_subparsers.add_parser(
+        "remove",
+        help="Remove a dependency",
+        description="Remove a dependency relationship between loops",
+        epilog="""
+Examples:
+  # Remove dependency: loop 123 no longer depends on loop 456
+  cloop loop dep remove --loop 123 --on 456
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     dep_remove_parser.add_argument(
         "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
     )
@@ -1657,34 +2038,116 @@ def _add_loop_parser(subparsers: Any) -> None:
     )
     _add_format_option(dep_remove_parser)
 
-    dep_list_parser = dep_subparsers.add_parser("list", help="List dependencies")
+    dep_list_parser = dep_subparsers.add_parser(
+        "list",
+        help="List dependencies",
+        description="List all loops that this loop depends on (blockers)",
+        epilog="""
+Examples:
+  # List dependencies for loop 123
+  cloop loop dep list --loop 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     dep_list_parser.add_argument(
         "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
     )
     _add_format_option(dep_list_parser)
 
-    dep_blocking_parser = dep_subparsers.add_parser("blocking", help="List what this loop blocks")
+    dep_blocking_parser = dep_subparsers.add_parser(
+        "blocking",
+        help="List what this loop blocks",
+        description="List all loops that are blocked by this loop (dependents)",
+        epilog="""
+Examples:
+  # List loops blocked by loop 123
+  cloop loop dep blocking --loop 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     dep_blocking_parser.add_argument(
         "--loop", "-l", type=int, dest="loop_id", required=True, help="Loop ID"
     )
     _add_format_option(dep_blocking_parser)
 
     # Timer parsers
-    timer_parser = loop_subparsers.add_parser("timer", help="Start/stop timer for a loop")
+    timer_parser = loop_subparsers.add_parser(
+        "timer",
+        help="Start/stop timer for a loop",
+        description="Track time spent working on a loop",
+        epilog="""
+Examples:
+  # Start timer
+  cloop loop timer start 1
+
+  # Check timer status
+  cloop loop timer status 1
+
+  # Stop timer with notes
+  cloop loop timer stop 1 --notes "Completed analysis"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     timer_subparsers = timer_parser.add_subparsers(dest="timer_action", required=True)
 
-    timer_start_parser = timer_subparsers.add_parser("start", help="Start timer")
+    timer_start_parser = timer_subparsers.add_parser(
+        "start",
+        help="Start timer",
+        description="Start a timer for time tracking on a loop",
+        epilog="""
+Examples:
+  # Start timer for loop
+  cloop loop timer start 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     timer_start_parser.add_argument("id", type=int, help="Loop ID")
 
-    timer_stop_parser = timer_subparsers.add_parser("stop", help="Stop timer")
+    timer_stop_parser = timer_subparsers.add_parser(
+        "stop",
+        help="Stop timer",
+        description="Stop the active timer for a loop",
+        epilog="""
+Examples:
+  # Stop timer
+  cloop loop timer stop 123
+
+  # Stop timer with notes
+  cloop loop timer stop 123 --notes "Completed analysis"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     timer_stop_parser.add_argument("id", type=int, help="Loop ID")
     timer_stop_parser.add_argument("--notes", help="Optional notes for this session")
 
-    timer_status_parser = timer_subparsers.add_parser("status", help="Get timer status")
+    timer_status_parser = timer_subparsers.add_parser(
+        "status",
+        help="Get timer status",
+        description="Check the current timer status for a loop",
+        epilog="""
+Examples:
+  # Check timer status
+  cloop loop timer status 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     timer_status_parser.add_argument("id", type=int, help="Loop ID")
 
     # Sessions parser
-    sessions_parser = loop_subparsers.add_parser("sessions", help="List time sessions for a loop")
+    sessions_parser = loop_subparsers.add_parser(
+        "sessions",
+        help="List time sessions for a loop",
+        description="List all time tracking sessions for a loop",
+        epilog="""
+Examples:
+  # List sessions for loop
+  cloop loop sessions 123
+
+  # List with custom limit
+  cloop loop sessions 123 --limit 50
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     sessions_parser.add_argument("id", type=int, help="Loop ID")
     sessions_parser.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
 
@@ -1693,6 +2156,24 @@ def _add_loop_parser(subparsers: Any) -> None:
         "review",
         help="Show review cohorts for maintenance",
         description="Display daily/weekly review cohorts for stale-loop cleanup",
+        epilog="""
+Examples:
+  # Show daily review cohorts (default)
+  cloop loop review
+
+  # Show weekly review cohorts
+  cloop loop review --weekly
+
+  # Show both daily and weekly
+  cloop loop review --all
+
+  # Filter to specific cohort
+  cloop loop review --cohort stale
+
+  # Show in table format
+  cloop loop review --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     review_parser.add_argument(
         "--daily",
@@ -1724,23 +2205,78 @@ def _add_loop_parser(subparsers: Any) -> None:
 
 
 def _add_tags_parser(subparsers: Any) -> None:
-    tags_parser = subparsers.add_parser("tags", help="List all tags")
+    tags_parser = subparsers.add_parser(
+        "tags",
+        help="List all tags",
+        description="List all tags used across loops",
+        epilog="""
+Examples:
+  # List all tags as JSON
+  cloop tags
+
+  # List tags in table format
+  cloop tags --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     _add_format_option(tags_parser)
 
 
 def _add_projects_parser(subparsers: Any) -> None:
-    projects_parser = subparsers.add_parser("projects", help="List all projects")
+    projects_parser = subparsers.add_parser(
+        "projects",
+        help="List all projects",
+        description="List all project names used across loops",
+        epilog="""
+Examples:
+  # List all projects as JSON
+  cloop projects
+
+  # List projects in table format
+  cloop projects --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     _add_format_option(projects_parser)
 
 
 def _add_export_parser(subparsers: Any) -> None:
-    export_parser = subparsers.add_parser("export", help="Export loops")
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export loops",
+        description="Export all loops to JSON",
+        epilog="""
+Examples:
+  # Export to stdout
+  cloop export
+
+  # Export to file
+  cloop export --output backup.json
+
+  # Export and view as table
+  cloop export --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     export_parser.add_argument("--output", help="Write to file instead of stdout")
     _add_format_option(export_parser)
 
 
 def _add_import_parser(subparsers: Any) -> None:
-    import_parser = subparsers.add_parser("import", help="Import loops")
+    import_parser = subparsers.add_parser(
+        "import",
+        help="Import loops",
+        description="Import loops from JSON (previously exported)",
+        epilog="""
+Examples:
+  # Import from file
+  cloop import --file backup.json
+
+  # Import from stdin (pipe)
+  cat backup.json | cloop import
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     import_parser.add_argument("--file", help="Read from file instead of stdin")
     _add_format_option(import_parser)
 
@@ -1758,6 +2294,18 @@ def _add_backup_parser(subparsers: Any) -> None:
         "create",
         help="Create a new backup",
         description="Create a timestamped backup of all Cloop data",
+        epilog="""
+Examples:
+  # Create backup with default name
+  cloop backup create
+
+  # Create named backup
+  cloop backup create --name pre-migration
+
+  # Create in specific directory
+  cloop backup create --output ~/backups --name weekly
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     backup_create_parser.add_argument(
         "--output",
@@ -1778,6 +2326,18 @@ def _add_backup_parser(subparsers: Any) -> None:
         "restore",
         help="Restore from a backup",
         description="Restore databases from a backup archive",
+        epilog="""
+Examples:
+  # Dry run to preview restore
+  cloop backup restore backup.cloop.zip --dry-run
+
+  # Force restore with schema mismatch
+  cloop backup restore backup.cloop.zip --force
+
+  # Normal restore
+  cloop backup restore /path/to/backup.cloop.zip
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     backup_restore_parser.add_argument(
         "backup_path",
@@ -1800,6 +2360,15 @@ def _add_backup_parser(subparsers: Any) -> None:
         "list",
         help="List available backups",
         description="List backups in the backup directory",
+        epilog="""
+Examples:
+  # List all backups
+  cloop backup list
+
+  # List with custom limit
+  cloop backup list --limit 50
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     backup_list_parser.add_argument(
         "--limit",
@@ -1814,6 +2383,12 @@ def _add_backup_parser(subparsers: Any) -> None:
         "verify",
         help="Verify backup integrity",
         description="Validate backup archive without restoring",
+        epilog="""
+Examples:
+  # Verify a backup file
+  cloop backup verify /path/to/backup.cloop.zip
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     backup_verify_parser.add_argument(
         "backup_path",
@@ -1826,6 +2401,15 @@ def _add_backup_parser(subparsers: Any) -> None:
         "rotate",
         help="Rotate old backups",
         description="Delete oldest backups exceeding backup_keep_count",
+        epilog="""
+Examples:
+  # Preview rotation (dry run)
+  cloop backup rotate --dry-run
+
+  # Execute rotation
+  cloop backup rotate
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     backup_rotate_parser.add_argument(
         "--dry-run",
@@ -1842,16 +2426,58 @@ def _add_template_parser(subparsers: Any) -> None:
     template_sub = template_parser.add_subparsers(dest="template_command", required=True)
 
     # template list
-    list_parser = template_sub.add_parser("list", help="List all templates")
+    list_parser = template_sub.add_parser(
+        "list",
+        help="List all templates",
+        description="List all loop templates",
+        epilog="""
+Examples:
+  # List templates as JSON
+  cloop template list
+
+  # List templates in table format
+  cloop template list --format table
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     _add_format_option(list_parser)
 
     # template show
-    show_parser = template_sub.add_parser("show", help="Show template details")
+    show_parser = template_sub.add_parser(
+        "show",
+        help="Show template details",
+        description="Show detailed information about a template",
+        epilog="""
+Examples:
+  # Show template by name
+  cloop template show "Weekly report"
+
+  # Show template by ID
+  cloop template show 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     show_parser.add_argument("name_or_id", help="Template name or ID")
     _add_format_option(show_parser)
 
     # template create
-    create_parser = template_sub.add_parser("create", help="Create a template")
+    create_parser = template_sub.add_parser(
+        "create",
+        help="Create a template",
+        description="Create a reusable loop template with default values",
+        epilog="""
+Examples:
+  # Basic template
+  cloop template create "Weekly report" --pattern "Weekly report for"
+
+  # Template with defaults
+  cloop template create "Meeting" --pattern "Meeting:" --tags "meetings,work" --actionable
+
+  # Template with time estimate
+  cloop template create "Code review" --pattern "Review PR" --time 30 --actionable
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     create_parser.add_argument("name", help="Template name")
     create_parser.add_argument("--description", "-d", help="Template description")
     create_parser.add_argument("--pattern", "-p", default="", help="Raw text pattern")
@@ -1861,11 +2487,34 @@ def _add_template_parser(subparsers: Any) -> None:
     _add_format_option(create_parser)
 
     # template delete
-    delete_parser = template_sub.add_parser("delete", help="Delete a template")
+    delete_parser = template_sub.add_parser(
+        "delete",
+        help="Delete a template",
+        description="Delete a template by name or ID",
+        epilog="""
+Examples:
+  # Delete template by name
+  cloop template delete "Old template"
+
+  # Delete template by ID
+  cloop template delete 123
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     delete_parser.add_argument("name_or_id", help="Template name or ID")
 
     # template from-loop
-    from_loop_parser = template_sub.add_parser("from-loop", help="Create template from loop")
+    from_loop_parser = template_sub.add_parser(
+        "from-loop",
+        help="Create template from loop",
+        description="Create a new template based on an existing loop",
+        epilog="""
+Examples:
+  # Create template from loop
+  cloop template from-loop 123 "My template"
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     from_loop_parser.add_argument("loop_id", type=int, help="Loop ID")
     from_loop_parser.add_argument("name", help="Template name")
     _add_format_option(from_loop_parser)

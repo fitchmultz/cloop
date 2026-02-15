@@ -1,5 +1,16 @@
 """Chat completion endpoint with optional tool support.
 
+Purpose:
+    HTTP endpoints for chat completions with tool calling.
+
+Responsibilities:
+    - POST /chat: Chat completion endpoint
+    - Tool execution integration
+
+Non-scope:
+    - LLM provider logic (see llm.py)
+    - Tool implementations (see tools.py)
+
 Supports:
 - Basic chat completions
 - Manual tool execution (read_note, write_note)

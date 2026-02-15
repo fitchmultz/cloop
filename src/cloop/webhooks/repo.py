@@ -1,4 +1,16 @@
-"""Webhook repository for database operations."""
+"""Webhook repository for database operations.
+
+Purpose:
+    Database operations for webhook subscriptions and deliveries.
+
+Responsibilities:
+    - CRUD for webhook subscriptions
+    - Delivery record storage
+
+Non-scope:
+    - Delivery logic (see webhooks/service.py)
+    - Signature generation (see webhooks/signer.py)
+"""
 
 import json
 import sqlite3

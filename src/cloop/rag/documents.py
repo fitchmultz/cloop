@@ -1,8 +1,15 @@
-"""
-Document record management in RAG database.
+"""Document record management in RAG database.
+
+Purpose:
+    Manage document records for RAG ingestion and retrieval.
 
 Responsibilities:
-- CRUD operations for document records
+    - CRUD operations for document records
+    - Track ingestion status and metadata
+
+Non-scope:
+    - File loading (see loaders.py)
+    - Vector search (see vectors.py)
 - Path normalization and matching
 - Purge and sync logic
 

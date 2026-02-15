@@ -1,3 +1,20 @@
+"""Static file serving for Quick Capture UI.
+
+Purpose:
+    Serve the single-page HTML UI for loop capture and management.
+
+Responsibilities:
+    - Mount static assets directory
+    - Serve index.html at root path
+
+Non-scope:
+    - API endpoints (see routes/)
+    - Template rendering (static files only)
+
+Entrypoint:
+    - router: FastAPI APIRouter (mounted at /)
+"""
+
 from pathlib import Path
 
 from fastapi import APIRouter

@@ -1,3 +1,23 @@
+"""AI-powered loop enrichment via LLM.
+
+Purpose:
+    Auto-populate loop fields (title, tags, next_action) using LLM suggestions.
+
+Responsibilities:
+    - Build structured prompts from raw loop text
+    - Parse LLM responses into LoopSuggestion models
+    - Apply suggestions with confidence gating
+    - Coordinate with related loops embedding
+
+Non-scope:
+    - Embedding generation (see loops/related.py)
+    - Status transitions (see loops/service.py)
+
+Entrypoints:
+    - enrich_loop(loop_id, conn, settings) -> Dict[str, Any]
+    - LoopSuggestion: Pydantic model for structured responses
+"""
+
 from __future__ import annotations
 
 import json

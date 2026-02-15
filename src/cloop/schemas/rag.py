@@ -1,5 +1,16 @@
 """RAG (Retrieval-Augmented Generation) request/response models.
 
+Purpose:
+    Define Pydantic models for document ingestion and QA endpoints.
+
+Responsibilities:
+    - Ingest request/response schemas
+    - Query request/response schemas
+
+Non-scope:
+    - Document storage logic (see rag/documents.py)
+    - Search algorithms (see rag/search.py)
+
 Models for document ingestion and question-answering endpoints.
 """
 

@@ -1,5 +1,16 @@
 """Chat completion request/response models.
 
+Purpose:
+    Define Pydantic models for the /chat endpoint.
+
+Responsibilities:
+    - Chat completion request/response schemas
+    - Tool execution models
+
+Non-scope:
+    - LLM provider logic (see llm.py)
+    - Tool implementations (see tools.py)
+
 Models for the /chat endpoint supporting:
 - Basic chat completions
 - Manual tool execution (read_note, write_note)

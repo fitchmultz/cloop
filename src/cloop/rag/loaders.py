@@ -1,8 +1,15 @@
-"""
-Document loading and file I/O operations.
+"""Document loading and file I/O operations.
+
+Purpose:
+    Load text and PDF documents from filesystem for ingestion.
 
 Responsibilities:
-- Load text and PDF documents from filesystem
+    - Load text files with encoding detection
+    - Extract text from PDF documents
+
+Non-scope:
+    - Document storage (see documents.py)
+    - Chunking (see chunking.py)
 - Validate file sizes and extensions
 - Generate file metadata (hash, mtime)
 - Iterate over candidate files for ingestion

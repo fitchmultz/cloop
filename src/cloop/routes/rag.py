@@ -1,5 +1,16 @@
 """RAG (Retrieval-Augmented Generation) endpoints.
 
+Purpose:
+    HTTP endpoints for document ingestion and question answering.
+
+Responsibilities:
+    - POST /ingest: Ingest documents into knowledge base
+    - GET /ask: Ask questions against the knowledge base
+
+Non-scope:
+    - Document loading (see rag/loaders.py)
+    - Search algorithms (see rag/search.py)
+
 Endpoints:
 - POST /ingest: Ingest documents into knowledge base
 - GET /ask: Ask questions against the knowledge base

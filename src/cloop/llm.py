@@ -1,3 +1,23 @@
+"""LLM chat completion and tool execution via litellm.
+
+Purpose:
+    Provide chat completion with optional tool calling for AI workflows.
+
+Responsibilities:
+    - Call litellm.completion() with provider resolution
+    - Execute tool calls and return results
+    - Stream completions for real-time responses
+
+Non-scope:
+    - Embedding generation (see embeddings.py)
+    - Loop enrichment prompt construction (see loops/enrichment.py)
+
+Entrypoints:
+    - chat_completion(messages, settings) -> Tuple[str, Dict]
+    - stream_completion(messages, settings) -> Generator
+    - chat_with_tools(messages, tools, settings) -> Tuple[str, Dict, List[Dict]]
+"""
+
 import json
 import time
 from copy import deepcopy

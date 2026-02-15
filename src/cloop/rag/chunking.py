@@ -1,12 +1,18 @@
-"""
-Text chunking operations.
+"""Text chunking operations for RAG documents.
+
+Purpose:
+    Split text into token-based chunks for embedding and retrieval.
 
 Responsibilities:
-- Split text into token-based chunks for embedding
+    - Tokenize text using whitespace splitting
+    - Create fixed-size overlapping chunks
 
 Non-scope:
-- Document loading (see loaders.py)
-- Embedding generation (see embeddings.py)
+    - Document loading (see loaders.py)
+    - Embedding generation (see embeddings.py)
+
+Entrypoint:
+    - chunk_text(text, chunk_size) -> List[str]
 """
 
 import re

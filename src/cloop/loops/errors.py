@@ -1,8 +1,17 @@
 """Typed exceptions for the loops subsystem.
 
-This module provides a hierarchy of typed exceptions that replace
-string-matching error detection throughout the codebase. Using typed
-exceptions provides:
+Purpose:
+    Provide a hierarchy of typed exceptions for error handling.
+
+Responsibilities:
+    - Define domain-specific exceptions
+    - Enable typed error handling without string matching
+
+Non-scope:
+    - HTTP error responses (see handlers.py)
+    - Error logging (see service layer)
+
+Typed exceptions provide:
 - Compile-time guarantees via isinstance() checks
 - Clear error categories (not found, validation, transition)
 - Consistent error messages across HTTP and MCP interfaces

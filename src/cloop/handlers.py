@@ -1,13 +1,20 @@
 """HTTP exception handlers for FastAPI application.
 
-This module provides centralized exception handling that maps
-domain exceptions to appropriate HTTP responses. It sits at the
-HTTP boundary, separate from:
-- loops/errors.py: Domain exceptions (CloopError, NotFoundError, etc.)
-- service layer: Business logic
+Purpose:
+    Provide centralized exception handling that maps domain exceptions
+    to appropriate HTTP responses.
+
+Responsibilities:
+    - Map NotFoundError -> 404 responses
+    - Map ValidationError -> 422 responses
+    - Handle unexpected exceptions -> 500 responses
+
+Non-scope:
+    - Domain exception definitions (see loops/errors.py)
+    - Business logic (see loops/service.py)
 
 Exception Mapping:
-- NotFoundError -> 404
+    - NotFoundError -> 404
 - TransitionError -> 400
 - ValidationError -> 400
 - DependencyCycleError -> 400 (dependency would create cycle)

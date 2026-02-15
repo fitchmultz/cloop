@@ -1,4 +1,17 @@
-"""Webhook service for delivery and retry management."""
+"""Webhook service for delivery and retry management.
+
+Purpose:
+    Manage webhook delivery with retry logic and circuit breaking.
+
+Responsibilities:
+    - Queue webhook deliveries
+    - Retry failed deliveries with backoff
+    - Sign webhook payloads
+
+Non-scope:
+    - HTTP endpoint handling (see routes/)
+    - Database operations (see webhooks/repo.py)
+"""
 
 import datetime
 import ipaddress
