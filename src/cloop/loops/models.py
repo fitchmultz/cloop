@@ -2,13 +2,14 @@
 Loop domain models.
 
 Purpose: Define core domain types for the loop management system including
-loop records, events, claims, and time tracking sessions.
+loop records, events, claims, time tracking sessions, and comments.
 
 Responsibilities:
 - Loop status enum and transitions
 - LoopRecord dataclass with all loop fields
 - LoopEvent types for audit trail
 - TimeSession and TimerStatus for time tracking
+- LoopComment for threaded discussion
 - Datetime parsing/formatting helpers (always UTC internally)
 
 Non-scope: Database operations (see repo.py), business logic (see service.py)
@@ -100,6 +101,9 @@ class LoopEventType(StrEnum):
     CLAIM_EXPIRED = "claim_expired"
     TIMER_STARTED = "timer_started"
     TIMER_STOPPED = "timer_stopped"
+    COMMENT_ADDED = "comment_added"
+    COMMENT_UPDATED = "comment_updated"
+    COMMENT_DELETED = "comment_deleted"
 
 
 class EnrichmentState(StrEnum):
@@ -284,3 +288,25 @@ def format_utc_datetime(value: datetime) -> str:
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+@dataclass(frozen=True, slots=True)
+class LoopComment:
+    """A threaded comment on a loop."""
+
+    id: int
+    loop_id: int
+    parent_id: int | None
+    author: str
+    body_md: str
+    created_at_utc: datetime
+    updated_at_utc: datetime
+    deleted_at_utc: datetime | None
+
+    @property
+    def is_deleted(self) -> bool:
+        return self.deleted_at_utc is not None
+
+    @property
+    def is_reply(self) -> bool:
+        return self.parent_id is not None

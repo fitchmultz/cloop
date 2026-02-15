@@ -7,6 +7,7 @@ Responsibilities:
     - Loop capture and CRUD request/response models
     - Status transition models
     - Export/import schemas
+    - Comment CRUD request/response models
 
 Non-scope:
     - Database models (see loops/models.py)
@@ -17,6 +18,7 @@ Models for the /loops/* endpoints supporting:
 - Status transitions
 - Prioritized "next actions" view
 - Export/import for data portability
+- Threaded comments with markdown support
 """
 
 from typing import TYPE_CHECKING, Any, Dict, List, Literal
@@ -725,3 +727,50 @@ class LoopUndoResponse(BaseModel):
     loop: LoopResponse
     undone_event_id: int
     undone_event_type: str
+
+
+# ============================================================================
+# Loop Comment Schemas
+# ============================================================================
+
+
+class LoopCommentCreateRequest(BaseModel):
+    """Request to create a comment on a loop."""
+
+    author: str = Field(..., min_length=1, max_length=255, description="Comment author")
+    body_md: str = Field(..., min_length=1, max_length=10000, description="Markdown body")
+    parent_id: int | None = Field(default=None, description="Parent comment ID for replies")
+
+
+class LoopCommentUpdateRequest(BaseModel):
+    """Request to update a comment."""
+
+    body_md: str = Field(..., min_length=1, max_length=10000, description="Markdown body")
+
+
+class LoopCommentResponse(BaseModel):
+    """Response for a single comment."""
+
+    id: int
+    loop_id: int
+    parent_id: int | None
+    author: str
+    body_md: str
+    created_at_utc: str
+    updated_at_utc: str
+    deleted_at_utc: str | None = None
+    is_deleted: bool
+    is_reply: bool
+    replies: List["LoopCommentResponse"] = Field(default_factory=list)
+
+
+class LoopCommentListResponse(BaseModel):
+    """Response for listing comments on a loop."""
+
+    loop_id: int
+    comments: List[LoopCommentResponse]
+    total_count: int
+
+
+# Resolve forward references
+LoopCommentResponse.model_rebuild()
