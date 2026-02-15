@@ -1,4 +1,16 @@
-"""Shared SSE (Server-Sent Events) utilities."""
+"""Shared SSE (Server-Sent Events) utilities.
+
+Purpose:
+    Provide streaming event delivery for real-time loop updates.
+
+Responsibilities:
+    - Sanitize SSE field values
+    - Format events according to SSE spec
+
+Non-scope:
+    - WebSocket connections (not implemented)
+    - Event persistence (see loops/repo.py)
+"""
 
 import json
 from typing import Any

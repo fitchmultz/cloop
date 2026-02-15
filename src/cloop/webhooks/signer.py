@@ -1,4 +1,16 @@
-"""HMAC-SHA256 webhook signature generation and verification."""
+"""HMAC-SHA256 webhook signature generation and verification.
+
+Purpose:
+    Sign and verify webhook payloads using HMAC-SHA256.
+
+Responsibilities:
+    - Generate webhook signatures
+    - Verify incoming webhook signatures
+
+Non-scope:
+    - Webhook delivery (see webhooks/service.py)
+    - Secret storage (use settings/env vars)
+"""
 
 import hashlib
 import hmac

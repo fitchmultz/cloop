@@ -1,4 +1,16 @@
-"""Webhook domain models."""
+"""Webhook domain models.
+
+Purpose:
+    Define dataclasses for webhook configuration and deliveries.
+
+Responsibilities:
+    - Webhook subscription models
+    - Delivery record models
+
+Non-scope:
+    - Database schema (see webhooks/repo.py)
+    - Delivery logic (see webhooks/service.py)
+"""
 
 from dataclasses import dataclass
 from enum import StrEnum

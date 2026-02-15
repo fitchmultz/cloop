@@ -1,3 +1,24 @@
+"""Tool executors for LLM function calling.
+
+Purpose:
+    Implement tool handlers callable by LLM during chat completions.
+
+Responsibilities:
+    - Execute write_note, read_note operations
+    - Validate required fields before execution
+    - Return structured results for LLM context
+
+Non-scope:
+    - Tool registration with litellm (see llm.py)
+    - HTTP API endpoints (see routes/)
+
+Entrypoints:
+    - execute_write_note(**kwargs) -> Dict[str, Any]
+    - execute_read_note(**kwargs) -> Dict[str, Any]
+    - EXECUTORS: Dict[str, ToolExecutor]
+    - TOOL_SPECS: List[Dict] for litellm tool definitions
+"""
+
 import json
 from typing import Any, Dict, List, Protocol
 

@@ -1,8 +1,15 @@
-"""
-Shared utilities for RAG operations.
+"""Shared utilities for RAG operations.
+
+Purpose:
+    Provide common utilities for RAG scope filtering and parsing.
 
 Responsibilities:
-- Scope filtering and parsing
+    - Scope filtering and parsing
+    - Collection/tag extraction
+
+Non-scope:
+    - Search algorithms (see search.py)
+    - Document loading (see loaders.py)
 - Embedding dimension and model validation
 
 Non-scope:

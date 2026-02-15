@@ -1,3 +1,20 @@
+"""Text embedding generation via litellm.
+
+Purpose:
+    Generate vector embeddings for text chunks using configurable LLM providers.
+
+Responsibilities:
+    - Call litellm.embedding() with provider-specific kwargs
+    - Return numpy arrays for vector similarity operations
+
+Non-scope:
+    - Document chunking (see rag/chunking.py)
+    - Vector storage (see db.py)
+
+Entrypoint:
+    - embed_texts(texts, settings) -> List[np.ndarray]
+"""
+
 from typing import Any, Dict, Iterable, List, Sequence, cast
 
 import litellm

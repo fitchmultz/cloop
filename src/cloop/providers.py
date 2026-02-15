@@ -1,3 +1,21 @@
+"""LLM provider configuration resolution.
+
+Purpose:
+    Resolve provider-specific kwargs (api_base, api_key) for litellm calls.
+
+Responsibilities:
+    - Map model prefixes (ollama/, gemini/, openai/) to provider settings
+    - Validate required configuration for each provider
+    - Raise clear errors for missing configuration
+
+Non-scope:
+    - Model selection logic (caller's responsibility)
+    - Actual API calls (see llm.py, embeddings.py)
+
+Entrypoint:
+    - resolve_provider_kwargs(model, settings) -> Dict[str, Any]
+"""
+
 from typing import Any, Dict
 
 from .settings import Settings

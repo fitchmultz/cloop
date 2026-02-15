@@ -1,3 +1,22 @@
+"""Environment-driven configuration for Cloop.
+
+Purpose:
+    Centralize all application settings via environment variables with
+    sensible defaults and type coercion.
+
+Responsibilities:
+    - Define Settings frozen dataclass with all configuration fields
+    - Load environment variables with CLOOP_ prefix
+    - Provide cached get_settings() for dependency injection
+
+Non-scope:
+    - Runtime configuration changes (settings are frozen)
+    - Secrets management (use environment variables)
+
+Entrypoint:
+    - get_settings() -> Settings
+"""
+
 import os
 from dataclasses import dataclass
 from enum import StrEnum

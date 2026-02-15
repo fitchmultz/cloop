@@ -1,8 +1,16 @@
 """MCP server exposing loop operations to external AI agents.
 
-This module implements the Model Context Protocol (MCP) server that allows
-external AI agents to interact with Cloop's loop management system. All
-operations are exposed as MCP tools with JSON responses.
+Purpose:
+    Expose loop operations via Model Context Protocol for AI agent integration.
+
+Responsibilities:
+    - Provide tool handlers for loop CRUD operations
+    - Integrate with FastAPI lifespan for startup/shutdown
+    - Support stdio and SSE transports
+
+Non-scope:
+    - HTTP REST API (see routes/)
+    - CLI interface (see cli.py)
 
 Tool Handlers:
     - loop.create: Capture a new loop

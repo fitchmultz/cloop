@@ -1,4 +1,15 @@
-"""Health check response model."""
+"""Health check response model.
+
+Purpose:
+    Define Pydantic models for health check endpoint responses.
+
+Responsibilities:
+    - Health status response schema
+
+Non-scope:
+    - Health check logic (see routes/health.py)
+    - Database connectivity checks
+"""
 
 from typing import List
 

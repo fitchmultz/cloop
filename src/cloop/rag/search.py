@@ -1,8 +1,15 @@
-"""
-Search and retrieval operations.
+"""Search and retrieval operations.
+
+Purpose:
+    Provide multiple search backends for vector similarity search.
 
 Responsibilities:
-- Multiple search backends (VEC, VSS, SQLite, Python)
+    - Multiple search backends (VEC, VSS, SQLite, Python)
+    - Rank and return top-k similar chunks
+
+Non-scope:
+    - Vector storage (see vectors.py)
+    - Embedding generation (see embeddings.py)
 - Retrieval path selection
 - Similarity scoring
 

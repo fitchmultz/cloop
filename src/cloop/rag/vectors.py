@@ -1,8 +1,15 @@
-"""
-Vector index operations for SQLite extensions.
+"""Vector index operations for SQLite extensions.
+
+Purpose:
+    Create and manage vector search virtual tables using SQLite extensions.
 
 Responsibilities:
-- Create and manage VEC/VSS virtual tables
+    - Create and manage VEC/VSS virtual tables
+    - Handle vector similarity search
+
+Non-scope:
+    - Vector generation (see embeddings.py)
+    - Document management (see documents.py)
 - Upsert and delete vector embeddings
 
 Non-scope:

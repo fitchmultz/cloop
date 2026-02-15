@@ -1,5 +1,18 @@
 """Loop/task management endpoints.
 
+Purpose:
+    HTTP endpoints for loop CRUD operations and lifecycle management.
+
+Responsibilities:
+    - POST /loops/capture: Create new loop
+    - GET /loops: List loops (filtered by status/tag)
+    - PATCH /loops/{id}: Update loop fields
+    - POST /loops/{id}/close: Close loop
+
+Non-scope:
+    - Business logic (see loops/service.py)
+    - Request validation schemas (see schemas/loops.py)
+
 Endpoints:
 - POST /loops/capture: Create new loop
 - GET /loops: List loops (filtered by status/tag)
