@@ -925,3 +925,66 @@ def test_timestamp_change_triggers_hash(tmp_path: Path, monkeypatch: pytest.Monk
     # The file is still considered "changed" so it's processed, not skipped
     assert result["files"] == 1
     assert result["files_skipped"] == 0
+
+
+def test_chunk_rows_with_scores_single_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify _chunk_rows_with_scores executes only 1 query, not N+1."""
+    from cloop.rag.search import _chunk_rows_with_scores
+
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+    # Create multiple documents to get multiple chunks
+    for i in range(10):
+        doc = tmp_path / f"doc_{i}.txt"
+        doc.write_text(f"content {i}", encoding="utf-8")
+
+    ingest_paths([str(tmp_path)], settings=settings)
+
+    # Get chunk IDs from the database
+    with db.rag_connection(settings) as conn:
+        rows = conn.execute("SELECT id FROM chunks LIMIT 5").fetchall()
+        chunk_ids = [row["id"] for row in rows]
+
+    # Create fake match rows that behave like sqlite3.Row
+    class FakeRow:
+        def __init__(self, rowid: int, distance: float) -> None:
+            self._data: dict[str, Any] = {"rowid": rowid, "distance": distance}
+
+        def __getitem__(self, key: str) -> Any:
+            return self._data[key]
+
+    matches: List[Any] = [FakeRow(cid, 0.1 * i) for i, cid in enumerate(chunk_ids)]
+
+    # Create a wrapper connection that counts queries
+    query_count = 0
+
+    class CountingConnection:
+        """Wrapper that counts chunk lookup queries."""
+
+        def __init__(self, conn: sqlite3.Connection) -> None:
+            self._conn = conn
+
+        def execute(self, sql: str, parameters: Any = ()) -> Any:
+            nonlocal query_count
+            if "FROM chunks" in sql and "WHERE id" in sql:
+                query_count += 1
+            return self._conn.execute(sql, parameters)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._conn, name)
+
+    with db.rag_connection(settings) as conn:
+        counting_conn = CountingConnection(conn)
+        results = _chunk_rows_with_scores(counting_conn, matches)  # type: ignore[arg-type]
+
+    # Should have executed only 1 query for chunk lookup, not 5
+    assert len(results) >= 1
+    assert query_count == 1, f"Expected 1 query, got {query_count} (N+1 pattern detected)"

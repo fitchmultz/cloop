@@ -149,34 +149,56 @@ def _chunk_rows_with_scores(
     conn: sqlite3.Connection,
     matches: Iterable[sqlite3.Row],
 ) -> List[Dict[str, Any]]:
-    results: List[Dict[str, Any]] = []
-    for row in matches:
+    # Convert matches to list to iterate multiple times
+    matches_list = list(matches)
+    if not matches_list:
+        return []
+
+    # Collect chunk IDs and their distances
+    chunk_ids: List[int] = []
+    distances: Dict[int, float] = {}
+    for row in matches_list:
         chunk_id = int(row["rowid"])
-        chunk_row = conn.execute(
-            """
-            SELECT
-                id,
-                document_path,
-                chunk_index,
-                content,
-                embedding,
-                embedding_dim,
-                metadata,
-                embedding_blob,
-                embedding_norm,
-                doc_id
-            FROM chunks
-            WHERE id = ?
-            """,
-            (chunk_id,),
-        ).fetchone()
-        if chunk_row is None:
-            continue
-        chunk = dict(chunk_row)
+        chunk_ids.append(chunk_id)
+        distances[chunk_id] = float(row["distance"])
+
+    # Build single parameterized query with placeholders
+    placeholders = ",".join("?" * len(chunk_ids))
+    rows = conn.execute(
+        f"""
+        SELECT
+            id,
+            document_path,
+            chunk_index,
+            content,
+            embedding,
+            embedding_dim,
+            metadata,
+            embedding_blob,
+            embedding_norm,
+            doc_id
+        FROM chunks
+        WHERE id IN ({placeholders})
+        """,
+        chunk_ids,
+    ).fetchall()
+
+    # Create lookup dict for O(1) access
+    chunk_by_id: Dict[int, Dict[str, Any]] = {}
+    for row in rows:
+        chunk = dict(row)
         chunk.pop("embedding_blob", None)
-        distance = float(row["distance"])
-        chunk["score"] = 1.0 / (1.0 + distance)
+        chunk_by_id[chunk["id"]] = chunk
+
+    # Rebuild results in original match order, preserving scores
+    results: List[Dict[str, Any]] = []
+    for chunk_id in chunk_ids:
+        chunk = chunk_by_id.get(chunk_id)
+        if chunk is None:
+            continue
+        chunk["score"] = 1.0 / (1.0 + distances[chunk_id])
         results.append(chunk)
+
     return results
 
 
