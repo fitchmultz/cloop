@@ -1,6 +1,6 @@
 """Tests for the MCP server module.
 
-This module tests all 8 MCP tool functions that expose loop operations
+This module tests MCP tool functions that expose loop operations
 to external AI agents via the Model Context Protocol.
 """
 
@@ -22,13 +22,17 @@ from cloop.mcp_server import (
     loop_create,
     loop_enrich,
     loop_force_release_claim,
+    loop_get,
     loop_get_claim,
     loop_list,
     loop_list_claims,
+    loop_next,
     loop_release_claim,
     loop_renew_claim,
     loop_search,
     loop_snooze,
+    loop_tags,
+    loop_transition,
     loop_update,
     project_list,
 )
@@ -2371,3 +2375,573 @@ def test_loop_close_without_claim_token_fails(
 
     with pytest.raises(ToolError, match="claimed by"):
         loop_close(loop_id=loop_id, status="completed")
+
+
+# =============================================================================
+# loop.get tests
+# =============================================================================
+
+
+def test_loop_get_existing_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.get retrieves an existing loop by ID."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Test loop for retrieval",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result = loop_get(loop_id=loop_id)
+
+    assert result["id"] == loop_id
+    assert result["raw_text"] == "Test loop for retrieval"
+    assert result["status"] == "inbox"
+
+
+def test_loop_get_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.get returns error for nonexistent loop."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="Loop not found"):
+        loop_get(loop_id=99999)
+
+
+def test_loop_get_returns_full_loop_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.get returns all loop fields including tags and project."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Full data test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # Update with project and tags
+    loop_update(
+        loop_id=loop_id,
+        fields={"project": "My Project", "tags": ["work", "urgent"]},
+    )
+
+    result = loop_get(loop_id=loop_id)
+
+    assert result["id"] == loop_id
+    assert result["raw_text"] == "Full data test"
+    assert result["project"] == "My Project"
+    assert sorted(result["tags"]) == ["urgent", "work"]
+    assert "created_at_utc" in result
+    assert "updated_at_utc" in result
+
+
+# =============================================================================
+# loop.next tests
+# =============================================================================
+
+
+def test_loop_next_returns_buckets(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.next returns prioritized buckets."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create some loops with next_action to make them actionable candidates
+    for i in range(3):
+        created = loop_create(
+            raw_text=f"Actionable loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+        # Update with next_action to make them actionable for next_loops
+        loop_update(
+            loop_id=created["id"],
+            fields={"next_action": f"Do step {i}"},
+        )
+
+    result = loop_next(limit=5)
+
+    # Should have all bucket keys
+    assert "due_soon" in result
+    assert "quick_wins" in result
+    assert "high_leverage" in result
+    assert "standard" in result
+
+    # Each bucket should be a list
+    for _bucket_name, items in result.items():
+        assert isinstance(items, list)
+
+    # Total items across all buckets should be 3
+    total = sum(len(items) for items in result.values())
+    assert total == 3
+
+
+def test_loop_next_respects_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.next respects the limit parameter per bucket."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create 5 loops with next_action
+    for i in range(5):
+        created = loop_create(
+            raw_text=f"Loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+        )
+        loop_update(
+            loop_id=created["id"],
+            fields={"next_action": f"Step {i}"},
+        )
+
+    result = loop_next(limit=2)
+
+    # Each bucket should have at most 2 items
+    for _bucket_name, items in result.items():
+        assert len(items) <= 2
+
+
+def test_loop_next_empty_when_no_actionable_loops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.next returns empty buckets when no actionable loops."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create loops WITHOUT next_action - they won't appear in next_loops
+    for i in range(3):
+        loop_create(
+            raw_text=f"Inbox loop {i}",
+            captured_at=_now_iso(),
+            client_tz_offset_min=0,
+            status="inbox",
+        )
+
+    result = loop_next(limit=5)
+
+    # All buckets should be empty since none have next_action
+    for _bucket_name, items in result.items():
+        assert items == []
+
+
+def test_loop_next_skips_snoozed_loops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.next skips snoozed loops."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create a normal loop with next_action
+    created1 = loop_create(
+        raw_text="Active loop",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_update(
+        loop_id=created1["id"],
+        fields={"next_action": "Do something"},
+    )
+
+    # Create a snoozed loop with next_action
+    created2 = loop_create(
+        raw_text="Snoozed loop",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_update(
+        loop_id=created2["id"],
+        fields={"next_action": "Do something later"},
+    )
+
+    # Snooze the second loop
+    snooze_time = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(timespec="seconds")
+    loop_snooze(loop_id=created2["id"], snooze_until_utc=snooze_time)
+
+    result = loop_next(limit=5)
+
+    # Only the active loop should appear
+    total = sum(len(items) for items in result.values())
+    assert total == 1
+
+    # Verify it's the active loop
+    all_items = [item for bucket in result.values() for item in bucket]
+    assert len(all_items) == 1
+    assert all_items[0]["raw_text"] == "Active loop"
+
+
+# =============================================================================
+# loop.transition tests
+# =============================================================================
+
+
+def test_loop_transition_inbox_to_actionable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition changes loop status from inbox to actionable."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create a loop (starts in inbox)
+    created = loop_create(
+        raw_text="Transition test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+    assert created["status"] == "inbox"
+
+    # Transition to actionable
+    result = loop_transition(loop_id=loop_id, status="actionable")
+
+    assert result["status"] == "actionable"
+
+
+def test_loop_transition_actionable_to_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition from actionable to blocked."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Block test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+    loop_id = created["id"]
+
+    result = loop_transition(loop_id=loop_id, status="blocked")
+
+    assert result["status"] == "blocked"
+
+
+def test_loop_transition_blocked_to_scheduled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition from blocked to scheduled."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Schedule test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="blocked",
+    )
+    loop_id = created["id"]
+
+    result = loop_transition(loop_id=loop_id, status="scheduled")
+
+    assert result["status"] == "scheduled"
+
+
+def test_loop_transition_scheduled_to_actionable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition from scheduled to actionable."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Unschedule test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="scheduled",
+    )
+    loop_id = created["id"]
+
+    result = loop_transition(loop_id=loop_id, status="actionable")
+
+    assert result["status"] == "actionable"
+
+
+def test_loop_transition_reopens_completed_to_inbox(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition can reopen completed loop to inbox."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Reopen test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # Close first
+    loop_close(loop_id=loop_id, status="completed")
+
+    # Reopen to inbox
+    result = loop_transition(loop_id=loop_id, status="inbox")
+
+    assert result["status"] == "inbox"
+    assert result["closed_at_utc"] is None
+
+
+def test_loop_transition_reopens_dropped_to_actionable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition can reopen dropped loop to actionable."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Reopen dropped test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # Close as dropped
+    loop_close(loop_id=loop_id, status="dropped")
+
+    # Reopen to actionable
+    result = loop_transition(loop_id=loop_id, status="actionable")
+
+    assert result["status"] == "actionable"
+
+
+def test_loop_transition_invalid_status_raises_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition rejects invalid status values."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Invalid transition test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    with pytest.raises(ToolError):
+        loop_transition(loop_id=loop_id, status="invalid_status")
+
+
+def test_loop_transition_rejects_terminal_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test loop.transition rejects terminal statuses (completed/dropped)."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Terminal transition test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    # Should fail for completed
+    with pytest.raises(ToolError, match="use loop.close"):
+        loop_transition(loop_id=loop_id, status="completed")
+
+    # Should fail for dropped
+    with pytest.raises(ToolError, match="use loop.close"):
+        loop_transition(loop_id=loop_id, status="dropped")
+
+
+def test_loop_transition_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.transition raises error for nonexistent loop."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="Loop not found"):
+        loop_transition(loop_id=99999, status="actionable")
+
+
+def test_loop_transition_with_note(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.transition with a transition note."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Note transition test",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result = loop_transition(
+        loop_id=loop_id,
+        status="blocked",
+        note="Waiting for external approval",
+    )
+
+    assert result["status"] == "blocked"
+    # The note may be stored in the event but not necessarily in the loop record
+
+
+def test_loop_transition_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id + same args for transition returns same response."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Idempotent transition",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    result1 = loop_transition(
+        loop_id=loop_id,
+        status="actionable",
+        request_id="transition-key",
+    )
+
+    result2 = loop_transition(
+        loop_id=loop_id,
+        status="actionable",
+        request_id="transition-key",
+    )
+
+    assert result1["id"] == result2["id"]
+    assert result1["status"] == result2["status"]
+
+
+def test_loop_transition_idempotency_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same request_id + different transition args raises ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Conflict transition",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_transition(
+        loop_id=loop_id,
+        status="actionable",
+        request_id="transition-conflict-key",
+    )
+
+    with pytest.raises(ToolError, match="Idempotency conflict"):
+        loop_transition(
+            loop_id=loop_id,
+            status="blocked",
+            request_id="transition-conflict-key",
+        )
+
+
+def test_loop_transition_with_claim_token(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test transitioning a claimed loop with valid token."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Transition with claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    claim = loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    result = loop_transition(
+        loop_id=loop_id,
+        status="actionable",
+        claim_token=claim["claim_token"],
+    )
+
+    assert result["status"] == "actionable"
+
+
+def test_loop_transition_without_claim_token_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that transitioning a claimed loop without token fails."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Transition without claim",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    loop_claim(loop_id=loop_id, owner="agent-alpha", ttl_seconds=300)
+
+    with pytest.raises(ToolError, match="claimed by"):
+        loop_transition(loop_id=loop_id, status="actionable")
+
+
+# =============================================================================
+# loop.tags tests
+# =============================================================================
+
+
+def test_loop_tags_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.tags returns empty list when no tags exist."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    result = loop_tags()
+
+    assert result == []
+
+
+def test_loop_tags_returns_unique_tags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.tags returns unique tags across all loops."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create loops with overlapping tags
+    created1 = loop_create(
+        raw_text="First loop",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_update(loop_id=created1["id"], fields={"tags": ["work", "urgent", "feature"]})
+
+    created2 = loop_create(
+        raw_text="Second loop",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_update(loop_id=created2["id"], fields={"tags": ["work", "personal", "bug"]})
+
+    result = loop_tags()
+
+    # Should be a list
+    assert isinstance(result, list)
+
+    # Should include all unique tags (normalized to lowercase)
+    assert "work" in result  # common tag
+    assert "urgent" in result
+    assert "feature" in result
+    assert "personal" in result
+    assert "bug" in result
+
+    # Should be sorted alphabetically
+    assert result == sorted(result)
+
+
+def test_loop_tags_are_lowercase(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.tags returns tags in lowercase."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = loop_create(
+        raw_text="Mixed case tags",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_update(loop_id=created["id"], fields={"tags": ["WORK", "Urgent", "Feature"]})
+
+    result = loop_tags()
+
+    assert "work" in result
+    assert "urgent" in result
+    assert "feature" in result
+    assert "WORK" not in result
+    assert "Urgent" not in result
+
+
+def test_loop_tags_excludes_empty_tags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test loop.tags excludes loops without tags."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    # Create loop without tags
+    loop_create(
+        raw_text="No tags",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    # Create loop with tags
+    created = loop_create(
+        raw_text="Has tags",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_update(loop_id=created["id"], fields={"tags": ["tagged"]})
+
+    result = loop_tags()
+
+    assert result == ["tagged"]
