@@ -50,6 +50,151 @@
         display: grid;
         gap: 18px;
       }
+      .tabs {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        margin: 16px 20px 0;
+      }
+      .tab {
+        border: none;
+        border-radius: 999px;
+        padding: 8px 18px;
+        background: var(--card);
+        color: var(--muted);
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        transition: all 150ms ease;
+      }
+      .tab:hover {
+        background: var(--bg-accent);
+      }
+      .tab.active {
+        background: var(--brand);
+        color: white;
+        border-color: var(--brand);
+      }
+      .chat-main, .rag-main {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 16px 20px 40px;
+        display: none;
+        gap: 18px;
+      }
+      .chat-panel {
+        display: flex;
+        flex-direction: column;
+        min-height: 500px;
+      }
+      .chat-messages {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 16px;
+        max-height: 60vh;
+        padding: 4px;
+      }
+      .chat-bubble {
+        max-width: 85%;
+        padding: 12px 16px;
+        border-radius: 16px;
+        line-height: 1.5;
+        animation: rise 200ms ease both;
+      }
+      .chat-bubble.user {
+        align-self: flex-end;
+        background: var(--brand);
+        color: white;
+        border-bottom-right-radius: 4px;
+      }
+      .chat-bubble.assistant {
+        align-self: flex-start;
+        background: #fff7ed;
+        border: 1px solid var(--border);
+        border-bottom-left-radius: 4px;
+      }
+      .chat-form, .rag-form {
+        display: flex;
+        gap: 10px;
+      }
+      .chat-form input, .rag-form input {
+        flex: 1;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        padding: 10px 16px;
+        font-size: 15px;
+        font-family: inherit;
+        background: #fffefb;
+      }
+      .chat-form input:focus, .rag-form input:focus {
+        outline: none;
+        border-color: var(--brand);
+      }
+      .rag-panel {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .rag-answer {
+        background: #fff7ed;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+        animation: rise 280ms ease both;
+      }
+      .rag-answer-text {
+        line-height: 1.6;
+        margin-bottom: 16px;
+        white-space: pre-wrap;
+      }
+      .rag-sources h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        color: var(--muted);
+        font-family: "Space Grotesk", sans-serif;
+      }
+      .rag-sources-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .rag-source {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+      .rag-source-path {
+        font-weight: 600;
+        color: var(--ink);
+        word-break: break-all;
+      }
+      .rag-source-meta {
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .rag-source-content {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--border);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+        max-height: 80px;
+        overflow-y: auto;
+      }
+      .chat-placeholder, .rag-placeholder {
+        color: var(--muted);
+        text-align: center;
+        padding: 40px 20px;
+        font-style: italic;
+      }
       .panel {
         background: var(--card);
         border: 1px solid var(--border);
@@ -414,7 +559,12 @@
       <h1>Cloop Loops</h1>
       <p>Capture fast. Organize later.</p>
     </header>
-    <main>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="inbox" role="tab" aria-selected="true">Inbox</button>
+      <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat</button>
+      <button class="tab" data-tab="rag" role="tab" aria-selected="false">RAG</button>
+    </nav>
+    <main id="inbox-main">
       <section class="panel">
         <h2>Quick capture</h2>
         <form id="capture-form">
@@ -474,6 +624,46 @@
           <button class="tag-add" type="button" id="save-view-btn" style="padding: 4px 8px; font-size: 12px;">save</button>
         </div>
         <div id="inbox" class="inbox-list"></div>
+      </section>
+    </main>
+    <main class="chat-main" id="chat-main">
+      <section class="panel chat-panel">
+        <h2>Chat</h2>
+        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat conversation">
+          <div class="chat-placeholder">Start a conversation...</div>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <input
+            type="text"
+            id="chat-input"
+            placeholder="Type a message..."
+            autocomplete="off"
+            required
+          >
+          <button type="submit">Send</button>
+        </form>
+      </section>
+    </main>
+    <main class="rag-main" id="rag-main">
+      <section class="panel rag-panel">
+        <h2>Ask Your Knowledge Base</h2>
+        <form id="rag-form" class="rag-form">
+          <input
+            type="text"
+            id="rag-input"
+            placeholder="Ask a question about your documents..."
+            autocomplete="off"
+            required
+          >
+          <button type="submit">Ask</button>
+        </form>
+        <div id="rag-answer" class="rag-answer" style="display: none;" role="region" aria-live="polite" aria-label="RAG answer">
+          <div class="rag-answer-text"></div>
+          <div class="rag-sources">
+            <h3>Sources</h3>
+            <div class="rag-sources-list"></div>
+          </div>
+        </div>
       </section>
     </main>
     <div class="footer-actions">
@@ -632,7 +822,7 @@
             <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
             <span>Updated: ${formatTime(loop.updated_at_utc)}</span>
           </div>
-          ${summary ? `<div class="loop-summary">${summary}</div>` : ""}
+          ${summary ? `<div class="loop-summary">${escapeHtml(summary)}</div>` : ""}
           <div class="inline-row">
             <span class="inline-label">Next action</span>
             <textarea
@@ -1385,6 +1575,201 @@
       });
       loadTags();
       loadInbox();
+
+      // Tab Navigation
+      const tabs = document.querySelectorAll(".tab");
+      const inboxMain = document.getElementById("inbox-main");
+      const chatMain = document.getElementById("chat-main");
+      const ragMain = document.getElementById("rag-main");
+
+      function switchTab(tabName) {
+        tabs.forEach(t => {
+          t.classList.toggle("active", t.dataset.tab === tabName);
+          t.setAttribute("aria-selected", t.dataset.tab === tabName);
+        });
+        inboxMain.style.display = tabName === "inbox" ? "grid" : "none";
+        chatMain.style.display = tabName === "chat" ? "grid" : "none";
+        ragMain.style.display = tabName === "rag" ? "grid" : "none";
+      }
+
+      tabs.forEach(tab => tab.addEventListener("click", () => switchTab(tab.dataset.tab)));
+
+      // Chat functionality
+      let chatMessages = [];
+      const chatMessagesEl = document.getElementById("chat-messages");
+      const chatForm = document.getElementById("chat-form");
+      const chatInput = document.getElementById("chat-input");
+
+      function renderChatMessages() {
+        if (chatMessages.length === 0) {
+          chatMessagesEl.innerHTML = '<div class="chat-placeholder">Start a conversation...</div>';
+          return;
+        }
+        chatMessagesEl.innerHTML = chatMessages.map(msg =>
+          `<div class="chat-bubble ${msg.role}">${escapeHtml(msg.content)}</div>`
+        ).join("");
+        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      }
+
+      function addChatBubble(role, content) {
+        chatMessages.push({ role, content });
+        renderChatMessages();
+      }
+
+      function updateLastAssistantBubble(content) {
+        if (chatMessages.length && chatMessages[chatMessages.length - 1].role === "assistant") {
+          chatMessages[chatMessages.length - 1].content = content;
+          renderChatMessages();
+        }
+      }
+
+      async function submitChat(text) {
+        addChatBubble("user", text);
+        addChatBubble("assistant", "");
+
+        const messages = chatMessages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+        try {
+          const response = await fetch("/chat?stream=true", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ messages, tool_mode: "none" }),
+          });
+
+          if (!response.ok) {
+            updateLastAssistantBubble("Error: " + response.status);
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let accumulated = "";
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data:")) {
+                try {
+                  const data = JSON.parse(line.slice(5).trim());
+                  if (data.token) {
+                    accumulated += data.token;
+                    updateLastAssistantBubble(accumulated);
+                  }
+                  if (data.message !== undefined && data.token === undefined) {
+                    updateLastAssistantBubble(data.message);
+                  }
+                } catch (e) { console.warn("SSE parse error:", e); }
+              }
+            }
+          }
+        } catch (err) {
+          updateLastAssistantBubble("Connection error. Please try again.");
+        }
+      }
+
+      chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text) return;
+        chatInput.value = "";
+        submitChat(text);
+      });
+
+      // RAG functionality
+      const ragForm = document.getElementById("rag-form");
+      const ragInput = document.getElementById("rag-input");
+      const ragAnswer = document.getElementById("rag-answer");
+      const ragAnswerText = ragAnswer.querySelector(".rag-answer-text");
+      const ragSourcesList = ragAnswer.querySelector(".rag-sources-list");
+
+      function renderRagSources(sources, chunks) {
+        if (!sources || !sources.length) {
+          ragSourcesList.innerHTML = '<div class="rag-source">No sources found</div>';
+          return;
+        }
+        ragSourcesList.innerHTML = sources.map((src, idx) => {
+          const chunk = chunks && chunks[idx] ? chunks[idx] : null;
+          const contentPreview = chunk && chunk.content ? escapeHtml(chunk.content.substring(0, 200)) : "";
+          return `
+            <div class="rag-source">
+              <div class="rag-source-path">${escapeHtml(src.document_path || "Unknown")}</div>
+              <div class="rag-source-meta">
+                Chunk ${src.chunk_index ?? "?"} · Score: ${(src.score ?? 0).toFixed(3)}
+              </div>
+              ${contentPreview ? `<div class="rag-source-content">${contentPreview}${chunk.content.length > 200 ? '...' : ''}</div>` : ''}
+            </div>
+          `;
+        }).join("");
+      }
+
+      async function submitRagQuestion(question) {
+        ragAnswer.style.display = "block";
+        ragAnswerText.textContent = "Thinking...";
+        ragSourcesList.innerHTML = "";
+
+        try {
+          const response = await fetch(`/ask?q=${encodeURIComponent(question)}&stream=true`);
+          if (!response.ok) {
+            ragAnswerText.textContent = "Error: " + response.status;
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let accumulated = "";
+          let sources = [];
+          let chunks = [];
+          let buffer = "";
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (line.startsWith("data:")) {
+                try {
+                  const data = JSON.parse(line.slice(5).trim());
+                  if (data.token) {
+                    accumulated += data.token;
+                    ragAnswerText.textContent = accumulated;
+                  }
+                  if (data.sources) {
+                    sources = data.sources;
+                  }
+                  if (data.chunks) {
+                    chunks = data.chunks;
+                  }
+                  if (data.answer !== undefined && data.token === undefined) {
+                    ragAnswerText.textContent = data.answer;
+                  }
+                } catch (e) { console.warn("SSE parse error:", e); }
+              }
+            }
+          }
+
+          renderRagSources(sources, chunks);
+        } catch (err) {
+          ragAnswerText.textContent = "Connection error. Please try again.";
+        }
+      }
+
+      ragForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const question = ragInput.value.trim();
+        if (!question) return;
+        ragInput.value = "";
+        submitRagQuestion(question);
+      });
     </script>
   </body>
 </html>
