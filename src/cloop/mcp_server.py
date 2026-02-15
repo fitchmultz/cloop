@@ -1370,6 +1370,190 @@ def project_list() -> list[dict[str, Any]]:
         return loop_repo.list_projects(conn=conn)
 
 
+# ============================================================================
+# Loop Template MCP Tools
+# ============================================================================
+
+
+@mcp.tool(name="loop.template.list")
+@with_db_init
+@with_mcp_error_handling
+def loop_template_list() -> list[dict[str, Any]]:
+    """List all loop templates.
+
+    Returns:
+        List of template dicts with id, name, description, is_system
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_repo.list_loop_templates(conn=conn)
+
+
+@mcp.tool(name="loop.template.get")
+@with_db_init
+@with_mcp_error_handling
+def loop_template_get(template_id: int) -> dict[str, Any] | None:
+    """Get a template by ID.
+
+    Args:
+        template_id: Template ID
+
+    Returns:
+        Template dict or None if not found
+    """
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        return loop_repo.get_loop_template(template_id=template_id, conn=conn)
+
+
+@mcp.tool(name="loop.template.create")
+@with_db_init
+@with_mcp_error_handling
+def loop_template_create(
+    name: str,
+    description: str | None = None,
+    raw_text_pattern: str = "",
+    defaults: dict[str, Any] | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Create a new loop template.
+
+    Args:
+        name: Template name (must be unique)
+        description: Optional description
+        raw_text_pattern: Pattern with optional {{variable}} placeholders
+        defaults: Default field values (tags, time_minutes, actionable, etc.)
+        request_id: Optional idempotency key
+
+    Returns:
+        Created template record
+    """
+    settings = get_settings()
+    payload = {
+        "name": name,
+        "description": description,
+        "raw_text_pattern": raw_text_pattern,
+        "defaults": defaults,
+    }
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.template.create",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        template = loop_repo.create_loop_template(
+            name=name,
+            description=description,
+            raw_text_pattern=raw_text_pattern,
+            defaults_json=defaults or {},
+            is_system=False,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.template.create",
+        request_id=request_id,
+        payload=payload,
+        response=template,
+        settings=settings,
+    )
+    return template
+
+
+@mcp.tool(name="loop.template.delete")
+@with_db_init
+@with_mcp_error_handling
+def loop_template_delete(
+    template_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Delete a loop template. System templates cannot be deleted.
+
+    Args:
+        template_id: Template ID to delete
+        request_id: Optional idempotency key
+
+    Returns:
+        Dict with deleted status
+    """
+    settings = get_settings()
+    payload = {"template_id": template_id}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.template.delete",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        deleted = loop_repo.delete_loop_template(template_id=template_id, conn=conn)
+
+    result = {"deleted": deleted}
+    _finalize_mcp_idempotency(
+        tool_name="loop.template.delete",
+        request_id=request_id,
+        payload=payload,
+        response=result,
+        settings=settings,
+    )
+    return result
+
+
+@mcp.tool(name="loop.template.from_loop")
+@with_db_init
+@with_mcp_error_handling
+def loop_template_from_loop(
+    loop_id: int,
+    name: str,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Create a template from an existing loop.
+
+    Args:
+        loop_id: Loop ID to use as template source
+        name: Name for the new template
+        request_id: Optional idempotency key
+
+    Returns:
+        Created template record
+    """
+    settings = get_settings()
+    payload = {"loop_id": loop_id, "name": name}
+
+    replay = _handle_mcp_idempotency(
+        tool_name="loop.template.from_loop",
+        request_id=request_id,
+        payload=payload,
+        settings=settings,
+    )
+    if replay is not None:
+        return replay
+
+    with db.core_connection(settings) as conn:
+        template = loop_service.create_template_from_loop(
+            loop_id=loop_id,
+            template_name=name,
+            conn=conn,
+        )
+
+    _finalize_mcp_idempotency(
+        tool_name="loop.template.from_loop",
+        request_id=request_id,
+        payload=payload,
+        response=template,
+        settings=settings,
+    )
+    return template
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

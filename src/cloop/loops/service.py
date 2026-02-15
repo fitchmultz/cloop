@@ -1742,6 +1742,65 @@ def bulk_close_loops(
     }
 
 
+def create_template_from_loop(
+    *,
+    loop_id: int,
+    template_name: str,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Create a template from an existing loop.
+
+    Args:
+        loop_id: ID of loop to use as template source
+        template_name: Name for the new template
+        conn: Database connection
+
+    Returns:
+        Created template record
+
+    Raises:
+        LoopNotFoundError: If loop doesn't exist
+        ValidationError: If template name is invalid or already exists
+    """
+    from .repo import create_loop_template, list_loop_tags, read_loop
+
+    loop = read_loop(loop_id=loop_id, conn=conn)
+    if not loop:
+        raise LoopNotFoundError(loop_id)
+
+    tags = list_loop_tags(loop_id=loop_id, conn=conn)
+
+    # Build defaults from loop fields
+    defaults: dict[str, Any] = {}
+    if loop.title:
+        defaults["title"] = loop.title
+    if tags:
+        defaults["tags"] = tags
+    if loop.time_minutes is not None:
+        defaults["time_minutes"] = loop.time_minutes
+    if loop.activation_energy is not None:
+        defaults["activation_energy"] = loop.activation_energy
+    if loop.urgency is not None:
+        defaults["urgency"] = loop.urgency
+    if loop.importance is not None:
+        defaults["importance"] = loop.importance
+    if loop.status == LoopStatus.ACTIONABLE:
+        defaults["actionable"] = True
+    elif loop.status == LoopStatus.SCHEDULED:
+        defaults["scheduled"] = True
+    elif loop.status == LoopStatus.BLOCKED:
+        defaults["blocked"] = True
+
+    return create_loop_template(
+        name=template_name,
+        description=f"Created from loop #{loop_id}",
+        raw_text_pattern=loop.raw_text,
+        defaults_json=defaults,
+        is_system=False,
+        conn=conn,
+    )
+
+
 @typingx.validate_io()
 def bulk_snooze_loops(
     *,

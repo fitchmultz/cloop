@@ -55,7 +55,7 @@ from ..idempotency import (
 from ..loops import enrichment as loop_enrichment
 from ..loops import service as loop_service
 from ..loops.errors import ClaimNotFoundError, LoopClaimedError
-from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags
+from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
 from ..schemas.loops import (
     BulkCloseRequest,
     BulkCloseResponse,
@@ -82,6 +82,10 @@ from ..schemas.loops import (
     LoopSearchRequest,
     LoopSearchResponse,
     LoopStatusRequest,
+    LoopTemplateCreateRequest,
+    LoopTemplateListResponse,
+    LoopTemplateResponse,
+    LoopTemplateUpdateRequest,
     LoopUpdateRequest,
     LoopViewApplyResponse,
     LoopViewCreateRequest,
@@ -187,6 +191,7 @@ def loop_capture_endpoint(
     settings: SettingsDep,
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopResponse | JSONResponse:
+    # Resolve status from flags initially
     status = resolve_status_from_flags(
         scheduled=request.scheduled,
         blocked=request.blocked,
@@ -205,6 +210,41 @@ def loop_capture_endpoint(
             raise HTTPException(status_code=400, detail=f"Invalid schedule: {e}") from None
     elif request.rrule:
         recurrence_rrule = request.rrule
+
+    # Apply template if specified
+    raw_text = request.raw_text
+    template_defaults: dict[str, Any] = {}
+
+    if request.template_id or request.template_name:
+        from ..loops.repo import get_loop_template, get_loop_template_by_name
+        from ..loops.templates import (
+            apply_template_to_capture,
+            extract_update_fields_from_template,
+        )
+
+        with db.core_connection(settings) as conn:
+            if request.template_id:
+                template = get_loop_template(template_id=request.template_id, conn=conn)
+            else:
+                template = get_loop_template_by_name(name=request.template_name or "", conn=conn)
+
+        if template:
+            applied = apply_template_to_capture(
+                template=template,
+                raw_text_override=request.raw_text,
+                now_utc=utc_now(),
+                tz_offset_min=request.client_tz_offset_min,
+            )
+            raw_text = applied["raw_text"]
+            template_defaults = applied
+
+            # Merge status flags from template if not explicitly set in request
+            if not request.actionable and not request.scheduled and not request.blocked:
+                status = resolve_status_from_flags(
+                    scheduled=applied.get("scheduled", False),
+                    blocked=applied.get("blocked", False),
+                    actionable=applied.get("actionable", False),
+                )
 
     if idempotency_key is not None:
         try:
@@ -237,7 +277,7 @@ def loop_capture_endpoint(
                 )
 
             record = loop_service.capture_loop(
-                raw_text=request.raw_text,
+                raw_text=raw_text,
                 captured_at_iso=request.captured_at,
                 client_tz_offset_min=request.client_tz_offset_min,
                 status=status,
@@ -245,6 +285,17 @@ def loop_capture_endpoint(
                 recurrence_rrule=recurrence_rrule,
                 recurrence_tz=request.timezone,
             )
+
+            # Apply template defaults (tags, time_minutes, etc.)
+            if template_defaults:
+                update_fields = extract_update_fields_from_template(template_defaults)
+                if update_fields:
+                    record = loop_service.update_loop(
+                        loop_id=record["id"],
+                        fields=update_fields,
+                        conn=conn,
+                    )
+
             if settings.autopilot_enabled:
                 record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
 
@@ -259,7 +310,7 @@ def loop_capture_endpoint(
     else:
         with db.core_connection(settings) as conn:
             record = loop_service.capture_loop(
-                raw_text=request.raw_text,
+                raw_text=raw_text,
                 captured_at_iso=request.captured_at,
                 client_tz_offset_min=request.client_tz_offset_min,
                 status=status,
@@ -267,6 +318,17 @@ def loop_capture_endpoint(
                 recurrence_rrule=recurrence_rrule,
                 recurrence_tz=request.timezone,
             )
+
+            # Apply template defaults (tags, time_minutes, etc.)
+            if template_defaults:
+                update_fields = extract_update_fields_from_template(template_defaults)
+                if update_fields:
+                    record = loop_service.update_loop(
+                        loop_id=record["id"],
+                        fields=update_fields,
+                        conn=conn,
+                    )
+
             if settings.autopilot_enabled:
                 record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
         response = LoopResponse(**record).model_dump()
@@ -567,6 +629,142 @@ def loop_view_apply_endpoint(
         offset=result["offset"],
         items=[LoopResponse(**item) for item in result["items"]],
     )
+
+
+# ============================================================================
+# Loop Template Endpoints
+# ============================================================================
+
+
+def _template_to_response(template: dict[str, Any]) -> LoopTemplateResponse:
+    """Convert a template database record to a response model."""
+    return LoopTemplateResponse(
+        id=template["id"],
+        name=template["name"],
+        description=template["description"],
+        raw_text_pattern=template["raw_text_pattern"],
+        defaults=json.loads(template["defaults_json"]) if template["defaults_json"] else {},
+        is_system=bool(template["is_system"]),
+        created_at=template["created_at"],
+        updated_at=template["updated_at"],
+    )
+
+
+@router.get("/templates", response_model=LoopTemplateListResponse)
+def list_templates_endpoint(settings: SettingsDep) -> LoopTemplateListResponse:
+    """List all loop templates."""
+    from ..loops.repo import list_loop_templates
+
+    with db.core_connection(settings) as conn:
+        templates = list_loop_templates(conn=conn)
+
+    return LoopTemplateListResponse(templates=[_template_to_response(t) for t in templates])
+
+
+@router.get("/templates/{template_id}", response_model=LoopTemplateResponse)
+def get_template_endpoint(template_id: int, settings: SettingsDep) -> LoopTemplateResponse:
+    """Get a single template by ID."""
+    from ..loops.repo import get_loop_template
+
+    with db.core_connection(settings) as conn:
+        template = get_loop_template(template_id=template_id, conn=conn)
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    return _template_to_response(template)
+
+
+@router.post("/templates", response_model=LoopTemplateResponse, status_code=201)
+def create_template_endpoint(
+    request: LoopTemplateCreateRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> LoopTemplateResponse | JSONResponse:
+    """Create a new loop template."""
+    from ..loops.errors import ValidationError
+    from ..loops.repo import create_loop_template
+
+    with db.core_connection(settings) as conn:
+        try:
+            template = create_loop_template(
+                name=request.name,
+                description=request.description,
+                raw_text_pattern=request.raw_text_pattern,
+                defaults_json=request.defaults,
+                is_system=False,
+                conn=conn,
+            )
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+
+    return _template_to_response(template)
+
+
+@router.patch("/templates/{template_id}", response_model=LoopTemplateResponse)
+def update_template_endpoint(
+    template_id: int,
+    request: LoopTemplateUpdateRequest,
+    settings: SettingsDep,
+) -> LoopTemplateResponse:
+    """Update a loop template. System templates cannot be modified."""
+    from ..loops.errors import ValidationError
+    from ..loops.repo import update_loop_template
+
+    with db.core_connection(settings) as conn:
+        try:
+            template = update_loop_template(
+                template_id=template_id,
+                name=request.name,
+                description=request.description,
+                raw_text_pattern=request.raw_text_pattern,
+                defaults_json=request.defaults,
+                conn=conn,
+            )
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+
+    return _template_to_response(template)
+
+
+@router.delete("/templates/{template_id}")
+def delete_template_endpoint(template_id: int, settings: SettingsDep) -> dict[str, bool]:
+    """Delete a loop template. System templates cannot be deleted."""
+    from ..loops.errors import ValidationError
+    from ..loops.repo import delete_loop_template
+
+    with db.core_connection(settings) as conn:
+        try:
+            deleted = delete_loop_template(template_id=template_id, conn=conn)
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+
+    return {"deleted": deleted}
+
+
+@router.post("/{loop_id}/save-as-template", response_model=LoopTemplateResponse, status_code=201)
+def save_as_template_endpoint(
+    loop_id: int,
+    request: LoopTemplateCreateRequest,
+    settings: SettingsDep,
+) -> LoopTemplateResponse:
+    """Create a template from an existing loop."""
+    from ..loops.errors import LoopNotFoundError, ValidationError
+    from ..loops.service import create_template_from_loop
+
+    with db.core_connection(settings) as conn:
+        try:
+            template = create_template_from_loop(
+                loop_id=loop_id,
+                template_name=request.name,
+                conn=conn,
+            )
+        except LoopNotFoundError:
+            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except ValidationError as e:
+            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+
+    return _template_to_response(template)
 
 
 @router.get("/claims")

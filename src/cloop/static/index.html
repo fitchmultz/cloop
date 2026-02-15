@@ -1179,6 +1179,13 @@
       <section class="panel">
         <h2>Quick capture</h2>
         <form id="capture-form">
+          <div class="template-row" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
+            <label for="template-select" style="font-size: 13px; color: var(--muted);">template:</label>
+            <select id="template-select" style="flex: 1; border-radius: 999px; border: 1px solid var(--border); padding: 6px 12px; background: #fffefb; font-family: inherit; font-size: 13px;">
+              <option value="">None</option>
+              <!-- Populated by JavaScript -->
+            </select>
+          </div>
           <textarea id="raw-text" placeholder="Drop a loop, idea, or task..." required></textarea>
           <div class="toggles">
             <label class="toggle">
@@ -1451,6 +1458,63 @@
         "completed",
         "dropped",
       ];
+
+      // ========================================
+      // Template State
+      // ========================================
+
+      let templatesCache = null;
+      const templateSelect = document.getElementById("template-select");
+
+      async function loadTemplates() {
+        if (templatesCache) return templatesCache;
+
+        const response = await fetch("/loops/templates");
+        if (!response.ok) return [];
+
+        const data = await response.json();
+        templatesCache = data.templates;
+        return templatesCache;
+      }
+
+      async function populateTemplateDropdown() {
+        const templates = await loadTemplates();
+
+        // Clear existing options except first ("None")
+        while (templateSelect.options.length > 1) {
+          templateSelect.remove(1);
+        }
+
+        // Add options
+        templates.forEach(t => {
+          const option = document.createElement("option");
+          option.value = t.id;
+          option.textContent = t.name + (t.is_system ? " (system)" : "");
+          templateSelect.appendChild(option);
+        });
+      }
+
+      async function saveAsTemplate(loopId) {
+        const name = prompt("Template name:");
+        if (!name) return;
+
+        const response = await fetch(`/loops/${loopId}/save-as-template`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+
+        if (response.ok) {
+          const template = await response.json();
+          statusEl.textContent = `Template "${template.name}" created!`;
+          // Refresh template cache and dropdown
+          templatesCache = null;
+          populateTemplateDropdown();
+        } else {
+          const error = await response.json();
+          statusEl.textContent = `Failed: ${error.detail?.message || response.statusText}`;
+        }
+      }
 
       // ========================================
       // Bulk Selection State
@@ -1920,6 +1984,7 @@
           </div>
           <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich<span class="shortcut-hint">e</span></button>
           <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh<span class="shortcut-hint">r</span></button>
+          <button class="secondary" data-action="save-template" data-id="${loop.id}" title="Save as template">Template</button>
         </div>
           <div class="completion-note-row ${completionVisible ? "visible" : ""}">
             <span class="inline-label">completion note</span>
@@ -2482,6 +2547,7 @@
         event.preventDefault();
         status.textContent = "Saving...";
         const now = new Date();
+        const templateId = templateSelect.value;
         const payload = {
           raw_text: rawText.value.trim(),
           captured_at: now.toISOString(),
@@ -2490,7 +2556,10 @@
           scheduled: scheduled.checked,
           blocked: blocked.checked,
         };
-        if (!payload.raw_text) {
+        if (templateId) {
+          payload.template_id = parseInt(templateId, 10);
+        }
+        if (!payload.raw_text && !templateId) {
           status.textContent = "Type something first.";
           return;
         }
@@ -2510,6 +2579,7 @@
         actionable.checked = false;
         scheduled.checked = false;
         blocked.checked = false;
+        templateSelect.value = "";
         status.textContent = "Saved. Enrichment queued.";
       }
 
@@ -2958,6 +3028,8 @@
             if (card) {
               removeTag(card.dataset.loopId, button.dataset.tag, card);
             }
+          } else if (button.dataset.action === "save-template") {
+            saveAsTemplate(button.dataset.id);
           }
 
           // Handle snooze option clicks
@@ -3188,6 +3260,7 @@
       });
       loadTags();
       loadInbox();
+      populateTemplateDropdown();
 
       // Tab Navigation
       const tabs = document.querySelectorAll(".tab");

@@ -38,6 +38,14 @@ class LoopCaptureRequest(BaseModel):
         default=None,
         description="IANA timezone name (e.g., 'America/New_York'). Defaults to client offset.",
     )
+    template_id: int | None = Field(
+        default=None,
+        description="Optional template ID to apply for pre-filled fields",
+    )
+    template_name: str | None = Field(
+        default=None,
+        description="Optional template name to apply (alternative to template_id)",
+    )
 
     @field_validator("captured_at")
     @classmethod
@@ -597,3 +605,45 @@ class BulkSnoozeResponse(BaseModel):
     results: List[BulkResultItem]
     succeeded: int
     failed: int
+
+
+# ============================================================================
+# Loop Template Schemas
+# ============================================================================
+
+
+class LoopTemplateResponse(BaseModel):
+    """Response model for a loop template."""
+
+    id: int
+    name: str
+    description: str | None
+    raw_text_pattern: str
+    defaults: Dict[str, Any]
+    is_system: bool
+    created_at: str
+    updated_at: str
+
+
+class LoopTemplateCreateRequest(BaseModel):
+    """Request to create a new loop template."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    raw_text_pattern: str = Field(default="", max_length=10000)
+    defaults: Dict[str, Any] = Field(default_factory=dict)
+
+
+class LoopTemplateUpdateRequest(BaseModel):
+    """Request to update a loop template."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    raw_text_pattern: str | None = Field(default=None, max_length=10000)
+    defaults: Dict[str, Any] | None = None
+
+
+class LoopTemplateListResponse(BaseModel):
+    """Response for listing templates."""
+
+    templates: List[LoopTemplateResponse]

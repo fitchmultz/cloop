@@ -45,6 +45,9 @@ fix = false
 [tool.ruff.lint]
 select = ["E", "F", "B", "I", "UP045"]
 
+[tool.ruff.lint.per-file-ignores]
+"src/cloop/db.py" = ["E501"]
+
 [tool.ty]
 
 [tool.pytest.ini_options]

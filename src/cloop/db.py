@@ -38,7 +38,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 16
+SCHEMA_VERSION: int = 17
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -287,9 +287,55 @@ CREATE TABLE time_sessions (
 
 CREATE INDEX idx_time_sessions_loop_id ON time_sessions(loop_id);
 CREATE INDEX idx_time_sessions_active ON time_sessions(loop_id, ended_at) WHERE ended_at IS NULL;
+
+CREATE TABLE loop_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    raw_text_pattern TEXT NOT NULL DEFAULT '',
+    defaults_json TEXT NOT NULL DEFAULT '{}',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_loop_templates_name ON loop_templates(name);
+CREATE INDEX idx_loop_templates_is_system ON loop_templates(is_system);
+
+-- Insert system templates for fresh installations
+INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
+    ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
+    ('Weekly Review', 'Weekly review template', 'Weekly review - {{week}} of {{year}}\n\nAccomplishments:\n- \n\nPriorities for next week:\n- \n\nOpen items:\n- ', '{"tags": ["review", "weekly"], "time_minutes": 30}', 1),
+    ('Meeting Notes', 'Meeting notes template', 'Meeting: [Title]\nDate: {{date}}\nTime: {{time}}\nAttendees: \n\nAgenda:\n- \n\nNotes:\n- \n\nAction items:\n- ', '{"tags": ["meeting"], "actionable": true}', 1),
+    ('Bug Report', 'Bug report template', 'Bug: [Description]\n\nSteps to reproduce:\n1. \n\nExpected:\n\nActual:\n\nEnvironment:', '{"tags": ["bug"], "blocked": true}', 1),
+    ('Quick Task', 'Simple actionable task template', '', '{"actionable": true, "time_minutes": 30}', 1);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    17: """
+    -- Create loop_templates table for reusable loop patterns
+    CREATE TABLE loop_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        description TEXT,
+        raw_text_pattern TEXT NOT NULL DEFAULT '',
+        defaults_json TEXT NOT NULL DEFAULT '{}',
+        is_system INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_loop_templates_name ON loop_templates(name);
+    CREATE INDEX idx_loop_templates_is_system ON loop_templates(is_system);
+
+    -- Insert system templates
+    INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
+        ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
+        ('Weekly Review', 'Weekly review template', 'Weekly review - {{week}} of {{year}}\n\nAccomplishments:\n- \n\nPriorities for next week:\n- \n\nOpen items:\n- ', '{"tags": ["review", "weekly"], "time_minutes": 30}', 1),
+        ('Meeting Notes', 'Meeting notes template', 'Meeting: [Title]\nDate: {{date}}\nTime: {{time}}\nAttendees: \n\nAgenda:\n- \n\nNotes:\n- \n\nAction items:\n- ', '{"tags": ["meeting"], "actionable": true}', 1),
+        ('Bug Report', 'Bug report template', 'Bug: [Description]\n\nSteps to reproduce:\n1. \n\nExpected:\n\nActual:\n\nEnvironment:', '{"tags": ["bug"], "blocked": true}', 1),
+        ('Quick Task', 'Simple actionable task template', '', '{"actionable": true, "time_minutes": 30}', 1);
+    """,
     2: """
     CREATE TABLE loops (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
