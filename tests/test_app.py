@@ -475,3 +475,59 @@ def test_mock_responses_match_litellm_format(
     assert tool_call["type"] == "function"
     assert "name" in tool_call["function"]
     assert "arguments" in tool_call["function"]
+
+
+def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify the index.html contains chat and RAG UI elements."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    # Check for tab navigation
+    assert 'data-tab="inbox"' in html
+    assert 'data-tab="chat"' in html
+    assert 'data-tab="rag"' in html
+
+    # Check for chat elements
+    assert 'id="chat-form"' in html
+    assert 'id="chat-input"' in html
+    assert 'id="chat-messages"' in html
+    assert "chat-bubble" in html
+
+    # Check for RAG elements
+    assert 'id="rag-form"' in html
+    assert 'id="rag-input"' in html
+    assert 'id="rag-answer"' in html
+    assert "rag-sources" in html
+
+
+def test_chat_streaming_ui_flow(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Test chat streaming works end-to-end for UI consumption."""
+    payload = {"messages": [{"role": "user", "content": "Hello"}], "tool_mode": "none"}
+
+    with test_client.stream("POST", "/chat?stream=true", json=payload) as response:
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+
+        body = "".join(chunk for chunk in response.iter_text())
+        assert "event: token" in body or "event: done" in body
+
+
+def test_rag_returns_sources_for_ui(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify RAG endpoint returns source structure needed for UI citations."""
+    doc = tmp_data_dir / "source-test.txt"
+    doc.write_text("This is test content for source citations.", encoding="utf-8")
+
+    ingest = test_client.post("/ingest", json={"paths": [str(doc)]})
+    assert ingest.status_code == 200
+
+    response = test_client.get("/ask", params={"q": "test content"})
+    assert response.status_code == 200
+    data = response.json()
+
+    assert data["answer"]
+    assert data["sources"]
+    for source in data["sources"]:
+        assert "document_path" in source
+        assert "chunk_index" in source
+        assert "score" in source
