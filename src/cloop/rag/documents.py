@@ -31,6 +31,39 @@ from .vectors import delete_vector_rows
 SUPPORTED_INGEST_MODES = {"add", "reindex", "purge", "sync"}
 
 
+def _needs_hash_recompute(
+    path: Path,
+    stat_meta: Dict[str, Any],
+    *,
+    conn: sqlite3.Connection,
+) -> bool:
+    """
+    Check if file needs hash computation based on mtime/size comparison.
+
+    Returns True if:
+    - File is new (not in database)
+    - File mtime or size differs from stored values
+
+    Returns False if:
+    - File exists in database AND mtime and size match exactly
+    """
+    doc_path = str(_normalize_path(path))
+    row = conn.execute(
+        "SELECT mtime_ns, size_bytes FROM documents WHERE document_path = ?",
+        (doc_path,),
+    ).fetchone()
+
+    if row is None:
+        return True  # New file, needs hash
+
+    stored_mtime = int(row["mtime_ns"])
+    stored_size = int(row["size_bytes"])
+    current_mtime = int(stat_meta["mtime_ns"])
+    current_size = int(stat_meta["size_bytes"])
+
+    return stored_mtime != current_mtime or stored_size != current_size
+
+
 def upsert_document_record(
     path: Path,
     *,

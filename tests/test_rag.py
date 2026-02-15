@@ -1,3 +1,4 @@
+import hashlib
 import math
 import os
 import sqlite3
@@ -90,12 +91,12 @@ def test_ingest_skips_unchanged_documents(tmp_path: Path, monkeypatch: pytest.Mo
     doc.write_text("alpha beta gamma", encoding="utf-8")
 
     first = ingest_paths([str(doc)], settings=settings)
-    assert first == {"files": 1, "chunks": 1, "failed_files": []}
+    assert first == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
     assert _count_rows("chunks", settings=settings) == 1
     assert _count_rows("documents", settings=settings) == 1
 
     second = ingest_paths([str(doc)], settings=settings)
-    assert second == {"files": 0, "chunks": 0, "failed_files": []}
+    assert second == {"files": 0, "chunks": 0, "files_skipped": 1, "failed_files": []}
     assert _count_rows("chunks", settings=settings) == 1
     assert _count_rows("documents", settings=settings) == 1
 
@@ -115,11 +116,11 @@ def test_reindex_forces_reingest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     doc.write_text("one two three four", encoding="utf-8")
 
     first = ingest_paths([str(doc)], settings=settings)
-    assert first == {"files": 1, "chunks": 1, "failed_files": []}
+    assert first == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
     assert len(calls) == 1
 
     second = ingest_paths([str(doc)], mode="reindex", settings=settings)
-    assert second == {"files": 1, "chunks": 1, "failed_files": []}
+    assert second == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
     assert len(calls) == 2
     assert _count_rows("chunks", settings=settings) == 1
 
@@ -140,7 +141,7 @@ def test_purge_removes_documents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert _count_rows("documents", settings=settings) == 1
 
     result = ingest_paths([str(doc)], mode="purge", settings=settings)
-    assert result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert result == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
     assert _count_rows("documents", settings=settings) == 0
     assert _count_rows("chunks", settings=settings) == 0
 
@@ -167,7 +168,7 @@ def test_sync_purges_missing_files(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     remove.unlink()
 
     sync_result = ingest_paths([str(directory)], mode="sync", settings=settings)
-    assert sync_result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert sync_result == {"files": 1, "chunks": 1, "files_skipped": 1, "failed_files": []}
     assert _count_rows("documents", settings=settings) == 1
     assert _count_rows("chunks", settings=settings) == 1
 
@@ -187,7 +188,7 @@ def test_embeddings_dual_storage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     doc.write_text("blob storage", encoding="utf-8")
 
     result = ingest_paths([str(doc)], settings=settings)
-    assert result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert result == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
 
     with db.rag_connection(settings) as conn:
         row = conn.execute(
@@ -218,7 +219,7 @@ def test_embedding_norm_persisted_for_json_storage(
     doc.write_text("json storage", encoding="utf-8")
 
     result = ingest_paths([str(doc)], settings=settings)
-    assert result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert result == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
 
     with db.rag_connection(settings) as conn:
         row = conn.execute("SELECT embedding_blob, embedding_norm FROM chunks").fetchone()
@@ -485,7 +486,7 @@ def test_ingest_accepts_files_under_limit(tmp_path: Path, monkeypatch: pytest.Mo
 
     # Should succeed without error
     result = ingest_paths([str(small_file)], settings=settings)
-    assert result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert result == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
 
 
 def test_ingest_file_at_exact_limit_is_accepted(
@@ -508,7 +509,7 @@ def test_ingest_file_at_exact_limit_is_accepted(
 
     # Should succeed without error (limit is > not >=)
     result = ingest_paths([str(exact_file)], settings=settings)
-    assert result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert result == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
 
 
 def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -528,7 +529,7 @@ def test_ingest_zero_byte_files_allowed(tmp_path: Path, monkeypatch: pytest.Monk
     # Should succeed - empty files pass size check and are processed
     # (chunk_text produces one empty chunk for empty content)
     result = ingest_paths([str(empty_file)], settings=settings)
-    assert result == {"files": 1, "chunks": 1, "failed_files": []}
+    assert result == {"files": 1, "chunks": 1, "files_skipped": 0, "failed_files": []}
 
 
 def test_retrieve_raises_on_invalid_doc_scope_format(
@@ -757,3 +758,170 @@ def test_ingest_reports_all_files_failed(tmp_path: Path, monkeypatch: pytest.Mon
 
     for failed in result["failed_files"]:
         assert "OSError:" in failed["error"]
+
+
+def test_ingest_skips_hash_for_unchanged_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that unchanged files skip SHA256 computation on re-ingest."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    hash_calls: List[int] = []
+    _original_sha256 = hashlib.sha256
+
+    def track_hash_calls(data: bytes, *, usedforsecurity: bool = True) -> Any:
+        hash_calls.append(len(data))
+        return _original_sha256(data, usedforsecurity=usedforsecurity)
+
+    monkeypatch.setattr(hashlib, "sha256", track_hash_calls)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("unchanged content", encoding="utf-8")
+
+    # First ingest - should compute hash
+    first = ingest_paths([str(doc)], settings=settings)
+    assert first["files"] == 1
+    assert len(hash_calls) == 1
+
+    hash_calls.clear()
+
+    # Second ingest - should skip hash (same mtime/size)
+    second = ingest_paths([str(doc)], settings=settings)
+    assert second["files"] == 0
+    assert second["files_skipped"] == 1
+    assert len(hash_calls) == 0  # No hash computed!
+
+
+def test_ingest_computes_hash_for_changed_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify that modified files get hash recomputed."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    hash_calls: List[int] = []
+    _original_sha256 = hashlib.sha256
+
+    def track_hash_calls(data: bytes, *, usedforsecurity: bool = True) -> Any:
+        hash_calls.append(len(data))
+        return _original_sha256(data, usedforsecurity=usedforsecurity)
+
+    monkeypatch.setattr(hashlib, "sha256", track_hash_calls)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) * (idx + 1) for idx, _ in enumerate(chunks)]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("original content", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+    assert len(hash_calls) == 1
+
+    hash_calls.clear()
+
+    # Modify content (changes size)
+    doc.write_text("modified content with more text", encoding="utf-8")
+
+    second = ingest_paths([str(doc)], settings=settings)
+    assert second["files"] == 1
+    assert len(hash_calls) == 1  # Hash computed for changed file
+
+
+def test_force_rehash_computes_hash_for_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify --force-rehash computes hash even for unchanged files.
+
+    Note: force_rehash forces hash computation for verification even when
+    mtime/size match. If the hash also matches, the file is not reprocessed
+    but is also NOT counted as "skipped" because we did the work of computing
+    the hash. To force reprocessing, use mode="reindex".
+    """
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    hash_calls: List[int] = []
+    _original_sha256 = hashlib.sha256
+
+    def track_hash_calls(data: bytes, *, usedforsecurity: bool = True) -> Any:
+        hash_calls.append(len(data))
+        return _original_sha256(data, usedforsecurity=usedforsecurity)
+
+    monkeypatch.setattr(hashlib, "sha256", track_hash_calls)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("unchanged", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+    hash_calls.clear()
+
+    # Normal re-ingest without force_rehash - file is skipped (no hash computed)
+    result = ingest_paths([str(doc)], settings=settings)
+    assert result["files"] == 0  # Not re-processed
+    assert result["files_skipped"] == 1  # Skipped via stat check
+    assert len(hash_calls) == 0  # No hash computed
+
+    # Force rehash computes hash - not counted as skipped because we did the work
+    result = ingest_paths([str(doc)], force_rehash=True, settings=settings)
+    assert result["files"] == 0  # Not re-processed (content unchanged)
+    assert result["files_skipped"] == 0  # Not skipped - hash was computed
+    assert len(hash_calls) == 1  # Hash WAS computed for verification
+
+    # Verify that force_rehash + reindex mode reprocesses
+    hash_calls.clear()
+    result = ingest_paths([str(doc)], force_rehash=True, mode="reindex", settings=settings)
+    assert result["files"] == 1  # Re-processed due to reindex mode
+    assert len(hash_calls) == 1  # Hash was computed
+
+
+def test_timestamp_change_triggers_hash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Files touched (mtime changed) but same size should trigger hash for safety."""
+    import time
+
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    hash_calls: List[int] = []
+    _original_sha256 = hashlib.sha256
+
+    def track_hash_calls(data: bytes, *, usedforsecurity: bool = True) -> Any:
+        hash_calls.append(len(data))
+        return _original_sha256(data, usedforsecurity=usedforsecurity)
+
+    monkeypatch.setattr(hashlib, "sha256", track_hash_calls)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+    doc = tmp_path / "test.txt"
+    doc.write_text("content", encoding="utf-8")
+
+    ingest_paths([str(doc)], settings=settings)
+    hash_calls.clear()
+
+    # Touch the file (changes mtime but not content/size)
+    time.sleep(0.01)  # Ensure mtime changes
+    doc.touch()
+
+    result = ingest_paths([str(doc)], settings=settings)
+    # Since mtime changed, hash WILL be computed (this is correct behavior)
+    # We accept mtime changes as potential modifications for safety
+    assert len(hash_calls) == 1
+    # The file is still considered "changed" so it's processed, not skipped
+    assert result["files"] == 1
+    assert result["files_skipped"] == 0

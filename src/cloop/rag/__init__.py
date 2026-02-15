@@ -24,8 +24,19 @@ from ..db import VectorBackend, get_vector_backend, rag_connection
 from ..embeddings import embed_texts
 from ..settings import EmbedStorageMode, Settings, get_settings
 from .chunking import chunk_text
-from .documents import SUPPORTED_INGEST_MODES, purge_documents, upsert_document_record
-from .loaders import SUPPORTED_EXTENSIONS, _check_file_size, _document_file_metadata, load_document
+from .documents import (
+    SUPPORTED_INGEST_MODES,
+    _needs_hash_recompute,
+    purge_documents,
+    upsert_document_record,
+)
+from .loaders import (
+    SUPPORTED_EXTENSIONS,
+    _check_file_size,
+    _document_file_metadata,
+    _file_stat_metadata,
+    load_document,
+)
 from .search import (
     _SQL_PY_METRIC,
     _VECLIKE_METRIC,
@@ -50,6 +61,7 @@ def ingest_paths(
     *,
     mode: str = "add",
     recursive: bool = True,
+    force_rehash: bool = False,
     settings: Settings | None = None,
 ) -> Dict[str, Any]:
     settings = settings or get_settings()
@@ -62,6 +74,7 @@ def ingest_paths(
         raise ValueError(f"Unsupported ingestion mode: {mode}")
 
     files_processed = 0
+    files_skipped = 0
     chunks_processed = 0
     failed_files: List[FailedFile] = []
 
@@ -73,12 +86,33 @@ def ingest_paths(
                 normalized_targets, conn=conn, backend=vector_backend
             )
             conn.commit()
-            return {"files": int(docs_removed), "chunks": int(chunks_removed), "failed_files": []}
+            return {
+                "files": int(docs_removed),
+                "chunks": int(chunks_removed),
+                "files_skipped": 0,
+                "failed_files": [],
+            }
 
         candidate_files = list(_iter_candidate_files(normalized_targets, recursive))
         for file_path in candidate_files:
             _check_file_size(file_path, settings.max_file_size_mb)
-            metadata = _document_file_metadata(file_path)
+
+            # Get stat-only metadata first for cheap change detection
+            stat_meta = _file_stat_metadata(file_path)
+
+            # Check if mtime/size changed (cheap check)
+            stat_changed = _needs_hash_recompute(file_path, stat_meta, conn=conn)
+
+            # If stat unchanged and not forcing rehash/reindex, skip entirely
+            if not stat_changed and not force_rehash and ingestion_mode != "reindex":
+                files_skipped += 1
+                continue
+
+            # Compute hash if stat changed, force_rehash, or reindex mode
+            compute_hash = stat_changed or force_rehash or ingestion_mode == "reindex"
+
+            # Compute full metadata (with hash as needed)
+            metadata = _document_file_metadata(file_path, compute_hash=compute_hash)
 
             try:
                 text = load_document(file_path)
@@ -100,7 +134,7 @@ def ingest_paths(
             embeddings = embed_texts(chunks, settings=settings) if chunks else []
             metadata_base = {
                 "size_bytes": metadata["size_bytes"],
-                "sha256": metadata["sha256"],
+                "sha256": metadata.get("sha256", ""),
                 "embed_model": settings.embed_model,
             }
             should_store_blob = settings.embed_storage_mode in {
@@ -215,6 +249,7 @@ def ingest_paths(
     return {
         "files": int(files_processed),
         "chunks": int(chunks_processed),
+        "files_skipped": int(files_skipped),
         "failed_files": failed_files,
     }
 
