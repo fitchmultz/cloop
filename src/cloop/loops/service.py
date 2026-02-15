@@ -12,6 +12,8 @@ from . import repo
 from .errors import (
     ClaimExpiredError,
     ClaimNotFoundError,
+    DependencyCycleError,
+    DependencyNotMetError,
     LoopClaimedError,
     LoopNotFoundError,
     TransitionError,
@@ -202,6 +204,7 @@ def _record_to_dict(
             format_utc_datetime(record.next_due_at_utc) if record.next_due_at_utc else None
         ),
         "recurrence_enabled": record.recurrence_enabled,
+        "parent_loop_id": record.parent_loop_id,
         "created_at_utc": format_utc_datetime(record.created_at_utc),
         "updated_at_utc": format_utc_datetime(record.updated_at_utc),
         "closed_at_utc": (
@@ -550,6 +553,13 @@ def transition_status(
     allowed = _ALLOWED_TRANSITIONS.get(record.status, set())
     if to_status not in allowed:
         raise TransitionError(record.status.value, to_status.value)
+
+    # Check for open dependencies when transitioning to actionable
+    if to_status == LoopStatus.ACTIONABLE:
+        open_deps = repo.list_open_dependencies(loop_id=loop_id, conn=conn)
+        if open_deps:
+            raise DependencyNotMetError(loop_id, open_deps)
+
     closed_at = None
     if is_terminal_status(to_status):
         closed_at = format_utc_datetime(utc_now())
@@ -598,6 +608,190 @@ def transition_status(
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
     return _record_to_dict(updated, project=project, tags=tags)
+
+
+# ============================================================================
+# Dependency Service Functions
+# ============================================================================
+
+
+@typingx.validate_io()
+def add_loop_dependency(
+    *,
+    loop_id: int,
+    depends_on_loop_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Add a dependency relationship with cycle detection.
+
+    Args:
+        loop_id: The loop that is blocked
+        depends_on_loop_id: The loop that blocks it
+        conn: Database connection
+
+    Returns:
+        Updated loop dict with dependencies list
+
+    Raises:
+        LoopNotFoundError: If either loop doesn't exist
+        DependencyCycleError: If adding would create a cycle
+    """
+    # Validate both loops exist
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+    dep_loop = repo.read_loop(loop_id=depends_on_loop_id, conn=conn)
+    if dep_loop is None:
+        raise LoopNotFoundError(depends_on_loop_id)
+
+    # Check for cycle
+    if repo.detect_dependency_cycle(
+        loop_id=loop_id,
+        depends_on_loop_id=depends_on_loop_id,
+        conn=conn,
+    ):
+        raise DependencyCycleError(loop_id, depends_on_loop_id)
+
+    # Add the dependency
+    try:
+        repo.add_dependency(
+            loop_id=loop_id,
+            depends_on_loop_id=depends_on_loop_id,
+            conn=conn,
+        )
+    except sqlite3.IntegrityError:
+        # Already exists, that's fine
+        pass
+
+    # If loop is actionable and dependency is open, auto-transition to blocked
+    if loop.status == LoopStatus.ACTIONABLE:
+        if dep_loop.status not in (LoopStatus.COMPLETED, LoopStatus.DROPPED):
+            repo.update_loop_fields(
+                loop_id=loop_id,
+                fields={"status": LoopStatus.BLOCKED.value},
+                conn=conn,
+            )
+
+    return get_loop_with_dependencies(loop_id=loop_id, conn=conn)
+
+
+@typingx.validate_io()
+def remove_loop_dependency(
+    *,
+    loop_id: int,
+    depends_on_loop_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Remove a dependency relationship.
+
+    Args:
+        loop_id: The blocked loop
+        depends_on_loop_id: The loop it depended on
+        conn: Database connection
+
+    Returns:
+        Updated loop dict with dependencies list
+    """
+    repo.remove_dependency(
+        loop_id=loop_id,
+        depends_on_loop_id=depends_on_loop_id,
+        conn=conn,
+    )
+    return get_loop_with_dependencies(loop_id=loop_id, conn=conn)
+
+
+@typingx.validate_io()
+def get_loop_dependencies(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Get all dependencies (blockers) for a loop with their status.
+
+    Args:
+        loop_id: The loop to check
+        conn: Database connection
+
+    Returns:
+        List of dependency loop dicts with id, title, status
+    """
+    dep_ids = repo.list_dependencies(loop_id=loop_id, conn=conn)
+    if not dep_ids:
+        return []
+
+    result = []
+    for dep_id in dep_ids:
+        dep_loop = repo.read_loop(loop_id=dep_id, conn=conn)
+        if dep_loop:
+            result.append(
+                {
+                    "id": dep_loop.id,
+                    "title": dep_loop.title or dep_loop.raw_text[:50],
+                    "status": dep_loop.status.value,
+                }
+            )
+    return result
+
+
+@typingx.validate_io()
+def get_loop_blocking(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Get all loops that depend on this loop (its dependents).
+
+    Args:
+        loop_id: The loop to check
+        conn: Database connection
+
+    Returns:
+        List of dependent loop dicts with id, title, status
+    """
+    dependent_ids = repo.list_dependents(loop_id=loop_id, conn=conn)
+    if not dependent_ids:
+        return []
+
+    result = []
+    for dep_id in dependent_ids:
+        dep_loop = repo.read_loop(loop_id=dep_id, conn=conn)
+        if dep_loop:
+            result.append(
+                {
+                    "id": dep_loop.id,
+                    "title": dep_loop.title or dep_loop.raw_text[:50],
+                    "status": dep_loop.status.value,
+                }
+            )
+    return result
+
+
+def get_loop_with_dependencies(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Get a loop with its dependencies and blocking info.
+
+    Args:
+        loop_id: The loop to get
+        conn: Database connection
+
+    Returns:
+        Loop dict with dependencies and blocking lists
+    """
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
+    project = repo.read_project_name(project_id=loop.project_id, conn=conn)
+    tags = repo.list_loop_tags(loop_id=loop.id, conn=conn)
+    result = _record_to_dict(loop, project=project, tags=tags)
+
+    result["dependencies"] = get_loop_dependencies(loop_id=loop_id, conn=conn)
+    result["blocking"] = get_loop_blocking(loop_id=loop_id, conn=conn)
+    result["has_open_dependencies"] = repo.has_open_dependencies(loop_id=loop_id, conn=conn)
+    return result
 
 
 @typingx.validate_io()
@@ -659,6 +853,9 @@ def next_loops(
         if not record.next_action:
             continue
         if record.snooze_until_utc and record.snooze_until_utc > now:
+            continue
+        # Skip loops with open dependencies
+        if repo.has_open_dependencies(loop_id=record.id, conn=conn):
             continue
         actionable_records.append(record)
 
@@ -1342,9 +1539,17 @@ def bulk_close_loops(
             project = repo.read_project_name(project_id=record.project_id, conn=conn)
             tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
             return _record_to_dict(record, project=project, tags=tags)
+
         allowed = _ALLOWED_TRANSITIONS.get(record.status, set())
         if to_status not in allowed:
             raise TransitionError(record.status.value, to_status.value)
+
+        # Check for open dependencies when transitioning to actionable
+        if to_status == LoopStatus.ACTIONABLE:
+            open_deps = repo.list_open_dependencies(loop_id=loop_id, conn=conn)
+            if open_deps:
+                raise DependencyNotMetError(loop_id, open_deps)
+
         closed_at = None
         if is_terminal_status(to_status):
             closed_at = format_utc_datetime(utc_now())
@@ -1727,6 +1932,10 @@ def _classify_error(exc: Exception) -> str:
         return "claim_not_found"
     if isinstance(exc, ClaimExpiredError):
         return "claim_expired"
+    if isinstance(exc, DependencyCycleError):
+        return "dependency_cycle"
+    if isinstance(exc, DependencyNotMetError):
+        return "dependency_not_met"
     return "internal_error"
 
 

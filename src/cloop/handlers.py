@@ -10,6 +10,8 @@ Exception Mapping:
 - NotFoundError -> 404
 - TransitionError -> 400
 - ValidationError -> 400
+- DependencyCycleError -> 400 (dependency would create cycle)
+- DependencyNotMetError -> 400 (open dependencies block transition)
 - RequestValidationError -> 422
 - HTTPException -> Passthrough to status code
 - Exception -> 500 (with error_id for log correlation)
@@ -24,7 +26,14 @@ from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .loops.errors import CloopError, NotFoundError, TransitionError, ValidationError
+from .loops.errors import (
+    CloopError,
+    DependencyCycleError,
+    DependencyNotMetError,
+    NotFoundError,
+    TransitionError,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +75,22 @@ def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
     elif isinstance(exc, ValidationError):
         status_code = 400
         error_type = "validation_error"
+    elif isinstance(exc, DependencyCycleError):
+        status_code = 400
+        error_type = "dependency_cycle"
+    elif isinstance(exc, DependencyNotMetError):
+        status_code = 400
+        error_type = "dependency_not_met"
+        # Include open_dependencies in the response
+        return _http_error(
+            {
+                "message": exc.message,
+                "detail": exc.detail,
+                "open_dependencies": exc.open_dependencies,
+            },
+            status_code=status_code,
+            error_type=error_type,
+        )
     else:
         status_code = 400
         error_type = "domain_error"
