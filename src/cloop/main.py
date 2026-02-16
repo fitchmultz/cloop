@@ -21,7 +21,7 @@ All exception handlers are in handlers.py
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Dict
 
 from fastapi import Depends, FastAPI
 
@@ -29,7 +29,7 @@ from . import db, web
 from .handlers import register_exception_handlers
 from .rag import _SQL_PY_METRIC, _VECLIKE_METRIC, _select_retrieval_order
 from .routes import chat_router, loops_router, rag_router
-from .schemas.health import HealthResponse
+from .schemas.health import DependencyStatus, HealthResponse
 from .settings import Settings, get_settings
 
 
@@ -56,6 +56,23 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 @app.get("/health", response_model=HealthResponse)
 def health_endpoint(settings: SettingsDep) -> HealthResponse:
+    # Run dependency checks
+    db_checks = db.check_database_connectivity(settings)
+
+    # Build check status objects
+    checks: Dict[str, DependencyStatus] = {}
+    all_ok = True
+
+    for name, result in db_checks.items():
+        checks[name] = DependencyStatus(
+            ok=result["ok"],
+            latency_ms=result["latency_ms"],
+            error=result.get("error"),
+        )
+        if not result["ok"]:
+            all_ok = False
+
+    # Get existing configuration info
     backend = db.get_vector_backend()
     order = [
         path.value
@@ -66,8 +83,9 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         if backend in {db.VectorBackend.VEC, db.VectorBackend.VSS}
         else _SQL_PY_METRIC
     )
+
     return HealthResponse(
-        ok=True,
+        ok=all_ok,  # Now based on actual dependency health
         model=settings.llm_model,
         vector_mode=settings.vector_search_mode.value,
         vector_backend=backend.value,
@@ -78,4 +96,5 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         tool_mode_default=settings.tool_mode_default.value,
         retrieval_order=order,
         retrieval_metric=metric,
+        checks=checks,
     )

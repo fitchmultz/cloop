@@ -5,15 +5,24 @@ Purpose:
 
 Responsibilities:
     - Health status response schema
+    - Dependency status reporting
 
 Non-scope:
-    - Health check logic (see routes/health.py)
-    - Database connectivity checks
+    - Health check logic (see main.py)
+    - Database connectivity implementation (see db.py)
 """
 
-from typing import List
+from typing import Dict, List
 
 from pydantic import BaseModel
+
+
+class DependencyStatus(BaseModel):
+    """Status of a single dependency (database, provider, etc.)."""
+
+    ok: bool
+    latency_ms: float
+    error: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -30,3 +39,4 @@ class HealthResponse(BaseModel):
     tool_mode_default: str
     retrieval_order: List[str]
     retrieval_metric: str
+    checks: Dict[str, DependencyStatus]

@@ -188,6 +188,41 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert payload["tool_mode_default"] in {"manual", "llm", "none"}
     assert payload["retrieval_order"]
     assert payload["retrieval_metric"] in {"1_over_1_plus_distance", "cosine"}
+    # Verify dependency checks
+    assert "checks" in payload
+    assert payload["checks"]["core_db"]["ok"] is True
+    assert payload["checks"]["rag_db"]["ok"] is True
+    assert payload["checks"]["core_db"]["latency_ms"] >= 0
+    assert payload["checks"]["rag_db"]["latency_ms"] >= 0
+    assert payload["checks"]["core_db"]["error"] is None
+    assert payload["checks"]["rag_db"]["error"] is None
+
+
+def test_health_endpoint_with_broken_core_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Health endpoint returns ok=False when core database is inaccessible."""
+    # Set up a path to a file that exists but isn't a valid SQLite database
+    broken_db_path = tmp_path / "broken.db"
+    broken_db_path.write_text("not a sqlite database")
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_CORE_DB_PATH", str(broken_db_path))
+    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+
+    # Need to create a fresh client without initializing databases
+    from cloop.main import app
+
+    client = TestClient(app)
+    response = client.get("/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["checks"]["core_db"]["ok"] is False
+    assert payload["checks"]["core_db"]["error"] is not None
 
 
 def test_chat_manual_requires_tool_call(test_client: TestClient, tmp_data_dir: Path) -> None:

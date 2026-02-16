@@ -915,6 +915,52 @@ def get_rag_schema_version(settings: Settings | None = None) -> int:
         return _user_version(conn)
 
 
+def check_database_connectivity(settings: Settings | None = None) -> Dict[str, Dict[str, Any]]:
+    """Check connectivity to both core and RAG databases.
+
+    This function performs lightweight SELECT 1 queries to verify that
+    both databases are accessible and responding. Used by the /health
+    endpoint to report actual dependency status.
+
+    Args:
+        settings: Application settings. Uses global settings if not provided.
+
+    Returns:
+        A dict with keys 'core_db' and 'rag_db', each containing:
+            - ok: bool - whether the database is accessible
+            - latency_ms: float - time taken for SELECT 1 query in milliseconds
+            - error: str | None - error message if check failed
+    """
+    settings = settings or get_settings()
+    results: Dict[str, Dict[str, Any]] = {}
+
+    # Check core database
+    core_result: Dict[str, Any] = {"ok": False, "latency_ms": 0.0, "error": None}
+    try:
+        start = time.monotonic()
+        with core_connection(settings) as conn:
+            conn.execute("SELECT 1").fetchone()
+        core_result["latency_ms"] = (time.monotonic() - start) * 1000
+        core_result["ok"] = True
+    except Exception as e:
+        core_result["error"] = str(e)
+    results["core_db"] = core_result
+
+    # Check RAG database
+    rag_result: Dict[str, Any] = {"ok": False, "latency_ms": 0.0, "error": None}
+    try:
+        start = time.monotonic()
+        with rag_connection(settings) as conn:
+            conn.execute("SELECT 1").fetchone()
+        rag_result["latency_ms"] = (time.monotonic() - start) * 1000
+        rag_result["ok"] = True
+    except Exception as e:
+        rag_result["error"] = str(e)
+    results["rag_db"] = rag_result
+
+    return results
+
+
 def record_interaction(
     *,
     endpoint: str,
