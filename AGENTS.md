@@ -25,6 +25,7 @@ Your data stays in local SQLite files — no external vector database required.
 | Request/response schemas | `src/cloop/schemas/*.py` |
 | Loop management | `src/cloop/loops/*.py` |
 | RAG (retrieval) | `src/cloop/rag/*.py` |
+| SSE utilities | `src/cloop/sse.py` |
 | Database schema | `src/cloop/db.py` |
 | CLI commands | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
