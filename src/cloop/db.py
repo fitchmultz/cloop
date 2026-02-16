@@ -829,20 +829,75 @@ def _initialize_schema_if_needed(
         raise RuntimeError(f"schema_mismatch: expected={expected_version} found={version}")
 
 
+def _split_sql_statements(script: str) -> list[str]:
+    """Split a SQL script into individual statements.
+
+    Handles comments and semicolon-separated statements, filtering out
+    empty statements. This is needed because conn.executescript() commits
+    any pending transaction, which would destroy savepoints.
+    """
+    statements: list[str] = []
+    current: list[str] = []
+
+    for line in script.splitlines():
+        # Remove inline comments (but preserve strings)
+        stripped = line.strip()
+        if stripped.startswith("--"):
+            continue
+
+        # Keep the line (even if empty for readability)
+        current.append(line)
+
+        # Check if statement ends with semicolon
+        if stripped.endswith(";"):
+            stmt = "\n".join(current).strip()
+            if stmt and stmt != ";":
+                statements.append(stmt)
+            current = []
+
+    # Handle trailing statement without semicolon
+    if current:
+        stmt = "\n".join(current).strip()
+        if stmt and stmt != ";":
+            statements.append(stmt)
+
+    return statements
+
+
 def migrate_core_db(
     conn: sqlite3.Connection,
     *,
     from_version: int,
     to_version: int,
 ) -> None:
+    """Apply pending schema migrations with savepoint protection.
+
+    Each migration is wrapped in a SAVEPOINT to ensure atomic per-migration
+    behavior. If a migration fails, its savepoint is rolled back before
+    re-raising the exception, leaving the database at the last successful
+    migration version.
+
+    Note: We use execute() for each statement instead of executescript()
+    because executescript() commits the pending transaction, which would
+    destroy our savepoints and prevent rollback.
+    """
     if from_version >= to_version:
         return
     for version in range(from_version + 1, to_version + 1):
         migration = _CORE_MIGRATIONS.get(version)
         if migration is None:
             raise RuntimeError(f"missing core migration for version {version}")
-        conn.executescript(migration)
-        conn.execute(f"PRAGMA user_version = {version}")
+        savepoint_name = f"migration_{version}"
+        conn.execute(f"SAVEPOINT {savepoint_name}")
+        try:
+            # Execute statements individually to preserve savepoint
+            for stmt in _split_sql_statements(migration):
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {version}")
+            conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
+        except Exception:
+            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+            raise
     conn.commit()
 
 

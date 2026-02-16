@@ -138,3 +138,48 @@ def test_vector_extension_manager_thread_safety(
 
     assert not errors, f"Thread-safety errors: {errors}"
     get_settings.cache_clear()
+
+
+def test_migration_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that a failing migration rolls back both version and data changes."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    # Verify we're at the current schema version
+    with sqlite3.connect(settings.core_db_path) as conn:
+        initial_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert initial_version == db.SCHEMA_VERSION
+
+    # Manually set version back to simulate being at an older version
+    # and inject a bad migration that will fail
+    with sqlite3.connect(settings.core_db_path) as conn:
+        conn.execute("PRAGMA user_version = 4")  # Set to version before data migrations
+        conn.commit()
+
+    # Create a migration that succeeds partially then fails
+    # This tests that partial data changes are rolled back
+    original_migrations = db._CORE_MIGRATIONS.copy()
+    db._CORE_MIGRATIONS[5] = """
+        CREATE TABLE test_rollback_marker (id INTEGER PRIMARY KEY, value TEXT);
+        INSERT INTO test_rollback_marker (value) VALUES ('should be rolled back');
+        SELECT * FROM nonexistent_table;
+    """
+
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            with db.core_connection(settings) as conn:
+                db.migrate_core_db(conn, from_version=4, to_version=5)
+    finally:
+        db._CORE_MIGRATIONS = original_migrations
+
+    # Verify database is still at version 4 (rolled back)
+    with sqlite3.connect(settings.core_db_path) as conn:
+        version_after_failure = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version_after_failure == 4
+
+    # Verify the table created by partial migration was rolled back
+    with sqlite3.connect(settings.core_db_path) as conn:
+        table_exists = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='test_rollback_marker'"
+        ).fetchone()
+    assert table_exists is None, "Migration data should have been rolled back"
