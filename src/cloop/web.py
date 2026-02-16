@@ -18,7 +18,7 @@ Entrypoint:
 
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -29,7 +29,10 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 def serve_index() -> HTMLResponse:
-    html = (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    index_path = _STATIC_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="index.html not found")
+    html = index_path.read_text(encoding="utf-8")
     return HTMLResponse(html)
 
 
@@ -37,6 +40,8 @@ def serve_index() -> HTMLResponse:
 def serve_manifest() -> FileResponse:
     """Serve the web app manifest with correct content type."""
     manifest_path = _STATIC_DIR / "manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="manifest.json not found")
     return FileResponse(
         manifest_path,
         media_type="application/manifest+json",
@@ -48,6 +53,8 @@ def serve_manifest() -> FileResponse:
 def serve_service_worker() -> FileResponse:
     """Serve service worker with correct headers for SW registration."""
     sw_path = _STATIC_DIR / "sw.js"
+    if not sw_path.exists():
+        raise HTTPException(status_code=404, detail="sw.js not found")
     return FileResponse(
         sw_path,
         media_type="application/javascript",
