@@ -13,6 +13,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from conftest import _now_iso
 from mcp.server.fastmcp.exceptions import ToolError
 
 from cloop import db
@@ -49,11 +50,6 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()
     db.init_databases(get_settings())
-
-
-def _now_iso() -> str:
-    """Return current UTC time in ISO format."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 # =============================================================================

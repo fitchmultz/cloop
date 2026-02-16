@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import _now_iso
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -45,10 +46,6 @@ from cloop.loops.errors import ValidationError
 from cloop.loops.query import LoopQuery, _tokenize, parse_loop_query
 from cloop.mcp_server import loop_search as mcp_loop_search
 from cloop.mcp_server import loop_view_apply as mcp_loop_view_apply
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _parse_last_json(capsys: Any) -> Any:

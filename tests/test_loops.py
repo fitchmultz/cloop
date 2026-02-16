@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from conftest import _now_iso
 from fastapi.testclient import TestClient
 
 from cloop import db
@@ -379,10 +380,6 @@ def test_next_loops_empty_result(
     assert data["quick_wins"] == []
     assert data["high_leverage"] == []
     assert data["standard"] == []
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def test_loop_capture_and_filters(
