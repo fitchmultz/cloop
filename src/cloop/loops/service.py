@@ -20,6 +20,7 @@ Non-scope:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import timedelta
@@ -58,6 +59,8 @@ from .utils import normalize_tag, normalize_tags
 
 if TYPE_CHECKING:
     from .models import TimerStatus, TimeSession
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_TRANSITIONS: dict[LoopStatus, set[LoopStatus]] = {
     LoopStatus.INBOX: {
@@ -2232,6 +2235,14 @@ def claim_loop(
         conn=conn,
     )
 
+    logger.info(
+        "Loop claimed successfully: loop_id=%s owner=%s ttl=%s lease_until=%s",
+        loop_id,
+        owner,
+        ttl,
+        format_utc_datetime(lease_until),
+    )
+
     return {
         "loop_id": claim.loop_id,
         "owner": claim.owner,
@@ -2281,6 +2292,12 @@ def renew_claim(
     if claim is None:
         raise ClaimNotFoundError(loop_id)
 
+    logger.info(
+        "Claim renewed successfully: loop_id=%s new_lease_until=%s",
+        loop_id,
+        format_utc_datetime(new_lease_until),
+    )
+
     return {
         "loop_id": claim.loop_id,
         "owner": claim.owner,
@@ -2327,6 +2344,9 @@ def release_claim(
         payload=event_payload,
         conn=conn,
     )
+
+    logger.info("Claim released successfully: loop_id=%s", loop_id)
+
     return True
 
 
@@ -2348,6 +2368,11 @@ def force_release_claim(
     claim = repo.read_claim(loop_id=loop_id, conn=conn)
     released = repo.release_claim_by_loop_id(loop_id=loop_id, conn=conn)
     if released and claim:
+        logger.info(
+            "Claim force-released: loop_id=%s original_owner=%s",
+            loop_id,
+            claim.owner,
+        )
         event_payload = {
             "release_type": "forced",
             "original_owner": claim.owner,

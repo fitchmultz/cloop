@@ -1276,6 +1276,12 @@ def claim_loop(
         ),
     )
     conn.commit()
+    logger.info(
+        "Loop claimed: loop_id=%s owner=%s lease_until=%s",
+        loop_id,
+        owner,
+        format_utc_datetime(lease_until),
+    )
     return LoopClaim(
         loop_id=loop_id,
         owner=owner,
@@ -1348,6 +1354,11 @@ def renew_claim(
     conn.commit()
     if cursor.rowcount == 0:
         return None
+    logger.info(
+        "Claim renewed: loop_id=%s new_lease_until=%s",
+        loop_id,
+        format_utc_datetime(new_lease_until),
+    )
     return read_claim(loop_id=loop_id, conn=conn)
 
 
@@ -1375,7 +1386,10 @@ def release_claim(
         (loop_id, claim_token),
     )
     conn.commit()
-    return cursor.rowcount > 0
+    released = cursor.rowcount > 0
+    if released:
+        logger.info("Claim released: loop_id=%s", loop_id)
+    return released
 
 
 def release_claim_by_loop_id(
@@ -1418,7 +1432,10 @@ def purge_expired_claims(
         (now_str,),
     )
     conn.commit()
-    return cursor.rowcount
+    purged_count = cursor.rowcount
+    if purged_count > 0:
+        logger.info("Purged expired claims: count=%s", purged_count)
+    return purged_count
 
 
 def list_active_claims(
