@@ -25,6 +25,28 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from ..constants import (
+    AUTHOR_MAX,
+    BLOCKED_REASON_MAX,
+    COMMENT_BODY_MAX,
+    COMPLETION_NOTE_MAX,
+    DEFINITION_OF_DONE_MAX,
+    NEXT_ACTION_MAX,
+    PROJECT_MAX,
+    RAW_TEXT_MAX,
+    RRULE_MAX,
+    SCHEDULE_MAX,
+    SEARCH_QUERY_MAX,
+    SUMMARY_MAX,
+    TEMPLATE_DESCRIPTION_MAX,
+    TEMPLATE_NAME_MAX,
+    TIMEZONE_MAX,
+    TITLE_MAX,
+    VIEW_DESCRIPTION_MAX,
+    VIEW_NAME_MAX,
+    WEBHOOK_DESCRIPTION_MAX,
+    WEBHOOK_URL_MAX,
+)
 from ..loops.models import LoopStatus
 
 if TYPE_CHECKING:
@@ -34,7 +56,7 @@ if TYPE_CHECKING:
 class LoopCaptureRequest(BaseModel):
     """Request to capture a new loop/task."""
 
-    raw_text: str = Field(..., min_length=1)
+    raw_text: str = Field(..., min_length=1, max_length=RAW_TEXT_MAX)
     captured_at: str = Field(..., description="Client ISO8601 timestamp (local or offset)")
     client_tz_offset_min: int = Field(..., description="Minutes offset from UTC at capture time")
     actionable: bool = False
@@ -42,14 +64,17 @@ class LoopCaptureRequest(BaseModel):
     blocked: bool = False
     schedule: str | None = Field(
         default=None,
+        max_length=SCHEDULE_MAX,
         description="Natural-language recurrence phrase (e.g., 'every weekday', 'every 2 weeks')",
     )
     rrule: str | None = Field(
         default=None,
+        max_length=RRULE_MAX,
         description="RFC 5545 RRULE string (e.g., 'FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR')",
     )
     timezone: str | None = Field(
         default=None,
+        max_length=TIMEZONE_MAX,
         description="IANA timezone name (e.g., 'America/New_York'). Defaults to client offset.",
     )
     template_id: int | None = Field(
@@ -58,6 +83,7 @@ class LoopCaptureRequest(BaseModel):
     )
     template_name: str | None = Field(
         default=None,
+        max_length=TITLE_MAX,
         description="Optional template name to apply (alternative to template_id)",
     )
 
@@ -79,24 +105,30 @@ class LoopCaptureRequest(BaseModel):
 class LoopUpdateRequest(BaseModel):
     """Request to update loop fields."""
 
-    raw_text: str | None = Field(default=None, min_length=1)
-    title: str | None = Field(default=None, min_length=1)
-    summary: str | None = Field(default=None, min_length=1)
-    definition_of_done: str | None = Field(default=None, min_length=1)
-    next_action: str | None = Field(default=None, min_length=1)
+    raw_text: str | None = Field(default=None, min_length=1, max_length=RAW_TEXT_MAX)
+    title: str | None = Field(default=None, min_length=1, max_length=TITLE_MAX)
+    summary: str | None = Field(default=None, min_length=1, max_length=SUMMARY_MAX)
+    definition_of_done: str | None = Field(
+        default=None, min_length=1, max_length=DEFINITION_OF_DONE_MAX
+    )
+    next_action: str | None = Field(default=None, min_length=1, max_length=NEXT_ACTION_MAX)
     due_at_utc: str | None = None
     snooze_until_utc: str | None = None
     time_minutes: int | None = Field(default=None, ge=1)
     activation_energy: int | None = Field(default=None, ge=0, le=3)
     urgency: float | None = Field(default=None, ge=0.0, le=1.0)
     importance: float | None = Field(default=None, ge=0.0, le=1.0)
-    project: str | None = Field(default=None, min_length=1)
-    blocked_reason: str | None = None
-    completion_note: str | None = None
+    project: str | None = Field(default=None, min_length=1, max_length=PROJECT_MAX)
+    blocked_reason: str | None = Field(default=None, max_length=BLOCKED_REASON_MAX)
+    completion_note: str | None = Field(default=None, max_length=COMPLETION_NOTE_MAX)
     tags: List[str] | None = None
     claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
-    recurrence_rrule: str | None = Field(default=None, description="RFC 5545 RRULE string")
-    recurrence_tz: str | None = Field(default=None, description="IANA timezone name")
+    recurrence_rrule: str | None = Field(
+        default=None, max_length=RRULE_MAX, description="RFC 5545 RRULE string"
+    )
+    recurrence_tz: str | None = Field(
+        default=None, max_length=TIMEZONE_MAX, description="IANA timezone name"
+    )
     recurrence_enabled: bool | None = Field(default=None, description="Enable/disable recurrence")
 
     @field_validator("due_at_utc", mode="before")
@@ -122,7 +154,7 @@ class LoopCloseRequest(BaseModel):
     """Request to close a loop (completed or dropped)."""
 
     status: LoopStatus = LoopStatus.COMPLETED
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=COMPLETION_NOTE_MAX)
     claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
 
 
@@ -130,7 +162,7 @@ class LoopStatusRequest(BaseModel):
     """Request to transition loop status."""
 
     status: LoopStatus
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=COMPLETION_NOTE_MAX)
     claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
 
 
@@ -224,7 +256,9 @@ class LoopImportResponse(BaseModel):
 class LoopSearchRequest(BaseModel):
     """Request for DSL-based loop search."""
 
-    query: str = Field(..., min_length=1, description="DSL query string")
+    query: str = Field(
+        ..., min_length=1, max_length=SEARCH_QUERY_MAX, description="DSL query string"
+    )
     limit: int = Field(default=50, ge=1, le=200, description="Max results")
     offset: int = Field(default=0, ge=0, description="Pagination offset")
 
@@ -241,17 +275,21 @@ class LoopSearchResponse(BaseModel):
 class LoopViewCreateRequest(BaseModel):
     """Request to create a saved view."""
 
-    name: str = Field(..., min_length=1, max_length=255, description="View name")
-    query: str = Field(..., min_length=1, description="DSL query string")
-    description: str | None = Field(default=None, description="Optional description")
+    name: str = Field(..., min_length=1, max_length=VIEW_NAME_MAX, description="View name")
+    query: str = Field(
+        ..., min_length=1, max_length=SEARCH_QUERY_MAX, description="DSL query string"
+    )
+    description: str | None = Field(
+        default=None, max_length=VIEW_DESCRIPTION_MAX, description="Optional description"
+    )
 
 
 class LoopViewUpdateRequest(BaseModel):
     """Request to update a saved view."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=255)
-    query: str | None = Field(default=None, min_length=1)
-    description: str | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=VIEW_NAME_MAX)
+    query: str | None = Field(default=None, min_length=1, max_length=SEARCH_QUERY_MAX)
+    description: str | None = Field(default=None, max_length=VIEW_DESCRIPTION_MAX)
 
 
 class LoopViewResponse(BaseModel):
@@ -288,11 +326,15 @@ class LoopEventStreamResponse(BaseModel):
 class WebhookSubscriptionCreate(BaseModel):
     """Request to create a webhook subscription."""
 
-    url: str = Field(..., min_length=1, description="Webhook URL (https recommended)")
+    url: str = Field(
+        ..., min_length=1, max_length=WEBHOOK_URL_MAX, description="Webhook URL (https recommended)"
+    )
     event_types: List[str] = Field(
         default=["*"], description="Event types to subscribe to, ['*'] for all"
     )
-    description: str | None = Field(default=None, description="Optional description")
+    description: str | None = Field(
+        default=None, max_length=WEBHOOK_DESCRIPTION_MAX, description="Optional description"
+    )
 
     @field_validator("url")
     @classmethod
@@ -305,10 +347,10 @@ class WebhookSubscriptionCreate(BaseModel):
 class WebhookSubscriptionUpdate(BaseModel):
     """Request to update a webhook subscription."""
 
-    url: str | None = Field(default=None, min_length=1)
+    url: str | None = Field(default=None, min_length=1, max_length=WEBHOOK_URL_MAX)
     event_types: List[str] | None = None
     active: bool | None = None
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=WEBHOOK_DESCRIPTION_MAX)
 
     @field_validator("url")
     @classmethod
@@ -372,7 +414,7 @@ class LoopClaimRequest(BaseModel):
     """Request to claim a loop for exclusive access."""
 
     owner: str = Field(
-        ..., min_length=1, max_length=255, description="Identifier for claiming agent"
+        ..., min_length=1, max_length=AUTHOR_MAX, description="Identifier for claiming agent"
     )
     ttl_seconds: int | None = Field(default=None, ge=1, description="Lease duration in seconds")
 
@@ -456,7 +498,9 @@ class TimerStartRequest(BaseModel):
 class TimerStopRequest(BaseModel):
     """Request to stop a timer."""
 
-    notes: str | None = Field(default=None, description="Optional notes for this session")
+    notes: str | None = Field(
+        default=None, max_length=SUMMARY_MAX, description="Optional notes for this session"
+    )
 
 
 class TimeSessionResponse(BaseModel):
@@ -543,7 +587,7 @@ class BulkCloseItem(BaseModel):
 
     loop_id: int
     status: Literal[LoopStatus.COMPLETED, LoopStatus.DROPPED] = LoopStatus.COMPLETED
-    note: str | None = None
+    note: str | None = Field(default=None, max_length=COMPLETION_NOTE_MAX)
 
 
 class BulkSnoozeItem(BaseModel):
@@ -642,18 +686,18 @@ class LoopTemplateResponse(BaseModel):
 class LoopTemplateCreateRequest(BaseModel):
     """Request to create a new loop template."""
 
-    name: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(default=None, max_length=500)
-    raw_text_pattern: str = Field(default="", max_length=10000)
+    name: str = Field(..., min_length=1, max_length=TEMPLATE_NAME_MAX)
+    description: str | None = Field(default=None, max_length=TEMPLATE_DESCRIPTION_MAX)
+    raw_text_pattern: str = Field(default="", max_length=RAW_TEXT_MAX)
     defaults: Dict[str, Any] = Field(default_factory=dict)
 
 
 class LoopTemplateUpdateRequest(BaseModel):
     """Request to update a loop template."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=100)
-    description: str | None = Field(default=None, max_length=500)
-    raw_text_pattern: str | None = Field(default=None, max_length=10000)
+    name: str | None = Field(default=None, min_length=1, max_length=TEMPLATE_NAME_MAX)
+    description: str | None = Field(default=None, max_length=TEMPLATE_DESCRIPTION_MAX)
+    raw_text_pattern: str | None = Field(default=None, max_length=RAW_TEXT_MAX)
     defaults: Dict[str, Any] | None = None
 
 
@@ -737,15 +781,19 @@ class LoopUndoResponse(BaseModel):
 class LoopCommentCreateRequest(BaseModel):
     """Request to create a comment on a loop."""
 
-    author: str = Field(..., min_length=1, max_length=255, description="Comment author")
-    body_md: str = Field(..., min_length=1, max_length=10000, description="Markdown body")
+    author: str = Field(..., min_length=1, max_length=AUTHOR_MAX, description="Comment author")
+    body_md: str = Field(
+        ..., min_length=1, max_length=COMMENT_BODY_MAX, description="Markdown body"
+    )
     parent_id: int | None = Field(default=None, description="Parent comment ID for replies")
 
 
 class LoopCommentUpdateRequest(BaseModel):
     """Request to update a comment."""
 
-    body_md: str = Field(..., min_length=1, max_length=10000, description="Markdown body")
+    body_md: str = Field(
+        ..., min_length=1, max_length=COMMENT_BODY_MAX, description="Markdown body"
+    )
 
 
 class LoopCommentResponse(BaseModel):

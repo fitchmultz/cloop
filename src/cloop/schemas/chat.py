@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, TypedDict
 
 from pydantic import BaseModel, Field, conlist, model_validator
 
+from ..constants import CHAT_MESSAGE_MAX, NOTE_BODY_MAX, TITLE_MAX
 from ..settings import ToolMode
 
 
@@ -36,7 +37,7 @@ class ChatMessage(BaseModel):
     """A single message in a chat conversation."""
 
     role: str
-    content: str
+    content: str = Field(..., max_length=CHAT_MESSAGE_MAX)
 
 
 class ToolCall(BaseModel):
@@ -47,8 +48,8 @@ class ToolCall(BaseModel):
 
     name: str = Field(..., description="Supported: read_note, write_note")
     note_id: int | None = None
-    title: str | None = None
-    body: str | None = None
+    title: str | None = Field(default=None, max_length=TITLE_MAX)
+    body: str | None = Field(default=None, max_length=NOTE_BODY_MAX)
 
 
 if TYPE_CHECKING:
