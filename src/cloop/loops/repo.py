@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Mapping
 
 from ..typingx import escape_like_pattern
-from .errors import LoopNotFoundError, ValidationError
+from .errors import LoopCreateError, LoopImportError, LoopNotFoundError, ValidationError
 from .models import (
     EnrichmentState,
     LoopClaim,
@@ -202,7 +202,7 @@ def create_loop(
     )
     row = conn.execute("SELECT * FROM loops WHERE id = ?", (cursor.lastrowid,)).fetchone()
     if row is None:
-        raise RuntimeError("loop_create_failed")
+        raise LoopCreateError(raw_text=raw_text)
     return _row_to_record(row)
 
 
@@ -400,7 +400,7 @@ def insert_loop_from_export(
         {**payload, "project_id": project_id},
     )
     if cursor.lastrowid is None:
-        raise RuntimeError("loop_import_failed")
+        raise LoopImportError(payload=payload)
     return int(cursor.lastrowid)
 
 
