@@ -80,6 +80,7 @@ from .loops.service import (
     update_loop,
     update_loop_view,
 )
+from .loops.utils import normalize_tags
 from .rag import ingest_paths, retrieve_similar_chunks
 from .settings import Settings, get_settings
 
@@ -553,7 +554,7 @@ def _loop_update_command(args: argparse.Namespace, settings: Settings) -> int:
     if args.blocked_reason is not None:
         fields["blocked_reason"] = args.blocked_reason
     if args.tags is not None:
-        fields["tags"] = [t.strip().lower() for t in args.tags.split(",")] if args.tags else []
+        fields["tags"] = normalize_tags(args.tags.split(",")) if args.tags else []
 
     if not fields:
         print("error: no fields to update", file=sys.stderr)
@@ -1164,7 +1165,7 @@ def _template_create_command(args: argparse.Namespace, settings: Settings) -> in
 
     defaults: dict[str, Any] = {}
     if args.tags:
-        defaults["tags"] = [t.strip().lower() for t in args.tags.split(",")]
+        defaults["tags"] = normalize_tags(args.tags.split(","))
     if args.time:
         defaults["time_minutes"] = args.time
     if args.actionable:

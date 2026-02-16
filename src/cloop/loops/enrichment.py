@@ -38,6 +38,7 @@ from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
 from .related import find_duplicate_candidates, suggest_links, upsert_loop_embedding
+from .utils import normalize_tags
 
 
 class LoopSuggestion(BaseModel):
@@ -243,7 +244,7 @@ def _apply_suggestion(
 
     if suggestion.tags and "tags" not in locked:
         if _confidence_for(suggestion, "tags") >= settings.autopilot_autoapply_min_confidence:
-            cleaned_tags = [tag.strip().lower() for tag in suggestion.tags if tag.strip()]
+            cleaned_tags = normalize_tags(suggestion.tags)
             repo.replace_loop_tags(loop_id=int(loop["id"]), tag_names=cleaned_tags, conn=conn)
             provenance["tags"] = {
                 "source": "ai",

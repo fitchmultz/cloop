@@ -80,6 +80,7 @@ from ..loops import service as loop_service
 from ..loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
 from ..loops.metrics import compute_loop_metrics
 from ..loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
+from ..loops.utils import normalize_tag
 
 if TYPE_CHECKING:
     from ..loops.metrics import LoopMetrics
@@ -392,7 +393,7 @@ def loop_list_endpoint(
     limit: Annotated[int, Query(ge=1, le=200)] = DEFAULT_LOOP_LIST_LIMIT,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> List[LoopResponse]:
-    tag_value = tag.strip().lower() if tag else None
+    tag_value = normalize_tag(tag)
     with db.core_connection(settings) as conn:
         if status == "open":
             statuses = [
