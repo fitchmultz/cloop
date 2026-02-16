@@ -11,73 +11,7 @@ from cloop import db
 from cloop.loops.models import LoopStatus
 from cloop.loops.prioritization import bucketize
 from cloop.main import app
-from cloop.settings import Settings, get_settings
-
-
-def _test_settings() -> Settings:
-    """Create a Settings object with default test values."""
-    return Settings(
-        root_dir=Path.cwd(),
-        core_db_path=Path("./data/core.db"),
-        rag_db_path=Path("./data/rag.db"),
-        llm_model="ollama/llama3",
-        embed_model="ollama/nomic-embed-text",
-        default_top_k=5,
-        chunk_size=800,
-        llm_timeout=30.0,
-        ingest_timeout=60.0,
-        embedding_timeout=30.0,
-        sqlite_vector_extension=None,
-        vector_search_mode="python",  # type: ignore[arg-type]
-        tool_mode_default="manual",  # type: ignore[arg-type]
-        embed_storage_mode="dual",  # type: ignore[arg-type]
-        openai_api_base=None,
-        openai_api_key=None,
-        google_api_key=None,
-        ollama_api_base=None,
-        lmstudio_api_base=None,
-        openrouter_api_base=None,
-        stream_default=False,
-        organizer_model="gemini/gemini-3-flash-preview",
-        organizer_timeout=20.0,
-        autopilot_enabled=False,
-        autopilot_autoapply_min_confidence=0.85,
-        max_file_size_mb=50,
-        prioritization_due_window_hours=72.0,
-        prioritization_due_soon_hours=48.0,
-        prioritization_quick_win_minutes=15,
-        prioritization_high_leverage_threshold=0.7,
-        priority_weight_due=1.0,
-        priority_weight_urgency=0.7,
-        priority_weight_importance=0.9,
-        priority_weight_time_penalty=0.2,
-        priority_weight_activation_penalty=0.3,
-        related_similarity_threshold=0.78,
-        duplicate_similarity_threshold=0.95,
-        related_max_candidates=1000,
-        next_candidates_limit=500,
-        idempotency_ttl_seconds=86400,
-        idempotency_max_key_length=255,
-        webhook_max_retries=5,
-        webhook_retry_base_delay=2.0,
-        webhook_retry_max_delay=300.0,
-        webhook_timeout_seconds=30.0,
-        webhook_heartbeat_interval=30.0,
-        # LLM retry settings
-        llm_max_retries=3,
-        llm_retry_min_wait=2.0,
-        llm_retry_max_wait=60.0,
-        claim_default_ttl_seconds=300,
-        claim_max_ttl_seconds=3600,
-        claim_token_bytes=32,
-        backup_dir=Path("./data/backups"),
-        backup_keep_count=10,
-        backup_compress=True,
-        # Review thresholds
-        review_stale_hours=72.0,
-        review_blocked_hours=48.0,
-        review_due_soon_hours=48.0,
-    )
+from cloop.settings import get_settings
 
 
 def test_next_loops_sql_filtering(
@@ -646,10 +580,10 @@ def test_export_import_roundtrip(
     assert imported_payload[0]["completion_note"] == "archived"
 
 
-def test_bucketize_returns_standard_for_low_importance() -> None:
+def test_bucketize_returns_standard_for_low_importance(test_settings) -> None:
     """Low importance loops should NOT be classified as high_leverage."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     # Loop with low importance, not due soon, not a quick win
     loop = {
@@ -663,10 +597,10 @@ def test_bucketize_returns_standard_for_low_importance() -> None:
     assert result == "standard", f"Expected 'standard' for low importance loop, got '{result}'"
 
 
-def test_bucketize_returns_high_leverage_for_high_importance() -> None:
+def test_bucketize_returns_high_leverage_for_high_importance(test_settings) -> None:
     """High importance loops should be classified as high_leverage."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     loop = {
         "importance": 0.8,
@@ -678,10 +612,10 @@ def test_bucketize_returns_high_leverage_for_high_importance() -> None:
     assert result == "high_leverage"
 
 
-def test_bucketize_returns_due_soon_for_urgent_due_date() -> None:
+def test_bucketize_returns_due_soon_for_urgent_due_date(test_settings) -> None:
     """Loops due within 48h should be due_soon regardless of other factors."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     loop = {
         "importance": 0.9,  # High importance
@@ -694,10 +628,10 @@ def test_bucketize_returns_due_soon_for_urgent_due_date() -> None:
     assert result == "due_soon"
 
 
-def test_bucketize_returns_quick_wins_for_small_tasks() -> None:
+def test_bucketize_returns_quick_wins_for_small_tasks(test_settings) -> None:
     """Short, low-energy tasks should be quick_wins."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     loop = {
         "importance": 0.9,  # High importance
@@ -709,10 +643,10 @@ def test_bucketize_returns_quick_wins_for_small_tasks() -> None:
     assert result == "quick_wins"
 
 
-def test_bucketize_handles_none_importance() -> None:
+def test_bucketize_handles_none_importance(test_settings) -> None:
     """Loops without importance should default to standard."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     loop = {
         "time_minutes": 60,
@@ -723,10 +657,10 @@ def test_bucketize_handles_none_importance() -> None:
     assert result == "standard"
 
 
-def test_bucketize_importance_boundary_high() -> None:
+def test_bucketize_importance_boundary_high(test_settings) -> None:
     """Loop with importance exactly 0.7 should be high_leverage."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     loop = {
         "importance": 0.7,
@@ -738,10 +672,10 @@ def test_bucketize_importance_boundary_high() -> None:
     assert result == "high_leverage"
 
 
-def test_bucketize_importance_boundary_low() -> None:
+def test_bucketize_importance_boundary_low(test_settings) -> None:
     """Loop with importance just below 0.7 should be standard."""
     now = datetime.now(timezone.utc)
-    settings = _test_settings()
+    settings = test_settings()
 
     loop = {
         "importance": 0.69,
@@ -2610,11 +2544,11 @@ def test_webhook_event_type_filtering() -> None:
     assert _should_deliver_event("capture", []) is False
 
 
-def test_webhook_retry_delay_calculation() -> None:
+def test_webhook_retry_delay_calculation(test_settings) -> None:
     """Test exponential backoff delay calculation."""
     from cloop.webhooks.service import _calculate_retry_delay
 
-    settings = _test_settings()
+    settings = test_settings()
 
     # First retry should be around base delay (2s) ± jitter
     delay0 = _calculate_retry_delay(0, settings)

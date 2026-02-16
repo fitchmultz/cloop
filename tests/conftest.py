@@ -14,9 +14,94 @@ from fastapi.testclient import TestClient
 
 from cloop import db
 from cloop.main import app
-from cloop.settings import get_settings
+from cloop.settings import EmbedStorageMode, Settings, ToolMode, VectorSearchMode, get_settings
 
 STREAM_TOKENS = ["Answer ", "segment"]
+
+
+@pytest.fixture
+def test_settings() -> Callable[..., Settings]:
+    """Factory fixture returning a function to create Settings with test defaults.
+
+    Returns a function that creates Settings objects with sensible test defaults.
+    Pass keyword arguments to override specific fields.
+
+    Usage:
+        # Default settings
+        settings = test_settings()
+
+        # Override specific fields
+        settings = test_settings(autopilot_enabled=True, llm_timeout=60.0)
+
+    Returns:
+        A factory function that creates Settings objects.
+    """
+
+    def _factory(**overrides: Any) -> Settings:
+        defaults = {
+            "root_dir": Path.cwd(),
+            "core_db_path": Path("./data/core.db"),
+            "rag_db_path": Path("./data/rag.db"),
+            "llm_model": "ollama/llama3",
+            "embed_model": "ollama/nomic-embed-text",
+            "default_top_k": 5,
+            "chunk_size": 800,
+            "llm_timeout": 30.0,
+            "ingest_timeout": 60.0,
+            "embedding_timeout": 30.0,
+            "sqlite_vector_extension": None,
+            "vector_search_mode": VectorSearchMode.PYTHON,
+            "tool_mode_default": ToolMode.MANUAL,
+            "embed_storage_mode": EmbedStorageMode.DUAL,
+            "openai_api_base": None,
+            "openai_api_key": None,
+            "google_api_key": None,
+            "ollama_api_base": None,
+            "lmstudio_api_base": None,
+            "openrouter_api_base": None,
+            "stream_default": False,
+            "organizer_model": "gemini/gemini-3-flash-preview",
+            "organizer_timeout": 20.0,
+            "autopilot_enabled": False,
+            "autopilot_autoapply_min_confidence": 0.85,
+            "max_file_size_mb": 50,
+            "prioritization_due_window_hours": 72.0,
+            "prioritization_due_soon_hours": 48.0,
+            "prioritization_quick_win_minutes": 15,
+            "prioritization_high_leverage_threshold": 0.7,
+            "priority_weight_due": 1.0,
+            "priority_weight_urgency": 0.7,
+            "priority_weight_importance": 0.9,
+            "priority_weight_time_penalty": 0.2,
+            "priority_weight_activation_penalty": 0.3,
+            "related_similarity_threshold": 0.78,
+            "duplicate_similarity_threshold": 0.95,
+            "related_max_candidates": 1000,
+            "next_candidates_limit": 500,
+            "idempotency_ttl_seconds": 86400,
+            "idempotency_max_key_length": 255,
+            "webhook_max_retries": 5,
+            "webhook_retry_base_delay": 2.0,
+            "webhook_retry_max_delay": 300.0,
+            "webhook_timeout_seconds": 30.0,
+            "webhook_heartbeat_interval": 30.0,
+            "llm_max_retries": 3,
+            "llm_retry_min_wait": 2.0,
+            "llm_retry_max_wait": 60.0,
+            "claim_default_ttl_seconds": 300,
+            "claim_max_ttl_seconds": 3600,
+            "claim_token_bytes": 32,
+            "backup_dir": Path("./data/backups"),
+            "backup_keep_count": 10,
+            "backup_compress": True,
+            "review_stale_hours": 72.0,
+            "review_blocked_hours": 48.0,
+            "review_due_soon_hours": 48.0,
+        }
+        defaults.update(overrides)
+        return Settings(**defaults)  # type: ignore[arg-type]
+
+    return _factory
 
 
 def _now_iso() -> str:
