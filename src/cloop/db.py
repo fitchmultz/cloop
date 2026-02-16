@@ -17,8 +17,10 @@ Non-scope:
 import json
 import logging
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Mapping
@@ -27,10 +29,6 @@ from .settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-_VECTOR_EXTENSION_ATTEMPTED = False
-_VECTOR_EXTENSION_AVAILABLE = False
-_VECTOR_LOAD_ERROR: str | None = None
-
 
 class VectorBackend(StrEnum):
     NONE = "none"
@@ -38,9 +36,110 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
+@dataclass(frozen=True)
+class VectorExtensionState:
+    """Immutable snapshot of vector extension state."""
+
+    attempted: bool
+    available: bool
+    backend: VectorBackend
+    load_error: str | None
+
+
+class VectorExtensionManager:
+    """Thread-safe singleton for managing vector extension state.
+
+    The extension is loaded once per process. This manager provides
+    atomic access to the state and supports reset for error recovery.
+    """
+
+    _instance: "VectorExtensionManager | None" = None
+    _lock: threading.Lock = threading.Lock()
+    _state: VectorExtensionState
+    _state_lock: threading.Lock
+
+    def __new__(cls) -> "VectorExtensionManager":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    instance = super().__new__(cls)
+                    instance._state = VectorExtensionState(
+                        attempted=False,
+                        available=False,
+                        backend=VectorBackend.NONE,
+                        load_error=None,
+                    )
+                    instance._state_lock = threading.Lock()
+                    cls._instance = instance
+        return cls._instance
+
+    def get_state(self) -> VectorExtensionState:
+        """Return current state snapshot (thread-safe)."""
+        with self._state_lock:
+            return self._state
+
+    def attempt_load(self, conn: sqlite3.Connection, extension_path: str | None) -> None:
+        """Attempt to load vector extension (once per process, thread-safe).
+
+        This method is idempotent - subsequent calls are no-ops.
+        """
+        with self._state_lock:
+            if self._state.attempted:
+                return
+
+            if not extension_path:
+                self._state = VectorExtensionState(
+                    attempted=True,
+                    available=False,
+                    backend=VectorBackend.NONE,
+                    load_error=None,
+                )
+                return
+
+            try:
+                conn.enable_load_extension(True)
+                conn.load_extension(extension_path)
+                backend = _detect_vector_backend(conn)
+                self._state = VectorExtensionState(
+                    attempted=True,
+                    available=backend is not VectorBackend.NONE,
+                    backend=backend,
+                    load_error=None,
+                )
+            except sqlite3.Error as e:
+                self._state = VectorExtensionState(
+                    attempted=True,
+                    available=False,
+                    backend=VectorBackend.NONE,
+                    load_error=str(e),
+                )
+                logger.warning(
+                    "Failed to load SQLite vector extension from '%s': %s. "
+                    "Vector search will fall back to SQLite/Python mode.",
+                    extension_path,
+                    e,
+                )
+            finally:
+                conn.enable_load_extension(False)
+
+    def reset(self) -> None:
+        """Reset state to allow re-detection (used after errors)."""
+        with self._state_lock:
+            self._state = VectorExtensionState(
+                attempted=False,
+                available=False,
+                backend=VectorBackend.NONE,
+                load_error=None,
+            )
+
+
+def _get_vector_manager() -> VectorExtensionManager:
+    """Get the singleton manager instance."""
+    return VectorExtensionManager()
+
+
 SCHEMA_VERSION: int = 20
 RAG_SCHEMA_VERSION: int = 1
-_VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
 PRAGMAS = [
     ("journal_mode", "WAL"),
@@ -808,60 +907,28 @@ def rag_connection(settings: Settings | None = None) -> Iterator[sqlite3.Connect
 
 
 def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -> None:
-    global \
-        _VECTOR_EXTENSION_ATTEMPTED, \
-        _VECTOR_EXTENSION_AVAILABLE, \
-        _VECTOR_BACKEND, \
-        _VECTOR_LOAD_ERROR
-    if _VECTOR_EXTENSION_ATTEMPTED:
-        return
-    _VECTOR_EXTENSION_ATTEMPTED = True
-    extension_path = settings.sqlite_vector_extension
-    if not extension_path:
-        return
-    try:
-        conn.enable_load_extension(True)
-        conn.load_extension(extension_path)
-        _VECTOR_BACKEND = _detect_vector_backend(conn)
-        _VECTOR_EXTENSION_AVAILABLE = _VECTOR_BACKEND is not VectorBackend.NONE
-        _VECTOR_LOAD_ERROR = None
-    except sqlite3.Error as e:
-        _VECTOR_EXTENSION_AVAILABLE = False
-        _VECTOR_BACKEND = VectorBackend.NONE
-        _VECTOR_LOAD_ERROR = str(e)
-        logger.warning(
-            "Failed to load SQLite vector extension from '%s': %s. "
-            "Vector search will fall back to SQLite/Python mode.",
-            extension_path,
-            e,
-        )
-    finally:
-        conn.enable_load_extension(False)
+    _get_vector_manager().attempt_load(conn, settings.sqlite_vector_extension)
 
 
 def vector_extension_available() -> bool:
-    return _VECTOR_EXTENSION_AVAILABLE
+    return _get_vector_manager().get_state().available
 
 
 def get_vector_backend() -> VectorBackend:
-    return _VECTOR_BACKEND
+    return _get_vector_manager().get_state().backend
 
 
 def get_vector_load_error() -> str | None:
     """Return the error message from the last vector extension load attempt, if any."""
-    return _VECTOR_LOAD_ERROR
+    return _get_vector_manager().get_state().load_error
 
 
 def reset_vector_backend() -> None:
-    global \
-        _VECTOR_BACKEND, \
-        _VECTOR_EXTENSION_AVAILABLE, \
-        _VECTOR_EXTENSION_ATTEMPTED, \
-        _VECTOR_LOAD_ERROR
-    _VECTOR_BACKEND = VectorBackend.NONE
-    _VECTOR_EXTENSION_AVAILABLE = False
-    _VECTOR_EXTENSION_ATTEMPTED = False
-    _VECTOR_LOAD_ERROR = None
+    """Reset vector extension state to allow re-detection.
+
+    Call this when vector operations fail to force re-detection on next use.
+    """
+    _get_vector_manager().reset()
 
 
 def init_core_db(settings: Settings | None = None) -> None:
