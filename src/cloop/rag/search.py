@@ -202,25 +202,45 @@ def _chunk_rows_with_scores(
     return results
 
 
-def fetch_all_chunks(settings: Settings | None = None) -> List[Dict[str, Any]]:
+def fetch_all_chunks(
+    settings: Settings | None = None,
+    limit: int | None = None,
+) -> List[Dict[str, Any]]:
+    """Fetch chunks from the RAG database.
+
+    Args:
+        settings: Optional settings override. Uses get_settings() if not provided.
+        limit: Optional maximum number of chunks to return. If None, returns all chunks.
+
+    Returns:
+        List of chunk dictionaries with keys: id, document_path, chunk_index,
+        content, embedding, embedding_dim, metadata, embedding_blob, embedding_norm, doc_id.
+
+    Warning:
+        Calling without a limit loads ALL chunks into memory. With 10k chunks
+        and 768-dim embeddings, this can exceed 300MB. Always specify a limit
+        when you don't need the entire dataset.
+    """
     settings = settings or get_settings()
+    base_query = """
+        SELECT
+            id,
+            document_path,
+            chunk_index,
+            content,
+            embedding,
+            embedding_dim,
+            metadata,
+            embedding_blob,
+            embedding_norm,
+            doc_id
+        FROM chunks
+    """
     with rag_connection(settings) as conn:
-        rows = conn.execute(
-            """
-            SELECT
-                id,
-                document_path,
-                chunk_index,
-                content,
-                embedding,
-                embedding_dim,
-                metadata,
-                embedding_blob,
-                embedding_norm,
-                doc_id
-            FROM chunks
-            """
-        ).fetchall()
+        if limit is not None:
+            rows = conn.execute(f"{base_query} LIMIT ?", (limit,)).fetchall()
+        else:
+            rows = conn.execute(base_query).fetchall()
     return [dict(row) for row in rows]
 
 
@@ -266,7 +286,11 @@ def retrieve_similar_chunks(
                     return rows
                 continue
             if path is RetrievalPath.PYTHON:
-                rows = fetch_all_chunks(settings=settings)
+                # When scope is set, we need to fetch more rows than top_k because
+                # scope filtering reduces the result set. Use a multiplier to ensure
+                # we still get top_k results after filtering.
+                fetch_limit = top_k * 10 if scope else top_k
+                rows = fetch_all_chunks(settings=settings, limit=fetch_limit)
                 if scope:
                     rows = _filter_rows_by_scope(rows, scope)
                 if not rows:

@@ -988,3 +988,39 @@ def test_chunk_rows_with_scores_single_query(
     # Should have executed only 1 query for chunk lookup, not 5
     assert len(results) >= 1
     assert query_count == 1, f"Expected 1 query, got {query_count} (N+1 pattern detected)"
+
+
+def test_fetch_all_chunks_respects_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify fetch_all_chunks returns at most limit rows."""
+    settings = make_settings(tmp_path, vector_mode=VectorSearchMode.PYTHON)
+
+    def fake_embed(chunks: List[str], *, settings: Settings | None = None) -> List[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) for _ in chunks]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+    # Create 5 documents
+    for i in range(5):
+        doc = tmp_path / f"doc_{i}.txt"
+        doc.write_text(f"content {i}", encoding="utf-8")
+
+    ingest_paths([str(tmp_path)], settings=settings)
+
+    from cloop.rag.search import fetch_all_chunks
+
+    # Without limit, should get all 5
+    all_chunks = fetch_all_chunks(settings=settings)
+    assert len(all_chunks) == 5
+
+    # With limit=2, should get exactly 2
+    limited = fetch_all_chunks(settings=settings, limit=2)
+    assert len(limited) == 2
+
+    # With limit=10 (more than exist), should get all 5
+    over_limit = fetch_all_chunks(settings=settings, limit=10)
+    assert len(over_limit) == 5
+
+    # With limit=0, should get empty list
+    zero_limit = fetch_all_chunks(settings=settings, limit=0)
+    assert len(zero_limit) == 0
