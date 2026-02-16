@@ -27,6 +27,8 @@ Exception Hierarchy:
 
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 
 class CloopError(Exception):
     """Base exception for all Cloop domain errors."""
@@ -215,3 +217,42 @@ class MergeConflictError(CloopError):
         self.loop_id = loop_id
         self.target_id = target_id
         self.reason = reason
+
+
+class LoopCreateError(CloopError):
+    """Raised when a loop creation database operation fails.
+
+    This indicates an unexpected database failure during loop insertion,
+    not a validation error. Maps to HTTP 500 Internal Server Error.
+
+    Attributes:
+        raw_text: The raw_text that was being inserted (truncated for display)
+    """
+
+    def __init__(self, raw_text: str) -> None:
+        truncated = raw_text[:100] + "..." if len(raw_text) > 100 else raw_text
+        super().__init__(
+            "Failed to create loop",
+            detail=f"raw_text='{truncated}'",
+        )
+        self.raw_text = raw_text
+
+
+class LoopImportError(CloopError):
+    """Raised when a loop import database operation fails.
+
+    This indicates an unexpected database failure during loop import,
+    typically when the INSERT returns no lastrowid. Maps to HTTP 500 Internal Server Error.
+
+    Attributes:
+        payload: The import payload (truncated for display)
+    """
+
+    def __init__(self, payload: Mapping[str, Any]) -> None:
+        # Safely truncate payload for error detail
+        payload_str = str(dict(payload))[:200]
+        super().__init__(
+            "Failed to import loop",
+            detail=f"payload='{payload_str}'",
+        )
+        self.payload = payload
