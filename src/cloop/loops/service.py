@@ -54,6 +54,7 @@ from .models import (
     utc_now,
 )
 from .prioritization import PriorityWeights, bucketize, compute_priority_score
+from .utils import normalize_tag, normalize_tags
 
 if TYPE_CHECKING:
     from .models import TimerStatus, TimeSession
@@ -404,7 +405,9 @@ def list_loops_by_tag(
     offset: int,
     conn: sqlite3.Connection,
 ) -> list[dict[str, Any]]:
-    normalized = tag.strip().lower()
+    normalized = normalize_tag(tag)
+    if not normalized:
+        return []
     records = repo.list_loops_by_tag(
         tag=normalized,
         statuses=statuses,
@@ -487,7 +490,7 @@ def import_loops(
             )
             tags = item_map.get("tags") or []
             if tags:
-                normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+                normalized_tags = normalize_tags(tags)
                 repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
             imported += 1
     return imported
@@ -564,7 +567,7 @@ def update_loop(
             updated_fields["project_id"] = project_id
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
         if tags is not None:
-            normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+            normalized_tags = normalize_tags(tags)
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
         event_payload: dict[str, Any] = {"fields": dict(fields)}
         if before_state:
@@ -1432,7 +1435,7 @@ def bulk_update_loops(
             updated_fields["project_id"] = project_id
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
         if tags is not None:
-            normalized_tags = [str(tag).strip().lower() for tag in tags if str(tag).strip()]
+            normalized_tags = normalize_tags(tags)
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
         event_payload = {"fields": dict(fields)}
         event_id = repo.insert_loop_event(

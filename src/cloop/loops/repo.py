@@ -38,6 +38,7 @@ from .models import (
     utc_now,
 )
 from .query import LoopQuery, compile_loop_query, parse_loop_query
+from .utils import normalize_tag, normalize_tags
 
 if TYPE_CHECKING:
     from .models import TimeSession
@@ -660,7 +661,7 @@ def list_projects(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def upsert_tag(*, name: str, conn: sqlite3.Connection) -> int:
-    normalized = name.strip().lower()
+    normalized = normalize_tag(name)
     if not normalized:
         raise ValidationError("tag_name", "tag name cannot be empty")
     row = conn.execute("SELECT id FROM tags WHERE name = ?", (normalized,)).fetchone()
@@ -700,8 +701,8 @@ def _upsert_tags_batch(*, tag_names: list[str], conn: sqlite3.Connection) -> dic
     Returns:
         Dict mapping normalized tag name to tag_id
     """
-    # Normalize and dedupe while preserving order
-    normalized = list(dict.fromkeys(name.strip().lower() for name in tag_names if name.strip()))
+    # Normalize first, then dedupe while preserving order
+    normalized = list(dict.fromkeys(normalize_tags(tag_names)))
 
     if not normalized:
         return {}
@@ -754,8 +755,8 @@ def replace_loop_tags(*, loop_id: int, tag_names: list[str], conn: sqlite3.Conne
     # Step 1: Remove existing tag associations
     conn.execute("DELETE FROM loop_tags WHERE loop_id = ?", (loop_id,))
 
-    # Step 2: Normalize and filter empty
-    normalized = [name.strip().lower() for name in tag_names if name.strip()]
+    # Step 2: Normalize tags
+    normalized = normalize_tags(tag_names)
     if not normalized:
         # Still clean up orphaned tags
         conn.execute("DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags)")
