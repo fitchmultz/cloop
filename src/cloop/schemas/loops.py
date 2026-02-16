@@ -854,3 +854,54 @@ class LoopMetricsResponse(BaseModel):
     capture_count_24h: int
     completion_count_24h: int
     avg_age_open_hours: float | None
+
+
+# ============================================================================
+# Duplicate Detection and Merge Schemas
+# ============================================================================
+
+
+class DuplicateCandidateResponse(BaseModel):
+    """A potential duplicate loop with similarity score."""
+
+    loop_id: int
+    score: float
+    title: str | None
+    raw_text_preview: str
+    status: str
+    captured_at_utc: str
+
+
+class DuplicatesListResponse(BaseModel):
+    """Response for listing duplicate candidates."""
+
+    loop_id: int
+    candidates: List[DuplicateCandidateResponse]
+
+
+class MergePreviewResponse(BaseModel):
+    """Preview of what a merge would produce."""
+
+    surviving_loop_id: int
+    duplicate_loop_id: int
+    merged_title: str | None
+    merged_summary: str | None
+    merged_tags: List[str]
+    merged_next_action: str | None
+    field_conflicts: Dict[str, Dict[str, Any]]
+
+
+class MergeRequest(BaseModel):
+    """Request to merge a duplicate loop into another."""
+
+    target_loop_id: int
+    field_overrides: Dict[str, str | None] | None = None
+
+
+class MergeResultResponse(BaseModel):
+    """Result of a completed merge operation."""
+
+    surviving_loop_id: int
+    closed_loop_id: int
+    merged_tags: List[str]
+    fields_updated: List[str]
