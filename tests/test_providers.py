@@ -80,6 +80,10 @@ def _make_settings(**overrides: Any) -> Settings:
         webhook_retry_max_delay=300.0,
         webhook_timeout_seconds=30.0,
         webhook_heartbeat_interval=30.0,
+        # LLM retry settings
+        llm_max_retries=3,
+        llm_retry_min_wait=2.0,
+        llm_retry_max_wait=60.0,
         claim_default_ttl_seconds=300,
         claim_max_ttl_seconds=3600,
         claim_token_bytes=32,

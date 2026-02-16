@@ -102,6 +102,10 @@ class Settings:
     webhook_retry_max_delay: float
     webhook_timeout_seconds: float
     webhook_heartbeat_interval: float
+    # LLM retry settings
+    llm_max_retries: int
+    llm_retry_min_wait: float
+    llm_retry_max_wait: float
     # Claim configuration
     claim_default_ttl_seconds: int
     claim_max_ttl_seconds: int
@@ -227,6 +231,10 @@ def get_settings() -> Settings:
         webhook_retry_max_delay=float(os.getenv("CLOOP_WEBHOOK_RETRY_MAX_DELAY", "300.0")),
         webhook_timeout_seconds=float(os.getenv("CLOOP_WEBHOOK_TIMEOUT_SECONDS", "30.0")),
         webhook_heartbeat_interval=float(os.getenv("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL", "30.0")),
+        # LLM retry settings
+        llm_max_retries=int(os.getenv("CLOOP_LLM_MAX_RETRIES", "3")),
+        llm_retry_min_wait=float(os.getenv("CLOOP_LLM_RETRY_MIN_WAIT", "2.0")),
+        llm_retry_max_wait=float(os.getenv("CLOOP_LLM_RETRY_MAX_WAIT", "60.0")),
         # Claim configuration
         claim_default_ttl_seconds=int(os.getenv("CLOOP_CLAIM_DEFAULT_TTL_SECONDS", "300")),
         claim_max_ttl_seconds=int(os.getenv("CLOOP_CLAIM_MAX_TTL_SECONDS", "3600")),
@@ -318,6 +326,13 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_WEBHOOK_TIMEOUT_SECONDS must be positive")
     if settings.webhook_heartbeat_interval <= 0:
         raise ValueError("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL must be positive")
+    # Validate LLM retry settings
+    if settings.llm_max_retries < 0:
+        raise ValueError("CLOOP_LLM_MAX_RETRIES must be non-negative")
+    if settings.llm_retry_min_wait <= 0:
+        raise ValueError("CLOOP_LLM_RETRY_MIN_WAIT must be positive")
+    if settings.llm_retry_max_wait < settings.llm_retry_min_wait:
+        raise ValueError("CLOOP_LLM_RETRY_MAX_WAIT must be >= CLOOP_LLM_RETRY_MIN_WAIT")
     # Validate claim settings
     if settings.claim_default_ttl_seconds < 1:
         raise ValueError("CLOOP_CLAIM_DEFAULT_TTL_SECONDS must be at least 1")
