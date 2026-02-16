@@ -12,6 +12,7 @@ src/cloop/llm.py
 src/cloop/main.py
 src/cloop/mcp_server.py
 src/cloop/providers.py
+src/cloop/retry.py
 src/cloop/settings.py
 src/cloop/sse.py
 src/cloop/tools.py
@@ -37,6 +38,7 @@ src/cloop/loops/repo.py
 src/cloop/loops/review.py
 src/cloop/loops/service.py
 src/cloop/loops/templates.py
+src/cloop/loops/utils.py
 src/cloop/rag/__init__.py
 src/cloop/rag/chunking.py
 src/cloop/rag/documents.py
@@ -66,12 +68,14 @@ tests/test_db_schema.py
 tests/test_errors.py
 tests/test_llm.py
 tests/test_llm_failures.py
+tests/test_loop_utils.py
 tests/test_loops.py
 tests/test_loops_query.py
 tests/test_mcp_server.py
 tests/test_providers.py
 tests/test_rag.py
 tests/test_recurrence.py
+tests/test_retry.py
 tests/test_settings.py
 tests/test_tools.py
 tests/test_typingx.py

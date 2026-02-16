@@ -7,6 +7,7 @@ pypdf>=4.1.0
 mcp>=0.3.0
 python-dateutil>=2.9.0
 tzdata>=2024.1
+tenacity>=8.2.0
 
 [dev]
 ruff>=0.6.0

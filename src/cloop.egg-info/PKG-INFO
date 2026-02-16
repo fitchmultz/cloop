@@ -14,6 +14,7 @@ Requires-Dist: pypdf>=4.1.0
 Requires-Dist: mcp>=0.3.0
 Requires-Dist: python-dateutil>=2.9.0
 Requires-Dist: tzdata>=2024.1
+Requires-Dist: tenacity>=8.2.0
 Provides-Extra: dev
 Requires-Dist: ruff>=0.6.0; extra == "dev"
 Requires-Dist: pytest>=8.3.0; extra == "dev"

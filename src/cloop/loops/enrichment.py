@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .. import db
 from ..providers import resolve_provider_kwargs
+from ..retry import with_llm_retry
 from ..settings import Settings, get_settings
 from ..webhooks.service import queue_deliveries
 from . import repo
@@ -288,7 +289,7 @@ def enrich_loop(
     messages = _build_prompt(loop_payload)
 
     try:
-        response = litellm.completion(
+        response = with_llm_retry(litellm.completion, settings)(
             model=settings.organizer_model,
             messages=messages,
             timeout=int(settings.organizer_timeout),

@@ -26,6 +26,7 @@ from typing import Any, Dict, Generator, Iterable, List, Tuple, cast
 import litellm
 
 from .providers import resolve_provider_kwargs
+from .retry import with_llm_retry
 from .settings import Settings, get_settings
 from .tools import EXECUTORS, TOOL_SPECS, normalize_tool_arguments
 
@@ -50,7 +51,7 @@ def chat_completion(
     start = time.time()
     response = cast(
         Dict[str, Any],
-        litellm.completion(
+        with_llm_retry(litellm.completion, settings)(
             model=settings.llm_model,
             messages=messages,
             timeout=int(settings.llm_timeout),
@@ -78,7 +79,7 @@ def stream_completion(
 ) -> Generator[str, None, None]:
     settings = settings or get_settings()
     provider_kwargs = resolve_provider_kwargs(settings.llm_model, settings)
-    stream = litellm.completion(
+    stream = with_llm_retry(litellm.completion, settings)(
         model=settings.llm_model,
         messages=messages,
         timeout=int(settings.llm_timeout),
@@ -114,7 +115,7 @@ def chat_with_tools(
     start = time.time()
     first_response = cast(
         Dict[str, Any],
-        litellm.completion(
+        with_llm_retry(litellm.completion, settings)(
             model=settings.llm_model,
             messages=request_messages,
             tools=tools,
@@ -181,7 +182,7 @@ def chat_with_tools(
     second_start = time.time()
     second_response = cast(
         Dict[str, Any],
-        litellm.completion(
+        with_llm_retry(litellm.completion, settings)(
             model=settings.llm_model,
             messages=augmented_messages,
             tools=tools,
