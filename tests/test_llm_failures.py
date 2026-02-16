@@ -9,30 +9,16 @@ from pathlib import Path
 
 import litellm
 import pytest
-from fastapi.testclient import TestClient
-
-from cloop import db
-from cloop.main import app
-from cloop.settings import get_settings
-
-
-def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """Create test client with isolated database."""
-    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
-    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
-    get_settings.cache_clear()
-    db.init_databases(get_settings())
-    return TestClient(app, raise_server_exceptions=False)
 
 
 class TestLLMTimeoutErrors:
     """Tests for litellm.Timeout exceptions."""
 
-    def test_chat_completion_timeout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_chat_completion_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test that chat timeout returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_timeout(*args, **kwargs):
             raise litellm.Timeout(
@@ -50,10 +36,10 @@ class TestLLMTimeoutErrors:
         assert data["error"]["type"] == "server_error"
 
     def test_embedding_timeout_during_ingest(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that embedding timeout during ingest returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         doc = tmp_path / "test.txt"
         doc.write_text("Test document content", encoding="utf-8")
@@ -69,10 +55,10 @@ class TestLLMTimeoutErrors:
         assert response.status_code == 500
 
     def test_embedding_timeout_during_ask(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that embedding timeout during RAG query returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_timeout(*args, **kwargs):
             raise litellm.Timeout(
@@ -88,9 +74,11 @@ class TestLLMTimeoutErrors:
 class TestLLMConnectionErrors:
     """Tests for litellm.APIConnectionError exceptions."""
 
-    def test_chat_connection_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_chat_connection_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test that connection error returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_connection_error(*args, **kwargs):
             raise litellm.APIConnectionError(
@@ -106,10 +94,10 @@ class TestLLMConnectionErrors:
         assert response.status_code == 500
 
     def test_embedding_connection_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that embedding connection error returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_connection_error(*args, **kwargs):
             raise litellm.APIConnectionError(
@@ -130,9 +118,11 @@ class TestLLMConnectionErrors:
 class TestLLMRateLimitErrors:
     """Tests for litellm.RateLimitError exceptions."""
 
-    def test_chat_rate_limit_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_chat_rate_limit_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test that rate limit error returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_rate_limit(*args, **kwargs):
             raise litellm.RateLimitError(
@@ -148,10 +138,10 @@ class TestLLMRateLimitErrors:
         assert response.status_code == 500
 
     def test_embedding_rate_limit_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that embedding rate limit returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         doc = tmp_path / "test.txt"
         doc.write_text("Test document content", encoding="utf-8")
@@ -171,10 +161,10 @@ class TestLLMServiceUnavailableErrors:
     """Tests for litellm.ServiceUnavailableError exceptions."""
 
     def test_chat_service_unavailable(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that service unavailable returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_unavailable(*args, **kwargs):
             raise litellm.ServiceUnavailableError(
@@ -194,10 +184,10 @@ class TestLLMContextWindowErrors:
     """Tests for litellm.ContextWindowExceededError exceptions."""
 
     def test_chat_context_window_exceeded(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that context window exceeded returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_context_exceeded(*args, **kwargs):
             raise litellm.ContextWindowExceededError(
@@ -219,9 +209,11 @@ class TestLLMContextWindowErrors:
 class TestLLMAuthenticationErrors:
     """Tests for litellm.AuthenticationError exceptions."""
 
-    def test_chat_invalid_api_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_chat_invalid_api_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test that auth error returns 500 (does not leak auth details)."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_auth_error(*args, **kwargs):
             raise litellm.AuthenticationError(

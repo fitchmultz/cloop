@@ -10,11 +10,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
-
-from cloop import db
-from cloop.main import app
-from cloop.settings import get_settings
 
 
 def _now_iso() -> str:
@@ -22,25 +17,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    """Create test client with isolated database."""
-    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
-    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
-    get_settings.cache_clear()
-    db.init_databases(get_settings())
-    return TestClient(app, raise_server_exceptions=False)
-
-
 class TestDatabaseOperationalError:
     """Tests for sqlite3.OperationalError scenarios."""
 
     def test_create_loop_database_locked(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that database locked error returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_capture_loop(*args, **kwargs):
             raise sqlite3.OperationalError("database is locked")
@@ -61,10 +45,10 @@ class TestDatabaseOperationalError:
         assert data["error"]["message"] == "Unexpected server error"
 
     def test_update_loop_disk_io_error(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that disk I/O error returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         create_response = client.post(
             "/loops/capture",
@@ -92,10 +76,10 @@ class TestDatabaseIntegrityError:
     """Tests for sqlite3.IntegrityError scenarios."""
 
     def test_create_loop_unique_constraint_violation(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that UNIQUE constraint violation returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         def mock_capture_loop(*args, **kwargs):
             raise sqlite3.IntegrityError("UNIQUE constraint failed: loops.title")
@@ -115,10 +99,10 @@ class TestDatabaseIntegrityError:
         assert data["error"]["type"] == "server_error"
 
     def test_update_loop_foreign_key_violation(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that FK constraint violation returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         create_response = client.post(
             "/loops/capture",
@@ -146,10 +130,10 @@ class TestDatabaseDiskFullError:
     """Tests for disk full scenarios."""
 
     def test_ingest_disk_full_during_chunk_insert(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that disk full during RAG ingestion returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         doc = tmp_path / "test.txt"
         doc.write_text("Test document content", encoding="utf-8")
@@ -168,9 +152,11 @@ class TestDatabaseDiskFullError:
 class TestDatabaseGenericError:
     """Tests for generic database errors."""
 
-    def test_get_loop_database_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_loop_database_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test that database errors during get returns 500."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client(raise_server_exceptions=False)
 
         create_response = client.post(
             "/loops/capture",

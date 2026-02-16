@@ -79,9 +79,11 @@ def _test_settings() -> Settings:
     )
 
 
-def test_next_loops_sql_filtering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_next_loops_sql_filtering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that next_loops SQL-level filtering excludes wrong candidates."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     captured_at = _now_iso()
     now = datetime.now(timezone.utc)
     future = (now + timedelta(hours=24)).isoformat(timespec="seconds")
@@ -156,9 +158,11 @@ def test_next_loops_sql_filtering(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert not any("done task" in t for t in all_titles)
 
 
-def test_next_loops_candidate_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_next_loops_candidate_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that candidate count respects next_candidates_limit setting."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     captured_at = _now_iso()
 
     # Create more loops than the default cap (500)
@@ -189,7 +193,7 @@ def test_next_loops_candidate_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_next_loops_ranking_preserves_candidates(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that SQL filtering returns the same candidates Python filtering would.
 
@@ -197,7 +201,7 @@ def test_next_loops_ranking_preserves_candidates(
     identify actionable candidates without missing items that would have passed
     the old Python-level filtering.
     """
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     captured_at = _now_iso()
     now = datetime.now(timezone.utc)
     past = (now - timedelta(hours=1)).isoformat(timespec="seconds")
@@ -264,10 +268,10 @@ def test_next_loops_ranking_preserves_candidates(
 
 
 def test_next_loops_excludes_non_candidate_statuses(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that blocked, scheduled, dropped, and completed loops are excluded."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     captured_at = _now_iso()
 
     # Create loops and transition them to various non-candidate statuses
@@ -299,9 +303,11 @@ def test_next_loops_excludes_non_candidate_statuses(
     assert not any("dropped" in t for t in all_titles)
 
 
-def test_next_loops_snooze_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_next_loops_snooze_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that snooze boundary conditions are handled correctly."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     captured_at = _now_iso()
     now = datetime.now(timezone.utc)
 
@@ -352,9 +358,11 @@ def test_next_loops_snooze_boundary(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert any("current snooze task" in t for t in all_titles)
 
 
-def test_next_loops_empty_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_next_loops_empty_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that empty result is handled gracefully when no candidates match."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     response = client.get("/loops/next")
     assert response.status_code == 200
@@ -373,20 +381,14 @@ def test_next_loops_empty_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert data["standard"] == []
 
 
-def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    get_settings.cache_clear()
-    db.init_databases(get_settings())
-    return TestClient(app)
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def test_loop_capture_and_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_client(tmp_path, monkeypatch)
+def test_loop_capture_and_filters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    client = make_test_client()
     captured_at = _now_iso()
 
     capture_payloads = [
@@ -428,8 +430,10 @@ def test_loop_capture_and_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert any(loop["status"] == "completed" for loop in completed.json())
 
 
-def test_loop_status_transitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_client(tmp_path, monkeypatch)
+def test_loop_status_transitions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    client = make_test_client()
     response = client.post(
         "/loops/capture",
         json={
@@ -461,7 +465,7 @@ def test_loop_status_transitions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_invalid_status_transition_rejected(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that invalid status transitions are rejected with 400 error.
 
@@ -469,7 +473,7 @@ def test_invalid_status_transition_rejected(
     cannot transition directly back to inbox. The loop must be closed
     (completed/dropped) first, then reopened.
     """
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop that starts in actionable status
     capture = client.post(
@@ -501,8 +505,10 @@ def test_invalid_status_transition_rejected(
     assert "inbox" in error["error"]["message"].lower()
 
 
-def test_tag_normalization_and_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_client(tmp_path, monkeypatch)
+def test_tag_normalization_and_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    client = make_test_client()
     response = client.post(
         "/loops/capture",
         json={
@@ -537,12 +543,14 @@ def test_tag_normalization_and_filter(tmp_path: Path, monkeypatch: pytest.Monkey
     assert tags_after.json() == []
 
 
-def test_replace_loop_tags_query_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_replace_loop_tags_query_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Verify replace_loop_tags uses O(1) queries, not O(n)."""
     from cloop.db import core_connection
     from cloop.loops import repo
 
-    _make_client(tmp_path, monkeypatch)  # Sets up the test database
+    make_test_client()  # Sets up the test database
 
     class CountingConnection:
         """Wrapper that counts execute and executemany calls."""
@@ -599,8 +607,10 @@ def test_replace_loop_tags_query_count(tmp_path: Path, monkeypatch: pytest.Monke
         )
 
 
-def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_client(tmp_path, monkeypatch)
+def test_export_import_roundtrip(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    client = make_test_client()
     capture = client.post(
         "/loops/capture",
         json={
@@ -627,7 +637,7 @@ def test_export_import_roundtrip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
     fresh_dir = tmp_path / "imported"
     fresh_dir.mkdir()
-    fresh_client = _make_client(fresh_dir, monkeypatch)
+    fresh_client = make_test_client(data_dir=fresh_dir)
     import_response = fresh_client.post("/loops/import", json={"loops": export_payload["loops"]})
     assert import_response.status_code == 200
     assert import_response.json()["imported"] == len(export_payload["loops"])
@@ -747,7 +757,7 @@ def test_bucketize_importance_boundary_low() -> None:
 
 
 def test_list_loops_query_count_not_n_plus_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Verify that listing loops uses O(1) queries, not O(n) queries.
 
@@ -834,7 +844,9 @@ def test_list_loops_query_count_not_n_plus_one(
     conn.close()
 
 
-def test_fetch_loop_embeddings_with_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetch_loop_embeddings_with_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that fetch_loop_embeddings respects the limit parameter."""
     import sqlite3
 
@@ -963,7 +975,7 @@ def test_find_related_loops_scalability_docstring() -> None:
 
 
 def test_search_loops_escapes_like_wildcards_percent(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that % in search query is escaped and treated literally."""
     import sqlite3
@@ -1014,7 +1026,7 @@ def test_search_loops_escapes_like_wildcards_percent(
 
 
 def test_search_loops_escapes_like_wildcards_underscore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that _ in search query is escaped and treated literally."""
     import sqlite3
@@ -1064,7 +1076,9 @@ def test_search_loops_escapes_like_wildcards_underscore(
     conn.close()
 
 
-def test_search_loops_escapes_backslash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_loops_escapes_backslash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that backslash in search query is properly escaped."""
     import sqlite3
 
@@ -1315,7 +1329,7 @@ def test_extract_json_malformed_in_markdown():
 
 
 def test_parse_json_list_raises_on_malformed_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that malformed JSON in user_locks_json field raises ValueError."""
     import sqlite3
@@ -1356,7 +1370,7 @@ def test_parse_json_list_raises_on_malformed_json(
 
 
 def test_parse_json_dict_raises_on_malformed_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that malformed JSON in provenance_json field raises ValueError."""
     import sqlite3
@@ -1397,7 +1411,7 @@ def test_parse_json_dict_raises_on_malformed_json(
 
 
 def test_parse_json_list_truncates_long_value_in_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that very long malformed JSON values are truncated in the error message."""
     import sqlite3
@@ -1452,10 +1466,10 @@ def test_parse_json_list_truncates_long_value_in_error(
 
 
 def test_loop_capture_invalid_timestamp_format(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that invalid captured_at format returns 400 with clear error."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     invalid_timestamps = [
         "not-a-timestamp",
@@ -1482,9 +1496,11 @@ def test_loop_capture_invalid_timestamp_format(
         assert "invalid captured_at" in error_str or "validation" in error_str
 
 
-def test_loop_update_invalid_due_at_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_update_invalid_due_at_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that invalid due_at_utc format returns 400 with clear error."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop first
     create_response = client.post(
@@ -1510,10 +1526,10 @@ def test_loop_update_invalid_due_at_format(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_loop_update_invalid_snooze_until_format(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that invalid snooze_until_utc format returns 400 with clear error."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop first
     create_response = client.post(
@@ -1537,10 +1553,10 @@ def test_loop_update_invalid_snooze_until_format(
 
 
 def test_loop_capture_valid_timestamp_with_z_suffix(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that timestamps with Z suffix are accepted."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Use Z suffix (UTC indicator)
     response = client.post(
@@ -1556,10 +1572,10 @@ def test_loop_capture_valid_timestamp_with_z_suffix(
 
 
 def test_loop_capture_valid_timestamp_with_offset(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that timestamps with timezone offset are accepted."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Use timezone offset
     response = client.post(
@@ -1652,10 +1668,10 @@ def test_parse_client_datetime_accepts_valid_tz_offset() -> None:
 
 
 def test_loop_capture_invalid_tz_offset_too_high(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that tz_offset_min > 1440 is rejected with 400."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     response = client.post(
         "/loops/capture",
@@ -1673,10 +1689,10 @@ def test_loop_capture_invalid_tz_offset_too_high(
 
 
 def test_loop_capture_invalid_tz_offset_too_low(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that tz_offset_min < -1439 is rejected with 400."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     response = client.post(
         "/loops/capture",
@@ -1692,10 +1708,10 @@ def test_loop_capture_invalid_tz_offset_too_low(
 
 
 def test_loop_capture_valid_tz_offset_boundaries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that boundary values (-1439, 0, 1439) are accepted."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     for offset in [-1439, 0, 1439]:
         response = client.post(
@@ -1715,7 +1731,7 @@ def test_loop_capture_valid_tz_offset_boundaries(
 
 
 def test_update_loop_fields_rejects_invalid_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that update_loop_fields raises ValidationError for invalid field names."""
     import sqlite3
@@ -1762,7 +1778,7 @@ def test_update_loop_fields_rejects_invalid_fields(
 
 
 def test_update_loop_fields_rejects_multiple_invalid_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that error message includes all invalid fields, sorted alphabetically."""
     import sqlite3
@@ -1806,7 +1822,7 @@ def test_update_loop_fields_rejects_multiple_invalid_fields(
 
 
 def test_request_enrichment_raises_for_nonexistent_loop(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that request_enrichment raises LoopNotFoundError for non-existent loop."""
     import sqlite3
@@ -1835,7 +1851,9 @@ def test_request_enrichment_raises_for_nonexistent_loop(
 # =============================================================================
 
 
-def test_priority_weights_from_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_priority_weights_from_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Verify that next_loops uses priority weights from settings."""
     import sqlite3
 
@@ -1942,11 +1960,13 @@ def test_terminal_statuses_constant() -> None:
 # =============================================================================
 
 
-def test_loop_capture_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_capture_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + same payload returns same response without duplicate loop."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     payload = {
         "raw_text": "idempotent test",
@@ -1970,7 +1990,7 @@ def test_loop_capture_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_loop_capture_idempotency_concurrent_replay(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Concurrent same-key capture requests replay a single created loop."""
     import sqlite3
@@ -2006,9 +2026,11 @@ def test_loop_capture_idempotency_concurrent_replay(
     assert count == 1
 
 
-def test_loop_capture_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_capture_idempotency_conflict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + different payload returns 409 Conflict."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     payload1 = {
         "raw_text": "first text",
@@ -2030,11 +2052,13 @@ def test_loop_capture_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.M
     assert "idempotency_key_conflict" in str(response2.json())
 
 
-def test_loop_update_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_update_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + same payload for update returns same response."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     create_response = client.post(
         "/loops/capture",
@@ -2064,9 +2088,11 @@ def test_loop_update_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
     assert count <= 2
 
 
-def test_loop_status_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_status_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + same payload for status change returns same response."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     create_response = client.post(
         "/loops/capture",
@@ -2090,9 +2116,11 @@ def test_loop_status_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
     assert response2.json()["status"] == "actionable"
 
 
-def test_loop_close_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_close_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + same payload for close returns same response."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     create_response = client.post(
         "/loops/capture",
@@ -2118,9 +2146,11 @@ def test_loop_close_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monke
     assert response2.json()["completion_note"] == "Done"
 
 
-def test_idempotency_key_validation_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_idempotency_key_validation_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Empty idempotency key is rejected."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     payload = {
         "raw_text": "test",
@@ -2134,12 +2164,12 @@ def test_idempotency_key_validation_empty(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_no_idempotency_key_creates_separate_loops(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Without idempotency key, same payload creates separate loops."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     payload = {
         "raw_text": "no key test",
@@ -2163,11 +2193,13 @@ def test_no_idempotency_key_creates_separate_loops(
     assert count == 2
 
 
-def test_different_scopes_allow_same_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_different_scopes_allow_same_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key can be used for different operations."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     payload = {
         "raw_text": "scope test",
@@ -2191,10 +2223,10 @@ def test_different_scopes_allow_same_key(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_idempotency_key_validation_too_long(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Very long idempotency key is rejected."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     payload = {
         "raw_text": "test",
@@ -2207,11 +2239,13 @@ def test_idempotency_key_validation_too_long(
     assert response.status_code == 400
 
 
-def test_loop_import_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_import_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Idempotency key works for import endpoint."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     now_iso = _now_iso()
     import_payload = {
@@ -2242,11 +2276,13 @@ def test_loop_import_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
     assert count == imported_count_1
 
 
-def test_loop_enrich_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_enrich_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Idempotency key works for enrich endpoint."""
     from unittest.mock import patch
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     create_response = client.post(
         "/loops/capture",
@@ -2273,17 +2309,13 @@ def test_loop_enrich_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 def test_idempotency_expiry_allows_new_request(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """After idempotency key expires, same key can create new loop."""
     import sqlite3
 
-    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    get_settings.cache_clear()
+    client = make_test_client()
     settings = get_settings()
-    db.init_databases(settings)
-    client = TestClient(app)
 
     payload = {
         "raw_text": "expiry test",
@@ -2320,10 +2352,10 @@ def test_idempotency_expiry_allows_new_request(
 
 
 def test_different_loop_ids_create_different_scopes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Same idempotency key can be used for different loop IDs."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     create1 = client.post(
         "/loops/capture",
@@ -2366,7 +2398,9 @@ def test_different_loop_ids_create_different_scopes(
 # =============================================================================
 
 
-def test_loop_events_sse_endpoint_exists(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_events_sse_endpoint_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test SSE stream endpoint exists (can't test infinite stream easily)."""
     # The SSE stream runs forever with a while True loop, so we just verify
     # the route exists and would return streaming content type by checking the route
@@ -2381,9 +2415,11 @@ def test_loop_events_sse_endpoint_exists(tmp_path: Path, monkeypatch: pytest.Mon
 # =============================================================================
 
 
-def test_webhook_subscription_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_subscription_crud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test webhook subscription CRUD operations."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create subscription
     create_response = client.post(
@@ -2433,10 +2469,10 @@ def test_webhook_subscription_crud(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_webhook_subscription_url_validation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test webhook subscription URL validation."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Invalid URL without http/https
     response = client.post(
@@ -2453,9 +2489,11 @@ def test_webhook_subscription_url_validation(
     assert response.status_code == 200
 
 
-def test_webhook_subscription_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_subscription_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test webhook subscription endpoints return 404 for non-existent subscription."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Update non-existent
     response = client.patch(
@@ -2506,9 +2544,11 @@ def test_webhook_signature_generation_and_verification() -> None:
     assert verify_signature(payload, secret, old_signature) is False
 
 
-def test_webhook_deliveries_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_deliveries_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test listing deliveries for a webhook subscription."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create subscription
     sub_response = client.post(
@@ -2536,9 +2576,11 @@ def test_webhook_deliveries_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert deliveries[0]["status"] == "pending"
 
 
-def test_webhook_update_no_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_update_no_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test webhook update with no fields returns 400."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create subscription
     sub_response = client.post(
@@ -2594,7 +2636,9 @@ def test_webhook_retry_delay_calculation() -> None:
     assert delay_high <= settings.webhook_retry_max_delay
 
 
-def test_webhook_repo_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_repo_operations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test webhook repository operations directly."""
     import sqlite3
 
@@ -2688,7 +2732,9 @@ def test_webhook_repo_operations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     conn.close()
 
 
-def test_webhook_queue_deliveries(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_webhook_queue_deliveries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test queueing webhook deliveries for events."""
     import sqlite3
 
@@ -2776,7 +2822,9 @@ def test_sse_format_functions() -> None:
     assert comment == ": heartbeat\n\n"
 
 
-def test_settings_webhook_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_webhook_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test webhook settings validation via environment variables."""
     from cloop.settings import get_settings
 
@@ -2828,9 +2876,11 @@ def test_settings_webhook_validation(tmp_path: Path, monkeypatch: pytest.MonkeyP
 # =============================================================================
 
 
-def test_loop_claim_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_claim_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Successfully claim an unclaimed loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -2856,9 +2906,11 @@ def test_loop_claim_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert len(claim["claim_token"]) == 64  # 32 bytes = 64 hex chars
 
 
-def test_loop_claim_already_claimed_fails(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_claim_already_claimed_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Cannot claim a loop already claimed by another agent."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -2889,10 +2941,10 @@ def test_loop_claim_already_claimed_fails(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_loop_update_claimed_without_token_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Cannot update a claimed loop without the claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -2921,10 +2973,10 @@ def test_loop_update_claimed_without_token_fails(
 
 
 def test_loop_update_claimed_with_valid_token_succeeds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Can update a claimed loop with valid claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -2953,10 +3005,10 @@ def test_loop_update_claimed_with_valid_token_succeeds(
 
 
 def test_loop_update_claimed_with_invalid_token_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Cannot update with wrong claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -2985,10 +3037,10 @@ def test_loop_update_claimed_with_invalid_token_fails(
 
 
 def test_loop_unclaimed_allows_update_without_token(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Unclaimed loops can be updated without token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop (not claimed)
     create_response = client.post(
@@ -3010,9 +3062,11 @@ def test_loop_unclaimed_allows_update_without_token(
     assert update_response.json()["title"] == "New title"
 
 
-def test_loop_renew_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_renew_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Can renew an existing claim."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3042,9 +3096,11 @@ def test_loop_renew_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert renewed["owner"] == "agent-1"
 
 
-def test_loop_release_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_release_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """After releasing, another agent can claim."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3081,9 +3137,11 @@ def test_loop_release_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert claim2_response.json()["owner"] == "agent-2"
 
 
-def test_loop_get_claim_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_get_claim_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Get claim status returns claim info without token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3110,9 +3168,11 @@ def test_loop_get_claim_status(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert "claim_token" not in status  # Token should NOT be exposed
 
 
-def test_loop_get_claim_status_unclaimed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_get_claim_status_unclaimed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Get claim status returns null for unclaimed loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop (not claimed)
     create_response = client.post(
@@ -3131,9 +3191,11 @@ def test_loop_get_claim_status_unclaimed(tmp_path: Path, monkeypatch: pytest.Mon
     assert status_response.json() is None
 
 
-def test_loop_list_claims(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_list_claims(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """List active claims."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim two loops
     create1 = client.post(
@@ -3165,9 +3227,11 @@ def test_loop_list_claims(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert alpha_claims[0]["owner"] == "agent-alpha"
 
 
-def test_loop_force_release_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_force_release_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Force-release allows admin to unstick a loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3198,9 +3262,11 @@ def test_loop_force_release_claim(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert claim2_response.status_code == 200
 
 
-def test_loop_claim_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_claim_not_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Claim operations return 404 for non-existent loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     claim_response = client.post(
         "/loops/99999/claim",
@@ -3209,9 +3275,11 @@ def test_loop_claim_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert claim_response.status_code == 404
 
 
-def test_loop_claim_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_claim_idempotency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Claim supports idempotency keys for replay protection."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -3248,7 +3316,9 @@ def test_loop_claim_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert claim2.json()["lease_until_utc"] == lease_until_1
 
 
-def test_settings_claim_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_claim_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test claim settings validation."""
     from cloop.settings import get_settings
 
@@ -3284,9 +3354,11 @@ def test_settings_claim_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     get_settings.cache_clear()
 
 
-def test_loop_claim_expired_allows_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_claim_expired_allows_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Expired claims allow updates without token (lazy expiration check)."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop with short TTL
     create_response = client.post(
@@ -3321,10 +3393,10 @@ def test_loop_claim_expired_allows_update(tmp_path: Path, monkeypatch: pytest.Mo
 
 
 def test_loop_claim_expired_allows_new_claim(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """After claim expires, another agent can claim it."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop with short TTL
     create_response = client.post(
@@ -3359,7 +3431,7 @@ def test_loop_claim_expired_allows_new_claim(
 
 
 def test_loop_claim_token_length_uses_settings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Claim token length respects claim_token_bytes setting."""
     # Set custom token length
@@ -3368,7 +3440,7 @@ def test_loop_claim_token_length_uses_settings(
 
     get_settings.cache_clear()
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -3398,10 +3470,10 @@ def test_loop_claim_token_length_uses_settings(
 
 
 def test_loop_close_claimed_with_valid_token_succeeds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Can close a claimed loop with valid claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3430,10 +3502,10 @@ def test_loop_close_claimed_with_valid_token_succeeds(
 
 
 def test_loop_close_claimed_without_token_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Cannot close a claimed loop without the claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3462,10 +3534,10 @@ def test_loop_close_claimed_without_token_fails(
 
 
 def test_loop_status_claimed_with_valid_token_succeeds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Can transition status of a claimed loop with valid claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3494,10 +3566,10 @@ def test_loop_status_claimed_with_valid_token_succeeds(
 
 
 def test_loop_status_claimed_without_token_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Cannot transition status of a claimed loop without the claim token."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3526,10 +3598,10 @@ def test_loop_status_claimed_without_token_fails(
 
 
 def test_loop_claim_token_not_exposed_in_list(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Claim tokens should not be exposed in list_active_claims response."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and claim a loop
     create_response = client.post(
@@ -3565,10 +3637,10 @@ def test_loop_claim_token_not_exposed_in_list(
 
 
 def test_capture_with_recurrence_sets_fields(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Capturing a loop with recurrence sets recurrence fields."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     response = client.post(
         "/loops/capture",
@@ -3591,10 +3663,10 @@ def test_capture_with_recurrence_sets_fields(
 
 
 def test_complete_recurring_creates_next_occurrence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Completing a recurring loop creates the next occurrence."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create recurring loop with tags
     capture_response = client.post(
@@ -3651,14 +3723,14 @@ def test_complete_recurring_creates_next_occurrence(
 
 
 def test_bulk_close_recurring_creates_next_occurrence(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Bulk closing a recurring loop creates the next occurrence."""
     import sqlite3
 
     from cloop.loops import service as loop_service
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create recurring loop
     capture_response = client.post(
@@ -3707,9 +3779,11 @@ def test_bulk_close_recurring_creates_next_occurrence(
     assert next_loop["recurrence_enabled"] is True
 
 
-def test_query_recurring_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_query_recurring_filter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Query DSL recurring: filter works correctly."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create one recurring and one non-recurring loop
     client.post(
@@ -3752,9 +3826,11 @@ def test_query_recurring_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert non_recurring[0]["raw_text"] == "One-time task"
 
 
-def test_multiple_recurrence_completions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_multiple_recurrence_completions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Completing a recurring loop multiple times creates a chain of occurrences."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create recurring loop
     capture_response = client.post(
@@ -3815,9 +3891,11 @@ def test_multiple_recurrence_completions(tmp_path: Path, monkeypatch: pytest.Mon
 class TestLoopDependencies:
     """Tests for loop dependency functionality."""
 
-    def test_add_dependency(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_add_dependency(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Adding a dependency creates the relationship."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create two loops
         loop_a = client.post(
@@ -3848,9 +3926,11 @@ class TestLoopDependencies:
         assert result["dependencies"][0]["id"] == loop_a["id"]
         assert result["has_open_dependencies"] is True
 
-    def test_cycle_detection(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cycle_detection(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Adding a dependency that creates a cycle is rejected."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create three loops
         loop_a = client.post(
@@ -3897,10 +3977,10 @@ class TestLoopDependencies:
         assert error["error"]["type"] == "dependency_cycle"
 
     def test_self_dependency_rejected(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """A loop cannot depend on itself."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop = client.post(
             "/loops/capture",
@@ -3919,10 +3999,10 @@ class TestLoopDependencies:
         assert result.json()["error"]["type"] == "dependency_cycle"
 
     def test_transition_to_actionable_blocked_by_dependency(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Cannot transition to actionable while dependencies are open."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create blocker (inbox = open)
         blocker = client.post(
@@ -3959,10 +4039,10 @@ class TestLoopDependencies:
         assert blocker["id"] in error["error"]["details"]["open_dependencies"]
 
     def test_transition_allowed_after_dependency_completed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Can transition to actionable after all dependencies are completed."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create blocker
         blocker = client.post(
@@ -3999,10 +4079,10 @@ class TestLoopDependencies:
         assert result.json()["status"] == "actionable"
 
     def test_next_loops_excludes_blocked_by_dependencies(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """next_loops excludes loops with open dependencies."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create blocker with next_action
         blocker = client.post(
@@ -4041,9 +4121,11 @@ class TestLoopDependencies:
         assert blocker["id"] in next_ids
         assert dependent["id"] not in next_ids
 
-    def test_remove_dependency(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_remove_dependency(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Removing a dependency works correctly."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop_a = client.post(
             "/loops/capture",
@@ -4079,10 +4161,10 @@ class TestLoopDependencies:
         assert len(deps) == 0
 
     def test_blocking_lists_dependents(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """blocking endpoint lists loops that depend on this one."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop_a = client.post(
             "/loops/capture",
@@ -4124,10 +4206,10 @@ class TestLoopDependencies:
         assert set(blocking_ids) == {loop_b["id"], loop_c["id"]}
 
     def test_dependency_persists_after_reopen(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Dependencies persist after completing and reopening a loop."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create loops with dependency
         blocker = client.post(
@@ -4173,9 +4255,11 @@ class TestLoopDependencies:
 # ============================================================================
 
 
-def test_timer_start_and_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_timer_start_and_stop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test starting and stopping a timer."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     capture = client.post(
@@ -4217,9 +4301,11 @@ def test_timer_start_and_stop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert stopped["notes"] == "Done"
 
 
-def test_concurrent_timer_prevention(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_concurrent_timer_prevention(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that only one active timer per loop is allowed."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     capture = client.post(
@@ -4245,9 +4331,11 @@ def test_concurrent_timer_prevention(tmp_path: Path, monkeypatch: pytest.MonkeyP
     )
 
 
-def test_stop_without_active_timer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stop_without_active_timer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that stopping without active timer returns error."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     capture = client.post(
@@ -4267,9 +4355,9 @@ def test_stop_without_active_timer(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert "no_active_timer" in str(error) or "no active timer" in str(error.get("detail", ""))
 
 
-def test_session_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_session_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client) -> None:
     """Test listing time sessions."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     capture = client.post(
@@ -4302,9 +4390,11 @@ def test_session_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(data["sessions"]) >= 2
 
 
-def test_timer_status_with_estimate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_timer_status_with_estimate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test timer status shows estimation accuracy."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop with time estimate
     capture = client.post(
@@ -4336,9 +4426,11 @@ def test_timer_status_with_estimate(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert data["estimation_accuracy"] is not None
 
 
-def test_timer_for_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_timer_for_nonexistent_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test timer operations on non-existent loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Try to start timer on non-existent loop
     start = client.post("/loops/99999/timer/start")
@@ -4392,7 +4484,9 @@ def test_timer_session_properties() -> None:
 # ============================================================================
 
 
-def test_template_create_and_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_template_create_and_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test creating a template and listing templates."""
     import sqlite3
 
@@ -4428,7 +4522,9 @@ def test_template_create_and_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     conn.close()
 
 
-def test_template_get_by_id_and_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_template_get_by_id_and_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test getting a template by ID and by name."""
     import sqlite3
 
@@ -4466,7 +4562,7 @@ def test_template_get_by_id_and_name(tmp_path: Path, monkeypatch: pytest.MonkeyP
     conn.close()
 
 
-def test_template_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_template_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client) -> None:
     """Test updating a template."""
     import sqlite3
 
@@ -4504,7 +4600,7 @@ def test_template_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     conn.close()
 
 
-def test_template_delete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_template_delete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client) -> None:
     """Test deleting a template."""
     import sqlite3
 
@@ -4541,7 +4637,7 @@ def test_template_delete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_system_template_cannot_be_modified(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test that system templates cannot be modified or deleted."""
     import sqlite3
@@ -4662,7 +4758,9 @@ def test_extract_update_fields_from_template() -> None:
     assert update_fields_empty == {}
 
 
-def test_create_template_from_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_template_from_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test creating a template from an existing loop."""
     import sqlite3
 
@@ -4708,9 +4806,11 @@ def test_create_template_from_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     conn.close()
 
 
-def test_template_api_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_template_api_endpoints(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test template API endpoints."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # List templates (should include system templates)
     response = client.get("/loops/templates")
@@ -4752,9 +4852,11 @@ def test_template_api_endpoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert "api-test" in loop["tags"]
 
 
-def test_capture_with_template_by_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_capture_with_template_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test capturing a loop using a template by name."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Capture with template by name
     response = client.post(
@@ -4772,9 +4874,11 @@ def test_capture_with_template_by_name(tmp_path: Path, monkeypatch: pytest.Monke
     assert "daily" in loop["tags"]
 
 
-def test_save_loop_as_template_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_loop_as_template_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test the save-as-template endpoint."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     response = client.post(
@@ -4809,11 +4913,13 @@ def test_save_loop_as_template_endpoint(tmp_path: Path, monkeypatch: pytest.Monk
 # =============================================================================
 
 
-def test_review_cohorts_stale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_cohorts_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test stale cohort identifies loops not updated recently."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     now = _now_iso()
 
     # Create a loop and artificially age it
@@ -4848,9 +4954,11 @@ def test_review_cohorts_stale(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert any(item["id"] == loop_id for item in stale_cohort["items"])
 
 
-def test_review_cohorts_no_next_action(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_cohorts_no_next_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test no_next_action cohort identifies actionable loops without next_action."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     now = _now_iso()
 
     # Create actionable loop without next_action
@@ -4875,11 +4983,13 @@ def test_review_cohorts_no_next_action(tmp_path: Path, monkeypatch: pytest.Monke
     assert any(item["id"] == loop_id for item in no_action["items"])
 
 
-def test_review_cohorts_blocked_too_long(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_cohorts_blocked_too_long(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test blocked_too_long cohort identifies long-blocked loops."""
     import sqlite3
 
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     now = _now_iso()
 
     # Create blocked loop and age it
@@ -4913,9 +5023,11 @@ def test_review_cohorts_blocked_too_long(tmp_path: Path, monkeypatch: pytest.Mon
     assert any(item["id"] == loop_id for item in blocked["items"])
 
 
-def test_review_cohorts_due_soon_unplanned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_cohorts_due_soon_unplanned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test due_soon_unplanned cohort identifies due loops without next_action."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat(timespec="seconds")
 
@@ -4945,9 +5057,11 @@ def test_review_cohorts_due_soon_unplanned(tmp_path: Path, monkeypatch: pytest.M
     assert any(item["id"] == loop_id for item in due_soon_cohort["items"])
 
 
-def test_review_weekly_subset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_weekly_subset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test weekly review only includes stale and blocked_too_long cohorts."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     resp = client.get("/loops/review?weekly=true&daily=false")
     assert resp.status_code == 200
@@ -4958,7 +5072,9 @@ def test_review_weekly_subset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert cohort_names <= {"stale", "blocked_too_long"}
 
 
-def test_review_settings_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_settings_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test review settings validation via environment variables."""
     from cloop.settings import get_settings
 
@@ -4990,7 +5106,9 @@ def test_review_settings_validation(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     get_settings.cache_clear()
 
 
-def test_review_cohorts_default_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_cohorts_default_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test review cohorts use default settings correctly."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
@@ -5004,9 +5122,11 @@ def test_review_cohorts_default_settings(tmp_path: Path, monkeypatch: pytest.Mon
     assert settings.review_due_soon_hours == 48.0
 
 
-def test_review_endpoint_limit_parameter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_review_endpoint_limit_parameter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test review endpoint respects limit parameter."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
     now = _now_iso()
 
     # Create multiple actionable loops without next_action
@@ -5037,9 +5157,11 @@ def test_review_endpoint_limit_parameter(tmp_path: Path, monkeypatch: pytest.Mon
 # =============================================================================
 
 
-def test_loop_events_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_events_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that event history is returned correctly."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -5079,9 +5201,11 @@ def test_loop_events_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         assert event["is_reversible"] is True
 
 
-def test_loop_events_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_events_pagination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test event history pagination."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -5115,9 +5239,11 @@ def test_loop_events_pagination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert len(data2["events"]) >= 2
 
 
-def test_loop_undo_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_undo_update(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test undoing a loop update."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -5146,9 +5272,11 @@ def test_loop_undo_update(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert undo_data["loop"]["title"] == "Original Title"
 
 
-def test_loop_undo_status_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_undo_status_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test undoing a status change."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     create_response = client.post(
@@ -5178,9 +5306,11 @@ def test_loop_undo_status_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert undo_data["loop"]["status"] == "actionable"
 
 
-def test_loop_undo_no_reversible_events(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_undo_no_reversible_events(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test undo fails when no reversible events exist."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop (capture event is not reversible)
     create_response = client.post(
@@ -5201,9 +5331,11 @@ def test_loop_undo_no_reversible_events(tmp_path: Path, monkeypatch: pytest.Monk
     assert error_data["error"]["details"]["code"] == "undo_not_possible"
 
 
-def test_loop_undo_records_undo_event(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_undo_records_undo_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that undo operations are recorded in event history."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and update a loop
     create_response = client.post(
@@ -5229,25 +5361,31 @@ def test_loop_undo_records_undo_event(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "undone_event_id" in undo_events[0]["payload"]
 
 
-def test_loop_events_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_events_nonexistent_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test events endpoint returns 404 for nonexistent loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     response = client.get("/loops/99999/events")
     assert response.status_code == 404
 
 
-def test_loop_undo_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_undo_nonexistent_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test undo endpoint returns 404 for nonexistent loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     response = client.post("/loops/99999/undo")
     assert response.status_code == 404
 
 
-def test_loop_undo_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_undo_idempotency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test undo endpoint supports idempotency."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and update a loop
     create_response = client.post(
@@ -5272,7 +5410,9 @@ def test_loop_undo_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     assert response2.json()["undone_event_id"] == response1.json()["undone_event_id"]
 
 
-def test_loop_update_captures_before_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_loop_update_captures_before_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that update events capture before_state for undo support."""
     import sqlite3
 
@@ -5327,9 +5467,11 @@ def test_loop_update_captures_before_state(tmp_path: Path, monkeypatch: pytest.M
 class TestLoopComments:
     """Tests for loop comment CRUD and threading."""
 
-    def test_create_comment(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test creating a top-level comment on a loop."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create a loop first
         loop_resp = client.post(
@@ -5358,9 +5500,11 @@ class TestLoopComments:
         assert data["is_reply"] is False
         assert data["is_deleted"] is False
 
-    def test_create_reply(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_create_reply(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test creating a reply to a comment."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop_resp = client.post(
             "/loops/capture",
@@ -5397,10 +5541,10 @@ class TestLoopComments:
         assert data["is_reply"] is True
 
     def test_list_comments_threaded_order(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that comments are returned in proper threaded order."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop_resp = client.post(
             "/loops/capture",
@@ -5444,9 +5588,11 @@ class TestLoopComments:
         assert len(data["comments"][1]["replies"]) == 1
         assert data["comments"][1]["replies"][0]["parent_id"] == c2["id"]
 
-    def test_update_comment(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_update_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test updating a comment's body."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop_resp = client.post(
             "/loops/capture",
@@ -5477,9 +5623,11 @@ class TestLoopComments:
         assert update_resp.status_code == 200
         assert update_resp.json()["body_md"] == "Updated text"
 
-    def test_soft_delete_comment(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_soft_delete_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
         """Test soft-deleting a comment."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         loop_resp = client.post(
             "/loops/capture",
@@ -5515,10 +5663,10 @@ class TestLoopComments:
         assert list_resp.json()["comments"][0]["is_deleted"] is True
 
     def test_comment_on_nonexistent_loop(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that commenting on a nonexistent loop returns 404."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         resp = client.post(
             "/loops/99999/comments",
@@ -5530,10 +5678,10 @@ class TestLoopComments:
         assert resp.status_code == 404
 
     def test_reply_to_wrong_loop_comment(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:
         """Test that replying to a comment from a different loop fails."""
-        client = _make_client(tmp_path, monkeypatch)
+        client = make_test_client()
 
         # Create two loops
         loop1 = client.post(
@@ -5580,9 +5728,11 @@ class TestLoopComments:
 # =============================================================================
 
 
-def test_comment_events_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_comment_events_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that comment events are recorded in loop event history."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     loop_resp = client.post(
@@ -5618,9 +5768,11 @@ def test_comment_events_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 # =============================================================================
 
 
-def test_comment_create_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_comment_create_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + same payload returns same comment without duplicate."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create a loop
     loop = client.post(
@@ -5652,10 +5804,10 @@ def test_comment_create_idempotency_replay(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_comment_create_idempotency_conflict(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Same idempotency key + different payload returns 409 Conflict."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop = client.post(
         "/loops/capture",
@@ -5678,9 +5830,11 @@ def test_comment_create_idempotency_conflict(
     assert "idempotency_key_conflict" in str(response2.json())
 
 
-def test_comment_update_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_comment_update_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key + same payload updates comment once."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop = client.post(
         "/loops/capture",
@@ -5711,9 +5865,11 @@ def test_comment_update_idempotency_replay(tmp_path: Path, monkeypatch: pytest.M
     assert response2.json()["body_md"] == "Updated content"
 
 
-def test_comment_delete_idempotency_replay(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_comment_delete_idempotency_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Same idempotency key replay on delete returns same result."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop = client.post(
         "/loops/capture",
@@ -5746,7 +5902,7 @@ def test_comment_delete_idempotency_replay(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_settings_duplicate_threshold_validation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Settings validation requires duplicate_threshold > related_threshold."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
@@ -5759,7 +5915,7 @@ def test_settings_duplicate_threshold_validation(
 
 
 def test_settings_duplicate_threshold_range(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Settings validation requires duplicate_threshold between 0.9 and 1.0."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
@@ -5771,10 +5927,10 @@ def test_settings_duplicate_threshold_range(
 
 
 def test_find_duplicate_candidates_endpoint(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """GET /loops/{id}/duplicates returns candidates list."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create two loops
     loop1 = client.post(
@@ -5805,9 +5961,11 @@ def test_find_duplicate_candidates_endpoint(
     assert isinstance(data["candidates"], list)
 
 
-def test_merge_preview_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_preview_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """GET /loops/{id}/merge-preview/{target} returns merge preview."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create two loops
     loop1 = client.post(
@@ -5832,9 +5990,11 @@ def test_merge_preview_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert "field_conflicts" in preview
 
 
-def test_merge_preview_same_loop_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_preview_same_loop_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Merge preview fails if trying to merge loop with itself."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop = client.post(
         "/loops/capture",
@@ -5846,9 +6006,11 @@ def test_merge_preview_same_loop_error(tmp_path: Path, monkeypatch: pytest.Monke
     assert "Cannot merge" in str(resp.json())
 
 
-def test_merge_preview_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_preview_nonexistent_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Merge preview fails if loop doesn't exist."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop = client.post(
         "/loops/capture",
@@ -5859,9 +6021,11 @@ def test_merge_preview_nonexistent_loop(tmp_path: Path, monkeypatch: pytest.Monk
     assert resp.status_code == 404
 
 
-def test_merge_loops_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_loops_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """POST /loops/{id}/merge merges duplicate into target."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create surviving loop with title and tags
     loop1 = client.post(
@@ -5912,10 +6076,10 @@ def test_merge_loops_endpoint(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_merge_loops_into_closed_loop_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Cannot merge into a closed loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create and close a loop
     loop1 = client.post(
@@ -5938,9 +6102,11 @@ def test_merge_loops_into_closed_loop_fails(
     assert resp.status_code == 400
 
 
-def test_merge_loops_nonexistent_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_loops_nonexistent_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Cannot merge into non-existent loop."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop = client.post(
         "/loops/capture",
@@ -5954,9 +6120,11 @@ def test_merge_loops_nonexistent_target(tmp_path: Path, monkeypatch: pytest.Monk
     assert resp.status_code == 404
 
 
-def test_merge_loops_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_loops_idempotency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Merge supports idempotency key for safe retries."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop1 = client.post(
         "/loops/capture",
@@ -5989,10 +6157,10 @@ def test_merge_loops_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 
 
 def test_merge_loops_conflict_different_payload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Same idempotency key with different payload returns conflict."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop1 = client.post(
         "/loops/capture",
@@ -6030,10 +6198,10 @@ def test_merge_loops_conflict_different_payload(
 
 
 def test_merge_preview_detects_field_conflicts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Preview identifies field conflicts when both loops have different values."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     # Create loops with different titles
     loop1 = client.post(
@@ -6058,9 +6226,11 @@ def test_merge_preview_detects_field_conflicts(
     assert preview["field_conflicts"]["title"]["duplicate"] == "Title Two"
 
 
-def test_merge_combines_tags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_merge_combines_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Merge combines tags from both loops."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     loop1 = client.post(
         "/loops/capture",

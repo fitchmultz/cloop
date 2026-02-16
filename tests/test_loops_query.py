@@ -37,25 +37,14 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from hypothesis import given
 from hypothesis import strategies as st
 
-from cloop import cli, db
+from cloop import cli
 from cloop.loops.errors import ValidationError
 from cloop.loops.query import LoopQuery, _tokenize, parse_loop_query
-from cloop.main import app
 from cloop.mcp_server import loop_search as mcp_loop_search
 from cloop.mcp_server import loop_view_apply as mcp_loop_view_apply
-from cloop.settings import get_settings
-
-
-def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    get_settings.cache_clear()
-    db.init_databases(get_settings())
-    return TestClient(app)
 
 
 def _now_iso() -> str:
@@ -238,9 +227,11 @@ def test_parse_combined_valid_terms() -> None:
 # =============================================================================
 
 
-def test_search_endpoint_basic_query(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_basic_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test /loops/search endpoint with basic query."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     for i, status in enumerate(["inbox", "actionable", "blocked"]):
         client.post(
@@ -265,9 +256,11 @@ def test_search_endpoint_basic_query(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert data["items"][0]["status"] == "inbox"
 
 
-def test_search_endpoint_multiple_statuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_multiple_statuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test /loops/search with multiple status terms (OR)."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     for status in ["inbox", "actionable", "blocked", "scheduled", "completed"]:
         client.post(
@@ -292,9 +285,11 @@ def test_search_endpoint_multiple_statuses(tmp_path: Path, monkeypatch: pytest.M
     assert statuses == {"inbox", "actionable", "blocked", "scheduled"}
 
 
-def test_search_endpoint_text_search(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_text_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test /loops/search with text terms."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     client.post(
         "/loops/capture",
@@ -315,9 +310,11 @@ def test_search_endpoint_text_search(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert "groceries" in data["items"][0]["raw_text"].lower()
 
 
-def test_search_endpoint_combined_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_endpoint_combined_filters(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test /loops/search with combined filters."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     client.post(
         "/loops/capture",
@@ -352,9 +349,11 @@ def test_search_endpoint_combined_filters(tmp_path: Path, monkeypatch: pytest.Mo
 # =============================================================================
 
 
-def test_view_create_list_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_view_create_list_apply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test view CRUD and apply workflow."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     client.post(
         "/loops/capture",
@@ -415,9 +414,11 @@ def test_view_create_list_apply(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert len(list_resp.json()) == 0
 
 
-def test_view_duplicate_name_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_view_duplicate_name_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that duplicate view names are rejected."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     client.post("/loops/views", json={"name": "My View", "query": "status:inbox"})
 
@@ -431,10 +432,10 @@ def test_view_duplicate_name_rejected(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_cross_surface_parity_search(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client, capsys: Any
 ) -> None:
     """Test that API, CLI, and MCP return same loop IDs for same query."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -533,10 +534,10 @@ def test_cross_surface_parity_search(
 
 
 def test_cross_surface_saved_view_apply_parity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client, capsys: Any
 ) -> None:
     """Saved view apply returns equivalent data across API, CLI, and MCP."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     first = client.post(
         "/loops/capture",
@@ -603,10 +604,10 @@ def test_cross_surface_saved_view_apply_parity(
 
 
 def test_loop_search_cli_invalid_query_returns_exit_code_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client, capsys: Any
 ) -> None:
     """CLI loop search should return exit code 1 for invalid DSL."""
-    _make_client(tmp_path, monkeypatch)
+    make_test_client()
     capsys.readouterr()
     exit_code = cli.main(["loop", "search", "--query", "status:not-a-real-status"])
     assert exit_code == 1
@@ -619,9 +620,11 @@ def test_loop_search_cli_invalid_query_returns_exit_code_one(
 # =============================================================================
 
 
-def test_search_due_today(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_due_today(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test due:today filter."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -646,9 +649,9 @@ def test_search_due_today(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert len(search_resp.json()["items"]) >= 1
 
 
-def test_search_due_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_due_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client) -> None:
     """Test due:none filter."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     client.post(
         "/loops/capture",
@@ -672,10 +675,10 @@ def test_search_due_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_search_due_tomorrow_overdue_and_next7d(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """Test due:tomorrow, due:overdue, and due:next7d filters."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -743,9 +746,11 @@ def test_search_due_tomorrow_overdue_and_next7d(
 # =============================================================================
 
 
-def test_search_stable_ordering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_search_stable_ordering(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
     """Test that search results have stable ordering."""
-    client = _make_client(tmp_path, monkeypatch)
+    client = make_test_client()
 
     ids = []
     for i in range(5):

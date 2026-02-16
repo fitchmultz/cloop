@@ -5,7 +5,7 @@ responses, ensuring consistent test behavior and documented mock logic.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Iterator, List
+from typing import Any, Callable, Dict, Iterator, List
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +26,46 @@ def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     get_settings.cache_clear()
     db.init_databases(get_settings())
     return tmp_path
+
+
+@pytest.fixture
+def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., TestClient]:
+    """Factory fixture returning a function to create isolated test clients.
+
+    This provides a bare TestClient without the full mock setup from the
+    test_client fixture. Use this when tests need to inject their own
+    mocks (e.g., for error testing).
+
+    Args:
+        data_dir: Optional path for data directory. Defaults to tmp_path.
+        raise_server_exceptions: If False, server exceptions return 500
+            responses instead of raising in the test. Default True.
+
+    Returns:
+        A function that creates a TestClient with isolated database.
+
+    Usage:
+        # Standard usage (uses tmp_path)
+        client = make_test_client()
+
+        # For error testing
+        client = make_test_client(raise_server_exceptions=False)
+
+        # Custom data directory (e.g., for import isolation)
+        client = make_test_client(data_dir=tmp_path / "subdir")
+    """
+
+    def _factory(data_dir: Path | None = None, raise_server_exceptions: bool = True) -> TestClient:
+        target_dir = data_dir or tmp_path
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(target_dir))
+        monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+        monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+        monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+        return TestClient(app, raise_server_exceptions=raise_server_exceptions)
+
+    return _factory
 
 
 @pytest.fixture
