@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from concurrent import futures
 from pathlib import Path
 
 import pytest
@@ -107,3 +108,33 @@ def test_idempotency_keys_table_has_unique_constraint(
             has_unique = True
             break
     assert has_unique, f"No unique index found. Indexes: {info}"
+
+
+def test_vector_extension_manager_thread_safety(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that concurrent access to vector extension state is safe."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    db.reset_vector_backend()
+
+    errors: list[Exception] = []
+    results: list[bool] = []
+
+    def access_vector_state() -> None:
+        try:
+            # Each thread tries to access state
+            state = db.vector_extension_available()
+            results.append(state)
+            # Reset and access again
+            db.reset_vector_backend()
+            _ = db.get_vector_backend()
+        except Exception as e:
+            errors.append(e)
+
+    with futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures_list = [executor.submit(access_vector_state) for _ in range(50)]
+        futures.wait(futures_list)
+
+    assert not errors, f"Thread-safety errors: {errors}"
+    get_settings.cache_clear()
