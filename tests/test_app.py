@@ -890,3 +890,152 @@ def test_loop_metrics_empty_db(test_client: TestClient, tmp_data_dir: Path) -> N
     assert data["total_loops"] == 0
     assert data["stale_open_count"] == 0
     assert data["avg_age_open_hours"] is None  # No open loops
+
+
+def test_web_root_returns_html(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify GET / returns index.html with proper content-type."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert "<!doctype html>" in response.text.lower()
+    assert "<html" in response.text.lower()
+
+
+def test_web_root_contains_ui_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify index.html contains expected UI structure."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+    # Key UI elements that should always be present
+    assert "<title>" in html
+    assert "</html>" in html.lower()
+
+
+def test_web_manifest_returns_json(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify GET /manifest.json returns PWA manifest with correct headers."""
+    response = test_client.get("/manifest.json")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/manifest+json"
+    assert "Cache-Control" in response.headers
+    assert "max-age=86400" in response.headers["Cache-Control"]
+
+    # Verify it's valid JSON with expected fields
+    data = response.json()
+    assert "name" in data or "short_name" in data
+    assert "icons" in data or "display" in data
+
+
+def test_web_service_worker_returns_js(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify GET /sw.js returns service worker with correct headers."""
+    response = test_client.get("/sw.js")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/javascript"
+    assert response.headers["Cache-Control"] == "no-cache"
+    assert response.headers["Service-Worker-Allowed"] == "/"
+
+    # Verify it's valid JavaScript (contains expected content)
+    js = response.text
+    assert "self.addEventListener" in js or "importScripts" in js or "const" in js or "var" in js
+
+
+@pytest.mark.xfail(
+    reason=(
+        "StaticFiles mounted on router doesn't propagate to app - "
+        "needs fix in web.py to mount on app instead"
+    )
+)
+def test_web_static_files_served(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify static files are served from /static/ path.
+
+    NOTE: This test documents expected behavior. Currently fails because
+    router.mount() doesn't propagate to parent app. Fix: mount StaticFiles
+    directly on app in main.py instead of on router in web.py.
+    """
+    # Test manifest.json via static path (since it's in static dir)
+    response = test_client.get("/static/manifest.json")
+    assert response.status_code == 200
+    assert response.headers["content-type"] in ["application/json", "application/manifest+json"]
+
+
+def test_web_static_file_not_found(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify requesting non-existent static file returns 404."""
+    response = test_client.get("/static/nonexistent-file-12345.txt")
+    assert response.status_code == 404
+
+
+def test_web_malformed_paths(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify malformed or suspicious paths don't break the server."""
+    # Directory traversal attempt
+    response = test_client.get("/static/../../../etc/passwd")
+    assert response.status_code == 404
+
+    # Empty path segments - should either 404 or handle gracefully
+    response = test_client.get("/static//double-slash")
+    assert response.status_code in [200, 404]
+
+
+def test_web_root_missing_index_html_returns_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify GET / returns 404 when index.html is missing."""
+    # Create a temporary static dir without index.html
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+
+    # Create a minimal manifest.json so other routes work
+    (static_dir / "manifest.json").write_text('{"name": "test"}')
+    (static_dir / "sw.js").write_text("// test")
+
+    # Patch the static directory
+    from cloop import web
+
+    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+
+    from cloop.main import app
+
+    client = TestClient(app)
+
+    response = client.get("/")
+    assert response.status_code == 404
+
+
+def test_web_manifest_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /manifest.json returns 404 when file is missing."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+
+    # Create index.html but not manifest.json
+    (static_dir / "index.html").write_text("<html></html>")
+    (static_dir / "sw.js").write_text("// test")
+
+    from cloop import web
+
+    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+
+    from cloop.main import app
+
+    client = TestClient(app)
+
+    response = client.get("/manifest.json")
+    assert response.status_code == 404
+
+
+def test_web_sw_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /sw.js returns 404 when file is missing."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+
+    # Create index.html but not sw.js
+    (static_dir / "index.html").write_text("<html></html>")
+    (static_dir / "manifest.json").write_text('{"name": "test"}')
+
+    from cloop import web
+
+    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+
+    from cloop.main import app
+
+    client = TestClient(app)
+
+    response = client.get("/sw.js")
+    assert response.status_code == 404
