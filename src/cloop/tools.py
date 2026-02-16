@@ -23,6 +23,7 @@ import json
 from typing import Any, Dict, List, Protocol
 
 from . import db
+from .constants import NOTE_BODY_MAX, TITLE_MAX
 from .loops.errors import NoteNotFoundError, ValidationError
 
 
@@ -39,8 +40,17 @@ def _require_fields(payload: Dict[str, Any], *fields: str) -> None:
 def execute_write_note(**kwargs: Any) -> Dict[str, Any]:
     payload = {"title": kwargs.get("title"), "body": kwargs.get("body")}
     _require_fields(payload, "title", "body")
+
+    # Validate max lengths
+    title = str(payload["title"])
+    body = str(payload["body"])
+    if len(title) > TITLE_MAX:
+        raise ValidationError("title", f"exceeds maximum length of {TITLE_MAX} characters")
+    if len(body) > NOTE_BODY_MAX:
+        raise ValidationError("body", f"exceeds maximum length of {NOTE_BODY_MAX} characters")
+
     note_id = kwargs.get("note_id")
-    note = db.upsert_note(title=str(payload["title"]), body=str(payload["body"]), note_id=note_id)
+    note = db.upsert_note(title=title, body=body, note_id=note_id)
     return {"action": "write_note", "note": note}
 
 

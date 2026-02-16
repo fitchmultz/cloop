@@ -200,3 +200,184 @@ def test_update_loop_fields_rejects_multiple_invalid_fields(
         )
 
     conn.close()
+
+
+# =============================================================================
+# Max length validation tests
+# =============================================================================
+
+
+def test_loop_capture_rejects_oversized_raw_text(make_test_client) -> None:
+    """Test that LoopCaptureRequest rejects raw_text exceeding max length."""
+    client = make_test_client()
+
+    oversized_text = "x" * 10001  # RAW_TEXT_MAX + 1
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": oversized_text,
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert response.status_code == 422
+    error_detail = response.json()
+    assert "raw_text" in str(error_detail).lower() or "max_length" in str(error_detail).lower()
+
+
+def test_loop_update_rejects_oversized_title(make_test_client) -> None:
+    """Test that LoopUpdateRequest rejects title exceeding max length."""
+    client = make_test_client()
+
+    # Create a loop first
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    # Try to update with oversized title
+    oversized_title = "x" * 501  # TITLE_MAX + 1
+    response = client.patch(
+        f"/loops/{loop_id}",
+        json={"title": oversized_title},
+    )
+    assert response.status_code == 422
+
+
+def test_loop_update_rejects_oversized_summary(make_test_client) -> None:
+    """Test that LoopUpdateRequest rejects summary exceeding max length."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    oversized_summary = "x" * 1001  # SUMMARY_MAX + 1
+    response = client.patch(
+        f"/loops/{loop_id}",
+        json={"summary": oversized_summary},
+    )
+    assert response.status_code == 422
+
+
+def test_loop_capture_accepts_max_length_raw_text(make_test_client) -> None:
+    """Test that LoopCaptureRequest accepts raw_text at exactly max length."""
+    client = make_test_client()
+
+    max_text = "x" * 10000  # Exactly RAW_TEXT_MAX
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": max_text,
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert response.status_code == 200
+
+
+def test_loop_close_rejects_oversized_note(make_test_client) -> None:
+    """Test that LoopCloseRequest rejects note exceeding max length."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    oversized_note = "x" * 2001  # COMPLETION_NOTE_MAX + 1
+    response = client.post(
+        f"/loops/{loop_id}/close",
+        json={"note": oversized_note},
+    )
+    assert response.status_code == 422
+
+
+def test_webhook_create_rejects_oversized_url(make_test_client) -> None:
+    """Test that WebhookSubscriptionCreate rejects URL exceeding max length."""
+    client = make_test_client()
+
+    oversized_url = "https://example.com/" + "x" * 2030  # WEBHOOK_URL_MAX + 1
+    response = client.post(
+        "/loops/webhooks/subscriptions",
+        json={"url": oversized_url},
+    )
+    assert response.status_code == 422
+
+
+def test_loop_capture_rejects_oversized_schedule(make_test_client) -> None:
+    """Test that LoopCaptureRequest rejects schedule exceeding max length."""
+    client = make_test_client()
+
+    oversized_schedule = "x" * 501  # SCHEDULE_MAX + 1
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "schedule": oversized_schedule,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_loop_update_rejects_oversized_blocked_reason(make_test_client) -> None:
+    """Test that LoopUpdateRequest rejects blocked_reason exceeding max length."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    oversized_reason = "x" * 1001  # BLOCKED_REASON_MAX + 1
+    response = client.patch(
+        f"/loops/{loop_id}",
+        json={"blocked_reason": oversized_reason},
+    )
+    assert response.status_code == 422
+
+
+def test_loop_comment_rejects_oversized_body(make_test_client) -> None:
+    """Test that LoopCommentCreateRequest rejects body_md exceeding max length."""
+    client = make_test_client()
+
+    # Create a loop first
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    oversized_body = "x" * 10001  # COMMENT_BODY_MAX + 1
+    response = client.post(
+        f"/loops/{loop_id}/comments",
+        json={"author": "test", "body_md": oversized_body},
+    )
+    assert response.status_code == 422
