@@ -108,7 +108,7 @@ def _now_iso() -> str:
     """Return current UTC time as ISO8601 string with seconds precision.
 
     This is a shared test utility for generating consistent datetime strings.
-    Used by test_loops.py, test_db_failures.py, test_mcp_server.py, test_loops_query.py.
+    Used by test_db_failures.py, test_mcp_server.py, test_loops_query.py, test_loop_*.py.
     """
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
