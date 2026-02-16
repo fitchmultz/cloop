@@ -6,15 +6,10 @@ Invariants: All unhandled database errors return 500 with sanitized error respon
 """
 
 import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-
-
-def _now_iso() -> str:
-    """Return current UTC time as ISO8601 string."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+from conftest import _now_iso
 
 
 class TestDatabaseOperationalError:

@@ -1,9 +1,11 @@
-"""Shared pytest fixtures for Cloop tests.
+"""Shared pytest fixtures and test utilities for Cloop tests.
 
-This module provides centralized mock factories for LLM and embedding
-responses, ensuring consistent test behavior and documented mock logic.
+This module provides:
+- Centralized mock factories for LLM and embedding responses
+- Datetime helpers (_now_iso) for consistent timestamp generation
 """
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List
 
@@ -15,6 +17,15 @@ from cloop.main import app
 from cloop.settings import get_settings
 
 STREAM_TOKENS = ["Answer ", "segment"]
+
+
+def _now_iso() -> str:
+    """Return current UTC time as ISO8601 string with seconds precision.
+
+    This is a shared test utility for generating consistent datetime strings.
+    Used by test_loops.py, test_db_failures.py, test_mcp_server.py, test_loops_query.py.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 @pytest.fixture
