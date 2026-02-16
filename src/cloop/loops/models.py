@@ -21,13 +21,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
+from ..constants import MAX_TZ_OFFSET_MIN, MIN_TZ_OFFSET_MIN
 from .errors import ValidationError
-
-# Timezone offset validation constants
-# Python's timezone class requires offsets strictly between -24 and +24 hours,
-# so we use [-1439, +1439] minutes (exclusive of exactly ±24h)
-MIN_TZ_OFFSET_MIN = -1439
-MAX_TZ_OFFSET_MIN = 1439
 
 
 class LoopStatus(StrEnum):
