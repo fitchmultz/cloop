@@ -29,6 +29,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
+from ..constants import (
+    OFFSET_TO_TIMEZONE,
+    RRULE_MAX_TZ_OFFSET_MIN,
+    RRULE_MIN_TZ_OFFSET_MIN,
+)
 from .errors import RecurrenceError
 
 if TYPE_CHECKING:
@@ -86,45 +91,6 @@ DAY_MAP: dict[str, int] = {
 
 # Ordinal suffixes for position parsing
 ORDINAL_PATTERN = re.compile(r"^(\d+)(?:st|nd|rd|th)?$", re.IGNORECASE)
-
-# Common offset-to-timezone mappings for user convenience
-OFFSET_TO_TIMEZONE: dict[int, str] = {
-    -720: "Etc/GMT+12",  # UTC-12
-    -660: "Etc/GMT+11",  # UTC-11
-    -600: "Etc/GMT+10",  # UTC-10 (HAST)
-    -540: "Etc/GMT+9",  # UTC-9 (AKST)
-    -480: "America/Los_Angeles",  # UTC-8 (PST)
-    -420: "America/Denver",  # UTC-7 (MST)
-    -360: "America/Chicago",  # UTC-6 (CST)
-    -300: "America/New_York",  # UTC-5 (EST)
-    -240: "America/Halifax",  # UTC-4 (AST)
-    -180: "America/Sao_Paulo",  # UTC-3
-    -120: "Etc/GMT+2",  # UTC-2
-    -60: "Etc/GMT+1",  # UTC-1
-    0: "UTC",  # UTC
-    60: "Etc/GMT-1",  # UTC+1 (CET)
-    120: "Europe/Berlin",  # UTC+2 (CEST - in summer)
-    180: "Europe/Moscow",  # UTC+3
-    210: "Asia/Tehran",  # UTC+3:30
-    240: "Asia/Dubai",  # UTC+4
-    270: "Asia/Kabul",  # UTC+4:30
-    300: "Asia/Karachi",  # UTC+5
-    330: "Asia/Kolkata",  # UTC+5:30
-    345: "Asia/Kathmandu",  # UTC+5:45
-    360: "Asia/Dhaka",  # UTC+6
-    390: "Asia/Yangon",  # UTC+6:30
-    420: "Asia/Bangkok",  # UTC+7
-    480: "Asia/Shanghai",  # UTC+8
-    540: "Asia/Tokyo",  # UTC+9
-    570: "Australia/Adelaide",  # UTC+9:30
-    600: "Australia/Sydney",  # UTC+10
-    630: "Australia/Lord_Howe",  # UTC+10:30
-    660: "Pacific/Noumea",  # UTC+11
-    720: "Pacific/Auckland",  # UTC+12
-    765: "Pacific/Chatham",  # UTC+12:45
-    780: "Pacific/Tongatapu",  # UTC+13
-    840: "Pacific/Kiritimati",  # UTC+14
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,10 +459,12 @@ def offset_minutes_to_timezone(offset_minutes: int) -> str:
         ValidationError: If offset is out of valid range (-12 to +14 hours)
     """
     # Validate range (-12 hours to +14 hours)
-    if offset_minutes < -720 or offset_minutes > 840:
+    if not (RRULE_MIN_TZ_OFFSET_MIN <= offset_minutes <= RRULE_MAX_TZ_OFFSET_MIN):
         raise RecurrenceError(
             f"Invalid UTC offset: {offset_minutes} minutes. "
-            f"Must be between -720 (-12:00) and 840 (+14:00)"
+            f"Must be between {RRULE_MIN_TZ_OFFSET_MIN} "
+            f"({RRULE_MIN_TZ_OFFSET_MIN // 60}:00) "
+            f"and {RRULE_MAX_TZ_OFFSET_MIN} (+{RRULE_MAX_TZ_OFFSET_MIN // 60}:00)"
         )
 
     # Check for common mappings

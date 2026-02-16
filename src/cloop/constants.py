@@ -53,3 +53,59 @@ SEARCH_QUERY_MAX: int = 2000
 # Template fields
 TEMPLATE_NAME_MAX: int = 100  # Template names are shorter than view names
 TEMPLATE_DESCRIPTION_MAX: int = 500  # Matches webhook description length
+
+# =============================================================================
+# Timezone offset constants
+# =============================================================================
+
+# Python's timezone class requires offsets strictly between -24 and +24 hours,
+# so we use [-1439, +1439] minutes (exclusive of exactly +/-24h = +/-1440min)
+# Used for: captured_tz_offset_min field validation in validate_tz_offset()
+MIN_TZ_OFFSET_MIN: int = -1439
+MAX_TZ_OFFSET_MIN: int = 1439
+
+# IANA timezone range for RRULE/recurrence calculations
+# Real-world timezones range from UTC-12 (Baker Island) to UTC+14 (Line Islands)
+# Used for: offset_minutes_to_timezone() in recurrence.py
+RRULE_MIN_TZ_OFFSET_MIN: int = -720  # -12 hours
+RRULE_MAX_TZ_OFFSET_MIN: int = 840  # +14 hours
+
+# Common offset-to-timezone mappings for user convenience
+# Keys must be within [RRULE_MIN_TZ_OFFSET_MIN, RRULE_MAX_TZ_OFFSET_MIN] range
+OFFSET_TO_TIMEZONE: dict[int, str] = {
+    -720: "Etc/GMT+12",  # UTC-12
+    -660: "Etc/GMT+11",  # UTC-11
+    -600: "Etc/GMT+10",  # UTC-10 (HAST)
+    -540: "Etc/GMT+9",  # UTC-9 (AKST)
+    -480: "America/Los_Angeles",  # UTC-8 (PST)
+    -420: "America/Denver",  # UTC-7 (MST)
+    -360: "America/Chicago",  # UTC-6 (CST)
+    -300: "America/New_York",  # UTC-5 (EST)
+    -240: "America/Halifax",  # UTC-4 (AST)
+    -180: "America/Sao_Paulo",  # UTC-3
+    -120: "Etc/GMT+2",  # UTC-2
+    -60: "Etc/GMT+1",  # UTC-1
+    0: "UTC",  # UTC
+    60: "Etc/GMT-1",  # UTC+1 (CET)
+    120: "Europe/Berlin",  # UTC+2 (CEST - in summer)
+    180: "Europe/Moscow",  # UTC+3
+    210: "Asia/Tehran",  # UTC+3:30
+    240: "Asia/Dubai",  # UTC+4
+    270: "Asia/Kabul",  # UTC+4:30
+    300: "Asia/Karachi",  # UTC+5
+    330: "Asia/Kolkata",  # UTC+5:30
+    345: "Asia/Kathmandu",  # UTC+5:45
+    360: "Asia/Dhaka",  # UTC+6
+    390: "Asia/Yangon",  # UTC+6:30
+    420: "Asia/Bangkok",  # UTC+7
+    480: "Asia/Shanghai",  # UTC+8
+    540: "Asia/Tokyo",  # UTC+9
+    570: "Australia/Adelaide",  # UTC+9:30
+    600: "Australia/Sydney",  # UTC+10
+    630: "Australia/Lord_Howe",  # UTC+10:30
+    660: "Pacific/Noumea",  # UTC+11
+    720: "Pacific/Auckland",  # UTC+12
+    765: "Pacific/Chatham",  # UTC+12:45
+    780: "Pacific/Tongatapu",  # UTC+13
+    840: "Pacific/Kiritimati",  # UTC+14
+}
