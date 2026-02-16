@@ -38,7 +38,7 @@ class VectorBackend(StrEnum):
     VSS = "vss"
 
 
-SCHEMA_VERSION: int = 19
+SCHEMA_VERSION: int = 20
 RAG_SCHEMA_VERSION: int = 1
 _VECTOR_BACKEND: VectorBackend = VectorBackend.NONE
 
@@ -124,6 +124,7 @@ CREATE TABLE loops (
 
 CREATE INDEX idx_loops_status ON loops(status);
 CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
+CREATE INDEX idx_loops_updated_at ON loops(updated_at DESC);
 CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
 CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
 CREATE INDEX idx_loops_parent_id ON loops(parent_loop_id);
@@ -329,6 +330,10 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    20: """
+    -- Index for ORDER BY updated_at DESC queries (list, search, cursor pagination)
+    CREATE INDEX idx_loops_updated_at ON loops(updated_at DESC);
+    """,
     19: """
     -- Partial index for next-loop candidate queries
     -- Filters to actionable candidates with next_action defined
