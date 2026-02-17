@@ -97,6 +97,7 @@ def test_settings() -> Callable[..., Settings]:
             "review_stale_hours": 72.0,
             "review_blocked_hours": 48.0,
             "review_due_soon_hours": 48.0,
+            "operation_metrics_enabled": False,
         }
         defaults.update(overrides)
         return Settings(**defaults)  # type: ignore[arg-type]
