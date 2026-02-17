@@ -42,6 +42,7 @@ from .errors import (
     UndoNotPossibleError,
     ValidationError,
 )
+from .metrics import record_capture, record_transition, record_update
 from .models import (
     EnrichmentState,
     LoopComment,
@@ -337,6 +338,8 @@ def capture_loop(
             recurrence_enabled=recurrence_enabled,
         )
 
+        record_capture()
+
         event_payload = {
             "raw_text": raw_text,
             "status": status.value,
@@ -573,6 +576,7 @@ def update_loop(
             project_id = repo.upsert_project(name=project_name, conn=conn)
             updated_fields["project_id"] = project_id
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
+        record_update()
         if tags is not None:
             normalized_tags = normalize_tags(tags)
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
@@ -651,6 +655,7 @@ def transition_status(
             fields=updates,
             conn=conn,
         )
+        record_transition(record.status.value, to_status.value)
         event_type = (
             LoopEventType.CLOSE.value
             if is_terminal_status(to_status)
@@ -1369,6 +1374,7 @@ def bulk_update_loops(
             project_id = repo.upsert_project(name=project_name, conn=conn)
             updated_fields["project_id"] = project_id
         updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
+        record_update()
         if tags is not None:
             normalized_tags = normalize_tags(tags)
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
@@ -1567,6 +1573,7 @@ def bulk_close_loops(
             fields=updates,
             conn=conn,
         )
+        record_transition(record.status.value, to_status.value)
         event_type = (
             LoopEventType.CLOSE.value
             if is_terminal_status(to_status)

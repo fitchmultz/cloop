@@ -856,6 +856,15 @@ class LoopStatusCountsResponse(BaseModel):
     dropped: int
 
 
+class LoopOperationMetricsResponse(BaseModel):
+    """Operation-level metrics for loop lifecycle events."""
+
+    capture_count: int
+    update_count: int
+    transition_counts: Dict[str, int]
+    reset_count: int
+
+
 class LoopMetricsResponse(BaseModel):
     """Operational metrics for loop workflow health."""
 
@@ -870,6 +879,7 @@ class LoopMetricsResponse(BaseModel):
     capture_count_24h: int
     completion_count_24h: int
     avg_age_open_hours: float | None
+    operation_metrics: LoopOperationMetricsResponse | None = None
 
 
 # ============================================================================

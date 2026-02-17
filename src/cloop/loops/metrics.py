@@ -16,8 +16,11 @@ Non-scope:
 from __future__ import annotations
 
 import sqlite3
+import threading
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from .models import LoopStatus, format_utc_datetime, utc_now
 
@@ -184,3 +187,67 @@ def compute_loop_metrics(
         completion_count_24h=completion_count_24h,
         avg_age_open_hours=round(avg_age_open_hours, 1) if avg_age_open_hours else None,
     )
+
+
+class LoopOperationMetrics:
+    """Thread-safe in-memory counters for loop lifecycle operations."""
+
+    __slots__ = ("_lock", "_capture_count", "_update_count", "_transition_counts", "_reset_count")
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._capture_count: int = 0
+        self._update_count: int = 0
+        self._transition_counts: dict[str, int] = defaultdict(int)
+        self._reset_count: int = 0
+
+    def increment_capture(self) -> None:
+        with self._lock:
+            self._capture_count += 1
+
+    def increment_update(self) -> None:
+        with self._lock:
+            self._update_count += 1
+
+    def increment_transition(self, from_status: str, to_status: str) -> None:
+        key = f"{from_status}->{to_status}"
+        with self._lock:
+            self._transition_counts[key] += 1
+
+    def get_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "capture_count": self._capture_count,
+                "update_count": self._update_count,
+                "transition_counts": dict(self._transition_counts),
+                "reset_count": self._reset_count,
+            }
+
+    def reset(self) -> None:
+        with self._lock:
+            self._capture_count = 0
+            self._update_count = 0
+            self._transition_counts.clear()
+            self._reset_count += 1
+
+
+_global_metrics: LoopOperationMetrics | None = None
+
+
+def get_operation_metrics() -> LoopOperationMetrics:
+    global _global_metrics
+    if _global_metrics is None:
+        _global_metrics = LoopOperationMetrics()
+    return _global_metrics
+
+
+def record_capture() -> None:
+    get_operation_metrics().increment_capture()
+
+
+def record_update() -> None:
+    get_operation_metrics().increment_update()
+
+
+def record_transition(from_status: str, to_status: str) -> None:
+    get_operation_metrics().increment_transition(from_status, to_status)

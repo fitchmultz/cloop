@@ -114,6 +114,8 @@ class Settings:
     review_stale_hours: float
     review_blocked_hours: float
     review_due_soon_hours: float
+    # Operation metrics settings
+    operation_metrics_enabled: bool
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -243,6 +245,9 @@ def get_settings() -> Settings:
         review_stale_hours=float(os.getenv("CLOOP_REVIEW_STALE_HOURS", "72.0")),
         review_blocked_hours=float(os.getenv("CLOOP_REVIEW_BLOCKED_HOURS", "48.0")),
         review_due_soon_hours=float(os.getenv("CLOOP_REVIEW_DUE_SOON_HOURS", "48.0")),
+        operation_metrics_enabled=_resolve_bool(
+            os.getenv("CLOOP_OPERATION_METRICS_ENABLED", "false")
+        ),
     )
     return _validate_settings(settings)
 

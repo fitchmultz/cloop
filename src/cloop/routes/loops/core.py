@@ -39,7 +39,7 @@ from ...idempotency import (
 from ...loops import enrichment as loop_enrichment
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
-from ...loops.metrics import compute_loop_metrics
+from ...loops.metrics import compute_loop_metrics, get_operation_metrics
 from ...loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
 from ...loops.utils import normalize_tag
 from ...schemas.loops import (
@@ -52,6 +52,7 @@ from ...schemas.loops import (
     LoopImportResponse,
     LoopMetricsResponse,
     LoopNextResponse,
+    LoopOperationMetricsResponse,
     LoopResponse,
     LoopReviewCohortItem,
     LoopReviewCohortResponse,
@@ -487,12 +488,39 @@ def loop_metrics_endpoint(
     - Enrichment queue health (pending/failed)
     - Capture and completion rates (24h window)
     - Average age of open loops
+    - Operation-level metrics (if enabled via CLOOP_OPERATION_METRICS_ENABLED)
     """
     from ...loops.models import utc_now
 
     with db.core_connection(settings) as conn:
         metrics = compute_loop_metrics(conn=conn, now_utc=utc_now())
-    return _metrics_to_response(metrics)
+
+    operation_metrics = None
+    if settings.operation_metrics_enabled:
+        op_metrics = get_operation_metrics().get_snapshot()
+        operation_metrics = LoopOperationMetricsResponse(**op_metrics)
+
+    return LoopMetricsResponse(
+        generated_at_utc=metrics.generated_at_utc,
+        total_loops=metrics.total_loops,
+        status_counts=LoopStatusCountsResponse(
+            inbox=metrics.status_counts.inbox,
+            actionable=metrics.status_counts.actionable,
+            blocked=metrics.status_counts.blocked,
+            scheduled=metrics.status_counts.scheduled,
+            completed=metrics.status_counts.completed,
+            dropped=metrics.status_counts.dropped,
+        ),
+        stale_open_count=metrics.stale_open_count,
+        blocked_too_long_count=metrics.blocked_too_long_count,
+        no_next_action_count=metrics.no_next_action_count,
+        enrichment_pending_count=metrics.enrichment_pending_count,
+        enrichment_failed_count=metrics.enrichment_failed_count,
+        capture_count_24h=metrics.capture_count_24h,
+        completion_count_24h=metrics.completion_count_24h,
+        avg_age_open_hours=metrics.avg_age_open_hours,
+        operation_metrics=operation_metrics,
+    )
 
 
 @router.get("/{loop_id}", response_model=LoopResponse)
