@@ -19,15 +19,19 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import sqlite3
 import zipfile
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal, overload
 
 from . import db
 from .settings import Settings
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,14 @@ class BackupInfo:
     core_schema_version: int
     rag_schema_version: int
     size_bytes: int
+
+
+@dataclass(frozen=True)
+class InvalidBackupInfo:
+    """Information about a backup that failed to load."""
+
+    path: Path
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -364,25 +376,48 @@ def restore_backup(
         )
 
 
+@overload
 def list_backups(
     *,
     settings: Settings,
     limit: int | None = None,
-) -> list[BackupInfo]:
+    include_invalid: Literal[False] = False,
+) -> list[BackupInfo]: ...
+
+
+@overload
+def list_backups(
+    *,
+    settings: Settings,
+    limit: int | None = None,
+    include_invalid: Literal[True] = True,
+) -> tuple[list[BackupInfo], list[InvalidBackupInfo]]: ...
+
+
+def list_backups(
+    *,
+    settings: Settings,
+    limit: int | None = None,
+    include_invalid: Literal[False] | Literal[True] = False,
+) -> list[BackupInfo] | tuple[list[BackupInfo], list[InvalidBackupInfo]]:
     """List available backups in the backup directory.
 
     Args:
         settings: Application settings containing backup_dir.
         limit: Maximum number of backups to return (newest first).
+        include_invalid: If True, return tuple of (valid, invalid) backups.
 
     Returns:
-        List of BackupInfo objects for available backups.
+        List of BackupInfo objects, or tuple of (valid, invalid) if include_invalid=True.
     """
     backup_dir = settings.backup_dir
     if not backup_dir.exists():
+        if include_invalid:
+            return [], []
         return []
 
-    backups: list[BackupInfo] = []
+    valid_backups: list[BackupInfo] = []
+    invalid_backups: list[InvalidBackupInfo] = []
 
     for backup_file in backup_dir.glob("*.cloop.zip"):
         try:
@@ -390,7 +425,7 @@ def list_backups(
                 manifest_data = json.loads(zf.read("manifest.json"))
                 manifest = BackupManifest(**manifest_data)
 
-                backups.append(
+                valid_backups.append(
                     BackupInfo(
                         path=backup_file,
                         created_at_utc=manifest.created_at_utc,
@@ -400,17 +435,63 @@ def list_backups(
                         size_bytes=backup_file.stat().st_size,
                     )
                 )
-        except Exception:
-            # Skip invalid backups
-            continue
+        except zipfile.BadZipFile as e:
+            logger.warning(
+                "Skipping invalid backup %s: corrupted zip file (%s)", backup_file.name, e
+            )
+            if include_invalid:
+                invalid_backups.append(
+                    InvalidBackupInfo(path=backup_file, reason=f"Corrupted zip file: {e}")
+                )
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Skipping invalid backup %s: invalid manifest JSON (%s)", backup_file.name, e
+            )
+            if include_invalid:
+                invalid_backups.append(
+                    InvalidBackupInfo(path=backup_file, reason=f"Invalid manifest JSON: {e}")
+                )
+        except (KeyError, TypeError) as e:
+            logger.warning(
+                "Skipping invalid backup %s: missing or invalid manifest field (%s)",
+                backup_file.name,
+                e,
+            )
+            if include_invalid:
+                invalid_backups.append(
+                    InvalidBackupInfo(
+                        path=backup_file, reason=f"Missing/invalid manifest field: {e}"
+                    )
+                )
+        except OSError as e:
+            logger.warning("Skipping invalid backup %s: I/O error (%s)", backup_file.name, e)
+            if include_invalid:
+                invalid_backups.append(
+                    InvalidBackupInfo(path=backup_file, reason=f"I/O error: {e}")
+                )
+        except Exception as e:
+            logger.warning(
+                "Skipping invalid backup %s: unexpected error (%s: %s)",
+                backup_file.name,
+                type(e).__name__,
+                e,
+            )
+            if include_invalid:
+                invalid_backups.append(
+                    InvalidBackupInfo(
+                        path=backup_file, reason=f"Unexpected error ({type(e).__name__}): {e}"
+                    )
+                )
 
-    # Sort by creation time, newest first
-    backups.sort(key=lambda b: b.created_at_utc, reverse=True)
+    valid_backups.sort(key=lambda b: b.created_at_utc, reverse=True)
+    invalid_backups.sort(key=lambda b: b.path.name, reverse=True)
 
     if limit is not None:
-        backups = backups[:limit]
+        valid_backups = valid_backups[:limit]
 
-    return backups
+    if include_invalid:
+        return valid_backups, invalid_backups
+    return valid_backups
 
 
 def verify_backup(
