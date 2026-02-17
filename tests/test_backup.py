@@ -321,6 +321,60 @@ def test_list_backups_with_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert len(backups) == 3
 
 
+def test_list_backups_skips_corrupted_zip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that list_backups skips corrupted zip files."""
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    backup.create_backup(settings=settings, name="valid")
+
+    corrupted_path = tmp_path / "backups" / "corrupted.cloop.zip"
+    with open(corrupted_path, "wb") as f:
+        f.write(b"not a valid zip file")
+
+    backups = backup.list_backups(settings=settings)
+    assert len(backups) == 1
+    assert backups[0].name == "valid"
+
+
+def test_list_backups_skips_invalid_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that list_backups skips backups with invalid manifests."""
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    backup.create_backup(settings=settings, name="valid")
+
+    import zipfile
+
+    invalid_path = tmp_path / "backups" / "invalid.cloop.zip"
+    with zipfile.ZipFile(invalid_path, "w") as zf:
+        zf.writestr("manifest.json", b"not valid json")
+
+    backups = backup.list_backups(settings=settings)
+    assert len(backups) == 1
+    assert backups[0].name == "valid"
+
+
+def test_list_backups_include_invalid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that include_invalid returns both valid and invalid backups."""
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    backup.create_backup(settings=settings, name="valid")
+
+    corrupted_path = tmp_path / "backups" / "corrupted.cloop.zip"
+    with open(corrupted_path, "wb") as f:
+        f.write(b"not a valid zip file")
+
+    result = backup.list_backups(settings=settings, include_invalid=True)
+    assert isinstance(result, tuple)
+    valid, invalid = result
+    assert len(valid) == 1
+    assert valid[0].name == "valid"
+    assert len(invalid) == 1
+    assert invalid[0].path == corrupted_path
+    assert "Corrupted zip file" in invalid[0].reason
+
+
 def test_backup_rotation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that old backups are rotated when count exceeds limit."""
     monkeypatch.setenv("CLOOP_BACKUP_KEEP_COUNT", "2")
