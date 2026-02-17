@@ -18,6 +18,26 @@ Non-scope:
 Invariants:
 - Same (scope, key, hash) replays prior response
 - Same (scope, key) with different hash is conflict
+
+Idempotency Key Format:
+    Keys must be unique per client and operation scope. Recommended formats:
+
+    1. UUID v4 (36 chars): "550e8400-e29b-41d4-a716-446655440000"
+    2. Prefixed UUID (40+ chars): "req_550e8400-e29b-41d4-a716-446655440000"
+    3. Client-generated unique strings (e.g., database IDs, timestamps)
+
+    Requirements:
+    - Maximum length: 255 characters
+    - Must be non-empty after stripping whitespace
+    - Should be unique per logical request (not reused across different operations)
+    - Case-sensitive (normalize before sending)
+
+    Example usage:
+        # HTTP header
+        Idempotency-Key: req_550e8400-e29b-41d4-a716-446655440000
+
+        # MCP tool call
+        request_id: "req_550e8400-e29b-41d4-a716-446655440000"
 """
 
 from __future__ import annotations
@@ -77,15 +97,28 @@ def expiry_timestamp(ttl_seconds: int) -> str:
 def normalize_idempotency_key(key: str, max_length: int = 255) -> str:
     """Normalize and validate idempotency key.
 
+    Idempotency keys enable safe request retries. When you send a request
+    with the same key, scope, and payload, the server returns the original
+    response instead of re-executing the operation.
+
     Args:
-        key: Raw idempotency key string
-        max_length: Maximum allowed key length
+        key: Raw idempotency key string. Recommended formats:
+            - UUID v4: "550e8400-e29b-41d4-a716-446655440000"
+            - Prefixed UUID: "req_550e8400-e29b-41d4-a716-446655440000"
+            - Any unique string up to 255 characters
+        max_length: Maximum allowed key length (default: 255)
 
     Returns:
         Stripped key string
 
     Raises:
         ValueError: If key is empty or exceeds max length
+
+    Example:
+        >>> normalize_idempotency_key("req_550e8400-e29b-41d4-a716-446655440000")
+        'req_550e8400-e29b-41d4-a716-446655440000'
+        >>> normalize_idempotency_key("  valid-key  ")
+        'valid-key'
     """
     normalized = key.strip()
     if not normalized:
