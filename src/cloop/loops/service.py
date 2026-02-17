@@ -54,6 +54,10 @@ from .models import (
     parse_utc_datetime,
     utc_now,
 )
+from .pagination import (
+    build_next_cursor,
+    prepare_cursor_state,
+)
 from .prioritization import PriorityWeights, bucketize, compute_priority_score
 from .utils import normalize_tag, normalize_tags
 
@@ -1165,36 +1169,6 @@ def apply_loop_view(
     }
 
 
-def _build_list_fingerprint(status: LoopStatus | None) -> str:
-    from .pagination import fingerprint_payload
-
-    return fingerprint_payload({"tool": "loop.list", "status": status.value if status else None})
-
-
-def _build_search_fingerprint(query: str) -> str:
-    from .pagination import fingerprint_payload
-
-    return fingerprint_payload({"tool": "loop.search", "query": query})
-
-
-def _build_view_fingerprint(view_id: int, query: str) -> str:
-    from .pagination import fingerprint_payload
-
-    return fingerprint_payload({"tool": "loop.view.apply", "view_id": view_id, "query": query})
-
-
-def _format_sqlite_timestamp(dt: Any) -> str:
-    """Format datetime for SQLite comparison (YYYY-MM-DD HH:MM:SS)."""
-    s = format_utc_datetime(dt)
-    if "T" in s:
-        s = s.replace("T", " ")
-    if "+" in s:
-        s = s.split("+")[0]
-    if s.endswith("Z"):
-        s = s[:-1]
-    return s.strip()
-
-
 @typingx.validate_io()
 def list_loops_page(
     *,
@@ -1214,41 +1188,27 @@ def list_loops_page(
     Returns:
         Dict with items, next_cursor (or None), and limit
     """
-    from .pagination import LoopCursor, decode_cursor, encode_cursor
-
-    fingerprint = _build_list_fingerprint(status)
-    snapshot_utc = _format_sqlite_timestamp(utc_now())
-
-    cursor_anchor: tuple[str, str, int] | None = None
-    if cursor is not None:
-        decoded = decode_cursor(cursor, expected_fingerprint=fingerprint)
-        snapshot_utc = decoded.snapshot_utc
-        cursor_anchor = (decoded.updated_at_utc, decoded.captured_at_utc, decoded.loop_id)
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "loop.list", "status": status.value if status else None},
+        cursor=cursor,
+    )
 
     records = repo.list_loops_cursor(
         status=status,
         limit=limit,
-        snapshot_utc=snapshot_utc,
-        cursor_anchor=cursor_anchor,
+        snapshot_utc=state.snapshot_utc,
+        cursor_anchor=state.cursor_anchor,
         conn=conn,
     )
 
-    has_more = len(records) > limit
-    items_records = records[:limit]
+    next_cursor = build_next_cursor(
+        records=records,
+        limit=limit,
+        snapshot_utc=state.snapshot_utc,
+        fingerprint=state.fingerprint,
+    )
+    items = _enrich_records_batch(records[:limit], conn=conn)
 
-    next_cursor: str | None = None
-    if has_more and items_records:
-        last = items_records[-1]
-        loop_cursor = LoopCursor(
-            snapshot_utc=snapshot_utc,
-            updated_at_utc=_format_sqlite_timestamp(last.updated_at_utc),
-            captured_at_utc=_format_sqlite_timestamp(last.captured_at_utc),
-            loop_id=last.id,
-            fingerprint=fingerprint,
-        )
-        next_cursor = encode_cursor(loop_cursor)
-
-    items = _enrich_records_batch(items_records, conn=conn)
     return {"items": items, "next_cursor": next_cursor, "limit": limit}
 
 
@@ -1271,41 +1231,27 @@ def search_loops_by_query_page(
     Returns:
         Dict with items, next_cursor (or None), and limit
     """
-    from .pagination import LoopCursor, decode_cursor, encode_cursor
-
-    fingerprint = _build_search_fingerprint(query)
-    snapshot_utc = _format_sqlite_timestamp(utc_now())
-
-    cursor_anchor: tuple[str, str, int] | None = None
-    if cursor is not None:
-        decoded = decode_cursor(cursor, expected_fingerprint=fingerprint)
-        snapshot_utc = decoded.snapshot_utc
-        cursor_anchor = (decoded.updated_at_utc, decoded.captured_at_utc, decoded.loop_id)
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "loop.search", "query": query},
+        cursor=cursor,
+    )
 
     records = repo.search_loops_by_query_cursor(
         query=query,
         limit=limit,
-        snapshot_utc=snapshot_utc,
-        cursor_anchor=cursor_anchor,
+        snapshot_utc=state.snapshot_utc,
+        cursor_anchor=state.cursor_anchor,
         conn=conn,
     )
 
-    has_more = len(records) > limit
-    items_records = records[:limit]
+    next_cursor = build_next_cursor(
+        records=records,
+        limit=limit,
+        snapshot_utc=state.snapshot_utc,
+        fingerprint=state.fingerprint,
+    )
+    items = _enrich_records_batch(records[:limit], conn=conn)
 
-    next_cursor: str | None = None
-    if has_more and items_records:
-        last = items_records[-1]
-        loop_cursor = LoopCursor(
-            snapshot_utc=snapshot_utc,
-            updated_at_utc=_format_sqlite_timestamp(last.updated_at_utc),
-            captured_at_utc=_format_sqlite_timestamp(last.captured_at_utc),
-            loop_id=last.id,
-            fingerprint=fingerprint,
-        )
-        next_cursor = encode_cursor(loop_cursor)
-
-    items = _enrich_records_batch(items_records, conn=conn)
     return {"items": items, "next_cursor": next_cursor, "limit": limit}
 
 
@@ -1331,46 +1277,32 @@ def apply_loop_view_page(
     Raises:
         ValidationError: If view not found or query invalid
     """
-    from .pagination import LoopCursor, decode_cursor, encode_cursor
-
     view = repo.get_loop_view(view_id=view_id, conn=conn)
     if view is None:
         raise ValidationError("view_id", f"view {view_id} not found")
 
     query = view["query"]
-    fingerprint = _build_view_fingerprint(view_id, query)
-    snapshot_utc = _format_sqlite_timestamp(utc_now())
-
-    cursor_anchor: tuple[str, str, int] | None = None
-    if cursor is not None:
-        decoded = decode_cursor(cursor, expected_fingerprint=fingerprint)
-        snapshot_utc = decoded.snapshot_utc
-        cursor_anchor = (decoded.updated_at_utc, decoded.captured_at_utc, decoded.loop_id)
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "loop.view.apply", "view_id": view_id, "query": query},
+        cursor=cursor,
+    )
 
     records = repo.search_loops_by_query_cursor(
         query=query,
         limit=limit,
-        snapshot_utc=snapshot_utc,
-        cursor_anchor=cursor_anchor,
+        snapshot_utc=state.snapshot_utc,
+        cursor_anchor=state.cursor_anchor,
         conn=conn,
     )
 
-    has_more = len(records) > limit
-    items_records = records[:limit]
+    next_cursor = build_next_cursor(
+        records=records,
+        limit=limit,
+        snapshot_utc=state.snapshot_utc,
+        fingerprint=state.fingerprint,
+    )
+    items = _enrich_records_batch(records[:limit], conn=conn)
 
-    next_cursor: str | None = None
-    if has_more and items_records:
-        last = items_records[-1]
-        loop_cursor = LoopCursor(
-            snapshot_utc=snapshot_utc,
-            updated_at_utc=_format_sqlite_timestamp(last.updated_at_utc),
-            captured_at_utc=_format_sqlite_timestamp(last.captured_at_utc),
-            loop_id=last.id,
-            fingerprint=fingerprint,
-        )
-        next_cursor = encode_cursor(loop_cursor)
-
-    items = _enrich_records_batch(items_records, conn=conn)
     return {
         "view": view,
         "query": query,
