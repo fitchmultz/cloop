@@ -38,6 +38,36 @@ Non-scope:
     - CLI commands (see cli.py)
 """
 
+# =============================================================================
+# MCP Tool Docstring Format
+# =============================================================================
+#
+# All MCP tool docstrings should follow this format:
+#
+#     """One-line summary of tool purpose (under 80 chars).
+#
+#     Extended description explaining behavior, special cases, and usage notes.
+#     Include any important warnings or edge cases here.
+#
+#     Args:
+#         param_name: Description including type if non-obvious.
+#             - Document valid options and defaults
+#             - Note what happens if omitted for optional params
+#
+#     Returns:
+#         Description of return value structure.
+#         - Include field names for dict returns
+#         - Note special cases (None, empty list, etc.)
+#
+#     Raises:
+#         ToolError: Conditions that trigger this error.
+#
+# Notes:
+#   - Always include Args and Returns sections (even if Args is empty)
+#   - Use Raises section only if the tool can raise ToolError
+#   - Keep one-line summary under 80 characters
+# =============================================================================
+
 from __future__ import annotations
 
 from functools import wraps
@@ -235,6 +265,32 @@ def loop_create(
     timezone: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
+    """Capture a new loop item.
+
+    Creates a new loop with the provided text and metadata. The loop starts
+    in 'inbox' status by default but can be set to any valid status.
+
+    Recurrence: Either 'schedule' (natural language like "every Monday") or
+    'rrule' (direct RRULE string) can be provided to create a recurring loop.
+
+    Args:
+        raw_text: The text content of the loop.
+        captured_at: ISO 8601 timestamp when the loop was captured.
+        client_tz_offset_min: Client timezone offset in minutes from UTC.
+        status: Initial status (default: "inbox"). Valid: inbox, actionable,
+            blocked, scheduled, completed, dropped.
+        schedule: Natural language recurrence phrase (e.g., "every Monday").
+        rrule: Direct RRULE string for recurrence (e.g., "FREQ=WEEKLY;BYDAY=MO").
+        timezone: IANA timezone for recurrence (e.g., "America/New_York").
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        The created loop record with all fields including id, status,
+        raw_text, created_at_utc, and recurrence fields if specified.
+
+    Raises:
+        ToolError: If timestamp validation fails or status is invalid.
+    """
     validate_iso8601_timestamp(captured_at, "captured_at")
     validate_tz_offset(client_tz_offset_min, "client_tz_offset_min")
 
@@ -300,6 +356,31 @@ def loop_update(
     claim_token: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
+    """Update one or more fields of an existing loop.
+
+    Only the provided fields are updated; others remain unchanged.
+    Timestamps (due_at_utc, snooze_until_utc) must be ISO 8601 format.
+
+    Args:
+        loop_id: The unique identifier of the loop to update.
+        fields: Dict of field names to new values. Supported fields include:
+            - raw_text: Updated text content
+            - status: New status (use loop.close for terminal statuses)
+            - due_at_utc: ISO 8601 due date timestamp
+            - snooze_until_utc: ISO 8601 snooze timestamp
+            - next_action: Actionable next step description
+            - time_minutes: Estimated effort in minutes
+            - tags: List of tag strings
+            - project_id: Project association
+        claim_token: Required if loop is claimed by another agent.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        The updated loop record with all current fields.
+
+    Raises:
+        ToolError: If loop not found, validation fails, or claim mismatch.
+    """
     if "due_at_utc" in fields and fields["due_at_utc"] is not None:
         validate_iso8601_timestamp(fields["due_at_utc"], "due_at_utc")
     if "snooze_until_utc" in fields and fields["snooze_until_utc"] is not None:
@@ -343,6 +424,24 @@ def loop_close(
     claim_token: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
+    """Close a loop with a terminal status (completed or dropped).
+
+    Terminal statuses are final; use loop.transition for non-terminal
+    status changes (inbox, actionable, blocked, scheduled).
+
+    Args:
+        loop_id: The unique identifier of the loop to close.
+        status: Terminal status - "completed" or "dropped" (default: "completed").
+        note: Optional completion/drop note explaining the resolution.
+        claim_token: Required if loop is claimed by another agent.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        The closed loop record with updated status and closed_at_utc.
+
+    Raises:
+        ToolError: If loop not found, status is not terminal, or claim mismatch.
+    """
     settings = get_settings()
     loop_status = LoopStatus(status)
     if not is_terminal_status(loop_status):
@@ -450,6 +549,22 @@ def loop_snooze(
     snooze_until_utc: str,
     request_id: str | None = None,
 ) -> dict[str, Any]:
+    """Snooze a loop until a specified future time.
+
+    Sets the snooze_until_utc field on the loop. Snoozed loops are excluded
+    from loop.next results until the snooze time passes.
+
+    Args:
+        loop_id: The unique identifier of the loop to snooze.
+        snooze_until_utc: ISO 8601 timestamp when snooze expires.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        The updated loop record with snooze_until_utc set.
+
+    Raises:
+        ToolError: If loop not found or timestamp validation fails.
+    """
     validate_iso8601_timestamp(snooze_until_utc, "snooze_until_utc")
 
     settings = get_settings()
@@ -486,6 +601,24 @@ def loop_snooze(
 @with_db_init
 @with_mcp_error_handling
 def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
+    """Trigger AI enrichment for a loop.
+
+    Requests and executes AI enrichment to extract structured data from
+    the loop's raw_text. Enrichment may populate: summary, next_action,
+    time_minutes, tags, project suggestion, and due date.
+
+    This is a synchronous operation that performs the enrichment immediately.
+
+    Args:
+        loop_id: The unique identifier of the loop to enrich.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        The enriched loop record with updated fields.
+
+    Raises:
+        ToolError: If loop not found or enrichment fails.
+    """
     settings = get_settings()
 
     payload = {"loop_id": loop_id}
@@ -605,11 +738,20 @@ def loop_view_create(
 ) -> dict[str, Any]:
     """Create a saved view with a DSL query.
 
+    Saved views allow storing and reusing DSL query strings for quick access
+    to commonly needed loop filters. Views can be applied with loop.view.apply.
+
     Args:
-        name: Unique view name
-        query: DSL query string
-        description: Optional description
-        request_id: Optional idempotency key
+        name: Unique view name (must not conflict with existing views)
+        query: DSL query string (same syntax as loop.search)
+        description: Optional human-readable description of the view's purpose
+        request_id: Optional idempotency key for safe retries
+
+    Returns:
+        The created view record with id, name, query, description, and created_at_utc
+
+    Raises:
+        ToolError: If name already exists or query is invalid
     """
     settings = get_settings()
     payload = {"name": name, "query": query, "description": description}
@@ -645,7 +787,19 @@ def loop_view_create(
 @with_db_init
 @with_mcp_error_handling
 def loop_view_list() -> list[dict[str, Any]]:
-    """List all saved views."""
+    """List all saved views.
+
+    Returns all user-created saved views ordered by name. Views are reusable
+    DSL queries that can be applied with loop.view.apply.
+
+    Returns:
+        List of view dicts, each containing:
+        - id: Unique view identifier
+        - name: View name
+        - query: The stored DSL query string
+        - description: Optional description
+        - created_at_utc: Creation timestamp
+    """
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.list_loop_views(conn=conn)
@@ -655,7 +809,20 @@ def loop_view_list() -> list[dict[str, Any]]:
 @with_db_init
 @with_mcp_error_handling
 def loop_view_get(view_id: int) -> dict[str, Any]:
-    """Get a saved view by ID."""
+    """Get a saved view by its ID.
+
+    Retrieves the full details of a specific saved view including its
+    stored DSL query and metadata.
+
+    Args:
+        view_id: The unique identifier of the view to retrieve
+
+    Returns:
+        The view record with id, name, query, description, and created_at_utc
+
+    Raises:
+        ToolError: If no view exists with the given ID
+    """
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.get_loop_view(view_id=view_id, conn=conn)
@@ -671,7 +838,24 @@ def loop_view_update(
     description: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Update a saved view."""
+    """Update one or more fields of an existing saved view.
+
+    Only provided fields are updated; others remain unchanged. At least one
+    field must be provided for update.
+
+    Args:
+        view_id: The unique identifier of the view to update
+        name: Optional new name (must be unique if changed)
+        query: Optional new DSL query string
+        description: Optional new description
+        request_id: Optional idempotency key for safe retries
+
+    Returns:
+        The updated view record with all current fields
+
+    Raises:
+        ToolError: If view not found, name conflicts, or query is invalid
+    """
     settings = get_settings()
     payload = {"view_id": view_id, "name": name, "query": query, "description": description}
 
@@ -710,7 +894,21 @@ def loop_view_delete(
     view_id: int,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Delete a saved view."""
+    """Delete a saved view permanently.
+
+    Permanently removes the saved view. This operation cannot be undone.
+    Associated loops are not affected - only the saved view itself is deleted.
+
+    Args:
+        view_id: The unique identifier of the view to delete
+        request_id: Optional idempotency key for safe retries
+
+    Returns:
+        Dict with deleted: True to confirm successful deletion
+
+    Raises:
+        ToolError: If view not found
+    """
     settings = get_settings()
     payload = {"view_id": view_id}
 
@@ -1447,8 +1645,12 @@ def loop_transition(
 def loop_tags() -> list[str]:
     """List all unique tags used across loops.
 
+    Returns tags that have been assigned to at least one loop. Tags are
+    normalized to lowercase and deduplicated. Useful for building tag
+    selectors or understanding loop categorization patterns.
+
     Returns:
-        Alphabetically sorted list of tag names (lowercase).
+        Alphabetically sorted list of unique tag names (lowercase).
     """
     settings = get_settings()
     with db.core_connection(settings) as conn:
@@ -1459,6 +1661,17 @@ def loop_tags() -> list[str]:
 @with_db_init
 @with_mcp_error_handling
 def project_list() -> list[dict[str, Any]]:
+    """List all projects.
+
+    Returns all projects that have been associated with loops, ordered
+    by name. Projects are auto-created when referenced in loop captures.
+
+    Returns:
+        List of project dicts, each with:
+        - id: Unique project identifier
+        - name: Project name
+        - created_at_utc: When the project was created
+    """
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_repo.list_projects(conn=conn)
@@ -1475,8 +1688,19 @@ def project_list() -> list[dict[str, Any]]:
 def loop_template_list() -> list[dict[str, Any]]:
     """List all loop templates.
 
+    Returns both user-created and system templates. System templates are
+    built-in patterns that cannot be deleted. User templates can be created
+    from scratch or derived from existing loops.
+
     Returns:
-        List of template dicts with id, name, description, is_system
+        List of template dicts, each with:
+        - id: Unique template identifier
+        - name: Template name
+        - description: Optional template description
+        - raw_text_pattern: Pattern with optional {{variable}} placeholders
+        - defaults_json: Default field values for new loops
+        - is_system: True for built-in templates, False for user-created
+        - created_at_utc: When the template was created
     """
     settings = get_settings()
     with db.core_connection(settings) as conn:
@@ -1487,13 +1711,17 @@ def loop_template_list() -> list[dict[str, Any]]:
 @with_db_init
 @with_mcp_error_handling
 def loop_template_get(template_id: int) -> dict[str, Any] | None:
-    """Get a template by ID.
+    """Get a template by its ID.
+
+    Retrieves the full details of a specific template including its pattern,
+    defaults, and metadata.
 
     Args:
-        template_id: Template ID
+        template_id: The unique identifier of the template to retrieve.
 
     Returns:
-        Template dict or None if not found
+        Template dict with id, name, description, raw_text_pattern,
+        defaults_json, is_system, and created_at_utc, or None if not found.
     """
     settings = get_settings()
     with db.core_connection(settings) as conn:
@@ -1512,15 +1740,26 @@ def loop_template_create(
 ) -> dict[str, Any]:
     """Create a new loop template.
 
+    Templates provide reusable patterns for creating loops with pre-filled
+    fields. Use {{variable}} placeholders in raw_text_pattern to create
+    dynamic templates that prompt for values when applied.
+
     Args:
-        name: Template name (must be unique)
-        description: Optional description
+        name: Template name (must be unique, case-insensitive).
+        description: Optional human-readable description of the template's
+            purpose and usage.
         raw_text_pattern: Pattern with optional {{variable}} placeholders
-        defaults: Default field values (tags, time_minutes, actionable, etc.)
-        request_id: Optional idempotency key
+            that will be replaced when the template is applied.
+        defaults: Default field values (tags, time_minutes, next_action,
+            project_id, etc.) to apply to loops created from this template.
+        request_id: Optional idempotency key for safe retries.
 
     Returns:
-        Created template record
+        The created template record with id, name, description,
+        raw_text_pattern, defaults_json, is_system, and created_at_utc.
+
+    Raises:
+        ToolError: If name is already in use or validation fails.
     """
     settings = get_settings()
     payload = {
@@ -1566,14 +1805,21 @@ def loop_template_delete(
     template_id: int,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Delete a loop template. System templates cannot be deleted.
+    """Delete a loop template permanently.
+
+    Permanently removes a user-created template. System templates
+    (is_system=True) cannot be deleted. This operation cannot be undone.
 
     Args:
-        template_id: Template ID to delete
-        request_id: Optional idempotency key
+        template_id: The unique identifier of the template to delete.
+        request_id: Optional idempotency key for safe retries.
 
     Returns:
-        Dict with deleted status
+        Dict with deleted: True if the template was deleted, or deleted: False
+        if the template was not found or is a system template.
+
+    Raises:
+        ToolError: If the template is a system template (cannot be deleted).
     """
     settings = get_settings()
     payload = {"template_id": template_id}
@@ -1611,13 +1857,21 @@ def loop_template_from_loop(
 ) -> dict[str, Any]:
     """Create a template from an existing loop.
 
+    Extracts the raw_text, tags, time_minutes, next_action, and other
+    fields from an existing loop to create a reusable template. The
+    template can then be used to quickly create similar loops.
+
     Args:
-        loop_id: Loop ID to use as template source
-        name: Name for the new template
-        request_id: Optional idempotency key
+        loop_id: The unique identifier of the loop to use as template source.
+        name: Name for the new template (must be unique, case-insensitive).
+        request_id: Optional idempotency key for safe retries.
 
     Returns:
-        Created template record
+        The created template record with id, name, description,
+        raw_text_pattern, defaults_json, is_system, and created_at_utc.
+
+    Raises:
+        ToolError: If the source loop is not found or name is already in use.
     """
     settings = get_settings()
     payload = {"loop_id": loop_id, "name": name}
