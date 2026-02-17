@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field, field_validator
 from ..constants import (
     AUTHOR_MAX,
     BLOCKED_REASON_MAX,
+    BULK_OPERATION_MAX_ITEMS,
     COMMENT_BODY_MAX,
     COMPLETION_NOTE_MAX,
     DEFINITION_OF_DONE_MAX,
@@ -607,21 +608,36 @@ class BulkSnoozeItem(BaseModel):
 class BulkUpdateRequest(BaseModel):
     """Request for bulk loop update."""
 
-    updates: List[BulkUpdateItem] = Field(..., min_length=1, max_length=100)
+    updates: List[BulkUpdateItem] = Field(
+        ...,
+        min_length=1,
+        max_length=BULK_OPERATION_MAX_ITEMS,
+        description=f"List of updates (max {BULK_OPERATION_MAX_ITEMS} items)",
+    )
     transactional: bool = Field(default=False, description="Rollback all on any failure")
 
 
 class BulkCloseRequest(BaseModel):
     """Request for bulk loop close."""
 
-    items: List[BulkCloseItem] = Field(..., min_length=1, max_length=100)
+    items: List[BulkCloseItem] = Field(
+        ...,
+        min_length=1,
+        max_length=BULK_OPERATION_MAX_ITEMS,
+        description=f"List of items to close (max {BULK_OPERATION_MAX_ITEMS} items)",
+    )
     transactional: bool = Field(default=False, description="Rollback all on any failure")
 
 
 class BulkSnoozeRequest(BaseModel):
     """Request for bulk loop snooze."""
 
-    items: List[BulkSnoozeItem] = Field(..., min_length=1, max_length=100)
+    items: List[BulkSnoozeItem] = Field(
+        ...,
+        min_length=1,
+        max_length=BULK_OPERATION_MAX_ITEMS,
+        description=f"List of items to snooze (max {BULK_OPERATION_MAX_ITEMS} items)",
+    )
     transactional: bool = Field(default=False, description="Rollback all on any failure")
 
 
