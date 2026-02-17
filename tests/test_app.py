@@ -1039,3 +1039,78 @@ def test_web_sw_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     response = client.get("/sw.js")
     assert response.status_code == 404
+
+
+def test_bulk_update_exceeds_limit(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Bulk update with more than 100 items should fail."""
+    from cloop.constants import BULK_OPERATION_MAX_ITEMS
+
+    # Create enough loops to exceed limit
+    loop_ids = []
+    for i in range(BULK_OPERATION_MAX_ITEMS + 5):
+        resp = test_client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Test loop {i}",
+                "captured_at": "2024-01-01T12:00:00Z",
+                "client_tz_offset_min": 0,
+            },
+        )
+        loop_ids.append(resp.json()["id"])
+
+    # Attempt bulk update with too many items
+    updates = [{"loop_id": lid, "fields": {"next_action": "test"}} for lid in loop_ids]
+    resp = test_client.post("/loops/bulk/update", json={"updates": updates})
+
+    assert resp.status_code == 422  # Validation error
+    assert "at most 100" in resp.json()["error"]["details"]["errors"][0]["msg"].lower()
+
+
+def test_bulk_close_exceeds_limit(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Bulk close with more than 100 items should fail."""
+    from cloop.constants import BULK_OPERATION_MAX_ITEMS
+
+    # Create enough loops to exceed limit
+    loop_ids = []
+    for i in range(BULK_OPERATION_MAX_ITEMS + 5):
+        resp = test_client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Test loop {i}",
+                "captured_at": "2024-01-01T12:00:00Z",
+                "client_tz_offset_min": 0,
+            },
+        )
+        loop_ids.append(resp.json()["id"])
+
+    # Attempt bulk close with too many items
+    items = [{"loop_id": lid, "status": "completed"} for lid in loop_ids]
+    resp = test_client.post("/loops/bulk/close", json={"items": items})
+
+    assert resp.status_code == 422  # Validation error
+    assert "at most 100" in resp.json()["error"]["details"]["errors"][0]["msg"].lower()
+
+
+def test_bulk_snooze_exceeds_limit(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Bulk snooze with more than 100 items should fail."""
+    from cloop.constants import BULK_OPERATION_MAX_ITEMS
+
+    # Create enough loops to exceed limit
+    loop_ids = []
+    for i in range(BULK_OPERATION_MAX_ITEMS + 5):
+        resp = test_client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Test loop {i}",
+                "captured_at": "2024-01-01T12:00:00Z",
+                "client_tz_offset_min": 0,
+            },
+        )
+        loop_ids.append(resp.json()["id"])
+
+    # Attempt bulk snooze with too many items
+    items = [{"loop_id": lid, "snooze_until_utc": "2024-02-01T12:00:00Z"} for lid in loop_ids]
+    resp = test_client.post("/loops/bulk/snooze", json={"items": items})
+
+    assert resp.status_code == 422  # Validation error
+    assert "at most 100" in resp.json()["error"]["details"]["errors"][0]["msg"].lower()

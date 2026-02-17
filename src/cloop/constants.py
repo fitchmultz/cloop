@@ -55,6 +55,12 @@ TEMPLATE_NAME_MAX: int = 100  # Template names are shorter than view names
 TEMPLATE_DESCRIPTION_MAX: int = 500  # Matches webhook description length
 
 # =============================================================================
+# Bulk operation limits
+# =============================================================================
+
+BULK_OPERATION_MAX_ITEMS: int = 100  # Max items per bulk request
+
+# =============================================================================
 # Timezone offset constants
 # =============================================================================
 

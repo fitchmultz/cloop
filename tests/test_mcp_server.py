@@ -2065,6 +2065,84 @@ def test_loop_bulk_snooze_idempotency_replay(
     assert result1 == result2
 
 
+def test_loop_bulk_update_exceeds_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP bulk_update with more than limit items should raise ToolError."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from cloop.constants import BULK_OPERATION_MAX_ITEMS
+    from cloop.mcp_server import loop_bulk_update
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    from cloop.settings import get_settings
+
+    get_settings.cache_clear()
+    from cloop import db
+
+    db.init_databases(get_settings())
+
+    # Create more items than the limit
+    updates = [
+        {"loop_id": i, "fields": {"next_action": f"action {i}"}}
+        for i in range(BULK_OPERATION_MAX_ITEMS + 10)
+    ]
+
+    with pytest.raises(ToolError) as exc_info:
+        loop_bulk_update(updates=updates)
+
+    assert "exceeds maximum items limit" in str(exc_info.value)
+
+
+def test_loop_bulk_close_exceeds_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP bulk_close with more than limit items should raise ToolError."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from cloop.constants import BULK_OPERATION_MAX_ITEMS
+    from cloop.mcp_server import loop_bulk_close
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    from cloop.settings import get_settings
+
+    get_settings.cache_clear()
+    from cloop import db
+
+    db.init_databases(get_settings())
+
+    # Create more items than the limit
+    items = [{"loop_id": i, "status": "completed"} for i in range(BULK_OPERATION_MAX_ITEMS + 10)]
+
+    with pytest.raises(ToolError) as exc_info:
+        loop_bulk_close(items=items)
+
+    assert "exceeds maximum items limit" in str(exc_info.value)
+
+
+def test_loop_bulk_snooze_exceeds_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP bulk_snooze with more than limit items should raise ToolError."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from cloop.constants import BULK_OPERATION_MAX_ITEMS
+    from cloop.mcp_server import loop_bulk_snooze
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    from cloop.settings import get_settings
+
+    get_settings.cache_clear()
+    from cloop import db
+
+    db.init_databases(get_settings())
+
+    # Create more items than the limit
+    items = [
+        {"loop_id": i, "snooze_until_utc": "2024-02-01T12:00:00Z"}
+        for i in range(BULK_OPERATION_MAX_ITEMS + 10)
+    ]
+
+    with pytest.raises(ToolError) as exc_info:
+        loop_bulk_snooze(items=items)
+
+    assert "exceeds maximum items limit" in str(exc_info.value)
+
+
 # =============================================================================
 # loop.claim tests
 # =============================================================================

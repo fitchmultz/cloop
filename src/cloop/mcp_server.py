@@ -77,7 +77,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
 from . import db
-from .constants import DEFAULT_LOOP_LIST_LIMIT
+from .constants import BULK_OPERATION_MAX_ITEMS, DEFAULT_LOOP_LIST_LIMIT
 from .idempotency import (
     IdempotencyConflictError,
     build_mcp_scope,
@@ -987,7 +987,15 @@ def loop_bulk_update(
             - results: list of per-item results with index, loop_id, ok, loop/error
             - succeeded: int count
             - failed: int count
+
+    Raises:
+        ToolError: If updates exceeds BULK_OPERATION_MAX_ITEMS limit.
     """
+    if len(updates) > BULK_OPERATION_MAX_ITEMS:
+        raise ToolError(
+            f"Bulk update exceeds maximum items limit: {len(updates)} > {BULK_OPERATION_MAX_ITEMS}"
+        )
+
     settings = get_settings()
 
     payload = {"updates": updates, "transactional": transactional}
@@ -1043,7 +1051,15 @@ def loop_bulk_close(
             - results: list of per-item results with index, loop_id, ok, loop/error
             - succeeded: int count
             - failed: int count
+
+    Raises:
+        ToolError: If items exceeds BULK_OPERATION_MAX_ITEMS limit.
     """
+    if len(items) > BULK_OPERATION_MAX_ITEMS:
+        raise ToolError(
+            f"Bulk close exceeds maximum items limit: {len(items)} > {BULK_OPERATION_MAX_ITEMS}"
+        )
+
     settings = get_settings()
 
     payload = {"items": items, "transactional": transactional}
@@ -1098,7 +1114,15 @@ def loop_bulk_snooze(
             - results: list of per-item results with index, loop_id, ok, loop/error
             - succeeded: int count
             - failed: int count
+
+    Raises:
+        ToolError: If items exceeds BULK_OPERATION_MAX_ITEMS limit.
     """
+    if len(items) > BULK_OPERATION_MAX_ITEMS:
+        raise ToolError(
+            f"Bulk snooze exceeds maximum items limit: {len(items)} > {BULK_OPERATION_MAX_ITEMS}"
+        )
+
     settings = get_settings()
 
     for item in items:
