@@ -12,7 +12,16 @@ from fastapi import Depends, Header, HTTPException
 from ...settings import Settings, get_settings
 
 SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
-IdempotencyKeyHeader = Header(default=None, alias="Idempotency-Key")
+IdempotencyKeyHeader = Header(
+    default=None,
+    alias="Idempotency-Key",
+    description=(
+        "Unique key for idempotent requests. Re-sending the same request "
+        "with this key returns the original response. "
+        "Format: UUID v4 or prefixed UUID (e.g., 'req_550e8400-e29b-41d4-a716-446655440000'). "
+        "Max length: 255 characters."
+    ),
+)
 
 
 def _idempotency_conflict(detail: str) -> HTTPException:
