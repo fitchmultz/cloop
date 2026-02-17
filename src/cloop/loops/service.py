@@ -288,6 +288,7 @@ def capture_loop(
     conn: sqlite3.Connection,
     recurrence_rrule: str | None = None,
     recurrence_tz: str | None = None,
+    capture_fields: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     captured_at_utc = parse_client_datetime(
         captured_at_iso,
@@ -340,6 +341,20 @@ def capture_loop(
 
         record_capture()
 
+        # Store loop_id for later use
+        loop_id = record.id
+
+        # Apply capture fields if provided (same pattern as template_defaults)
+        if capture_fields:
+            # Filter out any None values
+            fields_to_apply = {k: v for k, v in capture_fields.items() if v is not None}
+            if fields_to_apply:
+                record = update_loop(
+                    loop_id=loop_id,
+                    fields=fields_to_apply,
+                    conn=conn,
+                )
+
         event_payload = {
             "raw_text": raw_text,
             "status": status.value,
@@ -351,7 +366,7 @@ def capture_loop(
             event_payload["recurrence_tz"] = recurrence_tz
 
         event_id = repo.insert_loop_event(
-            loop_id=record.id,
+            loop_id=loop_id,
             event_type=LoopEventType.CAPTURE.value,
             payload=event_payload,
             conn=conn,
@@ -362,6 +377,12 @@ def capture_loop(
             payload=event_payload,
             conn=conn,
         )
+
+    # If update_loop was called (capture_fields applied), record is already a dict
+    if isinstance(record, dict):
+        return record
+
+    # Otherwise, convert LoopRecord to dict with project and tags
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
     return _record_to_dict(record, project=project, tags=tags)

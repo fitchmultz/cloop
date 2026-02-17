@@ -88,6 +88,48 @@ class LoopCaptureRequest(BaseModel):
         description="Optional template name to apply (alternative to template_id)",
     )
 
+    # Rich capture metadata (all optional)
+    due_at_utc: str | None = Field(
+        default=None,
+        description="ISO8601 due date timestamp",
+    )
+    next_action: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=NEXT_ACTION_MAX,
+        description="Immediate next action to take",
+    )
+    time_minutes: int | None = Field(
+        default=None,
+        ge=1,
+        description="Estimated time to complete in minutes",
+    )
+    activation_energy: int | None = Field(
+        default=None,
+        ge=0,
+        le=3,
+        description="Effort level 0-3 (trivial to hard)",
+    )
+    project: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=PROJECT_MAX,
+        description="Project name to associate",
+    )
+    tags: list[str] | None = Field(
+        default=None,
+        description="Tags to apply",
+    )
+
+    @field_validator("due_at_utc", mode="before")
+    @classmethod
+    def validate_due_at_utc(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        from ..loops.models import validate_iso8601_timestamp
+
+        return validate_iso8601_timestamp(v, "due_at_utc")
+
     @field_validator("captured_at")
     @classmethod
     def validate_captured_at(cls, v: str) -> str:

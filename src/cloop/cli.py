@@ -273,6 +273,21 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
                 actionable=applied.get("actionable", False),
             )
 
+    # Build capture fields from CLI args
+    capture_fields: dict[str, Any] = {}
+    if getattr(args, "due", None):
+        capture_fields["due_at_utc"] = args.due
+    if getattr(args, "next_action", None):
+        capture_fields["next_action"] = args.next_action
+    if getattr(args, "time_minutes", None):
+        capture_fields["time_minutes"] = args.time_minutes
+    if getattr(args, "activation_energy", None) is not None:
+        capture_fields["activation_energy"] = args.activation_energy
+    if getattr(args, "project", None):
+        capture_fields["project"] = args.project
+    if getattr(args, "tags", None):
+        capture_fields["tags"] = args.tags
+
     with db.core_connection(settings) as conn:
         record = capture_loop(
             raw_text=raw_text,
@@ -282,11 +297,15 @@ def _capture_command(args: argparse.Namespace, settings: Settings) -> int:
             conn=conn,
             recurrence_rrule=recurrence_rrule,
             recurrence_tz=getattr(args, "timezone", None),
+            capture_fields=capture_fields if capture_fields else None,
         )
 
-        # Apply template defaults (tags, time_minutes, etc.)
+        # Apply template defaults, skipping fields already set via capture
         if template_defaults:
             update_fields = extract_update_fields_from_template(template_defaults)
+            # Filter out fields already provided via CLI capture flags
+            if capture_fields:
+                update_fields = {k: v for k, v in update_fields.items() if k not in capture_fields}
             if update_fields:
                 record = update_loop(
                     loop_id=record["id"],
@@ -1597,6 +1616,40 @@ Examples:
         "-t",
         dest="template",
         help="Template name or ID to apply",
+    )
+    capture_parser.add_argument(
+        "--due",
+        dest="due",
+        help="Due date (ISO8601 format, e.g., 2026-04-15 or 2026-04-15T17:00:00)",
+    )
+    capture_parser.add_argument(
+        "--next-action",
+        dest="next_action",
+        help="Immediate next action to take",
+    )
+    capture_parser.add_argument(
+        "--time",
+        dest="time_minutes",
+        type=int,
+        help="Estimated time to complete (minutes)",
+    )
+    capture_parser.add_argument(
+        "--effort",
+        dest="activation_energy",
+        type=int,
+        choices=[0, 1, 2, 3],
+        help="Effort level: 0=trivial, 1=easy, 2=medium, 3=hard",
+    )
+    capture_parser.add_argument(
+        "--project",
+        dest="project",
+        help="Project name to associate",
+    )
+    capture_parser.add_argument(
+        "--tag",
+        dest="tags",
+        action="append",
+        help="Tag to apply (can be specified multiple times)",
     )
 
 

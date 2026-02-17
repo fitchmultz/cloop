@@ -227,3 +227,62 @@ def test_loop_capture_valid_tz_offset_boundaries(
             },
         )
         assert response.status_code == 200, f"Expected 200 for offset {offset}"
+
+
+def test_capture_with_due_date(make_test_client) -> None:
+    """Test capture with due_at_utc field."""
+    client = make_test_client()
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Task with due date",
+            "captured_at": "2026-02-17T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "due_at_utc": "2026-04-15T17:00:00Z",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["due_at_utc"] is not None
+
+
+def test_capture_with_all_fields(make_test_client) -> None:
+    """Test capture with all rich metadata fields."""
+    client = make_test_client()
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Complete task",
+            "captured_at": "2026-02-17T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "due_at_utc": "2026-04-15T17:00:00Z",
+            "next_action": "Start with step 1",
+            "time_minutes": 60,
+            "activation_energy": 2,
+            "project": "work",
+            "tags": ["urgent", "quarterly"],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["due_at_utc"] is not None
+    assert data["next_action"] == "Start with step 1"
+    assert data["time_minutes"] == 60
+    assert data["activation_energy"] == 2
+    assert data["project"] == "work"
+    assert set(data["tags"]) == {"urgent", "quarterly"}
+
+
+def test_capture_with_invalid_activation_energy(make_test_client) -> None:
+    """Test capture rejects invalid activation_energy."""
+    client = make_test_client()
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Task",
+            "captured_at": "2026-02-17T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "activation_energy": 5,  # Invalid: > 3
+        },
+    )
+    assert response.status_code == 422  # Validation error
