@@ -32,6 +32,8 @@ class HealthResponse(BaseModel):
     model: str
     vector_mode: str
     vector_backend: str
+    vector_available: bool
+    vector_load_error: str | None = None
     core_db: str
     rag_db: str
     schema_version: int
