@@ -21,6 +21,16 @@ The long-term goal of Cloop is simple: **get loops out of your head and into a t
 
 Today, Cloop is the foundation for that: a private local knowledge base + lightweight persistentmemory you can query. The “closed loop” experience is: capture → retrieve → act → confirm → close.
 
+## Design and Architecture
+
+See [docs/assistant_blueprint.md](docs/assistant_blueprint.md) for the complete design specification, including:
+- Mission and design principles
+- User journey (capture → organize → prioritize → act → close)
+- Automation boundaries and trust model
+- Architecture overview (SQLite-first, service layers, MCP)
+- Mobile/desktop flows
+- Data lifecycle and multi-agent coordination
+
 ## Features
 
 - **Local chat**: Talk to an LLM using local runtimes (Ollama / LM Studio) or hosted providers.
