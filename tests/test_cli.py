@@ -1896,3 +1896,62 @@ def test_loop_review_command_table_format(
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "generated_at_utc" in captured.out
+
+
+def test_capture_with_due_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test capture with --due flag."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+    args = parser.parse_args(["capture", "Task with due date", "--due", "2026-04-15"])
+    exit_code = cli._capture_command(args, settings)
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["due_at_utc"] is not None
+
+
+def test_capture_with_multiple_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test capture with multiple --tag flags."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+    args = parser.parse_args(["capture", "Tagged task", "--tag", "urgent", "--tag", "work"])
+    exit_code = cli._capture_command(args, settings)
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert set(output["tags"]) == {"urgent", "work"}
+
+
+def test_capture_with_all_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test capture with all rich metadata flags."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "capture",
+            "Complete task",
+            "--due",
+            "2026-04-15T17:00:00",
+            "--next-action",
+            "Start here",
+            "--time",
+            "60",
+            "--effort",
+            "2",
+            "--project",
+            "work",
+            "--tag",
+            "urgent",
+        ]
+    )
+    exit_code = cli._capture_command(args, settings)
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["next_action"] == "Start here"
+    assert output["time_minutes"] == 60
+    assert output["activation_energy"] == 2
+    assert output["project"] == "work"

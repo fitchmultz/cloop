@@ -157,6 +157,21 @@ def loop_capture_endpoint(
                     actionable=applied.get("actionable", False),
                 )
 
+    # Build capture fields from request (rich capture metadata)
+    capture_fields: dict[str, Any] = {}
+    if request.due_at_utc:
+        capture_fields["due_at_utc"] = request.due_at_utc
+    if request.next_action:
+        capture_fields["next_action"] = request.next_action
+    if request.time_minutes:
+        capture_fields["time_minutes"] = request.time_minutes
+    if request.activation_energy is not None:
+        capture_fields["activation_energy"] = request.activation_energy
+    if request.project:
+        capture_fields["project"] = request.project
+    if request.tags:
+        capture_fields["tags"] = request.tags
+
     if idempotency_key is not None:
         try:
             key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
@@ -195,11 +210,16 @@ def loop_capture_endpoint(
                 conn=conn,
                 recurrence_rrule=recurrence_rrule,
                 recurrence_tz=request.timezone,
+                capture_fields=capture_fields if capture_fields else None,
             )
 
-            # Apply template defaults (tags, time_minutes, etc.)
+            # Apply template defaults, skipping fields already in capture_fields
             if template_defaults:
                 update_fields = extract_update_fields_from_template(template_defaults)
+                if capture_fields:
+                    update_fields = {
+                        k: v for k, v in update_fields.items() if k not in capture_fields
+                    }
                 if update_fields:
                     record = loop_service.update_loop(
                         loop_id=record["id"],
@@ -228,11 +248,16 @@ def loop_capture_endpoint(
                 conn=conn,
                 recurrence_rrule=recurrence_rrule,
                 recurrence_tz=request.timezone,
+                capture_fields=capture_fields if capture_fields else None,
             )
 
-            # Apply template defaults (tags, time_minutes, etc.)
+            # Apply template defaults, skipping fields already in capture_fields
             if template_defaults:
                 update_fields = extract_update_fields_from_template(template_defaults)
+                if capture_fields:
+                    update_fields = {
+                        k: v for k, v in update_fields.items() if k not in capture_fields
+                    }
                 if update_fields:
                     record = loop_service.update_loop(
                         loop_id=record["id"],
