@@ -196,6 +196,17 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert payload["checks"]["rag_db"]["latency_ms"] >= 0
     assert payload["checks"]["core_db"]["error"] is None
     assert payload["checks"]["rag_db"]["error"] is None
+    # Verify vector extension status fields
+    assert "vector_available" in payload
+    assert isinstance(payload["vector_available"], bool)
+    assert "vector_load_error" in payload
+    # vector_load_error should be None (no extension configured in tests) or a string
+    if payload["vector_load_error"] is not None:
+        assert isinstance(payload["vector_load_error"], str)
+    # When no extension configured, vector_backend should be "none"
+    # and vector_available should be False
+    if payload["vector_backend"] == "none":
+        assert payload["vector_available"] is False
 
 
 def test_health_endpoint_with_broken_core_db(

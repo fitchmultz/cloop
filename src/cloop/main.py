@@ -74,6 +74,8 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
 
     # Get existing configuration info
     backend = db.get_vector_backend()
+    vector_available = db.vector_extension_available()
+    vector_load_error = db.get_vector_load_error()
     order = [
         path.value
         for path in _select_retrieval_order(backend=backend, scope=None, settings=settings)
@@ -89,6 +91,8 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         model=settings.llm_model,
         vector_mode=settings.vector_search_mode.value,
         vector_backend=backend.value,
+        vector_available=vector_available,
+        vector_load_error=vector_load_error,
         core_db=settings.core_db_path.name,
         rag_db=settings.rag_db_path.name,
         schema_version=db.SCHEMA_VERSION,
