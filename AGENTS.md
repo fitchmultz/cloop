@@ -20,6 +20,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Database schema | `src/cloop/db.py` |
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
+| Design/Architecture | `docs/assistant_blueprint.md` |
 
 ## User Preferences
 
