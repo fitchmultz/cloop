@@ -8,6 +8,7 @@ Responsibilities:
     - Parse LLM responses into LoopSuggestion models
     - Apply suggestions with confidence gating
     - Coordinate with related loops embedding
+    - Gather contextual information for intelligent suggestions
 
 Non-scope:
     - Embedding generation (see loops/related.py)
@@ -16,6 +17,7 @@ Non-scope:
 Entrypoints:
     - enrich_loop(loop_id, conn, settings) -> Dict[str, Any]
     - LoopSuggestion: Pydantic model for structured responses
+    - EnrichmentContext: Dataclass for contextual information
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -38,8 +41,29 @@ from . import repo
 from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
-from .related import find_duplicate_candidates, suggest_links, upsert_loop_embedding
+from .related import (
+    find_duplicate_candidates,
+    suggest_links,
+    upsert_loop_embedding,
+)
 from .utils import normalize_tags
+
+
+@dataclass(frozen=True, slots=True)
+class EnrichmentContext:
+    """Context information for enrichment to make intelligent suggestions.
+
+    Attributes:
+        related_loops: List of related loop summaries (max 5)
+        duplicate_candidates: List of potential duplicates (max 3)
+        workload_snapshot: Current workload priorities (max 3 items)
+        existing_links: All existing link relationships for this loop
+    """
+
+    related_loops: list[dict[str, Any]]
+    duplicate_candidates: list[dict[str, Any]]
+    workload_snapshot: list[dict[str, Any]]
+    existing_links: list[dict[str, Any]]
 
 
 class LoopSuggestion(BaseModel):
@@ -57,6 +81,13 @@ class LoopSuggestion(BaseModel):
     importance: float | None = None
     confidence: dict[str, float] = Field(default_factory=dict)
     needs_clarification: list[str] = Field(default_factory=list)
+    context_used: list[str] = Field(
+        default_factory=list,
+        description=(
+            "List of context keys that influenced this suggestion "
+            "(e.g., 'related_loops', 'workload')"
+        ),
+    )
 
 
 def _extract_json(payload: str) -> dict[str, Any]:
@@ -109,25 +140,184 @@ def _extract_json(payload: str) -> dict[str, Any]:
     raise CloopValidationError("response", "invalid JSON from LLM")
 
 
-def _build_prompt(loop: Mapping[str, Any]) -> list[dict[str, str]]:
+def _gather_enrichment_context(
+    *,
+    loop_id: int,
+    loop_text: str,
+    conn: sqlite3.Connection,
+    settings: Settings,
+) -> EnrichmentContext:
+    """Gather bounded context for enrichment prompt.
+
+    Collects related loops, duplicate candidates, workload snapshot, and
+    existing links to help the LLM make context-aware suggestions.
+
+    Gracefully degrades on errors - returns empty lists if context fetch fails.
+
+    Args:
+        loop_id: The loop being enriched
+        loop_text: The raw text of the loop (for context)
+        conn: Database connection
+        settings: Application settings
+
+    Returns:
+        EnrichmentContext with bounded context information
+    """
+    related_loops: list[dict[str, Any]] = []
+    duplicate_candidates: list[dict[str, Any]] = []
+    workload_snapshot: list[dict[str, Any]] = []
+    existing_links: list[dict[str, Any]] = []
+
+    try:
+        # Fetch related loops via embedding similarity (limit 5)
+        # This requires the embedding to exist - may be empty for new loops
+        links = repo.list_loop_links_by_type(
+            loop_id=loop_id,
+            relationship_type="related",
+            conn=conn,
+        )
+        if links:
+            related_ids = [int(link["related_loop_id"]) for link in links[:5]]
+            related_records = repo.read_loops_batch(loop_ids=related_ids, conn=conn)
+            for rid in related_ids:
+                rec = related_records.get(rid)
+                if rec:
+                    related_loops.append(
+                        {
+                            "id": rid,
+                            "title": rec.title,
+                            "status": rec.status.value,
+                            "confidence": next(
+                                (
+                                    link["confidence"]
+                                    for link in links
+                                    if link["related_loop_id"] == rid
+                                ),
+                                None,
+                            ),
+                        }
+                    )
+    except Exception:
+        pass  # Graceful degradation
+
+    try:
+        # Fetch duplicate candidates (limit 3)
+        dupes = find_duplicate_candidates(loop_id=loop_id, conn=conn, settings=settings)
+        for d in dupes[:3]:
+            duplicate_candidates.append(
+                {
+                    "loop_id": d.loop_id,
+                    "title": d.title,
+                    "status": d.status,
+                    "score": d.score,
+                    "preview": d.raw_text_preview,
+                }
+            )
+    except Exception:
+        pass
+
+    try:
+        # Fetch workload snapshot (top 3 actionable)
+        # Import here to avoid circular imports
+        from .service import next_loops
+
+        workload = next_loops(limit=3, conn=conn, settings=settings)
+        # Flatten buckets into single list, take top 3
+        all_items = []
+        for bucket_items in workload.values():
+            all_items.extend(bucket_items)
+        for item in all_items[:3]:
+            workload_snapshot.append(
+                {
+                    "id": item.get("id"),
+                    "title": item.get("title"),
+                    "status": item.get("status"),
+                    "project": item.get("project"),
+                }
+            )
+    except Exception:
+        pass
+
+    try:
+        # Fetch all existing link types for this loop
+        for rel_type in ["related", "duplicate", "blocks", "depends_on"]:
+            links = repo.list_loop_links_by_type(
+                loop_id=loop_id,
+                relationship_type=rel_type,
+                conn=conn,
+            )
+            for link in links:
+                existing_links.append(
+                    {
+                        "related_loop_id": link["related_loop_id"],
+                        "relationship_type": rel_type,
+                        "confidence": link.get("confidence"),
+                    }
+                )
+    except Exception:
+        pass
+
+    return EnrichmentContext(
+        related_loops=related_loops,
+        duplicate_candidates=duplicate_candidates,
+        workload_snapshot=workload_snapshot,
+        existing_links=existing_links,
+    )
+
+
+def _build_prompt(
+    loop: Mapping[str, Any],
+    context: EnrichmentContext | None = None,
+) -> list[dict[str, str]]:
+    """Build the LLM prompt with optional context.
+
+    Args:
+        loop: The loop data to enrich
+        context: Optional context information for intelligent suggestions
+
+    Returns:
+        List of message dicts for the LLM
+    """
+    user_content: dict[str, Any] = {
+        "raw_text": loop.get("raw_text"),
+        "captured_at_utc": loop.get("captured_at_utc"),
+        "captured_tz_offset_min": loop.get("captured_tz_offset_min"),
+        "status": loop.get("status"),
+    }
+
+    # Add context section if available
+    if context and (
+        context.related_loops
+        or context.duplicate_candidates
+        or context.workload_snapshot
+        or context.existing_links
+    ):
+        context_section: dict[str, Any] = {}
+        if context.related_loops:
+            context_section["related_loops"] = context.related_loops
+        if context.duplicate_candidates:
+            context_section["potential_duplicates"] = context.duplicate_candidates
+        if context.workload_snapshot:
+            context_section["current_workload"] = context.workload_snapshot
+        if context.existing_links:
+            context_section["existing_links"] = context.existing_links
+        user_content["context"] = context_section
+
     return [
         {
             "role": "system",
             "content": (
                 "You are a loop organizer. Return only JSON that matches the schema. "
-                "Do not wrap the response in markdown. Use ISO8601 datetimes or null."
+                "Do not wrap the response in markdown. Use ISO8601 datetimes or null. "
+                "When context is provided, use it to: (1) avoid duplicating existing work, "
+                "(2) suggest consolidating with related/duplicate items, "
+                "(3) prioritize appropriately given current workload. "
+                "Set context_used field to indicate which context sources influenced your decision."
             ),
         },
         {
             "role": "user",
-            "content": json.dumps(
-                {
-                    "raw_text": loop.get("raw_text"),
-                    "captured_at_utc": loop.get("captured_at_utc"),
-                    "captured_tz_offset_min": loop.get("captured_tz_offset_min"),
-                    "status": loop.get("status"),
-                }
-            ),
+            "content": json.dumps(user_content),
         },
         {
             "role": "system",
@@ -161,6 +351,7 @@ def _build_prompt(loop: Mapping[str, Any]) -> list[dict[str, str]]:
                             "importance": "float 0-1",
                         },
                         "needs_clarification": ["string", "..."],
+                        "context_used": ["string", "..."],
                     }
                 }
             ),
@@ -255,6 +446,11 @@ def _apply_suggestion(
             provenance_changed = True
             applied_fields.append("tags")
 
+    # Track context usage in provenance
+    if suggestion.context_used:
+        provenance["context_used"] = suggestion.context_used
+        provenance_changed = True
+
     if updates or provenance_changed:
         updates["provenance_json"] = json.dumps(provenance)
         repo.update_loop_fields(loop_id=int(loop["id"]), fields=updates, conn=conn)
@@ -286,7 +482,21 @@ def enrich_loop(
     }
 
     provider_kwargs = resolve_provider_kwargs(settings.organizer_model, settings)
-    messages = _build_prompt(loop_payload)
+
+    # NEW: Gather context before building prompt
+    context: EnrichmentContext | None = None
+    if settings.autopilot_enabled:
+        try:
+            context = _gather_enrichment_context(
+                loop_id=loop_id,
+                loop_text=record.raw_text,
+                conn=conn,
+                settings=settings,
+            )
+        except Exception as exc:
+            logging.warning("Failed to gather enrichment context for loop %s: %s", loop_id, exc)
+
+    messages = _build_prompt(loop_payload, context=context)
 
     try:
         response = with_llm_retry(litellm.completion, settings)(

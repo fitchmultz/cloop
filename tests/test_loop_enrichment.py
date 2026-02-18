@@ -20,12 +20,19 @@ Invariants:
     - Tests that need database access use make_test_client or manual setup
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
 import pytest
 
 from cloop import db
+from cloop.loops import repo
+from cloop.loops.enrichment import (
+    EnrichmentContext,
+    _build_prompt,
+    _gather_enrichment_context,
+)
 from cloop.loops.models import LoopStatus
 from cloop.settings import get_settings
 
@@ -386,3 +393,181 @@ def test_request_enrichment_raises_for_nonexistent_loop(
         service.request_enrichment(loop_id=99999, conn=conn)
 
     conn.close()
+
+
+# =============================================================================
+# Context-aware enrichment tests
+# =============================================================================
+
+
+def test_gather_enrichment_context_returns_structure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_gather_enrichment_context returns EnrichmentContext with expected fields."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop
+    record = repo.create_loop(
+        raw_text="test loop for context",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    context = _gather_enrichment_context(
+        loop_id=record.id,
+        loop_text=record.raw_text,
+        conn=conn,
+        settings=settings,
+    )
+
+    assert isinstance(context, EnrichmentContext)
+    assert isinstance(context.related_loops, list)
+    assert isinstance(context.duplicate_candidates, list)
+    assert isinstance(context.workload_snapshot, list)
+    assert isinstance(context.existing_links, list)
+
+    conn.close()
+
+
+def test_build_prompt_includes_context_when_provided() -> None:
+    """_build_prompt includes context section in user message when context is available."""
+    loop = {"raw_text": "test", "status": "inbox"}
+    context = EnrichmentContext(
+        related_loops=[{"id": 1, "title": "Related", "status": "actionable"}],
+        duplicate_candidates=[],
+        workload_snapshot=[{"id": 2, "title": "Workload"}],
+        existing_links=[],
+    )
+
+    messages = _build_prompt(loop, context=context)
+
+    user_message = json.loads(messages[1]["content"])
+    assert "context" in user_message
+    assert "related_loops" in user_message["context"]
+    assert "current_workload" in user_message["context"]
+
+
+def test_build_prompt_omits_context_when_empty() -> None:
+    """_build_prompt omits context section when context has no data."""
+
+    loop = {"raw_text": "test", "status": "inbox"}
+    context = EnrichmentContext(
+        related_loops=[],
+        duplicate_candidates=[],
+        workload_snapshot=[],
+        existing_links=[],
+    )
+
+    messages = _build_prompt(loop, context=context)
+
+    user_message = json.loads(messages[1]["content"])
+    assert "context" not in user_message
+
+
+def test_build_prompt_works_without_context() -> None:
+    """_build_prompt works without context parameter (backward compatibility)."""
+
+    loop = {"raw_text": "test", "status": "inbox"}
+
+    messages = _build_prompt(loop)
+
+    user_message = json.loads(messages[1]["content"])
+    assert "context" not in user_message
+    assert user_message["raw_text"] == "test"
+
+
+def test_context_gathering_gracefully_degrades(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Context gathering returns empty lists on errors rather than failing."""
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Query for non-existent loop should return empty context
+    context = _gather_enrichment_context(
+        loop_id=99999,
+        loop_text="test",
+        conn=conn,
+        settings=settings,
+    )
+
+    assert context.related_loops == []
+    assert context.duplicate_candidates == []
+    # Workload may have items from other tests, but shouldn't error
+    assert isinstance(context.workload_snapshot, list)
+
+    conn.close()
+
+
+def test_build_prompt_includes_duplicate_candidates() -> None:
+    """_build_prompt includes duplicate candidates when provided."""
+
+    loop = {"raw_text": "test", "status": "inbox"}
+    context = EnrichmentContext(
+        related_loops=[],
+        duplicate_candidates=[{"loop_id": 3, "title": "Duplicate", "score": 0.95}],
+        workload_snapshot=[],
+        existing_links=[],
+    )
+
+    messages = _build_prompt(loop, context=context)
+
+    user_message = json.loads(messages[1]["content"])
+    assert "context" in user_message
+    assert "potential_duplicates" in user_message["context"]
+
+
+def test_build_prompt_includes_existing_links() -> None:
+    """_build_prompt includes existing links when provided."""
+
+    loop = {"raw_text": "test", "status": "inbox"}
+    context = EnrichmentContext(
+        related_loops=[],
+        duplicate_candidates=[],
+        workload_snapshot=[],
+        existing_links=[{"related_loop_id": 4, "relationship_type": "depends_on"}],
+    )
+
+    messages = _build_prompt(loop, context=context)
+
+    user_message = json.loads(messages[1]["content"])
+    assert "context" in user_message
+    assert "existing_links" in user_message["context"]
+
+
+def test_context_in_prompt_contains_all_sections() -> None:
+    """_build_prompt includes all context sections when provided."""
+
+    loop = {"raw_text": "test", "status": "inbox"}
+    context = EnrichmentContext(
+        related_loops=[{"id": 1, "title": "Related"}],
+        duplicate_candidates=[{"loop_id": 2, "title": "Duplicate"}],
+        workload_snapshot=[{"id": 3, "title": "Workload"}],
+        existing_links=[{"related_loop_id": 4, "relationship_type": "blocks"}],
+    )
+
+    messages = _build_prompt(loop, context=context)
+
+    user_message = json.loads(messages[1]["content"])
+    ctx = user_message["context"]
+    assert "related_loops" in ctx
+    assert "potential_duplicates" in ctx
+    assert "current_workload" in ctx
+    assert "existing_links" in ctx
