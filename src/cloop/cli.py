@@ -1380,6 +1380,77 @@ def _backup_rotate_command(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+def _suggestion_list_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.service import list_loop_suggestions
+
+    with db.core_connection(settings) as conn:
+        suggestions = list_loop_suggestions(
+            loop_id=args.loop_id,
+            pending_only=args.pending,
+            limit=args.limit,
+            conn=conn,
+        )
+    _emit_output(suggestions, args.format)
+    return 0
+
+
+def _suggestion_show_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.repo import read_loop_suggestion
+
+    with db.core_connection(settings) as conn:
+        suggestion = read_loop_suggestion(suggestion_id=args.id, conn=conn)
+
+    if not suggestion:
+        print(f"error: suggestion {args.id} not found", file=sys.stderr)
+        return 2
+
+    # Parse and pretty-print the suggestion_json
+    suggestion["parsed"] = json.loads(suggestion["suggestion_json"])
+    _emit_output(suggestion, args.format)
+    return 0
+
+
+def _suggestion_apply_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.errors import SuggestionNotFoundError, ValidationError
+    from .loops.service import apply_suggestion
+
+    fields = args.fields.split(",") if args.fields else None
+
+    try:
+        with db.core_connection(settings) as conn:
+            result = apply_suggestion(
+                suggestion_id=args.id,
+                fields=fields,
+                conn=conn,
+                settings=settings,
+            )
+        _emit_output(result, args.format)
+        return 0
+    except SuggestionNotFoundError:
+        print(f"error: suggestion {args.id} not found", file=sys.stderr)
+        return 2
+    except ValidationError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
+def _suggestion_reject_command(args: argparse.Namespace, settings: Settings) -> int:
+    from .loops.errors import SuggestionNotFoundError, ValidationError
+    from .loops.service import reject_suggestion
+
+    try:
+        with db.core_connection(settings) as conn:
+            result = reject_suggestion(suggestion_id=args.id, conn=conn)
+        _emit_output(result, args.format)
+        return 0
+    except SuggestionNotFoundError:
+        print(f"error: suggestion {args.id} not found", file=sys.stderr)
+        return 2
+    except ValidationError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cloop",
@@ -1455,6 +1526,7 @@ Exit codes:
     _add_export_parser(subparsers)
     _add_import_parser(subparsers)
     _add_backup_parser(subparsers)
+    _add_suggestion_parser(subparsers)
 
     return parser
 
@@ -2620,6 +2692,91 @@ Examples:
     )
 
 
+def _add_suggestion_parser(subparsers: Any) -> None:
+    suggestion_parser = subparsers.add_parser(
+        "suggestion",
+        help="Manage AI suggestions",
+        description="List, apply, or reject AI-generated loop suggestions",
+    )
+    suggestion_subparsers = suggestion_parser.add_subparsers(dest="suggestion_cmd", required=True)
+
+    # suggestion list
+    list_parser = suggestion_subparsers.add_parser(
+        "list",
+        help="List suggestions",
+        description="List loop suggestions with optional filtering",
+        epilog="""
+Examples:
+  # List all suggestions for a loop
+  cloop suggestion list --loop-id 123
+
+  # List only pending suggestions
+  cloop suggestion list --pending
+
+  # List all pending across all loops
+  cloop suggestion list --pending --limit 100
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    list_parser.add_argument("--loop-id", type=int, help="Filter by loop ID")
+    list_parser.add_argument("--pending", action="store_true", help="Show only pending suggestions")
+    list_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    _add_format_option(list_parser)
+
+    # suggestion show
+    show_parser = suggestion_subparsers.add_parser(
+        "show",
+        help="Show suggestion details",
+        description="Display detailed information about a suggestion",
+        epilog="""
+Examples:
+  # Show suggestion details
+  cloop suggestion show 456
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    show_parser.add_argument("id", type=int, help="Suggestion ID")
+    _add_format_option(show_parser)
+
+    # suggestion apply
+    apply_parser = suggestion_subparsers.add_parser(
+        "apply",
+        help="Apply suggestion",
+        description="Apply a suggestion to its loop",
+        epilog="""
+Examples:
+  # Apply all suggested fields above threshold
+  cloop suggestion apply 456
+
+  # Apply specific fields only
+  cloop suggestion apply 456 --fields title,tags
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    apply_parser.add_argument("id", type=int, help="Suggestion ID")
+    apply_parser.add_argument(
+        "--fields",
+        type=str,
+        help="Comma-separated fields to apply (default: all above threshold)",
+    )
+    _add_format_option(apply_parser)
+
+    # suggestion reject
+    reject_parser = suggestion_subparsers.add_parser(
+        "reject",
+        help="Reject suggestion",
+        description="Reject a suggestion without applying any fields",
+        epilog="""
+Examples:
+  # Reject a suggestion
+  cloop suggestion reject 456
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    reject_parser.add_argument("id", type=int, help="Suggestion ID")
+    _add_format_option(reject_parser)
+
+
 def _add_template_parser(subparsers: Any) -> None:
     template_parser = subparsers.add_parser(
         "template",
@@ -2835,6 +2992,18 @@ def main(argv: List[str] | None = None) -> int:
         if args.backup_command == "rotate":
             return _backup_rotate_command(args, settings)
         parser.error(f"Unknown backup command: {args.backup_command}")
+        return 2
+
+    if args.command == "suggestion":
+        if args.suggestion_cmd == "list":
+            return _suggestion_list_command(args, settings)
+        elif args.suggestion_cmd == "show":
+            return _suggestion_show_command(args, settings)
+        elif args.suggestion_cmd == "apply":
+            return _suggestion_apply_command(args, settings)
+        elif args.suggestion_cmd == "reject":
+            return _suggestion_reject_command(args, settings)
+        parser.error(f"Unknown suggestion command: {args.suggestion_cmd}")
         return 2
 
     parser.error(f"Unknown command: {args.command}")

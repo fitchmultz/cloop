@@ -940,6 +940,124 @@
         border-color: #f59e0b;
       }
 
+      /* Suggestion Badge */
+      .suggestion-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 3px 10px;
+        background: #e0f2fe;
+        border: 1px solid #7dd3fc;
+        border-radius: 999px;
+        font-size: 11px;
+        color: #0369a1;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 150ms ease;
+      }
+      .suggestion-badge:hover {
+        background: #bae6fd;
+      }
+
+      /* Suggestion Panel */
+      .suggestion-panel {
+        margin-top: 10px;
+        padding: 12px;
+        background: #f0f9ff;
+        border: 1px solid #bae6fd;
+        border-radius: 10px;
+        display: none;
+      }
+      .suggestion-panel.visible {
+        display: block;
+        animation: rise 200ms ease;
+      }
+      .suggestion-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .suggestion-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #0369a1;
+      }
+      .suggestion-fields {
+        display: grid;
+        gap: 8px;
+      }
+      .suggestion-field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+      }
+      .suggestion-field-checkbox {
+        accent-color: var(--brand);
+      }
+      .suggestion-field-label {
+        min-width: 100px;
+        color: var(--muted);
+      }
+      .suggestion-field-value {
+        flex: 1;
+        color: var(--ink);
+      }
+      .suggestion-field-value.conflict {
+        background: #fef3c7;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .suggestion-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+        justify-content: flex-end;
+      }
+      .suggestion-btn {
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 150ms ease;
+      }
+      .suggestion-btn-apply {
+        background: var(--brand);
+        color: white;
+        border-color: var(--brand);
+      }
+      .suggestion-btn-reject {
+        background: transparent;
+        color: #c0392b;
+        border-color: #e74c3c;
+      }
+      .needs-clarification {
+        margin-top: 8px;
+        padding: 8px 10px;
+        background: #fef3c7;
+        border: 1px solid #fcd34d;
+        border-radius: 8px;
+        font-size: 12px;
+        color: #92400e;
+      }
+      .needs-clarification-title {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .needs-clarification-item {
+        margin: 4px 0;
+        padding-left: 12px;
+        position: relative;
+      }
+      .needs-clarification-item::before {
+        content: "?";
+        position: absolute;
+        left: 0;
+        font-weight: 600;
+      }
+
       /* Merge Modal */
       .merge-modal-overlay {
         position: fixed;
@@ -5325,6 +5443,174 @@
         // Give time for loops to load
         setTimeout(checkAndShowDuplicateBadges, 2000);
       });
+
+      // Fetch suggestions for a loop when rendering
+      async function fetchLoopSuggestions(loopId) {
+        try {
+          const resp = await fetch(`/loops/${loopId}/suggestions?pending_only=true`);
+          if (!resp.ok) return [];
+          const data = await resp.json();
+          return data.suggestions || [];
+        } catch (err) {
+          console.error("fetchLoopSuggestions error:", err);
+          return [];
+        }
+      }
+
+      // Render suggestion badge and panel
+      function renderSuggestionPanel(loopCard, loop) {
+        const suggestionPanel = document.createElement('div');
+        suggestionPanel.className = 'suggestion-panel';
+        suggestionPanel.id = `suggestions-${loop.id}`;
+
+        // Fetch suggestions
+        fetchLoopSuggestions(loop.id).then(suggestions => {
+          if (suggestions.length === 0) return;
+
+          const suggestion = suggestions[0];  // Show most recent pending
+          let parsed;
+          try {
+            parsed = suggestion.parsed || JSON.parse(suggestion.suggestion_json);
+          } catch (e) {
+            console.error("Failed to parse suggestion_json:", e);
+            return;
+          }
+
+          // Create badge
+          const badges = loopCard.querySelector('.badges');
+          if (!badges) return;
+
+          const badge = document.createElement('span');
+          badge.className = 'suggestion-badge';
+          badge.innerHTML = `💡 ${suggestions.length} suggestion${suggestions.length > 1 ? 's' : ''}`;
+          badge.onclick = (e) => {
+            e.stopPropagation();
+            suggestionPanel.classList.toggle('visible');
+          };
+          badges.appendChild(badge);
+
+          // Build panel content
+          let fieldsHtml = '';
+          const fieldLabels = {
+            title: 'Title', summary: 'Summary', next_action: 'Next Action',
+            tags: 'Tags', project: 'Project', due_at: 'Due',
+            urgency: 'Urgency', importance: 'Importance'
+          };
+
+          for (const [field, label] of Object.entries(fieldLabels)) {
+            const value = parsed[field];
+            if (value === null || value === undefined) continue;
+
+            const currentValue = (loop && loop[field]) || '';
+            const isConflict = currentValue && currentValue !== value;
+
+            fieldsHtml += `
+              <div class="suggestion-field">
+                <input type="checkbox" class="suggestion-field-checkbox"
+                       data-field="${field}" checked>
+                <span class="suggestion-field-label">${label}:</span>
+                <span class="suggestion-field-value ${isConflict ? 'conflict' : ''}"
+                      title="${isConflict ? 'Current: ' + currentValue : ''}">
+                  ${Array.isArray(value) ? value.join(', ') : value}
+                </span>
+              </div>
+            `;
+          }
+
+          // Needs clarification section
+          let clarifyHtml = '';
+          if (parsed.needs_clarification && parsed.needs_clarification.length > 0) {
+            clarifyHtml = `
+              <div class="needs-clarification">
+                <div class="needs-clarification-title">AI needs clarification:</div>
+                ${parsed.needs_clarification.map(q =>
+                  `<div class="needs-clarification-item">${q}</div>`
+                ).join('')}
+              </div>
+            `;
+          }
+
+          suggestionPanel.innerHTML = `
+            <div class="suggestion-header">
+              <span class="suggestion-title">AI Suggestion #${suggestion.id}</span>
+              <span style="font-size: 11px; color: var(--muted);">
+                Confidence: ${Math.round((parsed.confidence?.title || 0.5) * 100)}%
+              </span>
+            </div>
+            <div class="suggestion-fields">${fieldsHtml}</div>
+            ${clarifyHtml}
+            <div class="suggestion-actions">
+              <button class="suggestion-btn suggestion-btn-reject"
+                      onclick="rejectSuggestion(${suggestion.id}, ${loop.id}, this)">
+                Reject
+              </button>
+              <button class="suggestion-btn suggestion-btn-apply"
+                      onclick="applySuggestion(${suggestion.id}, ${loop.id}, this)">
+                Apply Selected
+              </button>
+            </div>
+          `;
+        });
+
+        loopCard.appendChild(suggestionPanel);
+      }
+
+      async function applySuggestion(suggestionId, loopId, btn) {
+        const panel = btn.closest('.suggestion-panel');
+        const checkboxes = panel.querySelectorAll('.suggestion-field-checkbox:checked');
+        const fields = Array.from(checkboxes).map(cb => cb.dataset.field);
+
+        try {
+          const resp = await fetch(`/loops/suggestions/${suggestionId}/apply`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: fields.length > 0 ? fields : null })
+          });
+
+          if (resp.ok) {
+            refreshLoop(loopId);  // Refresh just this loop
+          } else {
+            const err = await resp.json();
+            alert('Failed to apply: ' + (err.detail || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error("applySuggestion error:", err);
+          alert('Network error while applying suggestion');
+        }
+      }
+
+      async function rejectSuggestion(suggestionId, loopId, btn) {
+        if (!confirm('Reject this suggestion?')) return;
+
+        try {
+          const resp = await fetch(`/loops/suggestions/${suggestionId}/reject`, {
+            method: 'POST'
+          });
+
+          if (resp.ok) {
+            const panel = btn.closest('.suggestion-panel');
+            const badge = panel.previousElementSibling;
+            if (badge && badge.classList.contains('suggestion-badge')) {
+              badge.remove();
+            }
+            panel.remove();
+          } else {
+            const err = await resp.json();
+            alert('Failed to reject: ' + (err.detail || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error("rejectSuggestion error:", err);
+          alert('Network error while rejecting suggestion');
+        }
+      }
+
+      // Hook into renderLoop to add suggestion rendering
+      const originalRenderLoop = renderLoop;
+      renderLoop = function(loop) {
+        const card = originalRenderLoop(loop);
+        renderSuggestionPanel(card, loop);
+        return card;
+      };
     </script>
   </body>
 </html>

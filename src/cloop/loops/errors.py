@@ -64,6 +64,16 @@ class NoteNotFoundError(NotFoundError):
         self.note_id = note_id
 
 
+class SuggestionNotFoundError(NotFoundError):
+    """Raised when a loop suggestion with the specified ID does not exist."""
+
+    def __init__(self, suggestion_id: int) -> None:
+        super().__init__(
+            f"Suggestion not found: {suggestion_id}", detail=f"suggestion_id={suggestion_id}"
+        )
+        self.suggestion_id = suggestion_id
+
+
 class ValidationError(CloopError):
     """Raised when input validation fails.
 

@@ -973,3 +973,46 @@ class MergeResultResponse(BaseModel):
     closed_loop_id: int
     merged_tags: List[str]
     fields_updated: List[str]
+
+
+class ApplySuggestionRequest(BaseModel):
+    """Request to apply a loop suggestion."""
+
+    fields: List[str] | None = None
+
+
+class ApplySuggestionResponse(BaseModel):
+    """Result of applying a suggestion."""
+
+    loop: dict[str, Any]
+    suggestion_id: int
+    applied_fields: List[str]
+    resolution: str
+
+
+class RejectSuggestionResponse(BaseModel):
+    """Result of rejecting a suggestion."""
+
+    suggestion_id: int
+    resolution: str
+
+
+class SuggestionResponse(BaseModel):
+    """A single suggestion with parsed data."""
+
+    id: int
+    loop_id: int
+    suggestion_json: str
+    parsed: dict[str, Any]
+    model: str
+    created_at: str
+    resolution: str | None = None
+    resolved_at: str | None = None
+    resolved_fields_json: str | None = None
+
+
+class SuggestionListResponse(BaseModel):
+    """List of suggestions."""
+
+    suggestions: List[SuggestionResponse]
+    count: int
