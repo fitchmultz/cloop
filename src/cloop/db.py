@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 22
+SCHEMA_VERSION: int = 23
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -265,6 +265,7 @@ CREATE TABLE loop_events (
 );
 
 CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
+CREATE INDEX idx_loop_events_type_created ON loop_events(event_type, created_at);
 
 CREATE TABLE loop_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,6 +365,7 @@ CREATE TABLE loop_claims (
 );
 
 CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
+CREATE INDEX idx_loop_claims_owner_lease ON loop_claims(owner, lease_until);
 
 CREATE TABLE loop_dependencies (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -441,6 +443,15 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    23: """
+    -- Index for metrics queries filtering by event_type + created_at range
+    CREATE INDEX idx_loop_events_type_created
+        ON loop_events(event_type, created_at);
+
+    -- Index for owner-filtered claim lookups
+    CREATE INDEX idx_loop_claims_owner_lease
+        ON loop_claims(owner, lease_until);
+    """,
     22: """
     -- Scheduler state tracking for periodic tasks
     CREATE TABLE scheduler_runs (

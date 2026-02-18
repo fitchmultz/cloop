@@ -183,3 +183,32 @@ def test_migration_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.Monke
             "SELECT name FROM sqlite_master WHERE type='table' AND name='test_rollback_marker'"
         ).fetchone()
     assert table_exists is None, "Migration data should have been rolled back"
+
+
+def test_critical_performance_indexes_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that performance-critical indexes are created."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with sqlite3.connect(settings.core_db_path) as conn:
+        # Check loop_events indexes
+        events_indexes = conn.execute(
+            "SELECT name FROM pragma_index_list('loop_events') WHERE name IN "
+            "('idx_loop_events_loop_id', 'idx_loop_events_type_created')"
+        ).fetchall()
+        events_index_names = {row[0] for row in events_indexes}
+        assert "idx_loop_events_type_created" in events_index_names, (
+            "Missing idx_loop_events_type_created index"
+        )
+
+        # Check loop_claims indexes
+        claims_indexes = conn.execute(
+            "SELECT name FROM pragma_index_list('loop_claims') WHERE name IN "
+            "('idx_loop_claims_lease_until', 'idx_loop_claims_owner_lease')"
+        ).fetchall()
+        claims_index_names = {row[0] for row in claims_indexes}
+        assert "idx_loop_claims_owner_lease" in claims_index_names, (
+            "Missing idx_loop_claims_owner_lease index"
+        )
