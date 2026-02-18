@@ -4,6 +4,22 @@ Purpose:
     HTTP endpoints for core loop operations: capture, list, get, update, close,
     status transition, and enrichment.
 
+Responsibilities:
+    - Create, read, update, and close loops
+    - Transition loop status through state machine
+    - List and filter loops by status, tags, or query
+    - AI enrichment for loop titles and descriptions
+    - Export and import loop data
+    - Generate operational metrics
+    - Manage active claims on loops
+
+Non-scope:
+    - Timer/time tracking (see timers.py)
+    - Webhook subscription management (see webhooks.py)
+    - Template management (see templates.py)
+    - Dependency management (see dependencies.py)
+    - Scheduler periodic tasks (see scheduler.py)
+
 Endpoints:
 - POST /loops/capture: Create new loop
 - GET /loops: List loops (filtered by status/tag)

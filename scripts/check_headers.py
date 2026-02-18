@@ -64,11 +64,15 @@ def has_valid_header(filepath: Path) -> tuple[bool, str]:
         return False, "Missing module docstring"
 
     # Check for required sections (flexible matching)
+    missing = []
     doc_lower = docstring.lower()
-    has_purpose = "purpose" in doc_lower
+    for section in REQUIRED_SECTIONS:
+        section_name = section.rstrip(":").lower()
+        if section_name not in doc_lower:
+            missing.append(section.rstrip(":"))
 
-    if not has_purpose:
-        return False, "Missing 'Purpose' section in docstring"
+    if missing:
+        return False, f"Missing sections: {', '.join(missing)}"
 
     return True, "OK"
 

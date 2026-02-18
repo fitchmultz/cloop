@@ -3,6 +3,19 @@
 Purpose:
     HTTP endpoints for managing comments on loops.
 
+Responsibilities:
+    - Define FastAPI routes for comment CRUD operations
+    - Validate incoming requests using Pydantic schemas
+    - Handle idempotency for POST/PATCH/DELETE operations
+    - Convert service layer results to HTTP responses
+    - Route exceptions to appropriate HTTP status codes
+
+Non-scope:
+    - Does not implement comment business logic (delegated to service layer)
+    - Does not persist comments directly (uses service layer)
+    - Does not handle loop state management or transitions
+    - Does not implement authentication or authorization
+
 Endpoints:
 - POST /{loop_id}/comments: Create a new comment
 - GET /{loop_id}/comments: List comments for a loop

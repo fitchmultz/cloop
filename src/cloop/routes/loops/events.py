@@ -3,6 +3,18 @@
 Purpose:
     HTTP endpoints for loop event history and undo operations.
 
+Responsibilities:
+    - Retrieve paginated event history for a loop
+    - Undo reversible events (update, status_change, close)
+    - Provide SSE stream for real-time loop events
+    - Support cursor-based replay for event stream reconnection
+    - Send periodic heartbeats to keep SSE connections alive
+
+Non-scope:
+    - Does not allow undo of enrichment, claim, or timer events
+    - Does not modify or delete historical events
+    - Does not provide webhook-based event delivery
+
 Endpoints:
 - GET /{loop_id}/events: Get event history for a loop
 - POST /{loop_id}/undo: Undo the most recent reversible event

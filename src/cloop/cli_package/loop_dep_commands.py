@@ -5,6 +5,11 @@ Purpose:
 
 Responsibilities:
     - Handle dep add, remove, list, blocking commands
+
+Non-scope:
+    - Does not handle timer operations (see loop_timer_commands.py)
+    - Does not handle view operations (see loop_view_commands.py)
+    - Does not handle core loop CRUD operations (see loop_core_commands.py)
 """
 
 from __future__ import annotations

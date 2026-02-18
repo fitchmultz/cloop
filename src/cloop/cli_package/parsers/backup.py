@@ -2,6 +2,16 @@
 
 Purpose:
     Argument parsers for backup and restore commands.
+
+Responsibilities:
+    - Define argument parsers for backup create, restore, list, verify, and rotate subcommands
+    - Configure CLI options for backup paths, names, dry-run, and force flags
+    - Provide epilog examples for each command
+
+Non-scope:
+    - Does NOT implement backup/restore logic or file operations
+    - Does NOT perform archive creation or extraction
+    - Does NOT handle backup rotation policies
 """
 
 from __future__ import annotations

@@ -5,6 +5,11 @@ Purpose:
 
 Responsibilities:
     - Handle view create, list, get, update, delete, apply commands
+
+Non-scope:
+    - Does not handle loop data operations (see loop_core_commands.py)
+    - Does not handle dependency operations (see loop_dep_commands.py)
+    - Does not handle timer operations (see loop_timer_commands.py)
 """
 
 from __future__ import annotations

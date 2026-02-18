@@ -3,6 +3,14 @@
 Purpose:
     MCP tools for bulk operations on multiple loops.
 
+Responsibilities:
+    - Bulk update multiple loops with per-item results
+    - Bulk close multiple loops with completion/drop status
+    - Bulk snooze multiple loops until specified times
+    - Support transactional mode (all-or-nothing)
+    - Validate bulk operation limits and timestamp formats
+    - Handle idempotency for bulk mutations
+
 Tools:
     - loop.bulk_update: Update multiple loops at once
     - loop.bulk_close: Close multiple loops at once

@@ -3,6 +3,16 @@
 Purpose:
     HTTP endpoints for managing time tracking on loops.
 
+Responsibilities:
+    - Start and stop timers for loops
+    - Retrieve current timer status
+    - List time tracking sessions
+
+Non-scope:
+    - Billing or invoicing based on time
+    - Time reporting or analytics (see metrics in core.py)
+    - Recurring time entries
+
 Endpoints:
 - POST /{loop_id}/timer/start: Start a timer for a loop
 - POST /{loop_id}/timer/stop: Stop the active timer

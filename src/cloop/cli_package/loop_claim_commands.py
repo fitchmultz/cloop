@@ -5,6 +5,11 @@ Purpose:
 
 Responsibilities:
     - Handle claim, renew, release, get-claim, claims, force-release commands
+
+Non-scope:
+    - Does not implement claim expiration logic (handled by service layer)
+    - Does not manage claim persistence directly (uses service layer)
+    - Does not handle loop CRUD operations (separate command modules)
 """
 
 from __future__ import annotations

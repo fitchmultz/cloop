@@ -7,6 +7,11 @@ Responsibilities:
     - Handle template list, show, create, delete, from-loop commands
     - Call template service layer
     - Format output
+
+Non-scope:
+    - Does not manage loop lifecycle or state transitions
+    - Does not handle template validation logic (done in service layer)
+    - Does not persist templates directly (uses repository layer)
 """
 
 from __future__ import annotations

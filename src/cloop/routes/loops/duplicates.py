@@ -3,6 +3,17 @@
 Purpose:
     HTTP endpoints for detecting duplicate loops and merging them.
 
+Responsibilities:
+    - List potential duplicate candidates for a loop using similarity scoring
+    - Generate merge previews showing field conflicts and merged values
+    - Execute merge operations with idempotency support
+    - Handle merge conflicts with detailed error responses
+
+Non-scope:
+    - Does not perform automatic duplicate detection/merging
+    - Does not manage loop claims or exclusive access
+    - Does not handle loop creation or basic CRUD operations
+
 Endpoints:
 - GET /{loop_id}/duplicates: List potential duplicate candidates
 - GET /{loop_id}/merge-preview/{target_id}: Preview a merge operation

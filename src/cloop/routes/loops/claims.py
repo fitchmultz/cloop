@@ -3,6 +3,18 @@
 Purpose:
     HTTP endpoints for managing loop claims (exclusive access leases).
 
+Responsibilities:
+    - Create exclusive access claims on loops with configurable TTL
+    - Renew existing claims to extend lease duration
+    - Release claims when operations complete
+    - Query current claim status for a loop
+    - Force-release claims via admin override
+
+Non-scope:
+    - Does not implement distributed locking across multiple servers
+    - Does not notify claim holders when claims expire
+    - Does not queue requests waiting for claim release
+
 Endpoints:
 - POST /{loop_id}/claim: Claim a loop for exclusive access
 - POST /{loop_id}/renew: Renew an existing claim

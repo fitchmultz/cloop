@@ -2,6 +2,17 @@
 
 Purpose:
     Argument parsers for loop claim commands.
+
+Responsibilities:
+    - Define argument parsers for claim, renew, release, get-claim, claims,
+      and force-release subcommands
+    - Configure CLI options for owner, TTL, tokens, and filtering
+    - Provide epilog examples for each command
+
+Non-scope:
+    - Does NOT implement claim logic or business rules
+    - Does NOT handle claim validation or token generation
+    - Does NOT perform database operations
 """
 
 from __future__ import annotations

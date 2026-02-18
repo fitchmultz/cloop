@@ -3,6 +3,16 @@
 Purpose:
     HTTP endpoints for managing webhook subscriptions.
 
+Responsibilities:
+    - Create, read, update, and delete webhook subscriptions
+    - Generate secure webhook secrets
+    - List delivery history for subscriptions
+
+Non-scope:
+    - Webhook payload delivery/retries (handled by background workers)
+    - Webhook signature verification (handled by receivers)
+    - Event filtering or transformation
+
 Endpoints:
 - POST /webhooks/subscriptions: Create a webhook subscription
 - GET /webhooks/subscriptions: List all webhook subscriptions

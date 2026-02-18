@@ -7,6 +7,11 @@ Responsibilities:
     - Handle ingest and ask commands
     - Call RAG service layer
     - Format output
+
+Non-scope:
+    - Does not implement embedding generation (handled by RAG service)
+    - Does not manage vector storage directly (abstracted in RAG module)
+    - Does not handle document parsing logic (handled by ingest layer)
 """
 
 from __future__ import annotations

@@ -3,6 +3,16 @@
 Purpose:
     HTTP endpoints for managing loop dependencies (blockers and dependents).
 
+Responsibilities:
+    - Add and remove dependencies between loops
+    - List blocking dependencies (what a loop depends on)
+    - List blocked dependents (what a loop blocks)
+
+Non-scope:
+    - Dependency graph resolution or topological sorting
+    - Automatic unblocking when dependencies complete
+    - Circular dependency detection (handled by service layer)
+
 Endpoints:
 - POST /{loop_id}/dependencies: Add a dependency
 - DELETE /{loop_id}/dependencies/{depends_on_id}: Remove a dependency

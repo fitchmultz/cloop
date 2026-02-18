@@ -2,6 +2,19 @@
 
 Purpose:
     Argument parsers for miscellaneous loop commands.
+
+Responsibilities:
+    - Define argument parsers for capture, inbox, next, tags, and projects commands
+    - Define argument parsers for export and import commands
+    - Define argument parsers for loop subcommands: review, events, undo, metrics
+    - Define argument parsers for suggestion subcommands (list, show, apply, reject)
+    - Configure help text, descriptions, and examples for all misc loop CLI operations
+
+Non-scope:
+    - Does not handle core loop lifecycle commands like get, list, update, status (see loop.py)
+    - Does not handle template commands (see template.py)
+    - Does not handle claim or timer commands (see loop_claim_parsers.py and loop_timer_parsers.py)
+    - Does not execute commands or interact with the database
 """
 
 from __future__ import annotations
