@@ -46,6 +46,16 @@ The long-term goal of Cloop is simple: **get loops out of your head and into a t
 
 Today, Cloop is the foundation for that: a private local knowledge base + lightweight persistentmemory you can query. The “closed loop” experience is: capture → retrieve → act → confirm → close.
 
+## Design and Architecture
+
+See [docs/assistant_blueprint.md](docs/assistant_blueprint.md) for the complete design specification, including:
+- Mission and design principles
+- User journey (capture → organize → prioritize → act → close)
+- Automation boundaries and trust model
+- Architecture overview (SQLite-first, service layers, MCP)
+- Mobile/desktop flows
+- Data lifecycle and multi-agent coordination
+
 ## Features
 
 - **Local chat**: Talk to an LLM using local runtimes (Ollama / LM Studio) or hosted providers.
@@ -190,6 +200,29 @@ cloop import [--file FILE] [--format json|table]
 # Reads from stdin if no --file specified
 ```
 
+### Review Commands
+
+```bash
+# View review cohorts (daily by default)
+cloop loop review [--format json|table]
+
+# Weekly review only (stale + blocked_too_long)
+cloop loop review --weekly --no-daily
+
+# Both daily and weekly
+cloop loop review --all
+
+# Limit items per cohort
+cloop loop review --limit 5
+
+# Filter to specific cohort
+cloop loop review --cohort stale
+```
+
+Review cohorts identify loops needing attention:
+- **daily**: stale (72h+), no_next_action, blocked_too_long (48h+), due_soon_unplanned (48h)
+- **weekly**: stale, blocked_too_long (deeper review subset)
+
 ### RAG Commands
 
 ```bash
@@ -284,6 +317,69 @@ curl -X POST http://127.0.0.1:8000/ingest \
 
 curl 'http://127.0.0.1:8000/ask?q=What%20is%20Cloop%3F&k=5'
 ```
+
+## Web UI Workflow
+
+Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven loop management interface.
+
+### Tabs
+
+| Tab | Purpose |
+|-----|---------|
+| **Inbox** (1) | Quick capture and loop list with filters |
+| **Next** (2) | Prioritized "what should I do now?" buckets |
+| **Chat** (3) | LLM conversation interface |
+| **RAG** (4) | Query your knowledge base |
+| **Review** (5) | Daily/weekly review cohorts |
+| **Metrics** (6) | Loop health statistics |
+
+### Quick Capture
+
+The Inbox tab provides instant capture:
+1. Type your loop text in the textarea
+2. Optionally set status flags: Actionable, Scheduled, Blocked
+3. Press Enter or click Save
+
+Captures are persisted immediately with offline sync support.
+
+### Review Cohorts
+
+The Review tab groups loops needing attention:
+
+**Daily cohorts**:
+- **stale**: Loops not updated in 72+ hours
+- **no_next_action**: Actionable loops without a defined next step
+- **blocked_too_long**: Blocked for 48+ hours
+- **due_soon_unplanned**: Due within 48 hours but no next action
+
+**Weekly cohorts**: Subset of daily (stale, blocked_too_long) for deeper review.
+
+### Keyboard Shortcuts
+
+Press `?` in the web UI to see all shortcuts:
+
+| Action | Keys |
+|--------|------|
+| New loop (focus capture) | `n` |
+| Search/query | `/` |
+| Complete selected | `c` |
+| Enrich selected | `e` |
+| Refresh | `r` |
+| Toggle timer | `t` |
+| Snooze | `s` |
+| Switch tabs | `1`-`6` |
+| Go to Inbox/Next/Chat/RAG/Review/Metrics | `g i` / `g n` / `g c` / `g r` / `g v` / `g m` |
+| Select all visible | `Ctrl+A` |
+| Clear selection | `Esc` |
+| Show help | `?` |
+
+### Bulk Operations
+
+Select multiple loops (Shift+Click for range, Ctrl+A for all) to:
+- Complete / Drop
+- Change status
+- Snooze
+- Add tags
 
 ## Configuration
 

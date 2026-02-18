@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 23
+SCHEMA_VERSION: int = 24
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -433,6 +433,23 @@ CREATE TABLE scheduler_runs (
     runs_count INTEGER NOT NULL DEFAULT 0
 );
 
+-- Nudge tracking for escalation state
+CREATE TABLE loop_nudges (
+    loop_id INTEGER NOT NULL,
+    nudge_type TEXT NOT NULL CHECK (nudge_type IN ('due_soon', 'stale', 'blocked')),
+    escalation_level INTEGER NOT NULL DEFAULT 0,
+    nudge_count INTEGER NOT NULL DEFAULT 0,
+    first_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_nudge_event_id INTEGER,
+    PRIMARY KEY (loop_id, nudge_type),
+    FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+    FOREIGN KEY (last_nudge_event_id) REFERENCES loop_events(id) ON DELETE SET NULL
+);
+
+CREATE INDEX idx_loop_nudges_escalation ON loop_nudges(escalation_level, nudge_type);
+CREATE INDEX idx_loop_nudges_last_nudged ON loop_nudges(last_nudged_at DESC);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
@@ -443,6 +460,24 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    24: """
+    -- Create loop_nudges table for tracking nudge escalation state
+    CREATE TABLE loop_nudges (
+        loop_id INTEGER NOT NULL,
+        nudge_type TEXT NOT NULL CHECK (nudge_type IN ('due_soon', 'stale', 'blocked')),
+        escalation_level INTEGER NOT NULL DEFAULT 0,
+        nudge_count INTEGER NOT NULL DEFAULT 0,
+        first_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_nudge_event_id INTEGER,
+        PRIMARY KEY (loop_id, nudge_type),
+        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
+        FOREIGN KEY (last_nudge_event_id) REFERENCES loop_events(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX idx_loop_nudges_escalation ON loop_nudges(escalation_level, nudge_type);
+    CREATE INDEX idx_loop_nudges_last_nudged ON loop_nudges(last_nudged_at DESC);
+    """,
     23: """
     -- Index for metrics queries filtering by event_type + created_at range
     CREATE INDEX idx_loop_events_type_created
