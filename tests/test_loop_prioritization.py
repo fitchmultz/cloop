@@ -553,3 +553,90 @@ def test_terminal_statuses_constant() -> None:
     from cloop.loops.models import TERMINAL_STATUSES
 
     assert TERMINAL_STATUSES == frozenset({LoopStatus.COMPLETED, LoopStatus.DROPPED})
+
+
+def test_next_loops_total_limit_not_per_bucket(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Test that limit caps TOTAL items across all buckets, not per bucket."""
+    client = make_test_client()
+    captured_at = _now_iso()
+
+    # Create loops that will populate all 4 buckets
+    now = datetime.now(timezone.utc)
+
+    # due_soon bucket: due within 48h
+    for i in range(5):
+        resp = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"due soon task {i}",
+                "actionable": True,
+                "captured_at": captured_at,
+                "client_tz_offset_min": 0,
+                "due_at_utc": (now + timedelta(hours=24)).isoformat(),
+            },
+        )
+        client.patch(f"/loops/{resp.json()['id']}", json={"next_action": f"do {i}"})
+
+    # quick_wins bucket: time_minutes <= 15, activation_energy <= 1
+    for i in range(5):
+        resp = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"quick win {i}",
+                "actionable": True,
+                "captured_at": captured_at,
+                "client_tz_offset_min": 0,
+                "time_minutes": 10,
+                "activation_energy": 1,
+            },
+        )
+        client.patch(f"/loops/{resp.json()['id']}", json={"next_action": f"quick {i}"})
+
+    # high_leverage bucket: importance >= 0.7
+    for i in range(5):
+        resp = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"high leverage {i}",
+                "actionable": True,
+                "captured_at": captured_at,
+                "client_tz_offset_min": 0,
+                "importance": 0.8,
+                "time_minutes": 60,
+                "activation_energy": 2,
+            },
+        )
+        client.patch(f"/loops/{resp.json()['id']}", json={"next_action": f"leverage {i}"})
+
+    # standard bucket: low importance, not quick win
+    for i in range(5):
+        resp = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"standard task {i}",
+                "actionable": True,
+                "captured_at": captured_at,
+                "client_tz_offset_min": 0,
+                "importance": 0.3,
+                "time_minutes": 60,
+                "activation_energy": 2,
+            },
+        )
+        client.patch(f"/loops/{resp.json()['id']}", json={"next_action": f"standard {i}"})
+
+    # Request with limit=3
+    response = client.get("/loops/next?limit=3")
+    assert response.status_code == 200
+    data = response.json()
+
+    # CRITICAL: Total across ALL buckets must be <= limit
+    total_items = sum(len(items) for items in data.values())
+    assert total_items <= 3, f"Expected at most 3 total items, got {total_items}"
+
+    # All bucket keys should be present
+    assert "due_soon" in data
+    assert "quick_wins" in data
+    assert "high_leverage" in data
+    assert "standard" in data

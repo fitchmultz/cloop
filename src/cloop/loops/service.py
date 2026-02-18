@@ -976,34 +976,43 @@ def next_loops(
         for record in actionable_records
     ]
 
-    buckets = {"due_soon": [], "quick_wins": [], "high_leverage": [], "standard": []}
+    # Bucketize and collect all items with (bucket_label, record, score)
+    scored_with_buckets: list[tuple[str, LoopRecord, float]] = []
     for record, score in scored:
         label = bucketize(_record_to_dict(record), now_utc=now, settings=settings)
-        if label in buckets:
-            buckets[label].append((record, score))
+        if label in {"due_soon", "quick_wins", "high_leverage", "standard"}:
+            scored_with_buckets.append((label, record, score))
 
-    # Collect all loop IDs and project IDs for batch enrichment
+    # Sort all items globally by score (descending)
+    scored_with_buckets.sort(key=lambda x: x[2], reverse=True)
+
+    # Take only top N items globally
+    top_items = scored_with_buckets[:limit]
+
+    # Collect loop IDs and project IDs for batch enrichment
     all_loop_ids: list[int] = []
     all_project_ids: set[int] = set()
-    for items in buckets.values():
-        for record, _score in items:
-            all_loop_ids.append(record.id)
-            if record.project_id is not None:
-                all_project_ids.add(record.project_id)
+    for _label, record, _score in top_items:
+        all_loop_ids.append(record.id)
+        if record.project_id is not None:
+            all_project_ids.add(record.project_id)
 
-    # Batch fetch all projects and tags in just 2 queries
+    # Batch fetch all projects and tags
     projects_map = repo.read_project_names_batch(project_ids=all_project_ids, conn=conn)
     tags_map = repo.list_loop_tags_batch(loop_ids=all_loop_ids, conn=conn)
 
-    response: dict[str, list[dict[str, Any]]] = {}
-    for label, items in buckets.items():
-        items.sort(key=lambda item: item[1], reverse=True)
-        payloads = []
-        for record, _score in items[:limit]:
-            project = projects_map.get(record.project_id) if record.project_id else None
-            tags = tags_map.get(record.id, [])
-            payloads.append(_record_to_dict(record, project=project, tags=tags))
-        response[label] = payloads
+    # Reconstruct buckets from top items only
+    response: dict[str, list[dict[str, Any]]] = {
+        "due_soon": [],
+        "quick_wins": [],
+        "high_leverage": [],
+        "standard": [],
+    }
+    for label, record, _score in top_items:
+        project = projects_map.get(record.project_id) if record.project_id else None
+        tags = tags_map.get(record.id, [])
+        response[label].append(_record_to_dict(record, project=project, tags=tags))
+
     return response
 
 

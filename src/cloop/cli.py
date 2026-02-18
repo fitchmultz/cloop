@@ -1761,7 +1761,10 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     next_parser.add_argument(
-        "--limit", type=int, default=DEFAULT_LOOP_NEXT_LIMIT, help="Max loops per bucket"
+        "--limit",
+        type=int,
+        default=DEFAULT_LOOP_NEXT_LIMIT,
+        help="Max total loops across all buckets",
     )
 
 

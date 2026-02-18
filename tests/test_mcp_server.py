@@ -2549,7 +2549,7 @@ def test_loop_next_returns_buckets(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 def test_loop_next_respects_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test loop.next respects the limit parameter per bucket."""
+    """Test loop.next respects the limit parameter globally across all buckets."""
     _setup_test_db(tmp_path, monkeypatch)
 
     # Create 5 loops with next_action
@@ -2566,9 +2566,9 @@ def test_loop_next_respects_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     result = loop_next(limit=2)
 
-    # Each bucket should have at most 2 items
-    for _bucket_name, items in result.items():
-        assert len(items) <= 2
+    # Total across all buckets should be <= limit
+    total = sum(len(items) for items in result.values())
+    assert total <= 2, f"Expected at most 2 total items, got {total}"
 
 
 def test_loop_next_empty_when_no_actionable_loops(
