@@ -74,6 +74,7 @@ def test_settings() -> Callable[..., Settings]:
             "priority_weight_importance": 0.9,
             "priority_weight_time_penalty": 0.2,
             "priority_weight_activation_penalty": 0.3,
+            "priority_weight_blocked_penalty": 10.0,
             "related_similarity_threshold": 0.78,
             "duplicate_similarity_threshold": 0.95,
             "related_max_candidates": 1000,
