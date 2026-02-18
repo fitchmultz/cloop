@@ -116,7 +116,11 @@ def _now_iso() -> str:
 
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Configure a temporary data directory for test isolation."""
+    """Configure a temporary data directory for test isolation.
+
+    This fixture is the standard pattern for all tests that need a data directory.
+    pytest automatically cleans up tmp_path after the test session completes.
+    """
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -55,11 +56,11 @@ def test_stream_default_disallowed_with_llm_tool_mode(monkeypatch: pytest.Monkey
         get_settings()
 
 
-def test_negative_priority_weight_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_negative_priority_weight_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Negative priority weights should raise ValueError."""
     import cloop.settings as settings_module
 
-    monkeypatch.setenv("CLOOP_DATA_DIR", "/tmp/test_cloop")
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_DUE", "-1.0")
     settings_module._DOTENV_LOADED = False
     settings_module.get_settings.cache_clear()
