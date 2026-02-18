@@ -62,7 +62,7 @@ def test_loop_capture_idempotency_replay(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 1
 
 
@@ -97,7 +97,7 @@ def test_loop_capture_idempotency_concurrent_replay(
     assert len(set(ids)) == 1
 
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 1
 
 
@@ -260,7 +260,7 @@ def test_no_idempotency_key_creates_separate_loops(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 2
 
 
@@ -287,7 +287,7 @@ def test_different_scopes_allow_same_key(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 1
 
 
@@ -339,7 +339,7 @@ def test_loop_import_idempotency_replay(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == imported_count_1
 
 
@@ -412,7 +412,7 @@ def test_idempotency_expiry_allows_new_request(
     assert loop_id_1 != loop_id_2
 
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 2
 
 

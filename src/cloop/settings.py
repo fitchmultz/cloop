@@ -123,6 +123,10 @@ class Settings:
     scheduler_weekly_review_interval_hours: float
     scheduler_due_soon_nudge_interval_hours: float
     scheduler_stale_rescue_interval_hours: float
+    # Web push settings
+    push_vapid_public_key: str | None = None
+    push_vapid_private_key: str | None = None
+    push_vapid_subject: str = "mailto:cloop@localhost"
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -272,6 +276,10 @@ def get_settings() -> Settings:
         scheduler_stale_rescue_interval_hours=float(
             os.getenv("CLOOP_SCHEDULER_STALE_RESCUE_INTERVAL_HOURS", "6.0")
         ),
+        # Web push settings
+        push_vapid_public_key=os.getenv("CLOOP_PUSH_VAPID_PUBLIC_KEY"),
+        push_vapid_private_key=os.getenv("CLOOP_PUSH_VAPID_PRIVATE_KEY"),
+        push_vapid_subject=os.getenv("CLOOP_PUSH_VAPID_SUBJECT", "mailto:cloop@localhost"),
     )
     return _validate_settings(settings)
 

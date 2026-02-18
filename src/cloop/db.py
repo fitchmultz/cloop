@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 23
+SCHEMA_VERSION: int = 25
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -433,6 +433,20 @@ CREATE TABLE scheduler_runs (
     runs_count INTEGER NOT NULL DEFAULT 0
 );
 
+-- Push subscriptions table for web push notifications
+CREATE TABLE push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    active BOOLEAN NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_push_subscriptions_active ON push_subscriptions(active);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
@@ -440,9 +454,34 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
     ('Meeting Notes', 'Meeting notes template', 'Meeting: [Title]\nDate: {{date}}\nTime: {{time}}\nAttendees: \n\nAgenda:\n- \n\nNotes:\n- \n\nAction items:\n- ', '{"tags": ["meeting"], "actionable": true}', 1),
     ('Bug Report', 'Bug report template', 'Bug: [Description]\n\nSteps to reproduce:\n1. \n\nExpected:\n\nActual:\n\nEnvironment:', '{"tags": ["bug"], "blocked": true}', 1),
     ('Quick Task', 'Simple actionable task template', '', '{"actionable": true, "time_minutes": 30}', 1);
+
+-- Sentinel loop for scheduler events (loop_id=0)
+-- Required because loop_events has FK constraint to loops(id)
+INSERT INTO loops (id, raw_text, status, captured_at_utc, captured_tz_offset_min)
+VALUES (0, '__scheduler_sentinel__', 'completed', datetime('now'), 0);
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    25: """
+    -- Push subscriptions table for web push notifications
+    CREATE TABLE push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        active BOOLEAN NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX idx_push_subscriptions_active ON push_subscriptions(active);
+    """,
+    24: """
+    -- Sentinel loop for scheduler events (loop_id=0)
+    -- Required because loop_events has FK constraint to loops(id)
+    INSERT OR IGNORE INTO loops (id, raw_text, status, captured_at_utc, captured_tz_offset_min)
+    VALUES (0, '__scheduler_sentinel__', 'completed', datetime('now'), 0);
+    """,
     23: """
     -- Index for metrics queries filtering by event_type + created_at range
     CREATE INDEX idx_loop_events_type_created

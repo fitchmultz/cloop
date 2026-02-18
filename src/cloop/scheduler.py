@@ -103,6 +103,7 @@ def _emit_scheduler_event(
 async def run_daily_review(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
     """Generate daily review cohorts and emit event."""
     from .loops.models import format_utc_datetime
+    from .push import service as push_service
 
     result = compute_review_cohorts(
         settings=settings,
@@ -132,12 +133,20 @@ async def run_daily_review(settings: Settings, conn: sqlite3.Connection) -> dict
         f"Daily review generated: {payload['total_items']} items across {len(result.daily)} cohorts"
     )
 
+    # Send push notification to subscribed clients
+    if payload["total_items"] > 0:
+        message = push_service.build_push_payload_for_scheduler_event(
+            event_type="review_generated", payload=payload
+        )
+        push_service.send_to_all(message=message, conn=conn, settings=settings)
+
     return {"event_id": event_id, **payload}
 
 
 async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
     """Generate weekly review cohorts and emit event."""
     from .loops.models import format_utc_datetime
+    from .push import service as push_service
 
     result = compute_review_cohorts(
         settings=settings,
@@ -168,6 +177,13 @@ async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dic
         f"Weekly review generated: {payload['total_items']} items across {cohort_count} cohorts"
     )
 
+    # Send push notification to subscribed clients
+    if payload["total_items"] > 0:
+        message = push_service.build_push_payload_for_scheduler_event(
+            event_type="review_generated", payload=payload
+        )
+        push_service.send_to_all(message=message, conn=conn, settings=settings)
+
     return {"event_id": event_id, **payload}
 
 
@@ -176,6 +192,7 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     from datetime import timedelta
 
     from .loops.models import format_utc_datetime
+    from .push import service as push_service
 
     now = utc_now()
     due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.review_due_soon_hours))
@@ -211,6 +228,12 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     event_id = _emit_scheduler_event(LoopEventType.NUDGE_DUE_SOON, payload, conn)
     logger.info(f"Due-soon nudge: {len(loop_ids)} loops")
 
+    # Send push notification to subscribed clients
+    message = push_service.build_push_payload_for_scheduler_event(
+        event_type="nudge_due_soon", payload=payload
+    )
+    push_service.send_to_all(message=message, conn=conn, settings=settings)
+
     return {"event_id": event_id, "nudged": len(loop_ids), **payload}
 
 
@@ -219,6 +242,7 @@ async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict
     from datetime import timedelta
 
     from .loops.models import format_utc_datetime
+    from .push import service as push_service
 
     now = utc_now()
     stale_cutoff = format_utc_datetime(now - timedelta(hours=settings.review_stale_hours))
@@ -255,6 +279,12 @@ async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict
 
     event_id = _emit_scheduler_event(LoopEventType.NUDGE_STALE, payload, conn)
     logger.info(f"Stale rescue nudge: {len(loop_ids)} loops")
+
+    # Send push notification to subscribed clients
+    message = push_service.build_push_payload_for_scheduler_event(
+        event_type="nudge_stale", payload=payload
+    )
+    push_service.send_to_all(message=message, conn=conn, settings=settings)
 
     return {"event_id": event_id, "rescued": len(loop_ids), **payload}
 

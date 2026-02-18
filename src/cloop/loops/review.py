@@ -136,7 +136,8 @@ def compute_review_cohorts(
     # STALE: Open loops not updated recently
     stale_sql = """
         SELECT * FROM loops
-        WHERE status IN ('inbox', 'actionable', 'blocked', 'scheduled')
+        WHERE id > 0
+          AND status IN ('inbox', 'actionable', 'blocked', 'scheduled')
           AND updated_at < ?
         ORDER BY updated_at ASC
     """
@@ -149,7 +150,8 @@ def compute_review_cohorts(
     # NO_NEXT_ACTION: Actionable/scheduled without next action
     no_action_sql = """
         SELECT * FROM loops
-        WHERE status IN ('actionable', 'scheduled')
+        WHERE id > 0
+          AND status IN ('actionable', 'scheduled')
           AND next_action IS NULL
         ORDER BY updated_at DESC
     """
@@ -160,7 +162,8 @@ def compute_review_cohorts(
     # BLOCKED_TOO_LONG: Blocked for extended period
     blocked_sql = """
         SELECT * FROM loops
-        WHERE status = 'blocked'
+        WHERE id > 0
+          AND status = 'blocked'
           AND updated_at < ?
         ORDER BY updated_at ASC
     """
@@ -173,7 +176,8 @@ def compute_review_cohorts(
     # DUE_SOON_UNPLANNED: Due soon but no next action
     due_soon_sql = """
         SELECT * FROM loops
-        WHERE due_at_utc IS NOT NULL
+        WHERE id > 0
+          AND due_at_utc IS NOT NULL
           AND due_at_utc > ?
           AND due_at_utc <= ?
           AND next_action IS NULL

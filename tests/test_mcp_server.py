@@ -1142,7 +1142,7 @@ def test_loop_create_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 1
 
 
@@ -1192,7 +1192,7 @@ def test_loop_create_idempotency_concurrent_replay(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 1
 
 
@@ -1435,7 +1435,7 @@ def test_mcp_no_request_id_creates_separate_loops(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 2
 
 
@@ -1464,7 +1464,7 @@ def test_mcp_different_tools_allow_same_request_id(
 
     settings = get_settings()
     with sqlite3.connect(settings.core_db_path) as conn:
-        count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM loops WHERE id > 0").fetchone()[0]
     assert count == 1
 
 

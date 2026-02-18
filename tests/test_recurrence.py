@@ -412,8 +412,9 @@ class TestRecurrenceErrorHandling:
             assert result["recurrence_enabled"] is False
 
             # Verify no next occurrence was created (recurrence failed)
+            # Exclude both the original loop and the sentinel (id=0)
             cursor = conn.execute(
-                "SELECT COUNT(*) as count FROM loops WHERE id != ?",
+                "SELECT COUNT(*) as count FROM loops WHERE id != ? AND id > 0",
                 (loop_id,),
             )
             count = cursor.fetchone()["count"]

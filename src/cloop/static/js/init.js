@@ -32,6 +32,8 @@ import * as comments from './comments.js';
 import * as sse from './sse.js';
 import * as duplicates from './duplicates.js';
 import * as suggestions from './suggestions.js';
+import * as notifications from './notifications.js';
+import * as push from './push.js';
 import { renderSuggestionPanel } from './suggestions.js';
 import { snoozeDurationToUtc } from './utils.js';
 import { selectedLoopIds, updateBulkActionBar } from './state.js';
@@ -77,6 +79,7 @@ const elements = {
   bulkActionBar: document.getElementById("bulk-action-bar"),
   helpModal: document.getElementById("help-modal"),
   offlineBanner: document.getElementById("offline-banner"),
+  notifications: document.getElementById("notifications"),
 };
 
 // ========================================
@@ -362,10 +365,16 @@ function renderMetrics(data) {
 
 async function requestNotificationPermission() {
   if (!("Notification" in window)) return false;
-  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "granted") {
+    push.ensurePushSubscribed().catch(() => {});
+    return true;
+  }
   if (Notification.permission !== "denied") {
     const permission = await Notification.requestPermission();
-    return permission === "granted";
+    if (permission === "granted") {
+      push.ensurePushSubscribed().catch(() => {});
+      return true;
+    }
   }
   return false;
 }
@@ -379,6 +388,9 @@ async function registerServiceWorker() {
       if ("sync" in registration) {
         console.log("Background sync supported");
       }
+
+      // Subscribe to push notifications after SW registration
+      push.ensurePushSubscribed().catch(err => console.warn("push subscribe failed", err));
     } catch (error) {
       console.error("Service worker registration failed:", error);
     }
@@ -793,6 +805,7 @@ function init() {
     ragInput: elements.ragInput,
   });
   modals.init({ helpModal: elements.helpModal });
+  notifications.init({ notificationsContainer: elements.notifications });
   keyboard.init(
     { rawText: elements.rawText, queryFilter: elements.queryFilter, status: elements.status },
     {
@@ -804,6 +817,19 @@ function init() {
       toggleSnoozeDropdown: loop.toggleSnoozeDropdown,
     }
   );
+
+  // Hash-based deep link routing
+  function routeFromHash() {
+    const hash = (window.location.hash || '').replace('#', '');
+    if (hash === 'review') switchTab('review');
+    else if (hash === 'inbox') switchTab('inbox');
+    else if (hash === 'next') switchTab('next');
+    else if (hash === 'chat') switchTab('chat');
+    else if (hash === 'rag') switchTab('rag');
+    else if (hash === 'metrics') switchTab('metrics');
+  }
+  routeFromHash();
+  window.addEventListener('hashchange', routeFromHash);
 
   // Setup handlers
   setupEventHandlers();

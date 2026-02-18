@@ -15,6 +15,7 @@ Non-scope:
 
 import asyncio
 import sqlite3
+from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -38,17 +39,24 @@ from cloop.settings import get_settings
 
 
 @pytest.fixture
-def scheduler_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
-    """Create an isolated database with scheduler tables."""
+def scheduler_db(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[sqlite3.Connection, None, None]:
+    """Create an isolated database with scheduler tables.
+
+    Uses db.core_connection to ensure PRAGMA foreign_keys=ON is applied,
+    which is required for the sentinel loop (id=0) to satisfy FK constraints
+    when scheduler events are inserted with loop_id=0.
+    """
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
 
-    conn = sqlite3.connect(str(settings.core_db_path))
-    conn.row_factory = sqlite3.Row
-    return conn
+    # Use context manager to get connection with proper pragmas
+    with db.core_connection(settings) as conn:
+        yield conn
 
 
 class TestSchedulerState:

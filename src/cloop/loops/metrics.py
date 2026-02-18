@@ -77,9 +77,9 @@ def compute_loop_metrics(
     blocked_cutoff = now - timedelta(hours=blocked_hours)
     window_start = now - timedelta(hours=24)
 
-    # Status counts
+    # Status counts (exclude sentinel loop with id=0)
     status_rows = conn.execute(
-        "SELECT status, COUNT(*) as cnt FROM loops GROUP BY status"
+        "SELECT status, COUNT(*) as cnt FROM loops WHERE id > 0 GROUP BY status"
     ).fetchall()
     status_map = {row["status"]: row["cnt"] for row in status_rows}
 
@@ -107,7 +107,8 @@ def compute_loop_metrics(
     stale_open_count = conn.execute(
         """
         SELECT COUNT(*) FROM loops
-        WHERE status IN ('inbox', 'actionable', 'blocked', 'scheduled')
+        WHERE id > 0
+          AND status IN ('inbox', 'actionable', 'blocked', 'scheduled')
           AND datetime(updated_at) < datetime(?)
         """,
         (stale_cutoff.isoformat(),),
@@ -117,7 +118,8 @@ def compute_loop_metrics(
     blocked_too_long_count = conn.execute(
         """
         SELECT COUNT(*) FROM loops
-        WHERE status = 'blocked'
+        WHERE id > 0
+          AND status = 'blocked'
           AND datetime(updated_at) < datetime(?)
         """,
         (blocked_cutoff.isoformat(),),
@@ -127,14 +129,15 @@ def compute_loop_metrics(
     no_next_action_count = conn.execute(
         """
         SELECT COUNT(*) FROM loops
-        WHERE status IN ('actionable', 'scheduled')
+        WHERE id > 0
+          AND status IN ('actionable', 'scheduled')
           AND (next_action IS NULL OR next_action = '')
         """
     ).fetchone()[0]
 
     # Enrichment state counts
     enrichment_rows = conn.execute(
-        "SELECT enrichment_state, COUNT(*) as cnt FROM loops GROUP BY enrichment_state"
+        "SELECT enrichment_state, COUNT(*) as cnt FROM loops WHERE id > 0 GROUP BY enrichment_state"
     ).fetchall()
     enrichment_map = {row["enrichment_state"]: row["cnt"] for row in enrichment_rows}
     enrichment_pending_count = enrichment_map.get("pending", 0)
@@ -166,7 +169,8 @@ def compute_loop_metrics(
         """
         SELECT AVG((julianday(?) - julianday(captured_at_utc)) * 24) as avg_hours
         FROM loops
-        WHERE status IN ('inbox', 'actionable', 'blocked', 'scheduled')
+        WHERE id > 0
+          AND status IN ('inbox', 'actionable', 'blocked', 'scheduled')
         """,
         (now.isoformat(),),
     ).fetchone()

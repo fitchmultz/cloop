@@ -218,10 +218,10 @@ def list_loops(
     offset: int,
     conn: sqlite3.Connection,
 ) -> list[LoopRecord]:
-    sql = "SELECT * FROM loops"
+    sql = "SELECT * FROM loops WHERE id > 0"
     params: list[Any] = []
     if status is not None:
-        sql += " WHERE status = ?"
+        sql += " AND status = ?"
         params.append(status.value)
     sql += " ORDER BY updated_at DESC, captured_at_utc DESC, id DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
@@ -239,7 +239,7 @@ def list_loops_by_statuses(
     if not statuses:
         return []
     placeholders = ", ".join("?" for _ in statuses)
-    sql = f"SELECT * FROM loops WHERE status IN ({placeholders})"
+    sql = f"SELECT * FROM loops WHERE id > 0 AND status IN ({placeholders})"
     params: list[Any] = [status.value for status in statuses]
     sql += " ORDER BY updated_at DESC, captured_at_utc DESC, id DESC"
     if limit is not None:
@@ -284,13 +284,15 @@ def list_next_loop_candidates(
         SELECT * FROM (
             SELECT *
             FROM loops
-            WHERE status = 'inbox'
+            WHERE id > 0
+              AND status = 'inbox'
               AND next_action IS NOT NULL
               AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
             UNION ALL
             SELECT *
             FROM loops
-            WHERE status = 'actionable'
+            WHERE id > 0
+              AND status = 'actionable'
               AND next_action IS NOT NULL
               AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
         )
@@ -304,7 +306,7 @@ def list_next_loop_candidates(
 
 def list_all_loops(*, conn: sqlite3.Connection) -> list[LoopRecord]:
     rows = conn.execute(
-        "SELECT * FROM loops ORDER BY updated_at DESC, captured_at_utc DESC, id DESC"
+        "SELECT * FROM loops WHERE id > 0 ORDER BY updated_at DESC, captured_at_utc DESC, id DESC"
     ).fetchall()
     return [_row_to_record(row) for row in rows]
 
@@ -322,7 +324,8 @@ def list_loops_by_tag(
         FROM loops
         JOIN loop_tags ON loop_tags.loop_id = loops.id
         JOIN tags ON tags.id = loop_tags.tag_id
-        WHERE LOWER(tags.name) = LOWER(?)
+        WHERE loops.id > 0
+          AND LOWER(tags.name) = LOWER(?)
     """
     params: list[Any] = [tag]
     if statuses:
@@ -429,10 +432,11 @@ def search_loops(
         """
         SELECT *
         FROM loops
-        WHERE raw_text LIKE ? ESCAPE '\\'
-           OR title LIKE ? ESCAPE '\\'
-           OR summary LIKE ? ESCAPE '\\'
-           OR next_action LIKE ? ESCAPE '\\'
+        WHERE id > 0
+          AND (raw_text LIKE ? ESCAPE '\\'
+               OR title LIKE ? ESCAPE '\\'
+               OR summary LIKE ? ESCAPE '\\'
+               OR next_action LIKE ? ESCAPE '\\')
         ORDER BY updated_at DESC, captured_at_utc DESC, id DESC
         LIMIT ? OFFSET ?
         """,
@@ -1233,7 +1237,7 @@ def list_loops_cursor(
     Returns:
         List of LoopRecords ordered by updated_at DESC, captured_at_utc DESC, id DESC
     """
-    sql = "SELECT * FROM loops WHERE datetime(updated_at) <= datetime(?)"
+    sql = "SELECT * FROM loops WHERE id > 0 AND datetime(updated_at) <= datetime(?)"
     params: list[Any] = [snapshot_utc]
 
     if status is not None:

@@ -297,3 +297,55 @@ select:focus {
 .sse-status.disconnected {
   background-color: #ef4444;
 }
+
+/* Notification Toasts */
+.notifications {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.notification-toast {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid var(--border);
+  background: #fffefb;
+  border-radius: 12px;
+  padding: 10px 12px;
+  animation: rise 200ms ease;
+}
+
+.notification-toast .title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.notification-toast .body {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.notification-toast .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.notification-toast button {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: white;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.notification-toast.scheduler {
+  border-left: 4px solid #d66b3f;
+}

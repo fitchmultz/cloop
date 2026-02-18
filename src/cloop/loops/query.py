@@ -239,8 +239,10 @@ def compile_loop_query(query: LoopQuery, *, now_utc: datetime) -> tuple[str, lis
         - Each text term matches any of (raw_text, title, summary, next_action) with LIKE
         - status:open expands to the 4 open statuses
         - status:all is ignored (no status filter)
+        - Always excludes sentinel loop (id=0)
     """
-    conditions: list[str] = []
+    # Always exclude sentinel loop
+    conditions: list[str] = ["loops.id > 0"]
     params: list[object] = []
 
     status_values = list(query.statuses)

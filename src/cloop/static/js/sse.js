@@ -17,6 +17,7 @@
 
 import { refreshLoop, handleLoopClosed } from './loop.js';
 import { loadTimerStatus, startTimerUI } from './timer.js';
+import { showSchedulerEventToast } from './notifications.js';
 
 let eventSource = null;
 let lastEventId = null;
@@ -82,6 +83,14 @@ export function disconnectSSE() {
  */
 async function handleLoopEvent(event) {
   const { event_type, loop_id, payload } = event;
+
+  // Dedicated path for scheduler/system events (loop_id=0)
+  if (loop_id === 0) {
+    if (event_type === 'nudge_due_soon' || event_type === 'nudge_stale' || event_type === 'review_generated') {
+      showSchedulerEventToast(event);
+    }
+    return;
+  }
 
   switch (event_type) {
     case 'capture':
