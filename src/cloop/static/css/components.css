@@ -1,0 +1,299 @@
+/**
+ * components.css - Core UI component styles
+ *
+ * Purpose:
+ *   Provide consistent styling for basic interactive and display components.
+ *
+ * Responsibilities:
+ *   - Buttons (primary, secondary)
+ *   - Form inputs (text, textarea, select, datetime)
+ *   - Panels and cards
+ *   - Tabs and toggles
+ *   - Badges and tags
+ *   - Filters and lists
+ *
+ * Non-scope:
+ *   - Loop-specific styles (see loop.css)
+ *   - Review tab styles (see review.css)
+ *   - Modal styles (see modals.css)
+ *   - Layout grid (see layout.css)
+ */
+
+/* Header */
+header {
+  padding: 32px 20px 10px;
+  text-align: center;
+}
+
+h1 {
+  margin: 0 0 6px;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Buttons */
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  background: var(--brand);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+
+/* Form Elements */
+textarea {
+  width: 100%;
+  min-height: 110px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  padding: 12px 14px;
+  font-size: 16px;
+  font-family: inherit;
+  resize: vertical;
+  background: #fffefb;
+}
+
+select {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  background: #fffefb;
+  font-family: inherit;
+}
+
+input[type="text"],
+input[type="datetime-local"] {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 10px 16px;
+  font-size: 15px;
+  font-family: inherit;
+  background: #fffefb;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+/* Panels */
+.panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: var(--shadow);
+  animation: rise 320ms ease both;
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 18px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 16px 20px 0;
+}
+
+.tab {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  background: var(--card);
+  color: var(--muted);
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: all 150ms ease;
+}
+
+.tab:hover {
+  background: var(--bg-accent);
+}
+
+.tab.active {
+  background: var(--brand);
+  color: white;
+  border-color: var(--brand);
+}
+
+/* Toggles */
+.toggles {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 6px;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff7ed;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Toggle Buttons */
+.toggle-btn {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: var(--card);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-family: inherit;
+}
+
+.toggle-btn.active {
+  background: var(--brand);
+  color: white;
+  border-color: var(--brand);
+}
+
+/* Actions Bar */
+.actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.footer-actions {
+  max-width: 820px;
+  margin: 16px auto 40px;
+  padding: 0 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  opacity: 0.65;
+}
+
+/* Filters */
+.filters {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.filters label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Lists */
+.inbox-list {
+  display: grid;
+  gap: 12px;
+}
+
+/* Shortcut Hints */
+.shortcut-hint {
+  display: inline-block;
+  font-size: 10px;
+  font-family: "Space Grotesk", monospace;
+  background: rgba(255,255,255,0.5);
+  color: var(--muted);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  border: 1px solid var(--border);
+  opacity: 0.7;
+}
+
+.tab .shortcut-hint {
+  font-size: 9px;
+  padding: 1px 4px;
+}
+
+/* PWA Offline Banner */
+.offline-banner {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--brand);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+  display: none;
+  z-index: 1000;
+  animation: rise 300ms ease;
+}
+
+.offline-banner.visible {
+  display: block;
+}
+
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-status .spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* SSE Connection Status */
+.sse-status {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+  vertical-align: middle;
+  transition: background-color 0.3s ease;
+}
+
+.sse-status.connected {
+  background-color: #4ade80;
+}
+
+.sse-status.reconnecting {
+  background-color: #fbbf24;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.sse-status.disconnected {
+  background-color: #ef4444;
+}

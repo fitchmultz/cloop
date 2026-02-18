@@ -430,7 +430,9 @@ def test_capture_command_with_autopilot(
     def mock_request_enrichment(*, loop_id: int, conn: sqlite3.Connection) -> dict:
         return mock_enrichment
 
-    monkeypatch.setattr("cloop.cli.request_enrichment", mock_request_enrichment)
+    monkeypatch.setattr(
+        "cloop.cli_package.loop_core_commands.request_enrichment", mock_request_enrichment
+    )
 
     parser = cli.build_parser()
     args = parser.parse_args(["capture", "Test autopilot"])

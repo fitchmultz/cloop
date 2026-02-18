@@ -1,0 +1,82 @@
+/**
+ * layout.css - Layout and responsive styles
+ *
+ * Purpose:
+ *   Define page layout structure, grid systems, and responsive breakpoints.
+ *
+ * Responsibilities:
+ *   - Main container layouts
+ *   - Tab-specific main content areas
+ *   - Responsive breakpoints and mobile adjustments
+ *   - Grid and flexbox layouts
+ *
+ * Non-scope:
+ *   - Component styling (see components.css)
+ *   - Modal positioning (see modals.css)
+ *   - CSS variables (see base.css)
+ */
+
+/* Main Layout */
+main {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+  display: grid;
+  gap: 18px;
+}
+
+/* Tab-specific main containers */
+.chat-main,
+.rag-main,
+.next-main,
+.review-main {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+  display: none;
+  gap: 18px;
+}
+
+.metrics-main {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 16px 20px 40px;
+  display: none;
+}
+
+/* Footer Actions */
+.footer-actions {
+  max-width: 820px;
+  margin: 16px auto 40px;
+  padding: 0 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  opacity: 0.65;
+}
+
+/* Responsive - Mobile */
+@media (max-width: 640px) {
+  main,
+  .chat-main,
+  .rag-main,
+  .next-main,
+  .review-main,
+  .metrics-main {
+    padding: 10px 14px 30px;
+  }
+
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  button {
+    width: 100%;
+  }
+
+  /* Merge modal responsive */
+  .merge-comparison {
+    grid-template-columns: 1fr;
+  }
+}

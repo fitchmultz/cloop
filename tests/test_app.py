@@ -534,17 +534,19 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert 'data-tab="chat"' in html
     assert 'data-tab="rag"' in html
 
-    # Check for chat elements
+    # Check for chat elements (static structure - dynamic elements rendered by JS)
     assert 'id="chat-form"' in html
     assert 'id="chat-input"' in html
     assert 'id="chat-messages"' in html
-    assert "chat-bubble" in html
 
-    # Check for RAG elements
+    # Check for RAG elements (static structure - dynamic elements rendered by JS)
     assert 'id="rag-form"' in html
     assert 'id="rag-input"' in html
     assert 'id="rag-answer"' in html
-    assert "rag-sources" in html
+
+    # Verify modular CSS/JS is loaded (new architecture)
+    assert "chat.js" in html or "init.js" in html
+    assert "chat-rag.css" in html or "components.css" in html
 
 
 def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -556,21 +558,15 @@ def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir
     # Check for Next tab
     assert 'data-tab="next"' in html
 
-    # Check for Next view container
+    # Check for Next view container (static structure)
     assert 'id="next-main"' in html
     assert 'id="next-buckets"' in html
-
-    # Check for bucket CSS classes
-    assert "next-bucket" in html
-    assert "bucket-due_soon" in html.replace(" ", "") or "due_soon" in html
-    assert "bucket-quick_wins" in html.replace(" ", "") or "quick_wins" in html
-    assert "bucket-high_leverage" in html.replace(" ", "") or "high_leverage" in html
 
     # Check for refresh button
     assert 'id="refresh-next-btn"' in html
 
-    # Check for priority badge styles
-    assert "priority-score" in html or "priority-" in html
+    # Verify modular JS/CSS is loaded for Next view (new architecture)
+    assert "next.js" in html or "init.js" in html
 
 
 def test_loops_next_endpoint_data_flow(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -818,30 +814,18 @@ def test_bulk_snooze_endpoint(test_client: TestClient, tmp_data_dir: Path) -> No
 def test_ui_contains_snooze_and_recurrence_elements(
     test_client: TestClient, tmp_data_dir: Path
 ) -> None:
-    """Verify the index.html contains snooze and recurrence UI elements."""
+    """Verify the index.html loads modular JS/CSS for snooze and recurrence features."""
     response = test_client.get("/")
     assert response.status_code == 200
     html = response.text
 
-    # Check for snooze elements
-    assert 'data-action="snooze"' in html
-    assert "snooze-dropdown" in html
-    assert "snooze-option" in html
-    assert "data-snooze-duration" in html
-    assert "snooze-datetime" in html
-    assert "snooze-indicator" in html
-
-    # Check for recurrence elements
-    assert "recurrence-section" in html
-    assert "recurrence-toggle" in html
-    assert "data-recurrence-toggle" in html
-    assert "recurrence-schedule-input" in html
-    assert "data-recurrence-schedule" in html
-    assert "recurrence-preview" in html
-    assert "data-recurrence-preview" in html
-
-    # Check for keyboard shortcut hint
-    assert 'Snooze<span class="shortcut-hint">s</span>' in html
+    # Verify modular JS/CSS is loaded (new architecture)
+    # Snooze and recurrence are dynamically rendered by JS modules
+    assert "init.js" in html
+    assert "loop.js" in html or "modals.js" in html or "components.css" in html
+    # Check for snooze in help modal (separate span elements for text and shortcut)
+    assert ">Snooze<" in html or "Snooze</span>" in html
+    assert ">s</span>" in html or "help-key" in html.lower()
 
 
 def test_loop_metrics_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:

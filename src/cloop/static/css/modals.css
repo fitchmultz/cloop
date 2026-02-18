@@ -1,0 +1,363 @@
+/**
+ * modals.css - Modal and overlay styles
+ *
+ * Purpose:
+ *   Provide consistent styling for modal dialogs, overlays, and popups.
+ *
+ * Responsibilities:
+ *   - Help modal overlay and content
+ *   - Merge modal overlay and comparison view
+ *   - Bulk confirmation modal
+ *   - Modal animations and backdrops
+ *   - Close buttons and modal actions
+ *
+ * Non-scope:
+ *   - Component styling (see components.css)
+ *   - Layout grid (see layout.css)
+ *   - CSS variables (see base.css)
+ */
+
+/* Help Modal */
+.help-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(47, 42, 36, 0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.help-modal-overlay.visible {
+  display: flex;
+}
+
+.help-modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  max-width: 480px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(47, 42, 36, 0.3);
+  animation: rise 200ms ease;
+}
+
+.help-modal h2 {
+  margin: 0 0 16px;
+  font-family: "Space Grotesk", sans-serif;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.help-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  line-height: 1;
+}
+
+.help-modal-close:hover,
+.help-modal-close:focus-visible {
+  color: var(--ink);
+}
+
+.help-modal-close:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.help-section {
+  margin-bottom: 16px;
+}
+
+.help-section h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.help-shortcut {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.help-shortcut:last-child {
+  border-bottom: none;
+}
+
+.help-key {
+  font-family: "Space Grotesk", monospace;
+  background: var(--bg-accent);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  min-width: 32px;
+  text-align: center;
+}
+
+.help-keys {
+  display: flex;
+  gap: 4px;
+}
+
+.help-desc {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+/* Merge Modal */
+.merge-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(47, 42, 36, 0.6);
+  display: none;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 40px 20px;
+  z-index: 1002;
+  backdrop-filter: blur(4px);
+  overflow-y: auto;
+}
+
+.merge-modal-overlay.visible {
+  display: flex;
+}
+
+.merge-modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  max-width: 720px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(47, 42, 36, 0.3);
+  animation: rise 280ms ease;
+}
+
+.merge-modal h2 {
+  margin: 0 0 8px;
+  font-family: "Space Grotesk", sans-serif;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.merge-modal-close {
+  background: transparent;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  line-height: 1;
+}
+
+.merge-warning {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #92400e;
+}
+
+.merge-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.merge-column {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.merge-column h4 {
+  margin: 0 0 12px;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 14px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.merge-column.surviving {
+  border-color: #27ae60;
+  background: #f0fdf4;
+}
+
+.merge-column.duplicate {
+  border-color: var(--brand);
+  background: #fff7f0;
+}
+
+.merge-field {
+  margin-bottom: 12px;
+}
+
+.merge-field-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+}
+
+.merge-field-value {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.merge-field-value.conflict {
+  background: #fef3c7;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+
+.merge-field-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fffefb;
+}
+
+.merge-field-input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.merge-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.merge-btn-cancel {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 10px 18px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.merge-btn-cancel:hover {
+  background: var(--bg-accent);
+}
+
+.merge-btn-confirm {
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.merge-btn-confirm:hover {
+  background: #b91c1c;
+}
+
+/* Bulk Confirmation Modal */
+.bulk-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(47, 42, 36, 0.6);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1001;
+  backdrop-filter: blur(4px);
+}
+
+.bulk-confirm-overlay.visible {
+  display: flex;
+}
+
+.bulk-confirm-modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(47, 42, 36, 0.3);
+  animation: rise 200ms ease;
+}
+
+.bulk-confirm-modal h3 {
+  margin: 0 0 8px;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.bulk-confirm-modal p {
+  margin: 0 0 16px;
+  color: var(--muted);
+}
+
+.bulk-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.bulk-confirm-btn {
+  background: #c0392b;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.bulk-confirm-btn:hover {
+  background: #a93226;
+}
+
+/* Responsive - Mobile */
+@media (max-width: 640px) {
+  .merge-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .help-modal {
+    max-height: 90vh;
+    padding: 16px;
+  }
+
+  .merge-modal {
+    padding: 16px;
+    margin: 10px;
+  }
+}
