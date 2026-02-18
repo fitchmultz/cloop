@@ -1,0 +1,845 @@
+/**
+ * init.js - Application initialization
+ *
+ * Purpose:
+ *   Initialize the Cloop web application and wire up all modules.
+ *
+ * Responsibilities:
+ *   - Initialize all modules with DOM elements
+ *   - Setup global event handlers
+ *   - Handle tab switching
+ *   - Load initial data
+ *   - Setup PWA and notifications
+ *
+ * Non-scope:
+ *   - Individual feature logic (see respective modules)
+ *   - API calls (see api.js)
+ *   - State management (see state.js)
+ */
+
+import * as state from './state.js';
+import * as api from './api.js';
+import * as loop from './loop.js';
+import * as timer from './timer.js';
+import * as bulk from './bulk.js';
+import * as review from './review.js';
+import * as next from './next.js';
+import * as chat from './chat.js';
+import * as rag from './rag.js';
+import * as keyboard from './keyboard.js';
+import * as modals from './modals.js';
+import * as comments from './comments.js';
+import * as sse from './sse.js';
+import * as duplicates from './duplicates.js';
+import * as suggestions from './suggestions.js';
+import { renderSuggestionPanel } from './suggestions.js';
+import { snoozeDurationToUtc } from './utils.js';
+import { selectedLoopIds, updateBulkActionBar } from './state.js';
+
+// ========================================
+// DOM Element References
+// ========================================
+
+const elements = {
+  inbox: document.getElementById("inbox"),
+  status: document.getElementById("status"),
+  form: document.getElementById("capture-form"),
+  rawText: document.getElementById("raw-text"),
+  actionable: document.getElementById("actionable"),
+  scheduled: document.getElementById("scheduled"),
+  blocked: document.getElementById("blocked"),
+  statusFilter: document.getElementById("status-filter"),
+  tagFilter: document.getElementById("tag-filter"),
+  queryFilter: document.getElementById("query-filter"),
+  viewFilter: document.getElementById("view-filter"),
+  saveViewBtn: document.getElementById("save-view-btn"),
+  exportBtn: document.getElementById("export-btn"),
+  importBtn: document.getElementById("import-btn"),
+  importFile: document.getElementById("import-file"),
+  templateSelect: document.getElementById("template-select"),
+  inboxMain: document.getElementById("inbox-main"),
+  nextMain: document.getElementById("next-main"),
+  chatMain: document.getElementById("chat-main"),
+  ragMain: document.getElementById("rag-main"),
+  reviewMain: document.getElementById("review-main"),
+  metricsMain: document.getElementById("metrics-main"),
+  nextBuckets: document.getElementById("next-buckets"),
+  refreshNextBtn: document.getElementById("refresh-next-btn"),
+  refreshMetricsBtn: document.getElementById("refresh-metrics-btn"),
+  chatMessages: document.getElementById("chat-messages"),
+  chatInput: document.getElementById("chat-input"),
+  chatForm: document.getElementById("chat-form"),
+  ragInput: document.getElementById("rag-input"),
+  ragForm: document.getElementById("rag-form"),
+  ragAnswer: document.getElementById("rag-answer"),
+  reviewCohorts: document.getElementById("review-cohorts"),
+  metricsContent: document.getElementById("metrics-content"),
+  bulkActionBar: document.getElementById("bulk-action-bar"),
+  helpModal: document.getElementById("help-modal"),
+  offlineBanner: document.getElementById("offline-banner"),
+};
+
+// ========================================
+// Tab Switching
+// ========================================
+
+function switchTab(tabName) {
+  const tabs = document.querySelectorAll(".tab");
+  tabs.forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === tabName);
+    t.setAttribute("aria-selected", t.dataset.tab === tabName);
+  });
+
+  elements.inboxMain.style.display = tabName === "inbox" ? "grid" : "none";
+  elements.nextMain.style.display = tabName === "next" ? "grid" : "none";
+  elements.chatMain.style.display = tabName === "chat" ? "grid" : "none";
+  elements.ragMain.style.display = tabName === "rag" ? "grid" : "none";
+  if (elements.reviewMain) {
+    elements.reviewMain.style.display = tabName === "review" ? "grid" : "none";
+  }
+  if (elements.metricsMain) {
+    elements.metricsMain.style.display = tabName === "metrics" ? "block" : "none";
+  }
+
+  // Load data when switching to tabs
+  if (tabName === "next") {
+    next.loadNext();
+  }
+  if (tabName === "review") {
+    review.loadReviewData();
+  }
+  if (tabName === "metrics") {
+    fetchAndRenderMetrics();
+  }
+
+  state.updateState({ activeTab: tabName });
+}
+
+// ========================================
+// Capture Loop
+// ========================================
+
+async function captureLoop(event) {
+  event.preventDefault();
+
+  const now = new Date();
+  const templateId = elements.templateSelect.value;
+  const payload = {
+    raw_text: elements.rawText.value.trim(),
+    captured_at: now.toISOString(),
+    client_tz_offset_min: -now.getTimezoneOffset(),
+    actionable: elements.actionable.checked,
+    scheduled: elements.scheduled.checked,
+    blocked: elements.blocked.checked,
+  };
+
+  if (templateId) {
+    payload.template_id = parseInt(templateId, 10);
+  }
+
+  if (!payload.raw_text && !templateId) {
+    elements.status.textContent = "Type something first.";
+    return;
+  }
+
+  // Show offline indicator immediately if offline
+  if (!navigator.onLine) {
+    elements.offlineBanner.classList.add("visible");
+    elements.status.textContent = "Saving offline...";
+  } else {
+    elements.status.textContent = "Saving...";
+  }
+
+  // Request notification permission on first capture
+  if (!state.state.notificationPermissionRequested) {
+    state.updateState({ notificationPermissionRequested: true });
+    requestNotificationPermission();
+  }
+
+  try {
+    const result = await api.captureLoop(payload);
+
+    // Handle service worker's offline queued response
+    if (result.queued && result.offline) {
+      elements.status.textContent = "Saved offline - will sync when connected";
+    } else {
+      loop.replaceLoop(result);
+      elements.status.textContent = "Saved. Enrichment queued.";
+    }
+
+    // Clear form
+    elements.rawText.value = "";
+    elements.actionable.checked = false;
+    elements.scheduled.checked = false;
+    elements.blocked.checked = false;
+    elements.templateSelect.value = "";
+  } catch (error) {
+    elements.status.textContent = error.message;
+  }
+}
+
+// ========================================
+// Templates
+// ========================================
+
+async function loadTemplates() {
+  if (state.state.templatesCache) return state.state.templatesCache;
+
+  const templates = await api.fetchTemplates();
+  state.updateState({ templatesCache: templates });
+  return templates;
+}
+
+async function populateTemplateDropdown() {
+  const templates = await loadTemplates();
+
+  // Clear existing options except first ("None")
+  while (elements.templateSelect.options.length > 1) {
+    elements.templateSelect.remove(1);
+  }
+
+  // Add options
+  templates.forEach(t => {
+    const option = document.createElement("option");
+    option.value = t.id;
+    option.textContent = t.name + (t.is_system ? " (system)" : "");
+    elements.templateSelect.appendChild(option);
+  });
+}
+
+async function saveAsTemplate(loopId) {
+  const name = prompt("Template name:");
+  if (!name) return;
+
+  try {
+    const template = await api.saveLoopAsTemplate(loopId, name);
+    elements.status.textContent = `Template "${template.name}" created!`;
+    state.updateState({ templatesCache: null });
+    populateTemplateDropdown();
+  } catch (error) {
+    elements.status.textContent = error.message;
+  }
+}
+
+// ========================================
+// Import/Export
+// ========================================
+
+function downloadExport(payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  anchor.download = `cloop-loops-${stamp}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportLoops() {
+  elements.status.textContent = "Exporting...";
+  try {
+    const payload = await api.exportLoops();
+    downloadExport(payload);
+    elements.status.textContent = "Exported.";
+  } catch (error) {
+    elements.status.textContent = error.message;
+  }
+}
+
+async function importLoops(file) {
+  elements.status.textContent = "Importing...";
+  try {
+    const text = await file.text();
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      elements.status.textContent = "Invalid JSON file.";
+      return;
+    }
+    const loops = Array.isArray(payload) ? payload : payload.loops || [];
+    const result = await api.importLoops(loops);
+    elements.status.textContent = `Imported ${result.imported} loops.`;
+    await loop.loadInbox();
+  } catch (error) {
+    elements.status.textContent = error.message;
+  }
+}
+
+// ========================================
+// Metrics
+// ========================================
+
+async function fetchAndRenderMetrics() {
+  if (!elements.metricsContent) return;
+
+  elements.metricsContent.innerHTML = '<div class="cohort-loading">Loading metrics...</div>';
+
+  try {
+    const data = await api.fetchMetrics();
+    renderMetrics(data);
+  } catch (err) {
+    console.error("metrics error:", err);
+    elements.metricsContent.innerHTML = '<div class="cohort-empty">Error loading metrics.</div>';
+  }
+}
+
+function renderMetrics(data) {
+  const statusHtml = `
+    <div class="metrics-section-title">Status Distribution</div>
+    <div class="metrics-status-row">
+      <span class="status-badge inbox">Inbox: ${data.status_counts.inbox}</span>
+      <span class="status-badge actionable">Actionable: ${data.status_counts.actionable}</span>
+      <span class="status-badge blocked">Blocked: ${data.status_counts.blocked}</span>
+      <span class="status-badge scheduled">Scheduled: ${data.status_counts.scheduled}</span>
+      <span class="status-badge completed">Completed: ${data.status_counts.completed}</span>
+      <span class="status-badge dropped">Dropped: ${data.status_counts.dropped}</span>
+    </div>
+  `;
+
+  const staleClass = data.stale_open_count > 5 ? 'alert' : data.stale_open_count > 0 ? 'warning' : '';
+  const blockedClass = data.blocked_too_long_count > 3 ? 'alert' : data.blocked_too_long_count > 0 ? 'warning' : '';
+  const enrichClass = data.enrichment_failed_count > 0 ? 'alert' : '';
+
+  const healthHtml = `
+    <div class="metrics-section-title">Health Indicators</div>
+    <div class="metrics-grid">
+      <div class="metric-card ${staleClass}">
+        <div class="metric-value">${data.stale_open_count}</div>
+        <div class="metric-label">Stale Open (72h+)</div>
+      </div>
+      <div class="metric-card ${blockedClass}">
+        <div class="metric-value">${data.blocked_too_long_count}</div>
+        <div class="metric-label">Blocked 48h+</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.no_next_action_count}</div>
+        <div class="metric-label">No Next Action</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.enrichment_pending_count}</div>
+        <div class="metric-label">Enrichment Pending</div>
+      </div>
+      <div class="metric-card ${enrichClass}">
+        <div class="metric-value">${data.enrichment_failed_count}</div>
+        <div class="metric-label">Enrichment Failed</div>
+      </div>
+    </div>
+  `;
+
+  const throughputClass = data.completion_count_24h >= data.capture_count_24h ? 'success' : '';
+  const throughputHtml = `
+    <div class="metrics-section-title">Throughput (24h)</div>
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-value">${data.capture_count_24h}</div>
+        <div class="metric-label">Captured</div>
+      </div>
+      <div class="metric-card ${throughputClass}">
+        <div class="metric-value">${data.completion_count_24h}</div>
+        <div class="metric-label">Completed</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.avg_age_open_hours !== null ? data.avg_age_open_hours.toFixed(1) + 'h' : 'N/A'}</div>
+        <div class="metric-label">Avg Age Open</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-value">${data.total_loops}</div>
+        <div class="metric-label">Total Loops</div>
+      </div>
+    </div>
+  `;
+
+  elements.metricsContent.innerHTML = statusHtml + healthHtml + throughputHtml;
+}
+
+// ========================================
+// PWA and Notifications
+// ========================================
+
+async function requestNotificationPermission() {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission !== "denied") {
+    const permission = await Notification.requestPermission();
+    return permission === "granted";
+  }
+  return false;
+}
+
+async function registerServiceWorker() {
+  if ("serviceWorker" in navigator) {
+    try {
+      const registration = await navigator.serviceWorker.register("/sw.js");
+      console.log("Service worker registered:", registration.scope);
+
+      if ("sync" in registration) {
+        console.log("Background sync supported");
+      }
+    } catch (error) {
+      console.error("Service worker registration failed:", error);
+    }
+  }
+}
+
+function updateOnlineStatus() {
+  if (navigator.onLine) {
+    elements.offlineBanner.classList.remove("visible");
+    if ("serviceWorker" in navigator && "SyncManager" in window) {
+      navigator.serviceWorker.ready.then((registration) => {
+        registration.sync.register("sync-captures");
+      });
+    }
+  } else {
+    elements.offlineBanner.classList.add("visible");
+  }
+}
+
+// ========================================
+// Event Handlers Setup
+// ========================================
+
+function setupEventHandlers() {
+  // Tab switching
+  document.querySelectorAll(".tab").forEach(tab => {
+    tab.addEventListener("click", () => switchTab(tab.dataset.tab));
+  });
+
+  // Form submissions
+  elements.form.addEventListener("submit", captureLoop);
+  elements.chatForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = elements.chatInput.value.trim();
+    if (!text) return;
+    elements.chatInput.value = "";
+    chat.submitChat(text);
+  });
+  elements.ragForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const question = elements.ragInput.value.trim();
+    if (!question) return;
+    elements.ragInput.value = "";
+    rag.submitRagQuestion(question);
+  });
+
+  // Filter handlers
+  elements.statusFilter.addEventListener("change", () => {
+    elements.queryFilter.value = "";
+    elements.viewFilter.value = "";
+    loop.loadInbox();
+  });
+  elements.tagFilter.addEventListener("change", () => {
+    elements.queryFilter.value = "";
+    elements.viewFilter.value = "";
+    loop.loadInbox();
+  });
+  elements.queryFilter.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      elements.viewFilter.value = "";
+      elements.statusFilter.value = "all";
+      elements.tagFilter.value = "";
+      loop.loadInbox();
+    }
+  });
+  elements.viewFilter.addEventListener("change", () => {
+    const selected = elements.viewFilter.selectedOptions[0];
+    if (selected?.dataset.query) {
+      elements.queryFilter.value = selected.dataset.query;
+      elements.statusFilter.value = "all";
+      elements.tagFilter.value = "";
+      loop.loadInbox();
+    }
+  });
+
+  // Button handlers
+  elements.saveViewBtn.addEventListener("click", async () => {
+    const query = elements.queryFilter.value.trim();
+    if (!query) {
+      elements.status.textContent = "Enter a query first.";
+      return;
+    }
+    const name = prompt("View name:", "");
+    if (!name?.trim()) return;
+    try {
+      await api.saveView(name.trim(), query);
+      elements.status.textContent = "View saved.";
+      await api.fetchViews();
+    } catch (error) {
+      elements.status.textContent = error.message;
+    }
+  });
+  elements.exportBtn.addEventListener("click", exportLoops);
+  elements.importBtn.addEventListener("click", () => elements.importFile.click());
+  elements.importFile.addEventListener("change", (event) => {
+    const file = event.target.files?.[0];
+    if (file) importLoops(file);
+    elements.importFile.value = "";
+  });
+  elements.refreshNextBtn?.addEventListener("click", next.loadNext);
+  elements.refreshMetricsBtn?.addEventListener("click", fetchAndRenderMetrics);
+
+  // Review mode toggle
+  document.querySelectorAll("[data-review-mode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      review.setReviewMode(btn.dataset.reviewMode);
+      document.querySelectorAll("[data-review-mode]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+  });
+
+  // Bulk action handlers
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-bulk-action]");
+    if (btn) {
+      bulk.handleBulkAction(btn.dataset.bulkAction);
+      updateBulkActionBar();
+    }
+  });
+
+  // Confirmation modal handlers
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("[data-action='cancel-bulk-confirm']")) {
+      bulk.hideBulkConfirm();
+    }
+    if (event.target.closest("[data-action='confirm-bulk']")) {
+      const action = state.getPendingBulkAction();
+      if (action) action();
+      bulk.hideBulkConfirm();
+    }
+  });
+
+  // Close bulk confirm on overlay click
+  document.getElementById("bulk-confirm-modal")?.addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) {
+      bulk.hideBulkConfirm();
+    }
+  });
+
+  // Close snooze dropdowns when clicking outside
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.snooze-wrapper')) {
+      document.querySelectorAll('.snooze-dropdown.visible').forEach(d => {
+        d.classList.remove('visible');
+      });
+    }
+  });
+
+  // Online/offline detection
+  window.addEventListener("online", updateOnlineStatus);
+  window.addEventListener("offline", updateOnlineStatus);
+}
+
+// ========================================
+// Loop Card Event Handlers
+// ========================================
+
+function setupLoopCardHandlers(container) {
+  // Checkbox change handler for bulk selection
+  container.addEventListener("change", (event) => {
+    const checkbox = event.target.closest(".loop-checkbox");
+    if (checkbox) {
+      const loopId = parseInt(checkbox.dataset.loopId, 10);
+      if (event.shiftKey && state.state.lastClickedLoopId !== null && state.state.lastClickedLoopId !== loopId) {
+        state.selectLoopRange(state.state.lastClickedLoopId, loopId);
+        checkbox.checked = true;
+      } else {
+        state.toggleLoopSelection(loopId, checkbox.checked);
+      }
+      state.updateState({ lastClickedLoopId: loopId });
+      event.stopPropagation();
+      updateBulkActionBar();
+      return;
+    }
+
+    // Handle recurrence toggle
+    const recurrenceToggle = event.target.closest('[data-recurrence-toggle]');
+    if (recurrenceToggle && event.target.type === 'checkbox') {
+      const loopId = recurrenceToggle.dataset.recurrenceToggle;
+      const card = recurrenceToggle.closest('.loop-card');
+      const scheduleInput = card?.querySelector(`[data-recurrence-schedule="${loopId}"]`);
+      const rrule = scheduleInput?.value?.trim() || '';
+
+      loop.toggleRecurrenceSection(loopId, event.target.checked);
+
+      if (event.target.checked && rrule) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        loop.updateRecurrence(loopId, rrule, tz, true);
+      } else if (!event.target.checked) {
+        loop.updateRecurrence(loopId, null, null, false);
+      }
+      return;
+    }
+
+    // Handle recurrence schedule input change
+    const scheduleInput = event.target.closest('.recurrence-schedule-input');
+    if (scheduleInput) {
+      const loopId = scheduleInput.dataset.recurrenceSchedule;
+      const card = scheduleInput.closest('.loop-card');
+      const toggle = card?.querySelector(`[data-recurrence-toggle="${loopId}"]`);
+
+      if (toggle?.checked && scheduleInput.value.trim()) {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        loop.updateRecurrence(loopId, scheduleInput.value.trim(), tz, true);
+      }
+      return;
+    }
+  });
+
+  // Click handlers
+  container.addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (button) {
+      if (button.dataset.action === "complete") {
+        loop.showCompletionNote(button.dataset.id);
+      } else if (button.dataset.action === "cancel-complete") {
+        loop.hideCompletionNote(button.dataset.id);
+      } else if (button.dataset.action === "enrich") {
+        loop.enrichLoop(button.dataset.id);
+      } else if (button.dataset.action === "refresh") {
+        loop.refreshLoop(button.dataset.id);
+      } else if (button.dataset.action === "timer-toggle") {
+        timer.toggleTimer(button.dataset.id);
+      } else if (button.dataset.action === "snooze") {
+        event.stopPropagation();
+        loop.toggleSnoozeDropdown(button.dataset.id);
+      } else if (button.dataset.action === "edit-tags") {
+        const tagsWrap = button.closest(".tags-edit");
+        if (tagsWrap) {
+          tagsWrap.classList.add("editing");
+          const input = tagsWrap.querySelector(".tag-input");
+          if (input) {
+            input.value = "";
+            input.focus();
+          }
+        }
+      } else if (button.dataset.action === "remove-tag") {
+        const card = button.closest(".loop-card");
+        if (card) {
+          loop.removeTag(card.dataset.loopId, button.dataset.tag, card);
+        }
+      } else if (button.dataset.action === "save-template") {
+        saveAsTemplate(button.dataset.id);
+      }
+
+      // Handle snooze option clicks
+      const snoozeOption = event.target.closest('.snooze-option');
+      if (snoozeOption) {
+        const dropdown = snoozeOption.closest('.snooze-dropdown');
+        const loopId = dropdown?.dataset?.snoozeDropdown;
+        const duration = snoozeOption.dataset?.snoozeDuration;
+
+        if (loopId && duration) {
+          const utcTime = snoozeDurationToUtc(duration);
+          if (utcTime) {
+            loop.snoozeLoop(loopId, utcTime);
+            dropdown.classList.remove('visible');
+          }
+        }
+      }
+    }
+  });
+
+  // Custom snooze datetime change
+  container.addEventListener("change", (event) => {
+    const snoozeDatetime = event.target.closest('.snooze-datetime');
+    if (snoozeDatetime) {
+      const loopId = snoozeDatetime.dataset?.snoozeCustom;
+      const localTime = snoozeDatetime.value;
+
+      if (loopId && localTime) {
+        const utcTime = new Date(localTime).toISOString();
+        loop.snoozeLoop(loopId, utcTime);
+        const dropdown = snoozeDatetime.closest('.snooze-dropdown');
+        if (dropdown) dropdown.classList.remove('visible');
+      }
+    }
+
+    // Handle status and other field changes
+    if (event.target?.dataset?.field) {
+      loop.applyInlineUpdate(event.target);
+    }
+  });
+
+  // Pointer down for cancel-complete
+  container.addEventListener("pointerdown", (event) => {
+    const button = event.target.closest("button");
+    if (button?.dataset.action === "cancel-complete") {
+      const card = button.closest(".loop-card");
+      const input = card?.querySelector(".completion-note-input");
+      if (input) {
+        input.dataset.skipComplete = "true";
+      }
+    }
+  }, true);
+
+  // Focus out handlers
+  container.addEventListener("focusout", (event) => {
+    const target = event.target;
+
+    if (target?.classList?.contains("completion-note-input")) {
+      if (target.dataset.skipComplete) {
+        delete target.dataset.skipComplete;
+        return;
+      }
+      const card = target.closest(".loop-card");
+      const loopId = card?.dataset?.loopId;
+      if (!loopId) return;
+      const mode = target.dataset.mode || "complete";
+      if (mode === "complete") {
+        loop.confirmComplete(loopId, target.value);
+      } else if (mode === "edit") {
+        loop.saveCompletionNote(loopId, target);
+      }
+      return;
+    }
+
+    if (target?.classList?.contains("tag-input")) {
+      loop.appendTagsFromInput(target);
+    }
+  });
+
+  // Input handlers for auto-resize
+  container.addEventListener("input", (event) => {
+    const target = event.target;
+    if (target?.dataset?.field === "next_action") {
+      import('./render.js').then(m => m.autoResizeTextarea(target));
+    }
+  });
+
+  container.addEventListener("focus", (event) => {
+    const target = event.target;
+    if (target?.dataset?.field === "next_action") {
+      import('./render.js').then(m => m.autoResizeTextarea(target));
+    }
+  }, true);
+
+  // Keydown handlers
+  container.addEventListener("keydown", (event) => {
+    const target = event.target;
+
+    if (target?.dataset?.action === "completion-note") {
+      const card = target.closest(".loop-card");
+      const loopId = card?.dataset?.loopId;
+      const mode = target.dataset.mode || "complete";
+
+      if (event.key === "Enter" && loopId) {
+        event.preventDefault();
+        target.dataset.skipComplete = "true";
+        if (mode === "complete") {
+          loop.confirmComplete(loopId, target.value);
+        } else if (mode === "edit") {
+          loop.saveCompletionNote(loopId, target);
+          target.blur();
+        }
+      } else if (event.key === "Escape" && loopId) {
+        event.preventDefault();
+        target.dataset.skipComplete = "true";
+        if (mode === "complete") {
+          loop.hideCompletionNote(loopId);
+        } else if (mode === "edit") {
+          target.value = target.dataset.initial || "";
+          target.blur();
+        }
+      }
+      return;
+    }
+
+    if (!target?.dataset?.field) return;
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (target.dataset.field === "tags_add") {
+        loop.appendTagsFromInput(target);
+      } else {
+        target.blur();
+      }
+    } else if (event.key === "Escape" && target.dataset.field === "tags_add") {
+      const tagsWrap = target.closest(".tags-edit");
+      target.value = "";
+      if (tagsWrap) {
+        tagsWrap.classList.remove("editing");
+      }
+    }
+  }, true);
+}
+
+// ========================================
+// Initialize Application
+// ========================================
+
+function init() {
+  // Initialize modules
+  loop.init({
+    inbox: elements.inbox,
+    status: elements.status,
+    queryFilter: elements.queryFilter,
+    statusFilter: elements.statusFilter,
+    tagFilter: elements.tagFilter,
+    viewFilter: elements.viewFilter,
+  });
+  timer.init({ status: elements.status });
+  bulk.init({ status: elements.status, bulkActionBar: elements.bulkActionBar });
+  review.init({ reviewCohorts: elements.reviewCohorts });
+  next.init({ nextBuckets: elements.nextBuckets });
+  chat.init({ chatMessages: elements.chatMessages, chatInput: elements.chatInput });
+  rag.init({
+    ragAnswer: elements.ragAnswer,
+    ragAnswerText: elements.ragAnswer.querySelector(".rag-answer-text"),
+    ragSourcesList: elements.ragAnswer.querySelector(".rag-sources-list"),
+    ragInput: elements.ragInput,
+  });
+  modals.init({ helpModal: elements.helpModal });
+  keyboard.init(
+    { rawText: elements.rawText, queryFilter: elements.queryFilter, status: elements.status },
+    {
+      switchTab,
+      showCompletionNote: loop.showCompletionNote,
+      enrichLoop: loop.enrichLoop,
+      refreshLoop: loop.refreshLoop,
+      toggleTimer: timer.toggleTimer,
+      toggleSnoozeDropdown: loop.toggleSnoozeDropdown,
+    }
+  );
+
+  // Setup handlers
+  setupEventHandlers();
+  setupLoopCardHandlers(elements.inbox);
+  comments.setupCommentHandlers();
+  suggestions.setupSuggestionHandlers();
+  duplicates.setupMergeHandlers();
+
+  // Hook renderLoop to add suggestions
+  const originalRenderLoop = loop.renderLoop || (() => {});
+  loop.renderLoop = function(l) {
+    const card = originalRenderLoop(l);
+    renderSuggestionPanel(card, l);
+    return card;
+  };
+
+  // Initial load
+  loop.loadInbox();
+  populateTemplateDropdown();
+
+  // Initialize SSE
+  sse.connectSSE();
+  sse.setupVisibilityHandler();
+  window.addEventListener('beforeunload', () => sse.disconnectSSE());
+
+  // Check for duplicates after initial load
+  window.addEventListener('load', () => {
+    setTimeout(duplicates.checkAndShowDuplicateBadges, 2000);
+  });
+
+  // PWA
+  updateOnlineStatus();
+  registerServiceWorker();
+
+  console.log("Cloop initialized successfully");
+}
+
+// Start when DOM is ready
+document.addEventListener("DOMContentLoaded", init);

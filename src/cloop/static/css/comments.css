@@ -1,0 +1,245 @@
+/**
+ * comments.css - Comments section styles
+ *
+ * Purpose:
+ *   Provide styling for comments and threaded replies.
+ *
+ * Responsibilities:
+ *   - Comments section header
+ *   - Comment cards and threading
+ *   - Comment form and inputs
+ *   - Reply forms
+ *
+ * Non-scope:
+ *   - Core UI components (see components.css)
+ *   - Loop cards (see loop.css)
+ */
+
+.comments-section {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+}
+
+.comments-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-radius: 8px;
+  transition: background 150ms ease;
+}
+
+.comments-header:hover {
+  background: var(--bg-accent);
+}
+
+.comments-count {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.comments-toggle {
+  font-size: 12px;
+  color: var(--muted);
+  transition: transform 200ms ease;
+}
+
+.comments-header.expanded .comments-toggle {
+  transform: rotate(180deg);
+}
+
+.comments-body {
+  display: none;
+  padding: 12px 0 4px;
+}
+
+.comments-body.visible {
+  display: block;
+  animation: rise 200ms ease;
+}
+
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.comment {
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  border-left: 3px solid var(--brand);
+}
+
+.comment.reply {
+  margin-left: 24px;
+  border-left-color: var(--muted);
+}
+
+.comment.deleted {
+  opacity: 0.5;
+  border-left-color: var(--border);
+}
+
+.comment-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.comment-author {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.comment-time {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.comment-body {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.comment-body p {
+  margin: 0 0 8px;
+}
+
+.comment-body p:last-child {
+  margin-bottom: 0;
+}
+
+.comment-body code {
+  background: var(--bg-accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: "Space Grotesk", monospace;
+  font-size: 12px;
+}
+
+.comment-body pre {
+  background: var(--bg-accent);
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.comment-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.comment-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.comment-action-btn {
+  background: none;
+  border: none;
+  color: var(--brand);
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.comment-action-btn:hover {
+  text-decoration: underline;
+}
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 10px;
+}
+
+.comment-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.comment-author-input {
+  flex: 0 0 140px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #fffefb;
+}
+
+.comment-author-input:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.comment-textarea {
+  width: 100%;
+  min-height: 60px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fffefb;
+  resize: vertical;
+}
+
+.comment-textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.comment-submit-btn {
+  align-self: flex-start;
+  background: var(--brand);
+  border: none;
+  border-radius: 999px;
+  padding: 8px 16px;
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.comment-submit-btn:hover {
+  opacity: 0.9;
+}
+
+.reply-form {
+  display: none;
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.reply-form.visible {
+  display: block;
+  animation: rise 200ms ease;
+}
+
+.comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
