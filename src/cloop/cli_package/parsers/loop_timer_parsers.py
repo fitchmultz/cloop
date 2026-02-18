@@ -2,6 +2,16 @@
 
 Purpose:
     Argument parsers for loop timer commands.
+
+Responsibilities:
+    - Define argument parsers for timer start, stop, status, and sessions subcommands
+    - Configure CLI options for loop ID and session notes
+    - Provide epilog examples for each command
+
+Non-scope:
+    - Does NOT implement timer logic or time tracking
+    - Does NOT persist or retrieve session data
+    - Does NOT calculate elapsed time or aggregate statistics
 """
 
 from __future__ import annotations

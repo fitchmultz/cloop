@@ -3,6 +3,20 @@
 Purpose:
     HTTP endpoints for managing saved loop views (filtered queries).
 
+Responsibilities:
+    - Define FastAPI routes for saved view CRUD operations
+    - Validate incoming requests using Pydantic schemas
+    - Apply saved views to filter and return matching loops
+    - Convert service layer results to HTTP responses
+    - Handle pagination parameters for view application
+
+Non-scope:
+    - Does not implement view query parsing or execution logic
+    - Does not persist views directly (delegated to service layer)
+    - Does not manage loop state or lifecycle
+    - Does not implement authentication or authorization
+    - Does not handle idempotency (views are simple CRUD)
+
 Endpoints:
 - POST /views: Create a new saved view
 - GET /views: List all saved views

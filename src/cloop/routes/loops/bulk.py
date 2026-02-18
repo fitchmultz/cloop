@@ -3,6 +3,18 @@
 Purpose:
     HTTP endpoints for performing bulk operations on multiple loops.
 
+Responsibilities:
+    - Bulk update fields on multiple loops
+    - Bulk close loops with configurable status (completed/dropped)
+    - Bulk snooze loops with scheduled wake times
+    - Support transactional mode (all-or-nothing) for bulk operations
+    - Return per-item success/failure status
+
+Non-scope:
+    - Does not perform duplicate detection during bulk operations
+    - Does not validate claim tokens for individual loops
+    - Does not support partial field updates per item (all items use same field set)
+
 Endpoints:
 - POST /bulk/update: Bulk update multiple loops
 - POST /bulk/close: Bulk close multiple loops

@@ -3,6 +3,13 @@
 Purpose:
     MCP tools for reading loop data without mutations.
 
+Responsibilities:
+    - List and search loops with filtering and pagination
+    - Retrieve prioritized loops organized into action buckets
+    - Get event history and support undo operations
+    - Manage loop snoozing and AI enrichment triggers
+    - List all unique tags used across loops
+
 Tools:
     - loop.list: List loops with optional status filter
     - loop.search: Search loops using DSL query

@@ -5,6 +5,11 @@ Purpose:
 
 Responsibilities:
     - Handle capture, inbox, next, get, list, search, update, status, close, enrich, snooze commands
+
+Non-scope:
+    - Does not handle dependency operations (see loop_dep_commands.py)
+    - Does not handle timer operations (see loop_timer_commands.py)
+    - Does not handle view operations (see loop_view_commands.py)
 """
 
 from __future__ import annotations

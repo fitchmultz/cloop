@@ -3,6 +3,17 @@
 Purpose:
     Replace {{variable}} placeholders in template patterns with actual values.
 
+Responsibilities:
+    - Parse and substitute date/time variables in {{variable}} format
+    - Support multiple datetime formats and timezone offsets
+    - Apply templates to generate capture request defaults
+    - Extract update fields from applied template results
+
+Non-scope:
+    - Does not define or manage templates (templates stored in database)
+    - Does not handle user input parsing or CLI interactions
+    - Does not persist loop data (handled by database layer)
+
 Supported variables:
     - {{date}}: Current date (YYYY-MM-DD)
     - {{time}}: Current time (HH:MM)

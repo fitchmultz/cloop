@@ -7,6 +7,11 @@ Responsibilities:
     - Handle backup create, restore, list, verify, rotate commands
     - Call backup service layer
     - Format output as JSON
+
+Non-scope:
+    - Does not implement backup compression or encryption (handled by backup module)
+    - Does not manage backup storage locations (uses settings)
+    - Does not handle database connection management (abstracted in backup layer)
 """
 
 from __future__ import annotations

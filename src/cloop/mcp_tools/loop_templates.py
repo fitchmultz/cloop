@@ -3,6 +3,12 @@
 Purpose:
     MCP tools for managing loop templates.
 
+Responsibilities:
+    - Provide CRUD operations for loop templates
+    - Support template creation from existing loops
+    - List projects associated with loops
+    - Handle idempotency for template mutations
+
 Tools:
     - loop.template.list: List all templates
     - loop.template.get: Get a template by ID

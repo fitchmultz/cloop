@@ -3,6 +3,12 @@
 Purpose:
     MCP tools for managing dependencies between loops.
 
+Responsibilities:
+    - Add and remove dependency relationships between loops
+    - List a loop's dependencies (blockers)
+    - List loops that are blocked by a given loop
+    - Handle idempotency for dependency mutations
+
 Tools:
     - loop.dependency.add: Add a dependency relationship
     - loop.dependency.remove: Remove a dependency relationship

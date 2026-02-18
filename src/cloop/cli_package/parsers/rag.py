@@ -2,6 +2,16 @@
 
 Purpose:
     Argument parsers for ingest and ask commands.
+
+Responsibilities:
+    - Define argument parsers for ingest and ask subcommands
+    - Configure CLI options for paths, ingestion modes, recursion, and retrieval scope
+    - Provide epilog examples for each command
+
+Non-scope:
+    - Does NOT implement document ingestion or chunking logic
+    - Does NOT perform semantic search or embedding generation
+    - Does NOT manage the vector database or knowledge base storage
 """
 
 from __future__ import annotations

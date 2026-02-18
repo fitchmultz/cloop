@@ -3,6 +3,12 @@
 Purpose:
     MCP tools for managing saved views with DSL queries.
 
+Responsibilities:
+    - Create, update, and delete saved views with DSL queries
+    - List and retrieve saved views
+    - Apply saved views to filter and return matching loops
+    - Handle idempotency for view mutations
+
 Tools:
     - loop.view.create: Create a saved view
     - loop.view.list: List all saved views

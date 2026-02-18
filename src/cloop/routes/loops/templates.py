@@ -3,6 +3,16 @@
 Purpose:
     HTTP endpoints for managing loop templates.
 
+Responsibilities:
+    - Create, read, update, and delete loop templates
+    - Convert existing loops into templates
+    - Provide template listing and retrieval
+
+Non-scope:
+    - Loop CRUD operations (see core.py)
+    - Template auto-application or matching logic
+    - Template versioning or inheritance
+
 Endpoints:
 - GET /templates: List all templates
 - GET /templates/{template_id}: Get a single template

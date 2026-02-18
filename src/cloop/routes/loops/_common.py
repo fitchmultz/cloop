@@ -3,6 +3,16 @@
 Purpose:
     Shared dependencies, types, and helper functions used across
     all loop route modules.
+
+Responsibilities:
+    - Define common FastAPI dependencies (SettingsDep)
+    - Define idempotency key header parameter
+    - Provide helper for idempotency conflict HTTP exceptions
+
+Non-scope:
+    - Does not contain endpoint implementations
+    - Does not define Pydantic schemas or request/response models
+    - Does not interact with database directly
 """
 
 from typing import Annotated

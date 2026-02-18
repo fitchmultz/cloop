@@ -5,6 +5,11 @@ Purpose:
 
 Responsibilities:
     - Handle review, events, undo, metrics, tags, projects, export, import, suggestions
+
+Non-scope:
+    - Does not implement core loop CRUD (in separate command modules)
+    - Does not manage scheduler operations (separate scheduler module)
+    - Does not handle claim operations (in loop_claim_commands module)
 """
 
 from __future__ import annotations

@@ -3,6 +3,15 @@
 Purpose:
     MCP tools for creating, updating, and closing loops.
 
+Responsibilities:
+    - Create new loops with optional recurrence
+    - Update loop fields with claim token validation
+    - Close loops with terminal status (completed/dropped)
+    - Retrieve single loop by ID
+    - Transition loops between non-terminal statuses
+    - Validate timestamps, timezone offsets, and status transitions
+    - Handle idempotency for all mutations
+
 Tools:
     - loop.create: Capture a new loop
     - loop.update: Update loop fields

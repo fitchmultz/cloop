@@ -2,6 +2,22 @@
 
 Purpose:
     Argument parsers for loop lifecycle commands.
+
+Responsibilities:
+    - Define argument parsers for loop subcommands (get, list, search, update,
+      status, close, enrich, snooze)
+    - Define argument parsers for view subcommands (create, list, get, update,
+      delete, apply)
+    - Define argument parsers for dependency subcommands (add, remove, list,
+      blocking)
+    - Wire together claim, timer, and misc parsers via delegation
+
+Non-scope:
+    - Does not handle argument parsing for capture, inbox, next commands
+      (see loop_misc_parsers.py)
+    - Does not handle argument parsing for claim or timer commands
+      (delegates to loop_claim_parsers.py and loop_timer_parsers.py)
+    - Does not execute commands or interact with the database
 """
 
 from __future__ import annotations

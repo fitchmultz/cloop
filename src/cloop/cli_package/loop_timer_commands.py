@@ -5,6 +5,11 @@ Purpose:
 
 Responsibilities:
     - Handle timer start, stop, status, and sessions commands
+
+Non-scope:
+    - Does not handle loop content operations (see loop_core_commands.py)
+    - Does not handle dependency operations (see loop_dep_commands.py)
+    - Does not handle view operations (see loop_view_commands.py)
 """
 
 from __future__ import annotations

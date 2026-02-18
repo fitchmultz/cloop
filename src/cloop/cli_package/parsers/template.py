@@ -2,6 +2,16 @@
 
 Purpose:
     Argument parsers for template commands.
+
+Responsibilities:
+    - Define argument parsers for template subcommands (list, show, create, delete, from-loop)
+    - Configure help text, descriptions, and examples for template CLI operations
+    - Parse template-related command-line arguments
+
+Non-scope:
+    - Does not handle loop lifecycle commands (see loop.py)
+    - Does not execute template operations or interact with the database
+    - Does not manage template matching or instantiation logic
 """
 
 from __future__ import annotations

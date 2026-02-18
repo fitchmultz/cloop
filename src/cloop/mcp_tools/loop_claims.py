@@ -3,6 +3,14 @@
 Purpose:
     MCP tools for managing exclusive access claims on loops.
 
+Responsibilities:
+    - Claim loops for exclusive access with time-limited leases
+    - Renew and release existing claims
+    - Query claim status for loops
+    - List all active claims with optional filtering
+    - Support admin force-release of claims
+    - Handle idempotency for claim mutations
+
 Tools:
     - loop.claim: Claim a loop for exclusive access
     - loop.renew_claim: Renew an existing claim

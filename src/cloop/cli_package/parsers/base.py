@@ -7,6 +7,11 @@ Responsibilities:
     - Shared argument definitions
     - Parser helper functions
     - Common validation
+
+Non-scope:
+    - Does not define individual command parsers (in separate parser modules)
+    - Does not execute CLI commands (handled by command handlers)
+    - Does not manage application state or configuration
 """
 
 from __future__ import annotations
