@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 21
+SCHEMA_VERSION: int = 22
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -423,6 +423,14 @@ CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
 CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
 CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
 
+-- Scheduler state tracking for periodic tasks
+CREATE TABLE scheduler_runs (
+    task_name TEXT PRIMARY KEY,
+    last_run_at TEXT NOT NULL,
+    last_result_json TEXT,
+    runs_count INTEGER NOT NULL DEFAULT 0
+);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
@@ -433,6 +441,15 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    22: """
+    -- Scheduler state tracking for periodic tasks
+    CREATE TABLE scheduler_runs (
+        task_name TEXT PRIMARY KEY,
+        last_run_at TEXT NOT NULL,
+        last_result_json TEXT,
+        runs_count INTEGER NOT NULL DEFAULT 0
+    );
+    """,
     21: """
     -- Add resolution tracking to loop_suggestions
     ALTER TABLE loop_suggestions ADD COLUMN resolution TEXT;

@@ -18,6 +18,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Loop management | `src/cloop/loops/` |
 | RAG | `src/cloop/rag/` |
 | Database schema | `src/cloop/db.py` |
+| Scheduler | `src/cloop/scheduler.py` |
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
 | Design/Architecture | `docs/assistant_blueprint.md` |
@@ -37,4 +38,5 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
   db.init_databases(get_settings())
   ```
 - **Loops**: State machine transitions in `loops/service.py` (inbox → actionable/blocked/scheduled → completed/dropped)
+- **Scheduler**: Periodic tasks in `scheduler.py` (daily/weekly reviews, due-soon nudges, stale rescue)
 - **SSE**: Streaming utilities in `sse.py` for real-time responses

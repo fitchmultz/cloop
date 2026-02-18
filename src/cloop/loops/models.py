@@ -99,6 +99,10 @@ class LoopEventType(StrEnum):
     COMMENT_ADDED = "comment_added"
     COMMENT_UPDATED = "comment_updated"
     COMMENT_DELETED = "comment_deleted"
+    NUDGE_DUE_SOON = "nudge_due_soon"
+    NUDGE_STALE = "nudge_stale"
+    NUDGE_BLOCKED = "nudge_blocked"
+    REVIEW_GENERATED = "review_generated"
 
 
 class EnrichmentState(StrEnum):

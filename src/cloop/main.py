@@ -35,8 +35,18 @@ from .settings import Settings, get_settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    db.init_databases(get_settings())
-    yield
+    settings = get_settings()
+    db.init_databases(settings)
+
+    # Start scheduler if enabled
+    from .scheduler import start_scheduler, stop_scheduler
+
+    start_scheduler(settings)
+
+    try:
+        yield
+    finally:
+        stop_scheduler()
 
 
 app = FastAPI(title="Cloop LLM Service", version="0.1.0", lifespan=lifespan)
