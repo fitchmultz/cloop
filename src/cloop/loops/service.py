@@ -520,6 +520,9 @@ def update_loop(
         if tags is not None:
             normalized_tags = normalize_tags(tags)
             repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
+        # Reset due_soon nudge state when next_action is set (user has taken action)
+        if "next_action" in fields and fields["next_action"] is not None:
+            repo.reset_nudge_state(loop_id=loop_id, nudge_type="due_soon", conn=conn)
         event_payload: dict[str, Any] = {"fields": dict(fields)}
         if before_state:
             event_payload["before_state"] = before_state

@@ -309,3 +309,16 @@ class LoopComment:
     @property
     def is_reply(self) -> bool:
         return self.parent_id is not None
+
+
+@dataclass(frozen=True, slots=True)
+class LoopNudgeState:
+    """Persistent state for a loop's nudge tracking."""
+
+    loop_id: int
+    nudge_type: str  # 'due_soon', 'stale', 'blocked'
+    escalation_level: int
+    nudge_count: int
+    first_nudged_at_utc: datetime
+    last_nudged_at_utc: datetime
+    last_nudge_event_id: int | None

@@ -172,44 +172,109 @@ async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dic
 
 
 async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Find loops due soon without next_action and emit nudge event."""
+    """Find loops due soon without next_action and emit escalating nudge events."""
     from datetime import timedelta
 
-    from .loops.models import format_utc_datetime
+    from .loops.models import format_utc_datetime, parse_utc_datetime
+    from .loops.repo import get_nudge_states_batch, upsert_nudge_state
 
     now = utc_now()
     due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.review_due_soon_hours))
-    now_str = format_utc_datetime(now)
 
+    # Find due-soon and overdue loops without next_action
+    # Include overdue loops (due_at_utc <= now) for escalation
     rows = conn.execute(
         """SELECT id, title, due_at_utc FROM loops
            WHERE due_at_utc IS NOT NULL
-             AND due_at_utc > ?
              AND due_at_utc <= ?
              AND next_action IS NULL
              AND status IN ('inbox', 'actionable', 'scheduled')
            ORDER BY due_at_utc ASC
            LIMIT 50
         """,
-        (now_str, due_soon_cutoff),
+        (due_soon_cutoff,),
     ).fetchall()
 
     loop_ids = [row["id"] for row in rows]
 
     if not loop_ids:
-        return {"nudged": 0, "loop_ids": []}
+        return {"nudged": 0, "loop_ids": [], "escalation_summary": {}}
+
+    # Fetch existing nudge states
+    existing_states = get_nudge_states_batch(
+        loop_ids=loop_ids,
+        nudge_type="due_soon",
+        conn=conn,
+    )
+
+    # Build details with escalation info
+    details = []
+    escalation_summary: dict[int, int] = {}  # level -> count
+
+    for row in rows:
+        loop_id = row["id"]
+        state = existing_states.get(loop_id)
+        due_at = parse_utc_datetime(row["due_at_utc"]) if row["due_at_utc"] else now
+        hours_until_due = (due_at - now).total_seconds() / 3600
+        is_overdue = hours_until_due < 0
+
+        # Calculate escalation
+        if state is None:
+            nudge_count = 1
+            # First nudge: overdue loops start at level 2
+            if is_overdue:
+                escalation_level = 2
+            else:
+                escalation_level = 0
+        else:
+            nudge_count = state.nudge_count + 1
+            # Escalate based on count and overdue status
+            if is_overdue:
+                escalation_level = min(3, max(state.escalation_level, 2) + (nudge_count // 2))
+            elif nudge_count >= 4:
+                escalation_level = min(3, 2)
+            elif nudge_count >= 2:
+                escalation_level = min(3, 1)
+            else:
+                escalation_level = state.escalation_level
+
+        # Track escalation summary
+        escalation_summary[escalation_level] = escalation_summary.get(escalation_level, 0) + 1
+
+        details.append(
+            {
+                "id": loop_id,
+                "title": row["title"],
+                "due_at_utc": row["due_at_utc"],
+                "escalation_level": escalation_level,
+                "nudge_count": nudge_count,
+                "is_overdue": is_overdue,
+            }
+        )
 
     payload = {
         "nudge_type": "due_soon",
         "loop_ids": loop_ids,
-        "details": [
-            {"id": r["id"], "title": r["title"], "due_at_utc": r["due_at_utc"]} for r in rows
-        ],
+        "details": details,
+        "escalation_summary": escalation_summary,
         "generated_at_utc": format_utc_datetime(now),
     }
 
     event_id = _emit_scheduler_event(LoopEventType.NUDGE_DUE_SOON, payload, conn)
-    logger.info(f"Due-soon nudge: {len(loop_ids)} loops")
+
+    # Persist nudge states
+    for detail in details:
+        upsert_nudge_state(
+            loop_id=detail["id"],
+            nudge_type="due_soon",
+            escalation_level=detail["escalation_level"],
+            nudge_count=detail["nudge_count"],
+            last_nudge_event_id=event_id,
+            conn=conn,
+        )
+    conn.commit()
+
+    logger.info(f"Due-soon nudge: {len(loop_ids)} loops, escalation levels: {escalation_summary}")
 
     return {"event_id": event_id, "nudged": len(loop_ids), **payload}
 

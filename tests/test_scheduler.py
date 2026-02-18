@@ -285,3 +285,186 @@ class TestSchedulerIntegration:
 
         result = asyncio.run(run_and_cancel())
         assert result is True
+
+
+class TestDueSoonNudgeEscalation:
+    """Tests for due-soon nudge escalation over repeated runs."""
+
+    def test_first_nudge_has_escalation_level_zero(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_soon,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+        assert result["details"][0]["escalation_level"] == 0
+        assert result["details"][0]["nudge_count"] == 1
+
+        # Verify state persisted
+        row = scheduler_db.execute(
+            "SELECT * FROM loop_nudges WHERE loop_id = ? AND nudge_type = 'due_soon'",
+            (result["loop_ids"][0],),
+        ).fetchone()
+        assert row is not None
+        assert row["escalation_level"] == 0
+        assert row["nudge_count"] == 1
+
+    def test_repeated_nudges_escalate_level(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_soon,),
+        )
+        scheduler_db.commit()
+
+        # Run three times
+        for i in range(3):
+            result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+            assert result["nudged"] == 1
+            assert result["details"][0]["nudge_count"] == i + 1
+
+        # Third nudge should be escalation level 1
+        assert result["details"][0]["escalation_level"] == 1
+
+    def test_overdue_loops_escalate_faster(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        # Due 1 hour ago (overdue)
+        overdue = (now - timedelta(hours=1)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('overdue task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (overdue,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+        # Overdue loops should start at escalation level 2 or higher
+        assert result["details"][0]["escalation_level"] >= 2
+        assert result["details"][0]["is_overdue"] is True
+
+    def test_escalation_summary_in_payload(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        # Create two loops
+        for i in range(2):
+            scheduler_db.execute(
+                """INSERT INTO loops
+                   (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+                   VALUES (?, 'actionable', datetime('now'), 0, ?)
+                """,
+                (f"task {i}", due_soon),
+            )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert "escalation_summary" in result
+        assert result["escalation_summary"].get(0, 0) == 2  # Both at level 0
+
+    def test_nudge_state_resets_when_next_action_set(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_soon,),
+        )
+        scheduler_db.commit()
+
+        # First nudge
+        asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        # Set next_action
+        scheduler_db.execute("UPDATE loops SET next_action = 'do it now' WHERE id = 1")
+        scheduler_db.commit()
+
+        # Reset nudge state (simulating what service.py would do)
+        from cloop.loops.repo import reset_nudge_state
+
+        reset_nudge_state(loop_id=1, nudge_type="due_soon", conn=scheduler_db)
+        scheduler_db.commit()
+
+        # Verify state is gone
+        row = scheduler_db.execute(
+            "SELECT * FROM loop_nudges WHERE loop_id = 1 AND nudge_type = 'due_soon'",
+        ).fetchone()
+        assert row is None
+
+        # Second nudge should not find this loop (has next_action)
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+        assert result["nudged"] == 0
+
+    def test_escalation_caps_at_level_3(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that escalation level never exceeds 3."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        overdue = (now - timedelta(hours=1)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('overdue task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (overdue,),
+        )
+        scheduler_db.commit()
+
+        # Run many times to try to exceed max level
+        for _ in range(10):
+            result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        # Escalation level should be capped at 3
+        assert result["details"][0]["escalation_level"] == 3
+
+    def test_empty_result_returns_escalation_summary(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test that empty results still include escalation_summary."""
+        settings = get_settings()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 0
+        assert result["loop_ids"] == []
+        assert "escalation_summary" in result
+        assert result["escalation_summary"] == {}
