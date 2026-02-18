@@ -640,3 +640,240 @@ def test_next_loops_total_limit_not_per_bucket(
     assert "quick_wins" in data
     assert "high_leverage" in data
     assert "standard" in data
+
+
+# =============================================================================
+# Dependency/blocker state integration tests
+# =============================================================================
+
+
+def test_compute_priority_score_blocked_penalty(test_settings) -> None:
+    """Blocked loops should score lower than identical unblocked loops."""
+    from cloop.loops.prioritization import PriorityWeights, compute_priority_score
+
+    now = datetime.now(timezone.utc)
+    settings = test_settings()
+
+    # Create identical loops
+    loop = {
+        "urgency": 0.8,
+        "importance": 0.9,
+        "time_minutes": 30,
+        "activation_energy": 2,
+    }
+
+    weights = PriorityWeights(
+        due_weight=1.0,
+        urgency_weight=0.7,
+        importance_weight=0.9,
+        time_penalty=0.2,
+        activation_penalty=0.3,
+        blocked_penalty=10.0,
+    )
+
+    # Score unblocked loop
+    unblocked_score = compute_priority_score(
+        loop, now_utc=now, w=weights, settings=settings, has_open_dependencies=False
+    )
+
+    # Score blocked loop
+    blocked_score = compute_priority_score(
+        loop, now_utc=now, w=weights, settings=settings, has_open_dependencies=True
+    )
+
+    # Blocked loop should have lower score
+    assert blocked_score < unblocked_score
+    # Difference should be the blocked penalty
+    assert unblocked_score - blocked_score == pytest.approx(10.0)
+
+
+def test_compute_priority_score_blocked_penalty_configurable(test_settings) -> None:
+    """The blocked penalty should be configurable via weights."""
+    from cloop.loops.prioritization import PriorityWeights, compute_priority_score
+
+    now = datetime.now(timezone.utc)
+    settings = test_settings()
+
+    loop = {"urgency": 0.5, "importance": 0.5}
+
+    # Test with different penalty values
+    for penalty in [5.0, 10.0, 20.0]:
+        weights = PriorityWeights(
+            due_weight=1.0,
+            urgency_weight=0.7,
+            importance_weight=0.9,
+            time_penalty=0.2,
+            activation_penalty=0.3,
+            blocked_penalty=penalty,
+        )
+
+        unblocked_score = compute_priority_score(
+            loop, now_utc=now, w=weights, settings=settings, has_open_dependencies=False
+        )
+        blocked_score = compute_priority_score(
+            loop, now_utc=now, w=weights, settings=settings, has_open_dependencies=True
+        )
+
+        assert unblocked_score - blocked_score == pytest.approx(penalty)
+
+
+def test_bucketize_blocked_demotes_to_standard(test_settings) -> None:
+    """Blocked loops should be demoted to 'standard' bucket regardless of other factors."""
+    from cloop.loops.prioritization import bucketize
+
+    now = datetime.now(timezone.utc)
+    settings = test_settings()
+
+    # Loop that would normally be "due_soon"
+    due_soon_loop = {
+        "due_at_utc": (now + timedelta(hours=24)).isoformat(),
+        "importance": 0.9,
+    }
+
+    # Loop that would normally be "quick_wins"
+    quick_win_loop = {
+        "time_minutes": 10,
+        "activation_energy": 1,
+        "importance": 0.9,
+    }
+
+    # Loop that would normally be "high_leverage"
+    high_leverage_loop = {
+        "importance": 0.8,
+        "time_minutes": 60,
+        "activation_energy": 2,
+    }
+
+    # All should return "standard" when blocked
+    assert (
+        bucketize(due_soon_loop, now_utc=now, settings=settings, has_open_dependencies=True)
+        == "standard"
+    )
+    assert (
+        bucketize(quick_win_loop, now_utc=now, settings=settings, has_open_dependencies=True)
+        == "standard"
+    )
+    assert (
+        bucketize(high_leverage_loop, now_utc=now, settings=settings, has_open_dependencies=True)
+        == "standard"
+    )
+
+
+def test_bucketize_unblocked_uses_normal_logic(test_settings) -> None:
+    """Unblocked loops should use normal bucketize logic."""
+    from cloop.loops.prioritization import bucketize
+
+    now = datetime.now(timezone.utc)
+    settings = test_settings()
+
+    # Due soon loop
+    due_soon_loop = {
+        "due_at_utc": (now + timedelta(hours=24)).isoformat(),
+    }
+    assert (
+        bucketize(due_soon_loop, now_utc=now, settings=settings, has_open_dependencies=False)
+        == "due_soon"
+    )
+
+    # Quick win loop
+    quick_win_loop = {
+        "time_minutes": 10,
+        "activation_energy": 1,
+    }
+    assert (
+        bucketize(quick_win_loop, now_utc=now, settings=settings, has_open_dependencies=False)
+        == "quick_wins"
+    )
+
+    # High leverage loop
+    high_leverage_loop = {
+        "importance": 0.8,
+        "time_minutes": 60,
+        "activation_energy": 2,
+    }
+    assert (
+        bucketize(high_leverage_loop, now_utc=now, settings=settings, has_open_dependencies=False)
+        == "high_leverage"
+    )
+
+
+def test_next_loops_excludes_blocked_by_dependency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """next_loops should exclude loops with open dependencies."""
+    import sqlite3
+
+    from cloop import db
+    from cloop.loops import repo, service
+    from cloop.loops.models import LoopStatus
+    from cloop.settings import get_settings
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create two loops
+    blocker = repo.create_loop(
+        raw_text="Blocker loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.ACTIONABLE,
+        conn=conn,
+    )
+    repo.update_loop_fields(
+        loop_id=blocker.id,
+        fields={"next_action": "Blocker action", "urgency": 0.9},
+        conn=conn,
+    )
+
+    blocked = repo.create_loop(
+        raw_text="Blocked loop",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.ACTIONABLE,
+        conn=conn,
+    )
+    repo.update_loop_fields(
+        loop_id=blocked.id,
+        fields={"next_action": "Blocked action", "urgency": 0.9},
+        conn=conn,
+    )
+
+    # Create dependency relationship
+    repo.add_dependency(
+        loop_id=blocked.id,
+        depends_on_loop_id=blocker.id,
+        conn=conn,
+    )
+
+    # Call next_loops
+    result = service.next_loops(limit=10, conn=conn, settings=settings)
+
+    # Blocked loop should not appear
+    all_titles = []
+    for bucket in result.values():
+        for item in bucket:
+            all_titles.append(item.get("title") or item.get("raw_text", ""))
+
+    assert any("Blocker" in t for t in all_titles), "Blocker should appear"
+    assert not any("Blocked" in t for t in all_titles), "Blocked should not appear"
+
+    conn.close()
+
+
+def test_priority_weights_include_blocked_penalty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Settings should include the blocked_penalty weight."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_BLOCKED_PENALTY", "15.0")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+    assert hasattr(settings, "priority_weight_blocked_penalty")
+    assert settings.priority_weight_blocked_penalty == 15.0

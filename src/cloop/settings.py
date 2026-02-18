@@ -87,6 +87,7 @@ class Settings:
     priority_weight_importance: float
     priority_weight_time_penalty: float
     priority_weight_activation_penalty: float
+    priority_weight_blocked_penalty: float
     # Related loop settings
     related_similarity_threshold: float
     duplicate_similarity_threshold: float
@@ -219,6 +220,9 @@ def get_settings() -> Settings:
         priority_weight_activation_penalty=float(
             os.getenv("CLOOP_PRIORITY_WEIGHT_ACTIVATION_PENALTY", "0.3")
         ),
+        priority_weight_blocked_penalty=float(
+            os.getenv("CLOOP_PRIORITY_WEIGHT_BLOCKED_PENALTY", "10.0")
+        ),
         related_similarity_threshold=float(os.getenv("CLOOP_RELATED_SIMILARITY_THRESHOLD", "0.78")),
         duplicate_similarity_threshold=float(
             os.getenv("CLOOP_DUPLICATE_SIMILARITY_THRESHOLD", "0.95")
@@ -316,6 +320,7 @@ def _validate_settings(settings: Settings) -> Settings:
         "priority_weight_importance",
         "priority_weight_time_penalty",
         "priority_weight_activation_penalty",
+        "priority_weight_blocked_penalty",
     ]:
         weight = getattr(settings, weight_name)
         if weight < 0:

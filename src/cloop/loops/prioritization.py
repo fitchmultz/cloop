@@ -29,6 +29,7 @@ class PriorityWeights:
     importance_weight: float
     time_penalty: float
     activation_penalty: float
+    blocked_penalty: float  # Penalty for loops with open dependencies
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -43,6 +44,7 @@ def compute_priority_score(
     now_utc: datetime,
     w: PriorityWeights,
     settings: Settings,
+    has_open_dependencies: bool = False,
 ) -> float:
     score = 0.0
     due_at = _parse_time(loop.get("due_at_utc"))
@@ -65,10 +67,27 @@ def compute_priority_score(
     activation_energy = float(loop.get("activation_energy") or 0.0)
     score -= w.time_penalty * (time_minutes / 60.0)
     score -= w.activation_penalty * activation_energy
+
+    # Apply penalty for blocked dependencies
+    if has_open_dependencies:
+        score -= w.blocked_penalty
+
     return score
 
 
-def bucketize(loop: dict[str, Any], *, now_utc: datetime, settings: Settings) -> str:
+def bucketize(
+    loop: dict[str, Any],
+    *,
+    now_utc: datetime,
+    settings: Settings,
+    has_open_dependencies: bool = False,
+) -> str:
+    # Blocked loops with open dependencies are demoted to "standard"
+    # This maintains backward compatibility while ensuring blocked items
+    # don't appear in premium buckets (due_soon, quick_wins, high_leverage)
+    if has_open_dependencies:
+        return "standard"
+
     due_at = _parse_time(loop.get("due_at_utc"))
     if due_at is not None and due_at <= now_utc + timedelta(
         hours=settings.prioritization_due_soon_hours

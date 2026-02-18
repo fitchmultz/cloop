@@ -961,6 +961,7 @@ def next_loops(
         importance_weight=settings.priority_weight_importance,
         time_penalty=settings.priority_weight_time_penalty,
         activation_penalty=settings.priority_weight_activation_penalty,
+        blocked_penalty=settings.priority_weight_blocked_penalty,
     )
 
     scored = [
