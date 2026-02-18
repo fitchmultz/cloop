@@ -117,6 +117,12 @@ class Settings:
     review_due_soon_hours: float
     # Operation metrics settings
     operation_metrics_enabled: bool
+    # Scheduler settings
+    scheduler_enabled: bool
+    scheduler_daily_review_interval_hours: float
+    scheduler_weekly_review_interval_hours: float
+    scheduler_due_soon_nudge_interval_hours: float
+    scheduler_stale_rescue_interval_hours: float
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -252,6 +258,20 @@ def get_settings() -> Settings:
         operation_metrics_enabled=_resolve_bool(
             os.getenv("CLOOP_OPERATION_METRICS_ENABLED", "false")
         ),
+        # Scheduler settings
+        scheduler_enabled=_resolve_bool(os.getenv("CLOOP_SCHEDULER_ENABLED", "true")),
+        scheduler_daily_review_interval_hours=float(
+            os.getenv("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS", "24.0")
+        ),
+        scheduler_weekly_review_interval_hours=float(
+            os.getenv("CLOOP_SCHEDULER_WEEKLY_REVIEW_INTERVAL_HOURS", "168.0")  # 7 days
+        ),
+        scheduler_due_soon_nudge_interval_hours=float(
+            os.getenv("CLOOP_SCHEDULER_DUE_SOON_NUDGE_INTERVAL_HOURS", "1.0")
+        ),
+        scheduler_stale_rescue_interval_hours=float(
+            os.getenv("CLOOP_SCHEDULER_STALE_RESCUE_INTERVAL_HOURS", "6.0")
+        ),
     )
     return _validate_settings(settings)
 
@@ -360,4 +380,13 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_REVIEW_BLOCKED_HOURS must be at least 1")
     if settings.review_due_soon_hours < 1:
         raise ValueError("CLOOP_REVIEW_DUE_SOON_HOURS must be at least 1")
+    # Validate scheduler settings
+    if settings.scheduler_daily_review_interval_hours < 1:
+        raise ValueError("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS must be at least 1")
+    if settings.scheduler_weekly_review_interval_hours < 24:
+        raise ValueError("CLOOP_SCHEDULER_WEEKLY_REVIEW_INTERVAL_HOURS must be at least 24")
+    if settings.scheduler_due_soon_nudge_interval_hours < 0.5:
+        raise ValueError("CLOOP_SCHEDULER_DUE_SOON_NUDGE_INTERVAL_HOURS must be at least 0.5")
+    if settings.scheduler_stale_rescue_interval_hours < 1:
+        raise ValueError("CLOOP_SCHEDULER_STALE_RESCUE_INTERVAL_HOURS must be at least 1")
     return settings

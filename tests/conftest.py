@@ -99,6 +99,11 @@ def test_settings() -> Callable[..., Settings]:
             "review_blocked_hours": 48.0,
             "review_due_soon_hours": 48.0,
             "operation_metrics_enabled": False,
+            "scheduler_enabled": True,
+            "scheduler_daily_review_interval_hours": 24.0,
+            "scheduler_weekly_review_interval_hours": 168.0,
+            "scheduler_due_soon_nudge_interval_hours": 1.0,
+            "scheduler_stale_rescue_interval_hours": 6.0,
         }
         defaults.update(overrides)
         return Settings(**defaults)  # type: ignore[arg-type]
