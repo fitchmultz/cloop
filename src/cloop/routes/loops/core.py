@@ -43,6 +43,8 @@ from ...loops.metrics import compute_loop_metrics, get_operation_metrics
 from ...loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
 from ...loops.utils import normalize_tag
 from ...schemas.loops import (
+    ApplySuggestionRequest,
+    ApplySuggestionResponse,
     LoopCaptureRequest,
     LoopClaimStatusResponse,
     LoopCloseRequest,
@@ -62,6 +64,9 @@ from ...schemas.loops import (
     LoopStatusCountsResponse,
     LoopStatusRequest,
     LoopUpdateRequest,
+    RejectSuggestionResponse,
+    SuggestionListResponse,
+    SuggestionResponse,
 )
 from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
 
@@ -937,3 +942,92 @@ def loop_enrich_endpoint(
         settings=settings,
     )
     return LoopResponse(**response)
+
+
+# =============================================================================
+# Suggestion endpoints
+# =============================================================================
+
+
+@router.get("/{loop_id}/suggestions", response_model=SuggestionListResponse)
+def get_loop_suggestions(
+    loop_id: int,
+    settings: SettingsDep,
+    pending_only: bool = False,
+) -> SuggestionListResponse:
+    """List suggestions for a specific loop."""
+    with db.core_connection(settings) as conn:
+        suggestions = loop_service.list_loop_suggestions(
+            loop_id=loop_id,
+            pending_only=pending_only,
+            limit=50,
+            conn=conn,
+        )
+    return SuggestionListResponse(
+        suggestions=[SuggestionResponse(**s) for s in suggestions],
+        count=len(suggestions),
+    )
+
+
+@router.post("/suggestions/{suggestion_id}/apply", response_model=ApplySuggestionResponse)
+def apply_suggestion_endpoint(
+    suggestion_id: int,
+    request: ApplySuggestionRequest,
+    settings: SettingsDep,
+) -> ApplySuggestionResponse:
+    """Apply a suggestion to its loop."""
+    from ...loops.errors import SuggestionNotFoundError
+    from ...loops.errors import ValidationError as CloopValidationError
+
+    with db.core_connection(settings) as conn:
+        try:
+            result = loop_service.apply_suggestion(
+                suggestion_id=suggestion_id,
+                fields=request.fields,
+                conn=conn,
+                settings=settings,
+            )
+        except SuggestionNotFoundError:
+            raise HTTPException(status_code=404, detail="Suggestion not found") from None
+        except CloopValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    return ApplySuggestionResponse(**result)
+
+
+@router.post("/suggestions/{suggestion_id}/reject", response_model=RejectSuggestionResponse)
+def reject_suggestion_endpoint(
+    suggestion_id: int,
+    settings: SettingsDep,
+) -> RejectSuggestionResponse:
+    """Reject a suggestion without applying it."""
+    from ...loops.errors import SuggestionNotFoundError
+    from ...loops.errors import ValidationError as CloopValidationError
+
+    with db.core_connection(settings) as conn:
+        try:
+            result = loop_service.reject_suggestion(suggestion_id=suggestion_id, conn=conn)
+        except SuggestionNotFoundError:
+            raise HTTPException(status_code=404, detail="Suggestion not found") from None
+        except CloopValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    return RejectSuggestionResponse(**result)
+
+
+@router.get("/suggestions/pending", response_model=SuggestionListResponse)
+def list_pending_suggestions_endpoint(
+    settings: SettingsDep,
+    limit: int = 50,
+) -> SuggestionListResponse:
+    """List all suggestions awaiting resolution across all loops."""
+    with db.core_connection(settings) as conn:
+        suggestions = loop_service.list_loop_suggestions(
+            pending_only=True,
+            limit=limit,
+            conn=conn,
+        )
+    return SuggestionListResponse(
+        suggestions=[SuggestionResponse(**s) for s in suggestions],
+        count=len(suggestions),
+    )

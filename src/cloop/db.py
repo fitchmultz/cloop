@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 20
+SCHEMA_VERSION: int = 21
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -272,10 +272,14 @@ CREATE TABLE loop_suggestions (
     suggestion_json TEXT NOT NULL,
     model TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolution TEXT,
+    resolved_at TEXT,
+    resolved_fields_json TEXT,
     FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_loop_suggestions_loop_id ON loop_suggestions(loop_id);
+CREATE INDEX idx_loop_suggestions_resolution ON loop_suggestions(resolution);
 
 CREATE TABLE loop_embeddings (
     loop_id INTEGER PRIMARY KEY,
@@ -429,6 +433,13 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    21: """
+    -- Add resolution tracking to loop_suggestions
+    ALTER TABLE loop_suggestions ADD COLUMN resolution TEXT;
+    ALTER TABLE loop_suggestions ADD COLUMN resolved_at TEXT;
+    ALTER TABLE loop_suggestions ADD COLUMN resolved_fields_json TEXT;
+    CREATE INDEX idx_loop_suggestions_resolution ON loop_suggestions(resolution);
+    """,
     20: """
     -- Index for ORDER BY updated_at DESC queries (list, search, cursor pagination)
     CREATE INDEX idx_loops_updated_at ON loops(updated_at DESC);

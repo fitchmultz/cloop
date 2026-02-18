@@ -600,6 +600,109 @@ def insert_loop_suggestion(
     return int(cursor.lastrowid)
 
 
+def read_loop_suggestion(
+    *,
+    suggestion_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Get a single suggestion by ID."""
+    row = conn.execute(
+        """
+        SELECT id, loop_id, suggestion_json, model, created_at,
+               resolution, resolved_at, resolved_fields_json
+        FROM loop_suggestions WHERE id = ?
+        """,
+        (suggestion_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_loop_suggestions(
+    *,
+    loop_id: int | None = None,
+    resolution: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List suggestions, optionally filtered by loop_id and resolution status."""
+    conditions = []
+    params: list[Any] = []
+
+    if loop_id is not None:
+        conditions.append("loop_id = ?")
+        params.append(loop_id)
+    if resolution is not None:
+        conditions.append("resolution = ?")
+        params.append(resolution)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.extend([limit, offset])
+
+    rows = conn.execute(
+        f"""
+        SELECT id, loop_id, suggestion_json, model, created_at,
+               resolution, resolved_at, resolved_fields_json
+        FROM loop_suggestions
+        {where_clause}
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_pending_suggestions(
+    *,
+    conn: sqlite3.Connection,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Get all suggestions awaiting resolution (NULL resolution)."""
+    rows = conn.execute(
+        """
+        SELECT id, loop_id, suggestion_json, model, created_at,
+               resolution, resolved_at, resolved_fields_json
+        FROM loop_suggestions
+        WHERE resolution IS NULL
+        ORDER BY created_at DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def resolve_loop_suggestion(
+    *,
+    suggestion_id: int,
+    resolution: str,
+    applied_fields: list[str] | None = None,
+    conn: sqlite3.Connection,
+) -> bool:
+    """Mark a suggestion as resolved (applied/rejected/partial)."""
+    from .models import format_utc_datetime, utc_now
+
+    if resolution not in ("applied", "rejected", "partial"):
+        raise ValueError(f"Invalid resolution: {resolution}")
+
+    cursor = conn.execute(
+        """
+        UPDATE loop_suggestions
+        SET resolution = ?, resolved_at = ?, resolved_fields_json = ?
+        WHERE id = ?
+        """,
+        (
+            resolution,
+            format_utc_datetime(utc_now()),
+            json.dumps(applied_fields) if applied_fields else None,
+            suggestion_id,
+        ),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
 def upsert_project(*, name: str, conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT id FROM projects WHERE name = ?", (name,)).fetchone()
     if row:
