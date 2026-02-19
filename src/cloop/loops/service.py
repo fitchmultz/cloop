@@ -33,6 +33,9 @@ from .bulk import (
     bulk_snooze_loops,
     bulk_update_loops,
     create_template_from_loop,
+    query_bulk_close_loops,
+    query_bulk_snooze_loops,
+    query_bulk_update_loops,
 )
 from .claims import (
     claim_loop,
@@ -185,6 +188,9 @@ __all__ = [
     "bulk_close_loops",
     "bulk_snooze_loops",
     "create_template_from_loop",
+    "query_bulk_update_loops",
+    "query_bulk_close_loops",
+    "query_bulk_snooze_loops",
     "_classify_error",
     "_rollback_transaction_results",
     # Constants

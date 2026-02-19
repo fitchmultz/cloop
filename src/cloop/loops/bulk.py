@@ -50,6 +50,7 @@ from .errors import (
 )
 from .metrics import record_transition, record_update
 from .models import LoopEventType, LoopStatus, format_utc_datetime, is_terminal_status, utc_now
+from .query import compile_loop_query, parse_loop_query
 from .service_helpers import (
     _ALLOWED_TRANSITIONS,
     _LOCKABLE_FIELDS,
@@ -785,3 +786,220 @@ def _rollback_transaction_results(results: list[dict[str, Any]]) -> list[dict[st
             }
         )
     return rolled_back
+
+
+def _resolve_loop_ids_by_query(
+    *,
+    query: str,
+    limit: int,
+    conn: sqlite3.Connection,
+) -> list[int]:
+    """Resolve a DSL query to a list of loop IDs.
+
+    Args:
+        query: DSL query string
+        limit: Maximum number of IDs to return
+        conn: Database connection
+
+    Returns:
+        List of loop IDs matching the query
+
+    Raises:
+        ValidationError: If query syntax is invalid
+    """
+    parsed = parse_loop_query(query)
+    now = utc_now()
+    where_sql, params = compile_loop_query(parsed, now_utc=now)
+
+    sql = (
+        f"SELECT loops.id FROM loops LEFT JOIN projects ON loops.project_id = projects.id "
+        f"{where_sql} LIMIT ?"
+    )
+    params_with_limit = params + [limit]
+
+    cursor = conn.execute(sql, params_with_limit)
+    return [row[0] for row in cursor.fetchall()]
+
+
+@typingx.validate_io()
+def query_bulk_update_loops(
+    *,
+    query: str,
+    fields: Mapping[str, Any],
+    transactional: bool,
+    dry_run: bool,
+    limit: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Bulk update loops selected by DSL query.
+
+    Args:
+        query: DSL query to select targets
+        fields: Fields to update
+        transactional: If True, rollback all on any failure
+        dry_run: If True, return preview without applying changes
+        limit: Max loops to affect
+        conn: Database connection
+
+    Returns:
+        Dict with query, dry_run, ok, matched_count, results, succeeded, failed
+    """
+    loop_ids = _resolve_loop_ids_by_query(query=query, limit=limit, conn=conn)
+
+    if dry_run:
+        targets = []
+        for lid in loop_ids:
+            record = repo.read_loop(loop_id=lid, conn=conn)
+            if record:
+                project = repo.read_project_name(project_id=record.project_id, conn=conn)
+                tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+                targets.append(_record_to_dict(record, project=project, tags=tags))
+        return {
+            "query": query,
+            "dry_run": True,
+            "ok": True,
+            "transactional": transactional,
+            "matched_count": len(loop_ids),
+            "results": [],
+            "succeeded": 0,
+            "failed": 0,
+            "targets": targets,
+            "limited": len(loop_ids) >= limit,
+        }
+
+    updates = [{"loop_id": lid, "fields": dict(fields)} for lid in loop_ids]
+    if not updates:
+        return {
+            "query": query,
+            "dry_run": False,
+            "ok": True,
+            "transactional": transactional,
+            "matched_count": 0,
+            "limited": False,
+            "results": [],
+            "succeeded": 0,
+            "failed": 0,
+        }
+
+    result = bulk_update_loops(updates=updates, transactional=transactional, conn=conn)
+    result["query"] = query
+    result["dry_run"] = False
+    result["matched_count"] = len(loop_ids)
+    result["limited"] = len(loop_ids) >= limit
+    return result
+
+
+@typingx.validate_io()
+def query_bulk_close_loops(
+    *,
+    query: str,
+    status: str,
+    note: str | None,
+    transactional: bool,
+    dry_run: bool,
+    limit: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Bulk close loops selected by DSL query."""
+    loop_ids = _resolve_loop_ids_by_query(query=query, limit=limit, conn=conn)
+
+    if dry_run:
+        targets = []
+        for lid in loop_ids:
+            record = repo.read_loop(loop_id=lid, conn=conn)
+            if record:
+                project = repo.read_project_name(project_id=record.project_id, conn=conn)
+                tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+                targets.append(_record_to_dict(record, project=project, tags=tags))
+        return {
+            "query": query,
+            "dry_run": True,
+            "ok": True,
+            "transactional": transactional,
+            "matched_count": len(loop_ids),
+            "results": [],
+            "succeeded": 0,
+            "failed": 0,
+            "targets": targets,
+            "limited": len(loop_ids) >= limit,
+        }
+
+    items = [{"loop_id": lid, "status": status} for lid in loop_ids]
+    if note:
+        for item in items:
+            item["note"] = note
+    if not items:
+        return {
+            "query": query,
+            "dry_run": False,
+            "ok": True,
+            "transactional": transactional,
+            "matched_count": 0,
+            "limited": False,
+            "results": [],
+            "succeeded": 0,
+            "failed": 0,
+        }
+
+    result = bulk_close_loops(items=items, transactional=transactional, conn=conn)
+    result["query"] = query
+    result["dry_run"] = False
+    result["matched_count"] = len(loop_ids)
+    result["limited"] = len(loop_ids) >= limit
+    return result
+
+
+@typingx.validate_io()
+def query_bulk_snooze_loops(
+    *,
+    query: str,
+    snooze_until_utc: str,
+    transactional: bool,
+    dry_run: bool,
+    limit: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Bulk snooze loops selected by DSL query."""
+    loop_ids = _resolve_loop_ids_by_query(query=query, limit=limit, conn=conn)
+
+    if dry_run:
+        targets = []
+        for lid in loop_ids:
+            record = repo.read_loop(loop_id=lid, conn=conn)
+            if record:
+                project = repo.read_project_name(project_id=record.project_id, conn=conn)
+                tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
+                targets.append(_record_to_dict(record, project=project, tags=tags))
+        return {
+            "query": query,
+            "dry_run": True,
+            "ok": True,
+            "transactional": transactional,
+            "matched_count": len(loop_ids),
+            "results": [],
+            "succeeded": 0,
+            "failed": 0,
+            "targets": targets,
+            "limited": len(loop_ids) >= limit,
+        }
+
+    items = [{"loop_id": lid, "snooze_until_utc": snooze_until_utc} for lid in loop_ids]
+    if not items:
+        return {
+            "query": query,
+            "dry_run": False,
+            "ok": True,
+            "transactional": transactional,
+            "matched_count": 0,
+            "limited": False,
+            "results": [],
+            "succeeded": 0,
+            "failed": 0,
+        }
+
+    result = bulk_snooze_loops(items=items, transactional=transactional, conn=conn)
+    result["query"] = query
+    result["dry_run"] = False
+    result["matched_count"] = len(loop_ids)
+    result["limited"] = len(loop_ids) >= limit
+    return result

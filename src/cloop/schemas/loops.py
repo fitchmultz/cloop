@@ -724,6 +724,122 @@ class BulkSnoozeResponse(BaseModel):
 
 
 # ============================================================================
+# Query-Based Bulk Operation Schemas
+# ============================================================================
+
+
+class QueryBulkUpdateRequest(BaseModel):
+    """Bulk update targeting loops by DSL query."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=SEARCH_QUERY_MAX,
+        description="DSL query to select target loops",
+    )
+    fields: LoopUpdateRequest = Field(..., description="Fields to update on matched loops")
+    transactional: bool = Field(default=False, description="Rollback all on any failure")
+    dry_run: bool = Field(default=False, description="Preview targets without applying changes")
+    limit: int = Field(
+        default=100, ge=1, le=BULK_OPERATION_MAX_ITEMS, description="Max loops to affect"
+    )
+
+
+class QueryBulkCloseRequest(BaseModel):
+    """Bulk close targeting loops by DSL query."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=SEARCH_QUERY_MAX,
+        description="DSL query to select target loops",
+    )
+    status: Literal[LoopStatus.COMPLETED, LoopStatus.DROPPED] = LoopStatus.COMPLETED
+    note: str | None = Field(default=None, max_length=COMPLETION_NOTE_MAX)
+    transactional: bool = Field(default=False, description="Rollback all on any failure")
+    dry_run: bool = Field(default=False, description="Preview targets without applying changes")
+    limit: int = Field(
+        default=100, ge=1, le=BULK_OPERATION_MAX_ITEMS, description="Max loops to affect"
+    )
+
+
+class QueryBulkSnoozeRequest(BaseModel):
+    """Bulk snooze targeting loops by DSL query."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=SEARCH_QUERY_MAX,
+        description="DSL query to select target loops",
+    )
+    snooze_until_utc: str = Field(..., description="Snooze until timestamp")
+    transactional: bool = Field(default=False, description="Rollback all on any failure")
+    dry_run: bool = Field(default=False, description="Preview targets without applying changes")
+    limit: int = Field(
+        default=100, ge=1, le=BULK_OPERATION_MAX_ITEMS, description="Max loops to affect"
+    )
+
+    @field_validator("snooze_until_utc", mode="before")
+    @classmethod
+    def validate_snooze_until_utc(cls, v: str) -> str:
+        from ..loops.models import validate_iso8601_timestamp
+
+        return validate_iso8601_timestamp(v, "snooze_until_utc")
+
+
+class QueryBulkPreviewResponse(BaseModel):
+    """Response for dry-run preview of query-based bulk operation."""
+
+    query: str
+    dry_run: bool
+    matched_count: int
+    limited: bool
+    targets: List[LoopResponse]
+
+
+class QueryBulkUpdateResponse(BaseModel):
+    """Response for query-based bulk update."""
+
+    query: str
+    dry_run: bool
+    ok: bool
+    transactional: bool
+    matched_count: int
+    limited: bool
+    results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+class QueryBulkCloseResponse(BaseModel):
+    """Response for query-based bulk close."""
+
+    query: str
+    dry_run: bool
+    ok: bool
+    transactional: bool
+    matched_count: int
+    limited: bool
+    results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+class QueryBulkSnoozeResponse(BaseModel):
+    """Response for query-based bulk snooze."""
+
+    query: str
+    dry_run: bool
+    ok: bool
+    transactional: bool
+    matched_count: int
+    limited: bool
+    results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+# ============================================================================
 # Loop Template Schemas
 # ============================================================================
 

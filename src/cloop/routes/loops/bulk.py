@@ -34,6 +34,13 @@ from ...schemas.loops import (
     BulkUpdateRequest,
     BulkUpdateResponse,
     LoopResponse,
+    QueryBulkCloseRequest,
+    QueryBulkCloseResponse,
+    QueryBulkPreviewResponse,
+    QueryBulkSnoozeRequest,
+    QueryBulkSnoozeResponse,
+    QueryBulkUpdateRequest,
+    QueryBulkUpdateResponse,
 )
 from ._common import SettingsDep
 
@@ -165,6 +172,154 @@ def bulk_snooze_endpoint(
     return BulkSnoozeResponse(
         ok=result["ok"],
         transactional=result["transactional"],
+        results=results,
+        succeeded=result["succeeded"],
+        failed=result["failed"],
+    )
+
+
+@router.post("/bulk/query/update", response_model=None)
+def query_bulk_update_endpoint(
+    request: QueryBulkUpdateRequest,
+    settings: SettingsDep,
+) -> QueryBulkUpdateResponse | QueryBulkPreviewResponse:
+    """Bulk update loops matching DSL query."""
+    with db.core_connection(settings) as conn:
+        result = loop_service.query_bulk_update_loops(
+            query=request.query,
+            fields=request.fields.model_dump(exclude_unset=True),
+            transactional=request.transactional,
+            dry_run=request.dry_run,
+            limit=request.limit,
+            conn=conn,
+        )
+
+    if result.get("dry_run"):
+        return QueryBulkPreviewResponse(
+            query=result["query"],
+            dry_run=True,
+            matched_count=result["matched_count"],
+            limited=result.get("limited", False),
+            targets=[LoopResponse(**t) for t in result.get("targets", [])],
+        )
+
+    results = [
+        BulkResultItem(
+            index=r["index"],
+            loop_id=r["loop_id"],
+            ok=r["ok"],
+            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
+            error=r.get("error"),
+        )
+        for r in result.get("results", [])
+    ]
+
+    return QueryBulkUpdateResponse(
+        query=result["query"],
+        dry_run=result["dry_run"],
+        ok=result["ok"],
+        transactional=result["transactional"],
+        matched_count=result["matched_count"],
+        limited=result.get("limited", False),
+        results=results,
+        succeeded=result["succeeded"],
+        failed=result["failed"],
+    )
+
+
+@router.post("/bulk/query/close", response_model=None)
+def query_bulk_close_endpoint(
+    request: QueryBulkCloseRequest,
+    settings: SettingsDep,
+) -> QueryBulkCloseResponse | QueryBulkPreviewResponse:
+    """Bulk close loops matching DSL query."""
+    with db.core_connection(settings) as conn:
+        result = loop_service.query_bulk_close_loops(
+            query=request.query,
+            status=request.status.value,
+            note=request.note,
+            transactional=request.transactional,
+            dry_run=request.dry_run,
+            limit=request.limit,
+            conn=conn,
+        )
+
+    if result.get("dry_run"):
+        return QueryBulkPreviewResponse(
+            query=result["query"],
+            dry_run=True,
+            matched_count=result["matched_count"],
+            limited=result.get("limited", False),
+            targets=[LoopResponse(**t) for t in result.get("targets", [])],
+        )
+
+    results = [
+        BulkResultItem(
+            index=r["index"],
+            loop_id=r["loop_id"],
+            ok=r["ok"],
+            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
+            error=r.get("error"),
+        )
+        for r in result.get("results", [])
+    ]
+
+    return QueryBulkCloseResponse(
+        query=result["query"],
+        dry_run=result["dry_run"],
+        ok=result["ok"],
+        transactional=result["transactional"],
+        matched_count=result["matched_count"],
+        limited=result.get("limited", False),
+        results=results,
+        succeeded=result["succeeded"],
+        failed=result["failed"],
+    )
+
+
+@router.post("/bulk/query/snooze", response_model=None)
+def query_bulk_snooze_endpoint(
+    request: QueryBulkSnoozeRequest,
+    settings: SettingsDep,
+) -> QueryBulkSnoozeResponse | QueryBulkPreviewResponse:
+    """Bulk snooze loops matching DSL query."""
+    with db.core_connection(settings) as conn:
+        result = loop_service.query_bulk_snooze_loops(
+            query=request.query,
+            snooze_until_utc=request.snooze_until_utc,
+            transactional=request.transactional,
+            dry_run=request.dry_run,
+            limit=request.limit,
+            conn=conn,
+        )
+
+    if result.get("dry_run"):
+        return QueryBulkPreviewResponse(
+            query=result["query"],
+            dry_run=True,
+            matched_count=result["matched_count"],
+            limited=result.get("limited", False),
+            targets=[LoopResponse(**t) for t in result.get("targets", [])],
+        )
+
+    results = [
+        BulkResultItem(
+            index=r["index"],
+            loop_id=r["loop_id"],
+            ok=r["ok"],
+            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
+            error=r.get("error"),
+        )
+        for r in result.get("results", [])
+    ]
+
+    return QueryBulkSnoozeResponse(
+        query=result["query"],
+        dry_run=result["dry_run"],
+        ok=result["ok"],
+        transactional=result["transactional"],
+        matched_count=result["matched_count"],
+        limited=result.get("limited", False),
         results=results,
         succeeded=result["succeeded"],
         failed=result["failed"],
