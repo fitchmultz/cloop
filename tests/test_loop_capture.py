@@ -331,3 +331,22 @@ def test_capture_returns_200_when_background_enrichment_fails(
 
         # Background task should have been called
         mock_enrich.assert_called_once()
+
+
+def test_capture_with_blocked_reason(make_test_client) -> None:
+    """Test that blocked_reason is preserved during capture."""
+    client = make_test_client()
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Blocked task",
+            "captured_at": "2026-02-19T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "blocked": True,
+            "blocked_reason": "Waiting for API key from ops team",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "blocked"
+    assert data["blocked_reason"] == "Waiting for API key from ops team"

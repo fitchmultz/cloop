@@ -241,6 +241,8 @@ def loop_capture_endpoint(
         capture_fields["project"] = request.project
     if request.tags:
         capture_fields["tags"] = request.tags
+    if request.blocked_reason:
+        capture_fields["blocked_reason"] = request.blocked_reason
 
     if idempotency_key is not None:
         try:

@@ -120,6 +120,11 @@ class LoopCaptureRequest(BaseModel):
         default=None,
         description="Tags to apply",
     )
+    blocked_reason: str | None = Field(
+        default=None,
+        max_length=BLOCKED_REASON_MAX,
+        description="Reason the loop is blocked (if blocked=true)",
+    )
 
     @field_validator("due_at_utc", mode="before")
     @classmethod
