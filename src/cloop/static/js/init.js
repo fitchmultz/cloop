@@ -48,6 +48,12 @@ const elements = {
   actionable: document.getElementById("actionable"),
   scheduled: document.getElementById("scheduled"),
   blocked: document.getElementById("blocked"),
+  dueDate: document.getElementById("due-date"),
+  nextAction: document.getElementById("next-action"),
+  timeMinutes: document.getElementById("time-minutes"),
+  activationEnergy: document.getElementById("activation-energy"),
+  project: document.getElementById("project"),
+  tags: document.getElementById("tags"),
   statusFilter: document.getElementById("status-filter"),
   tagFilter: document.getElementById("tag-filter"),
   queryFilter: document.getElementById("query-filter"),
@@ -137,6 +143,30 @@ async function captureLoop(event) {
     payload.template_id = parseInt(templateId, 10);
   }
 
+  // Add optional metadata fields (only if non-empty)
+  if (elements.dueDate.value) {
+    // Convert date input to ISO8601 timestamp with time set to end of day
+    payload.due_at_utc = elements.dueDate.value + "T23:59:59Z";
+  }
+  if (elements.nextAction.value.trim()) {
+    payload.next_action = elements.nextAction.value.trim();
+  }
+  if (elements.timeMinutes.value) {
+    payload.time_minutes = parseInt(elements.timeMinutes.value, 10);
+  }
+  if (elements.activationEnergy.value) {
+    payload.activation_energy = parseInt(elements.activationEnergy.value, 10);
+  }
+  if (elements.project.value.trim()) {
+    payload.project = elements.project.value.trim();
+  }
+  if (elements.tags.value.trim()) {
+    // Split on comma, trim each tag, filter empty
+    payload.tags = elements.tags.value.split(",")
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+  }
+
   if (!payload.raw_text && !templateId) {
     elements.status.textContent = "Type something first.";
     return;
@@ -173,6 +203,12 @@ async function captureLoop(event) {
     elements.scheduled.checked = false;
     elements.blocked.checked = false;
     elements.templateSelect.value = "";
+    elements.dueDate.value = "";
+    elements.nextAction.value = "";
+    elements.timeMinutes.value = "";
+    elements.activationEnergy.value = "";
+    elements.project.value = "";
+    elements.tags.value = "";
   } catch (error) {
     elements.status.textContent = error.message;
   }
