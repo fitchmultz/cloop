@@ -74,6 +74,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Tool orchestration mode: manual, llm, or none. Defaults to settings.",
     )
+    include_loop_context: bool = Field(
+        default=False,
+        description="When True, inject prioritized loop state as system context.",
+    )
 
     @model_validator(mode="after")
     def _manual_requires_tool(self) -> "ChatRequest":

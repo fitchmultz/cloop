@@ -1271,3 +1271,141 @@ def test_bulk_snooze_exceeds_limit(test_client: TestClient, tmp_data_dir: Path) 
 
     assert resp.status_code == 422  # Validation error
     assert "at most 100" in resp.json()["error"]["details"]["errors"][0]["msg"].lower()
+
+
+def test_chat_loop_context_disabled_by_default(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Loop context is NOT injected when not requested (defaults to False)."""
+    # Create an actionable loop using the service
+    from cloop import db
+    from cloop.loops.models import LoopStatus
+    from cloop.loops.service import capture_loop
+    from cloop.settings import get_settings
+
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        result = capture_loop(
+            raw_text="Test task for default context",
+            captured_at_iso="2026-02-18T10:00:00Z",
+            client_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        # Transition to actionable with next_action (required for next_loops)
+        conn.execute(
+            "UPDATE loops SET status = 'actionable', next_action = 'Do something' WHERE id = ?",
+            (result["id"],),
+        )
+        conn.commit()
+
+    # Chat without context injection
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What should I do?"}],
+            "tool_mode": "none",
+        },
+    )
+    assert response.status_code == 200
+
+    # Verify no loop context in recorded interaction
+    from cloop import db
+    from cloop.settings import get_settings
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT request_payload, response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    request_payload = json.loads(row["request_payload"])
+    response_payload = json.loads(row["response_payload"])
+
+    # When not specified, include_loop_context defaults to False
+    assert request_payload.get("include_loop_context") is False
+    assert "loop_context" not in response_payload.get("context", {})
+
+
+def test_chat_loop_context_injected_when_enabled(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Loop context IS injected when include_loop_context=True."""
+    # Create an actionable loop using the service
+    from cloop import db
+    from cloop.loops.models import LoopStatus
+    from cloop.loops.service import capture_loop
+    from cloop.settings import get_settings
+
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        result = capture_loop(
+            raw_text="Actionable task for context test",
+            captured_at_iso="2026-02-18T10:00:00Z",
+            client_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        # Transition to actionable with next_action (required for next_loops)
+        conn.execute(
+            "UPDATE loops SET status = 'actionable', next_action = 'Do something' WHERE id = ?",
+            (result["id"],),
+        )
+        conn.commit()
+
+    # Chat WITH context injection
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What should I do?"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+        },
+    )
+    assert response.status_code == 200
+
+    # Verify loop context is present
+    from cloop import db
+    from cloop.settings import get_settings
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT request_payload, response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    request_payload = json.loads(row["request_payload"])
+    response_payload = json.loads(row["response_payload"])
+
+    assert request_payload.get("include_loop_context") is True
+    assert "loop_context" in response_payload.get("context", {})
+    loop_context = response_payload["context"]["loop_context"]
+    assert (
+        "Loop Context" in loop_context
+        or "Quick Wins" in loop_context
+        or "Standard" in loop_context
+        or "High Leverage" in loop_context
+    )
+
+
+def test_chat_loop_context_empty_when_no_loops(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Loop context is empty/absent when no relevant loops exist."""
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+        },
+    )
+    assert response.status_code == 200
+
+    from cloop import db
+    from cloop.settings import get_settings
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    response_payload = json.loads(row["response_payload"])
+
+    # Either absent or empty string is acceptable
+    loop_context = response_payload.get("context", {}).get("loop_context")
+    assert loop_context is None or loop_context == ""

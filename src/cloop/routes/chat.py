@@ -71,6 +71,84 @@ def _interaction_context(settings: Settings) -> Dict[str, str]:
     }
 
 
+def _build_loop_context_snapshot(settings: Settings) -> str:
+    """Build compact loop context snapshot for LLM system message.
+
+    Returns markdown-formatted string with:
+    - Due soon items (within 48h)
+    - Blocked items
+    - Top next actions (quick wins, high leverage)
+
+    Target: ~500-1000 tokens to avoid context bloat.
+    """
+    from ..loops.service import next_loops, search_loops_by_query
+
+    lines = ["## Current Loop Context"]
+
+    try:
+        with db.core_connection(settings) as conn:
+            # Get prioritized next loops
+            buckets = next_loops(limit=5, conn=conn, settings=settings)
+
+            # Get blocked loops separately (excluded from next_loops)
+            blocked = search_loops_by_query(
+                query="status:blocked",
+                limit=5,
+                offset=0,
+                conn=conn,
+            )
+    except Exception:
+        # Fail gracefully - don't block chat if loop context fails
+        return ""
+
+    # Due soon section
+    due_soon = buckets.get("due_soon", [])
+    if due_soon:
+        lines.append("\n### Due Soon")
+        for loop in due_soon[:3]:
+            title = loop.get("title") or loop.get("raw_text", "")[:60]
+            due = loop.get("due_at_utc")
+            lines.append(f"- {title}")
+            if due:
+                lines.append(f"  Due: {due}")
+
+    # Blocked section
+    if blocked:
+        lines.append("\n### Blocked")
+        for loop in blocked[:3]:
+            title = loop.get("title") or loop.get("raw_text", "")[:60]
+            reason = loop.get("blocked_reason", "waiting on dependency")
+            lines.append(f"- {title} ({reason})")
+
+    # Quick wins section
+    quick_wins = buckets.get("quick_wins", [])
+    if quick_wins:
+        lines.append("\n### Quick Wins")
+        for loop in quick_wins[:3]:
+            title = loop.get("title") or loop.get("raw_text", "")[:60]
+            mins = loop.get("time_minutes", "?")
+            lines.append(f"- {title} (~{mins} min)")
+
+    # High leverage section
+    high_leverage = buckets.get("high_leverage", [])
+    if high_leverage:
+        lines.append("\n### High Leverage")
+        for loop in high_leverage[:3]:
+            title = loop.get("title") or loop.get("raw_text", "")[:60]
+            lines.append(f"- {title}")
+
+    # Standard/other actionable items
+    standard = buckets.get("standard", [])
+    if standard:
+        lines.append("\n### Next Actions")
+        for loop in standard[:3]:
+            title = loop.get("title") or loop.get("raw_text", "")[:60]
+            lines.append(f"- {title}")
+
+    result = "\n".join(lines)
+    return result if result != "## Current Loop Context" else ""
+
+
 @router.post("", response_model=ChatResponse)
 def chat_endpoint(
     request: ChatRequest,
@@ -80,6 +158,19 @@ def chat_endpoint(
     messages = [message.model_dump() for message in request.messages]
     tool_result: Dict[str, Any] | None = None
     tool_calls: List[Dict[str, Any]] = []
+
+    # Build and inject loop context if requested
+    loop_context: str | None = None
+    if request.include_loop_context:
+        loop_context = _build_loop_context_snapshot(settings)
+        if loop_context:
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": loop_context,
+                },
+            )
 
     tool_mode = request.tool_mode or settings.tool_mode_default
 
@@ -104,6 +195,8 @@ def chat_endpoint(
         raise HTTPException(status_code=400, detail="Streaming not supported for llm tool_mode")
 
     context_snapshot = _interaction_context(settings)
+    if loop_context:
+        context_snapshot["loop_context"] = loop_context
 
     if stream_enabled:
         request_payload = request.model_dump()
