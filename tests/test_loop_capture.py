@@ -286,3 +286,48 @@ def test_capture_with_invalid_activation_energy(make_test_client) -> None:
         },
     )
     assert response.status_code == 422  # Validation error
+
+
+def test_capture_returns_200_when_background_enrichment_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test: /loops/capture returns 200 even if background enrichment raises."""
+    from unittest.mock import patch
+
+    from fastapi.testclient import TestClient
+
+    from cloop import db
+    from cloop.main import app
+    from cloop.settings import get_settings
+
+    # Set up isolated environment with autopilot enabled
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "true")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    # Mock enrich_loop to raise an exception
+    with patch("cloop.loops.enrichment.enrich_loop") as mock_enrich:
+        mock_enrich.side_effect = RuntimeError("Simulated enrichment failure")
+
+        client = TestClient(app)
+        resp = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": "Test task",
+                "actionable": True,
+                "captured_at": "2026-02-19T10:00:00Z",
+                "client_tz_offset_min": 0,
+            },
+        )
+
+        # Capture should succeed despite background enrichment failure
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["raw_text"] == "Test task"
+        assert data["id"] is not None
+
+        # Background task should have been called
+        mock_enrich.assert_called_once()

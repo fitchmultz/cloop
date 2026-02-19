@@ -38,6 +38,7 @@ Endpoints:
 - POST /loops/{loop_id}/enrich: Request AI enrichment
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Annotated, Any, List, Literal
 
@@ -53,7 +54,6 @@ from ...idempotency import (
     expiry_timestamp,
     normalize_idempotency_key,
 )
-from ...loops import enrichment as loop_enrichment
 from ...loops import repo as loop_repo
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
@@ -100,12 +100,45 @@ from ...schemas.loops import (
     TrendMetricsResponse,
     TrendPointResponse,
 )
+from ...settings import Settings
 from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
 
 if TYPE_CHECKING:
     from ...loops.metrics import LoopMetrics
 
 router = APIRouter()
+
+_logger = logging.getLogger(__name__)
+
+
+def _safe_enrich_loop(*, loop_id: int, settings: "Settings") -> None:
+    """Background task wrapper that catches all enrichment exceptions.
+
+    Enrichment already persists failure state internally (enrichment_state=failed,
+    ENRICH_FAILURE event). This wrapper prevents exceptions from propagating to
+    Starlette after the HTTP response has started.
+
+    Args:
+        loop_id: The loop to enrich
+        settings: Application settings
+    """
+    from ...loops import enrichment as loop_enrichment
+
+    try:
+        loop_enrichment.enrich_loop(loop_id=loop_id, settings=settings)
+    except KeyboardInterrupt:
+        # Re-raise system signals for graceful shutdown
+        raise
+    except SystemExit:
+        # Re-raise system signals for graceful shutdown
+        raise
+    except Exception as exc:
+        # Log but don't re-raise - enrichment already persisted failure state
+        _logger.exception(
+            "Background enrichment failed for loop %s (error persisted to DB): %s",
+            loop_id,
+            exc,
+        )
 
 
 def _metrics_to_response(metrics: "LoopMetrics") -> LoopMetricsResponse:
@@ -308,7 +341,7 @@ def loop_capture_endpoint(
 
     if settings.autopilot_enabled:
         background_tasks.add_task(
-            loop_enrichment.enrich_loop,
+            _safe_enrich_loop,
             loop_id=record["id"],
             settings=settings,
         )
@@ -1079,7 +1112,7 @@ def loop_enrich_endpoint(
         response = LoopResponse(**record).model_dump()
 
     background_tasks.add_task(
-        loop_enrichment.enrich_loop,
+        _safe_enrich_loop,
         loop_id=loop_id,
         settings=settings,
     )
