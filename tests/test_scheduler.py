@@ -814,3 +814,58 @@ class TestDueSoonNudgeEscalation:
         assert result["loop_ids"] == []
         assert "escalation_summary" in result
         assert result["escalation_summary"] == {}
+
+
+class TestDueSoonThresholdAlignment:
+    """Tests verifying scheduler and bucketing use same threshold."""
+
+    def test_due_soon_nudge_bucket_alignment(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Due-soon nudged loops must appear in due_soon bucket, not standard."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+
+        # Create loop due just inside the threshold (e.g., 24h if threshold is 48h)
+        due_inside = (now + timedelta(hours=settings.due_soon_hours * 0.5)).isoformat(
+            timespec="seconds"
+        )
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('inside threshold', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_inside,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+        # The loop was selected for nudge AND should be in due_soon bucket
+        assert result["details"][0]["bucket"] == "due_soon"
+        assert result["bucket_summary"].get("due_soon", 0) == 1
+
+    def test_loop_outside_threshold_not_nudged(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Loops due outside the threshold should not be nudged."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+
+        # Create loop due just outside the threshold (e.g., 60h if threshold is 48h)
+        due_outside = (now + timedelta(hours=settings.due_soon_hours * 1.25)).isoformat(
+            timespec="seconds"
+        )
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('outside threshold', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_outside,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 0

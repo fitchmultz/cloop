@@ -78,7 +78,7 @@ class Settings:
     backup_compress: bool
     # Prioritization settings
     prioritization_due_window_hours: float
-    prioritization_due_soon_hours: float
+    due_soon_hours: float
     prioritization_quick_win_minutes: int
     prioritization_high_leverage_threshold: float
     # Priority weights for scoring
@@ -114,7 +114,6 @@ class Settings:
     # Review cohort thresholds
     review_stale_hours: float
     review_blocked_hours: float
-    review_due_soon_hours: float
     # Operation metrics settings
     operation_metrics_enabled: bool
     # Scheduler settings
@@ -210,9 +209,7 @@ def get_settings() -> Settings:
         prioritization_due_window_hours=float(
             os.getenv("CLOOP_PRIORITIZATION_DUE_WINDOW_HOURS", "72.0")
         ),
-        prioritization_due_soon_hours=float(
-            os.getenv("CLOOP_PRIORITIZATION_DUE_SOON_HOURS", "48.0")
-        ),
+        due_soon_hours=float(os.getenv("CLOOP_DUE_SOON_HOURS", "48.0")),
         prioritization_quick_win_minutes=int(
             os.getenv("CLOOP_PRIORITIZATION_QUICK_WIN_MINUTES", "15")
         ),
@@ -254,7 +251,6 @@ def get_settings() -> Settings:
         # Review cohort thresholds
         review_stale_hours=float(os.getenv("CLOOP_REVIEW_STALE_HOURS", "72.0")),
         review_blocked_hours=float(os.getenv("CLOOP_REVIEW_BLOCKED_HOURS", "48.0")),
-        review_due_soon_hours=float(os.getenv("CLOOP_REVIEW_DUE_SOON_HOURS", "48.0")),
         operation_metrics_enabled=_resolve_bool(
             os.getenv("CLOOP_OPERATION_METRICS_ENABLED", "false")
         ),
@@ -378,8 +374,8 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_REVIEW_STALE_HOURS must be at least 1")
     if settings.review_blocked_hours < 1:
         raise ValueError("CLOOP_REVIEW_BLOCKED_HOURS must be at least 1")
-    if settings.review_due_soon_hours < 1:
-        raise ValueError("CLOOP_REVIEW_DUE_SOON_HOURS must be at least 1")
+    if settings.due_soon_hours < 1:
+        raise ValueError("CLOOP_DUE_SOON_HOURS must be at least 1")
     # Validate scheduler settings
     if settings.scheduler_daily_review_interval_hours < 1:
         raise ValueError("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS must be at least 1")

@@ -89,9 +89,7 @@ def bucketize(
         return "standard"
 
     due_at = _parse_time(loop.get("due_at_utc"))
-    if due_at is not None and due_at <= now_utc + timedelta(
-        hours=settings.prioritization_due_soon_hours
-    ):
+    if due_at is not None and due_at <= now_utc + timedelta(hours=settings.due_soon_hours):
         return "due_soon"
 
     time_minutes = loop.get("time_minutes")

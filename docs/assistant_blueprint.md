@@ -269,7 +269,7 @@ autopilot_enabled: bool = True
 autopilot_autoapply_min_confidence: float = 0.85
 
 # Prioritization
-prioritization_due_soon_hours: float = 48.0
+due_soon_hours: float = 48.0
 prioritization_quick_win_minutes: int = 15
 prioritization_high_leverage_threshold: float = 0.7
 

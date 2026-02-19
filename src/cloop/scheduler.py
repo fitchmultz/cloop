@@ -195,7 +195,7 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     from .loops.repo import get_nudge_states_batch, upsert_nudge_state
 
     now = utc_now()
-    due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.review_due_soon_hours))
+    due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.due_soon_hours))
     now_str = format_utc_datetime(now)
 
     # Find due-soon and overdue loops without next_action

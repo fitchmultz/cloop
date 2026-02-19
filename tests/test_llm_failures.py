@@ -11,6 +11,12 @@ import litellm
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def disable_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disable retries so mocked retriable exceptions fail immediately."""
+    monkeypatch.setenv("CLOOP_LLM_MAX_RETRIES", "0")
+
+
 class TestLLMTimeoutErrors:
     """Tests for litellm.Timeout exceptions."""
 

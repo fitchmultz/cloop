@@ -102,7 +102,7 @@ def compute_review_cohorts(
     generated_at = _format_dt(now_utc)
     stale_cutoff = format_utc_datetime(now_utc - timedelta(hours=settings.review_stale_hours))
     blocked_cutoff = format_utc_datetime(now_utc - timedelta(hours=settings.review_blocked_hours))
-    due_soon_cutoff = format_utc_datetime(now_utc + timedelta(hours=settings.review_due_soon_hours))
+    due_soon_cutoff = format_utc_datetime(now_utc + timedelta(hours=settings.due_soon_hours))
     now_str = format_utc_datetime(now_utc)
 
     daily: list[ReviewCohortResult] = []

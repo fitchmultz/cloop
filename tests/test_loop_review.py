@@ -241,13 +241,13 @@ def test_review_settings_validation(
     monkeypatch.delenv("CLOOP_REVIEW_BLOCKED_HOURS", raising=False)
     get_settings.cache_clear()
 
-    # Test invalid review_due_soon_hours
-    monkeypatch.setenv("CLOOP_REVIEW_DUE_SOON_HOURS", "0.5")
+    # Test invalid due_soon_hours
+    monkeypatch.setenv("CLOOP_DUE_SOON_HOURS", "0.5")
     get_settings.cache_clear()
-    with pytest.raises(ValueError, match="CLOOP_REVIEW_DUE_SOON_HOURS must be at least 1"):
+    with pytest.raises(ValueError, match="CLOOP_DUE_SOON_HOURS must be at least 1"):
         get_settings()
 
-    monkeypatch.delenv("CLOOP_REVIEW_DUE_SOON_HOURS", raising=False)
+    monkeypatch.delenv("CLOOP_DUE_SOON_HOURS", raising=False)
     get_settings.cache_clear()
 
 
@@ -264,7 +264,7 @@ def test_review_cohorts_default_settings(
     # Verify default values
     assert settings.review_stale_hours == 72.0
     assert settings.review_blocked_hours == 48.0
-    assert settings.review_due_soon_hours == 48.0
+    assert settings.due_soon_hours == 48.0
 
 
 def test_review_endpoint_limit_parameter(
