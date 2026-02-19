@@ -447,6 +447,7 @@ def test_build_prompt_includes_context_when_provided() -> None:
         duplicate_candidates=[],
         workload_snapshot=[{"id": 2, "title": "Workload"}],
         existing_links=[],
+        answered_clarifications=[],
     )
 
     messages = _build_prompt(loop, context=context)
@@ -466,6 +467,7 @@ def test_build_prompt_omits_context_when_empty() -> None:
         duplicate_candidates=[],
         workload_snapshot=[],
         existing_links=[],
+        answered_clarifications=[],
     )
 
     messages = _build_prompt(loop, context=context)
@@ -512,6 +514,7 @@ def test_context_gathering_gracefully_degrades(
     assert context.duplicate_candidates == []
     # Workload may have items from other tests, but shouldn't error
     assert isinstance(context.workload_snapshot, list)
+    assert context.answered_clarifications == []
 
     conn.close()
 
@@ -525,6 +528,7 @@ def test_build_prompt_includes_duplicate_candidates() -> None:
         duplicate_candidates=[{"loop_id": 3, "title": "Duplicate", "score": 0.95}],
         workload_snapshot=[],
         existing_links=[],
+        answered_clarifications=[],
     )
 
     messages = _build_prompt(loop, context=context)
@@ -543,6 +547,7 @@ def test_build_prompt_includes_existing_links() -> None:
         duplicate_candidates=[],
         workload_snapshot=[],
         existing_links=[{"related_loop_id": 4, "relationship_type": "depends_on"}],
+        answered_clarifications=[],
     )
 
     messages = _build_prompt(loop, context=context)
@@ -561,6 +566,7 @@ def test_context_in_prompt_contains_all_sections() -> None:
         duplicate_candidates=[{"loop_id": 2, "title": "Duplicate"}],
         workload_snapshot=[{"id": 3, "title": "Workload"}],
         existing_links=[{"related_loop_id": 4, "relationship_type": "blocks"}],
+        answered_clarifications=[],
     )
 
     messages = _build_prompt(loop, context=context)

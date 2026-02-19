@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 25
+SCHEMA_VERSION: int = 26
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -281,6 +281,19 @@ CREATE TABLE loop_suggestions (
 
 CREATE INDEX idx_loop_suggestions_loop_id ON loop_suggestions(loop_id);
 CREATE INDEX idx_loop_suggestions_resolution ON loop_suggestions(resolution);
+
+CREATE TABLE loop_clarifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    loop_id INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    answer TEXT,
+    answered_at TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_loop_clarifications_loop_id ON loop_clarifications(loop_id);
+CREATE INDEX idx_loop_clarifications_answered ON loop_clarifications(answered_at);
 
 CREATE TABLE loop_embeddings (
     loop_id INTEGER PRIMARY KEY,
@@ -473,6 +486,21 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    26: """
+    -- Create loop_clarifications table for AI clarification Q&A
+    CREATE TABLE loop_clarifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER NOT NULL,
+        question TEXT NOT NULL,
+        answer TEXT,
+        answered_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX idx_loop_clarifications_loop_id ON loop_clarifications(loop_id);
+    CREATE INDEX idx_loop_clarifications_answered ON loop_clarifications(answered_at);
+    """,
     25: """
     -- Create push_subscriptions table for browser push notifications
     CREATE TABLE push_subscriptions (

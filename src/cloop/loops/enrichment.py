@@ -58,12 +58,14 @@ class EnrichmentContext:
         duplicate_candidates: List of potential duplicates (max 3)
         workload_snapshot: Current workload priorities (max 3 items)
         existing_links: All existing link relationships for this loop
+        answered_clarifications: User-provided answers to prior clarification questions
     """
 
     related_loops: list[dict[str, Any]]
     duplicate_candidates: list[dict[str, Any]]
     workload_snapshot: list[dict[str, Any]]
     existing_links: list[dict[str, Any]]
+    answered_clarifications: list[dict[str, Any]]
 
 
 class LoopSuggestion(BaseModel):
@@ -167,6 +169,7 @@ def _gather_enrichment_context(
     duplicate_candidates: list[dict[str, Any]] = []
     workload_snapshot: list[dict[str, Any]] = []
     existing_links: list[dict[str, Any]] = []
+    answered_clarifications: list[dict[str, Any]] = []
 
     try:
         # Fetch related loops via embedding similarity (limit 5)
@@ -257,11 +260,26 @@ def _gather_enrichment_context(
     except Exception:
         pass
 
+    try:
+        # Fetch answered clarifications for this loop
+        clars = repo.list_answered_clarifications(loop_id=loop_id, conn=conn)
+        for clar in clars[:10]:  # Limit to 10 most recent
+            answered_clarifications.append(
+                {
+                    "question": clar["question"],
+                    "answer": clar["answer"],
+                    "answered_at": clar["answered_at"],
+                }
+            )
+    except Exception:
+        pass  # Graceful degradation
+
     return EnrichmentContext(
         related_loops=related_loops,
         duplicate_candidates=duplicate_candidates,
         workload_snapshot=workload_snapshot,
         existing_links=existing_links,
+        answered_clarifications=answered_clarifications,
     )
 
 
@@ -291,6 +309,7 @@ def _build_prompt(
         or context.duplicate_candidates
         or context.workload_snapshot
         or context.existing_links
+        or context.answered_clarifications
     ):
         context_section: dict[str, Any] = {}
         if context.related_loops:
@@ -301,6 +320,8 @@ def _build_prompt(
             context_section["current_workload"] = context.workload_snapshot
         if context.existing_links:
             context_section["existing_links"] = context.existing_links
+        if context.answered_clarifications:
+            context_section["user_clarifications"] = context.answered_clarifications
         user_content["context"] = context_section
 
     return [
@@ -311,7 +332,8 @@ def _build_prompt(
                 "Do not wrap the response in markdown. Use ISO8601 datetimes or null. "
                 "When context is provided, use it to: (1) avoid duplicating existing work, "
                 "(2) suggest consolidating with related/duplicate items, "
-                "(3) prioritize appropriately given current workload. "
+                "(3) prioritize appropriately given current workload, "
+                "(4) incorporate user clarification answers into your suggestions. "
                 "Set context_used field to indicate which context sources influenced your decision."
             ),
         },

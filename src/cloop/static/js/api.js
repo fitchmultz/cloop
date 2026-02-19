@@ -377,6 +377,26 @@ export async function rejectSuggestion(suggestionId) {
   return true;
 }
 
+export async function submitClarification(loopId, answers) {
+  const response = await fetch(`/loops/${loopId}/clarify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answers }),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.detail || "Failed to submit clarification");
+  }
+  return response.json();
+}
+
+export async function fetchClarifications(loopId) {
+  const response = await fetch(`/loops/${loopId}/clarifications`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return data.clarifications || [];
+}
+
 // ========================================
 // Chat and RAG
 // ========================================

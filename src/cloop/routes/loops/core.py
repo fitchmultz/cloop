@@ -38,6 +38,7 @@ Endpoints:
 - POST /loops/{loop_id}/enrich: Request AI enrichment
 """
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Annotated, Any, List, Literal
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -53,6 +54,7 @@ from ...idempotency import (
     normalize_idempotency_key,
 )
 from ...loops import enrichment as loop_enrichment
+from ...loops import repo as loop_repo
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
 from ...loops.metrics import compute_loop_metrics, get_operation_metrics
@@ -61,6 +63,10 @@ from ...loops.utils import normalize_tag
 from ...schemas.loops import (
     ApplySuggestionRequest,
     ApplySuggestionResponse,
+    ClarificationListResponse,
+    ClarificationResponse,
+    ClarificationSubmitBatchRequest,
+    ClarificationSubmitResponse,
     LoopCaptureRequest,
     LoopClaimStatusResponse,
     LoopCloseRequest,
@@ -1047,3 +1053,96 @@ def list_pending_suggestions_endpoint(
         suggestions=[SuggestionResponse(**s) for s in suggestions],
         count=len(suggestions),
     )
+
+
+# =============================================================================
+# Clarification endpoints
+# =============================================================================
+
+
+@router.get("/{loop_id}/clarifications", response_model=ClarificationListResponse)
+def get_loop_clarifications(
+    loop_id: int,
+    settings: SettingsDep,
+) -> ClarificationListResponse:
+    """List clarification questions for a loop."""
+    with db.core_connection(settings) as conn:
+        # Verify loop exists
+        loop = loop_repo.read_loop(loop_id=loop_id, conn=conn)
+        if not loop:
+            raise HTTPException(status_code=404, detail="Loop not found")
+
+        clarifications = loop_repo.list_loop_clarifications(loop_id=loop_id, conn=conn)
+        return ClarificationListResponse(
+            clarifications=[
+                ClarificationResponse(
+                    id=c["id"],
+                    loop_id=c["loop_id"],
+                    question=c["question"],
+                    answer=c["answer"],
+                    answered_at=c["answered_at"],
+                    created_at=c["created_at"],
+                )
+                for c in clarifications
+            ],
+            count=len(clarifications),
+        )
+
+
+@router.post("/{loop_id}/clarify", response_model=ClarificationSubmitResponse)
+def submit_clarification(
+    loop_id: int,
+    request: ClarificationSubmitBatchRequest,
+    settings: SettingsDep,
+) -> ClarificationSubmitResponse:
+    """Submit answers to clarification questions for a loop.
+
+    Creates new clarification entries for each question/answer pair.
+    These will be included in subsequent enrichment runs.
+    """
+    with db.core_connection(settings) as conn:
+        # Verify loop exists
+        loop = loop_repo.read_loop(loop_id=loop_id, conn=conn)
+        if not loop:
+            raise HTTPException(status_code=404, detail="Loop not found")
+
+        answered_count = 0
+        created_clarifications: list[dict[str, Any]] = []
+
+        with conn:
+            for item in request.answers:
+                question = item.get("question")
+                answer = item.get("answer")
+
+                if not question or not answer:
+                    continue
+
+                # Create clarification with answer pre-filled
+                cursor = conn.execute(
+                    """
+                    INSERT INTO loop_clarifications (loop_id, question, answer, answered_at)
+                    VALUES (?, ?, ?, datetime('now'))
+                    """,
+                    (loop_id, question, answer),
+                )
+                clarification_id = cursor.lastrowid
+                answered_count += 1
+
+                created_clarifications.append(
+                    {
+                        "id": clarification_id,
+                        "loop_id": loop_id,
+                        "question": question,
+                        "answer": answer,
+                        "answered_at": datetime.now(timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                        "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    }
+                )
+
+        return ClarificationSubmitResponse(
+            loop_id=loop_id,
+            answered_count=answered_count,
+            clarifications=[ClarificationResponse(**c) for c in created_clarifications],
+        )

@@ -98,9 +98,22 @@ export function renderSuggestionPanel(loopCard, loop) {
       clarifyHtml = `
         <div class="needs-clarification">
           <div class="needs-clarification-title">AI needs clarification:</div>
-          ${parsed.needs_clarification.map(q =>
-            `<div class="needs-clarification-item">${q}</div>`
-          ).join('')}
+          ${parsed.needs_clarification.map((q, idx) => `
+            <div class="needs-clarification-item">
+              <div class="clarification-question">${escapeHtml(q)}</div>
+              <input type="text"
+                     class="clarification-input"
+                     data-question="${escapeHtml(q)}"
+                     placeholder="Type your answer..."
+                     data-idx="${idx}">
+            </div>
+          `).join('')}
+          <button class="clarification-submit-btn"
+                  data-action="submit-clarification"
+                  data-loop-id="${loop.id}"
+                  data-suggestion-id="${suggestion.id}">
+            Submit Answers & Re-enrich
+          </button>
         </div>
       `;
     }
@@ -193,5 +206,48 @@ export function setupSuggestionHandlers() {
       await rejectSuggestion(suggestionId, loopId, panel, badge);
       return;
     }
+
+    const clarifyBtn = e.target.closest('[data-action="submit-clarification"]');
+    if (clarifyBtn) {
+      const loopId = parseInt(clarifyBtn.dataset.loopId);
+      const panel = clarifyBtn.closest('.suggestion-panel');
+      await submitClarificationAnswers(loopId, panel);
+      return;
+    }
   });
+}
+
+/**
+ * Submit clarification answers
+ */
+async function submitClarificationAnswers(loopId, panel) {
+  const inputs = panel.querySelectorAll('.clarification-input');
+  const answers = [];
+
+  inputs.forEach(input => {
+    const question = input.dataset.question;
+    const answer = input.value.trim();
+    if (question && answer) {
+      answers.push({ question, answer });
+    }
+  });
+
+  if (answers.length === 0) {
+    alert('Please answer at least one question.');
+    return;
+  }
+
+  try {
+    const result = await api.submitClarification(loopId, answers);
+    alert(result.message);
+
+    // Trigger re-enrichment
+    await api.enrichLoop(loopId);
+
+    // Refresh the loop to show updated suggestions
+    refreshLoop(loopId);
+  } catch (err) {
+    console.error("submitClarificationAnswers error:", err);
+    alert('Failed to submit: ' + err.message);
+  }
 }

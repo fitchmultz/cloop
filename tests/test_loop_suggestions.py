@@ -301,3 +301,161 @@ def test_suggestion_with_project(fresh_db, test_loop):
     # Verify project exists
     project_id = repo.upsert_project(name="TestProject", conn=fresh_db)
     assert updated.project_id == project_id
+
+
+class TestClarificationLifecycle:
+    """Tests for clarification submission and enrichment integration."""
+
+    def test_submit_clarification_creates_record(self, fresh_db, test_loop):
+        """Submitting clarification creates a record with answer."""
+        # Simulate what the endpoint does
+        with fresh_db:
+            fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question, answer, answered_at)
+                VALUES (?, ?, ?, datetime('now'))
+                """,
+                (test_loop["id"], "What is the priority?", "High priority"),
+            )
+
+        clars = repo.list_answered_clarifications(loop_id=test_loop["id"], conn=fresh_db)
+        assert len(clars) == 1
+        assert clars[0]["question"] == "What is the priority?"
+        assert clars[0]["answer"] == "High priority"
+
+    def test_clarifications_included_in_enrichment_context(self, fresh_db, test_loop):
+        """Answered clarifications are included in enrichment context."""
+        from cloop.loops.enrichment import _gather_enrichment_context
+
+        # Add a clarification with answer
+        with fresh_db:
+            fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question, answer, answered_at)
+                VALUES (?, ?, ?, datetime('now'))
+                """,
+                (test_loop["id"], "Due date?", "Tomorrow"),
+            )
+
+        context = _gather_enrichment_context(
+            loop_id=test_loop["id"],
+            loop_text=test_loop["raw_text"],
+            conn=fresh_db,
+            settings=get_settings(),
+        )
+
+        assert len(context.answered_clarifications) == 1
+        assert context.answered_clarifications[0]["question"] == "Due date?"
+        assert context.answered_clarifications[0]["answer"] == "Tomorrow"
+
+    def test_unanswered_clarifications_excluded_from_context(self, fresh_db, test_loop):
+        """Only answered clarifications are included in enrichment context."""
+        from cloop.loops.enrichment import _gather_enrichment_context
+
+        # Add an unanswered clarification
+        with fresh_db:
+            fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question)
+                VALUES (?, ?)
+                """,
+                (test_loop["id"], "Unanswered question?"),
+            )
+
+        context = _gather_enrichment_context(
+            loop_id=test_loop["id"],
+            loop_text=test_loop["raw_text"],
+            conn=fresh_db,
+            settings=get_settings(),
+        )
+
+        assert len(context.answered_clarifications) == 0
+
+    def test_api_submit_clarification_endpoint(self, fresh_db, test_loop, monkeypatch):
+        """POST /{loop_id}/clarify creates clarification records."""
+
+        # Configure test database
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from cloop import db
+        from cloop.main import app
+        from cloop.settings import get_settings
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+            get_settings.cache_clear()
+            settings = get_settings()
+            db.init_databases(settings)
+
+            # Create a test loop in the temp database
+            with db.core_connection(settings) as conn:
+                loop = service.capture_loop(
+                    raw_text="Test loop for clarification API",
+                    captured_at_iso="2026-02-18T12:00:00+00:00",
+                    client_tz_offset_min=0,
+                    status=service.LoopStatus.INBOX,
+                    conn=conn,
+                )
+
+            client = TestClient(app)
+
+            response = client.post(
+                f"/loops/{loop['id']}/clarify",
+                json={
+                    "answers": [
+                        {"question": "Priority?", "answer": "High"},
+                        {"question": "Due?", "answer": "Friday"},
+                    ]
+                },
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["loop_id"] == loop["id"]
+            assert data["answered_count"] == 2
+            assert len(data["clarifications"]) == 2
+
+    def test_api_get_clarifications_endpoint(self, fresh_db, test_loop, monkeypatch):
+        """GET /{loop_id}/clarifications returns clarification list."""
+
+        # Configure test database
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from cloop import db
+        from cloop.main import app
+        from cloop.settings import get_settings
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+            get_settings.cache_clear()
+            settings = get_settings()
+            db.init_databases(settings)
+
+            # Create a test loop in the temp database
+            with db.core_connection(settings) as conn:
+                loop = service.capture_loop(
+                    raw_text="Test loop for get clarifications",
+                    captured_at_iso="2026-02-18T12:00:00+00:00",
+                    client_tz_offset_min=0,
+                    status=service.LoopStatus.INBOX,
+                    conn=conn,
+                )
+
+            client = TestClient(app)
+
+            # Submit clarifications first
+            client.post(
+                f"/loops/{loop['id']}/clarify",
+                json={"answers": [{"question": "Q1?", "answer": "A1"}]},
+            )
+
+            # Now fetch them
+            response = client.get(f"/loops/{loop['id']}/clarifications")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["count"] >= 1

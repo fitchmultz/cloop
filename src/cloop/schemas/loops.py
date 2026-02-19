@@ -1016,3 +1016,46 @@ class SuggestionListResponse(BaseModel):
 
     suggestions: List[SuggestionResponse]
     count: int
+
+
+class ClarificationSubmitRequest(BaseModel):
+    """Request to submit an answer to a clarification question."""
+
+    clarification_id: int = Field(..., description="ID of the clarification to answer")
+    answer: str = Field(..., min_length=1, max_length=1000, description="User's answer")
+
+
+class ClarificationSubmitBatchRequest(BaseModel):
+    """Request to submit answers to multiple clarification questions at once."""
+
+    answers: List[dict[str, Any]] = Field(
+        ...,
+        description="List of {question, answer} pairs for new clarifications",
+    )
+
+
+class ClarificationResponse(BaseModel):
+    """A single clarification with optional answer."""
+
+    id: int
+    loop_id: int
+    question: str
+    answer: str | None = None
+    answered_at: str | None = None
+    created_at: str
+
+
+class ClarificationListResponse(BaseModel):
+    """List of clarifications for a loop."""
+
+    clarifications: List[ClarificationResponse]
+    count: int
+
+
+class ClarificationSubmitResponse(BaseModel):
+    """Response after submitting clarification answers."""
+
+    loop_id: int
+    answered_count: int
+    clarifications: List[ClarificationResponse]
+    message: str = "Clarifications recorded. Re-enrich to see improved suggestions."

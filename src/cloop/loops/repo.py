@@ -704,6 +704,82 @@ def resolve_loop_suggestion(
     return cursor.rowcount == 1
 
 
+def insert_loop_clarification(
+    *,
+    loop_id: int,
+    question: str,
+    conn: sqlite3.Connection,
+) -> int:
+    """Insert a clarification question for a loop."""
+    cursor = conn.execute(
+        """
+        INSERT INTO loop_clarifications (loop_id, question)
+        VALUES (?, ?)
+        """,
+        (loop_id, question),
+    )
+    if cursor.lastrowid is None:
+        raise RuntimeError("loop_clarification_insert_failed")
+    return int(cursor.lastrowid)
+
+
+def list_loop_clarifications(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List all clarifications for a loop, unanswered first."""
+    rows = conn.execute(
+        """
+        SELECT id, loop_id, question, answer, answered_at, created_at
+        FROM loop_clarifications
+        WHERE loop_id = ?
+        ORDER BY answered_at IS NULL DESC, created_at ASC
+        """,
+        (loop_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def answer_loop_clarification(
+    *,
+    clarification_id: int,
+    answer: str,
+    conn: sqlite3.Connection,
+) -> bool:
+    """Record an answer to a clarification question."""
+    from .models import format_utc_datetime, utc_now
+
+    cursor = conn.execute(
+        """
+        UPDATE loop_clarifications
+        SET answer = ?, answered_at = ?
+        WHERE id = ?
+        """,
+        (answer, format_utc_datetime(utc_now()), clarification_id),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def list_answered_clarifications(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Get only answered clarifications for enrichment context."""
+    rows = conn.execute(
+        """
+        SELECT id, loop_id, question, answer, answered_at, created_at
+        FROM loop_clarifications
+        WHERE loop_id = ? AND answer IS NOT NULL
+        ORDER BY answered_at DESC
+        """,
+        (loop_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def upsert_project(*, name: str, conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT id FROM projects WHERE name = ?", (name,)).fetchone()
     if row:
