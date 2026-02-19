@@ -1023,6 +1023,40 @@ class LoopOperationMetricsResponse(BaseModel):
     reset_count: int
 
 
+class ProjectMetricsResponse(BaseModel):
+    """Per-project metrics breakdown."""
+
+    project_id: int | None
+    project_name: str | None
+    total_loops: int
+    open_loops: int
+    completed_loops: int
+    dropped_loops: int
+    capture_count_window: int
+    completion_count_window: int
+    avg_age_open_hours: float | None
+
+
+class TrendPointResponse(BaseModel):
+    """Single data point in a trend series."""
+
+    date: str
+    capture_count: int
+    completion_count: int
+    open_count: int
+
+
+class TrendMetricsResponse(BaseModel):
+    """Time-series trend metrics."""
+
+    window_days: int
+    points: List[TrendPointResponse]
+    total_captures: int
+    total_completions: int
+    avg_daily_captures: float
+    avg_daily_completions: float
+
+
 class LoopMetricsResponse(BaseModel):
     """Operational metrics for loop workflow health."""
 
@@ -1038,6 +1072,10 @@ class LoopMetricsResponse(BaseModel):
     completion_count_24h: int
     avg_age_open_hours: float | None
     operation_metrics: LoopOperationMetricsResponse | None = None
+
+    # New optional fields
+    project_breakdown: List[ProjectMetricsResponse] | None = None
+    trend_metrics: TrendMetricsResponse | None = None
 
 
 # ============================================================================

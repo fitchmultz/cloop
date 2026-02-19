@@ -397,8 +397,28 @@ Examples:
 Examples:
   cloop loop metrics
   cloop loop metrics --format json
+  cloop loop metrics --project  # Include per-project breakdown
+  cloop loop metrics --trend --window 14  # 14-day trend
+  cloop loop metrics --project --trend  # Both dimensions
         """,
         formatter_class=RawDescriptionHelpFormatter,
+    )
+    metrics_parser.add_argument(
+        "--project",
+        action="store_true",
+        help="Include per-project metrics breakdown",
+    )
+    metrics_parser.add_argument(
+        "--trend",
+        action="store_true",
+        help="Include time-series trend metrics",
+    )
+    metrics_parser.add_argument(
+        "--window",
+        type=int,
+        default=7,
+        dest="trend_window_days",
+        help="Trend window in days (default: 7, used with --trend)",
     )
     add_format_option(metrics_parser)
 

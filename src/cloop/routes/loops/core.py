@@ -86,9 +86,12 @@ from ...schemas.loops import (
     LoopStatusCountsResponse,
     LoopStatusRequest,
     LoopUpdateRequest,
+    ProjectMetricsResponse,
     RejectSuggestionResponse,
     SuggestionListResponse,
     SuggestionResponse,
+    TrendMetricsResponse,
+    TrendPointResponse,
 )
 from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
 
@@ -530,6 +533,9 @@ def list_claims_endpoint(
 @router.get("/metrics", response_model=LoopMetricsResponse)
 def loop_metrics_endpoint(
     settings: SettingsDep,
+    include_project: Annotated[bool, Query(description="Include project breakdown")] = False,
+    include_trend: Annotated[bool, Query(description="Include trend metrics")] = False,
+    trend_window_days: Annotated[int, Query(ge=1, le=90, description="Trend window in days")] = 7,
 ) -> LoopMetricsResponse:
     """Get operational metrics for loop workflow health.
 
@@ -541,18 +547,26 @@ def loop_metrics_endpoint(
     - Capture and completion rates (24h window)
     - Average age of open loops
     - Operation-level metrics (if enabled via CLOOP_OPERATION_METRICS_ENABLED)
+    - Optional: Per-project breakdown (include_project=true)
+    - Optional: Time-series trends (include_trend=true)
     """
     from ...loops.models import utc_now
 
     with db.core_connection(settings) as conn:
-        metrics = compute_loop_metrics(conn=conn, now_utc=utc_now())
+        metrics = compute_loop_metrics(
+            conn=conn,
+            now_utc=utc_now(),
+            include_project_breakdown=include_project,
+            include_trends=include_trend,
+            trend_window_days=trend_window_days,
+        )
 
     operation_metrics = None
     if settings.operation_metrics_enabled:
         op_metrics = get_operation_metrics().get_snapshot()
         operation_metrics = LoopOperationMetricsResponse(**op_metrics)
 
-    return LoopMetricsResponse(
+    response = LoopMetricsResponse(
         generated_at_utc=metrics.generated_at_utc,
         total_loops=metrics.total_loops,
         status_counts=LoopStatusCountsResponse(
@@ -573,6 +587,42 @@ def loop_metrics_endpoint(
         avg_age_open_hours=metrics.avg_age_open_hours,
         operation_metrics=operation_metrics,
     )
+
+    if metrics.project_breakdown is not None:
+        response.project_breakdown = [
+            ProjectMetricsResponse(
+                project_id=p.project_id,
+                project_name=p.project_name,
+                total_loops=p.total_loops,
+                open_loops=p.open_loops,
+                completed_loops=p.completed_loops,
+                dropped_loops=p.dropped_loops,
+                capture_count_window=p.capture_count_window,
+                completion_count_window=p.completion_count_window,
+                avg_age_open_hours=p.avg_age_open_hours,
+            )
+            for p in metrics.project_breakdown
+        ]
+
+    if metrics.trend_metrics is not None:
+        response.trend_metrics = TrendMetricsResponse(
+            window_days=metrics.trend_metrics.window_days,
+            points=[
+                TrendPointResponse(
+                    date=pt.date,
+                    capture_count=pt.capture_count,
+                    completion_count=pt.completion_count,
+                    open_count=pt.open_count,
+                )
+                for pt in metrics.trend_metrics.points
+            ],
+            total_captures=metrics.trend_metrics.total_captures,
+            total_completions=metrics.trend_metrics.total_completions,
+            avg_daily_captures=metrics.trend_metrics.avg_daily_captures,
+            avg_daily_completions=metrics.trend_metrics.avg_daily_completions,
+        )
+
+    return response
 
 
 @router.get("/{loop_id}", response_model=LoopResponse)

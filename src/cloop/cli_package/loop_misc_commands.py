@@ -119,8 +119,18 @@ def loop_metrics_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop metrics' command."""
     from ..loops.metrics import compute_loop_metrics
 
+    include_project = getattr(args, "project", False)
+    include_trend = getattr(args, "trend", False)
+    trend_window_days = getattr(args, "trend_window_days", 7)
+
     with db.core_connection(settings) as conn:
-        metrics = compute_loop_metrics(conn=conn, now_utc=utc_now())
+        metrics = compute_loop_metrics(
+            conn=conn,
+            now_utc=utc_now(),
+            include_project_breakdown=include_project,
+            include_trends=include_trend,
+            trend_window_days=trend_window_days,
+        )
 
     output = {
         "generated_at_utc": metrics.generated_at_utc,
@@ -146,6 +156,41 @@ def loop_metrics_command(args: Namespace, settings: Settings) -> int:
         },
         "avg_age_open_hours": metrics.avg_age_open_hours,
     }
+
+    if metrics.project_breakdown is not None:
+        output["project_breakdown"] = [
+            {
+                "project_id": p.project_id,
+                "project_name": p.project_name,
+                "total_loops": p.total_loops,
+                "open_loops": p.open_loops,
+                "completed_loops": p.completed_loops,
+                "dropped_loops": p.dropped_loops,
+                "capture_count_window": p.capture_count_window,
+                "completion_count_window": p.completion_count_window,
+                "avg_age_open_hours": p.avg_age_open_hours,
+            }
+            for p in metrics.project_breakdown
+        ]
+
+    if metrics.trend_metrics is not None:
+        output["trend_metrics"] = {
+            "window_days": metrics.trend_metrics.window_days,
+            "points": [
+                {
+                    "date": pt.date,
+                    "capture_count": pt.capture_count,
+                    "completion_count": pt.completion_count,
+                    "open_count": pt.open_count,
+                }
+                for pt in metrics.trend_metrics.points
+            ],
+            "total_captures": metrics.trend_metrics.total_captures,
+            "total_completions": metrics.trend_metrics.total_completions,
+            "avg_daily_captures": metrics.trend_metrics.avg_daily_captures,
+            "avg_daily_completions": metrics.trend_metrics.avg_daily_completions,
+        }
+
     emit_output(output, args.format)
     return 0
 
