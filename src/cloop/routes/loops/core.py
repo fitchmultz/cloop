@@ -58,8 +58,15 @@ from ...loops import repo as loop_repo
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
 from ...loops.metrics import compute_loop_metrics, get_operation_metrics
-from ...loops.models import LoopStatus, is_terminal_status, resolve_status_from_flags, utc_now
+from ...loops.models import (
+    LoopStatus,
+    is_terminal_status,
+    parse_utc_datetime,
+    resolve_status_from_flags,
+    utc_now,
+)
 from ...loops.utils import normalize_tag
+from ...schemas.export_import import ConflictPolicy, ExportFilters, ImportOptions
 from ...schemas.loops import (
     ApplySuggestionRequest,
     ApplySuggestionResponse,
@@ -368,19 +375,56 @@ def loop_tags_endpoint(settings: SettingsDep) -> List[str]:
 
 
 @router.get("/export", response_model=LoopExportResponse)
-def loop_export_endpoint(settings: SettingsDep) -> LoopExportResponse:
+def loop_export_endpoint(
+    settings: SettingsDep,
+    status: Annotated[list[str] | None, Query(description="Filter by status values")] = None,
+    project: Annotated[str | None, Query(description="Filter by project name")] = None,
+    tag: Annotated[str | None, Query(description="Filter by tag")] = None,
+    created_after: Annotated[
+        str | None, Query(description="Only loops created after this ISO datetime")
+    ] = None,
+    created_before: Annotated[
+        str | None, Query(description="Only loops created before this ISO datetime")
+    ] = None,
+    updated_after: Annotated[
+        str | None, Query(description="Only loops updated after this ISO datetime")
+    ] = None,
+) -> LoopExportResponse:
+    filters = None
+    if any([status, project, tag, created_after, created_before, updated_after]):
+        filters = ExportFilters(
+            status=status,
+            project=project,
+            tag=tag,
+            created_after=parse_utc_datetime(created_after) if created_after else None,
+            created_before=parse_utc_datetime(created_before) if created_before else None,
+            updated_after=parse_utc_datetime(updated_after) if updated_after else None,
+        )
+
     with db.core_connection(settings) as conn:
-        loops_data: list[dict[str, Any]] = loop_service.export_loops(conn=conn)
+        loops_data: list[dict[str, Any]] = loop_service.export_loops(conn=conn, filters=filters)
     export_items = [LoopExportItem(**loop_item) for loop_item in loops_data]
-    return LoopExportResponse(version=1, loops=export_items)
+    return LoopExportResponse(version=1, loops=export_items, filtered=filters is not None)
 
 
 @router.post("/import", response_model=LoopImportResponse)
 def loop_import_endpoint(
     request: LoopImportRequest,
     settings: SettingsDep,
+    dry_run: Annotated[bool, Query(description="Preview changes without writing")] = False,
+    conflict_policy: Annotated[
+        str, Query(description="How to handle conflicts: skip, update, fail")
+    ] = "fail",
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopImportResponse | JSONResponse:
+    try:
+        policy = ConflictPolicy(conflict_policy)
+    except ValueError:
+        detail = f"Invalid conflict_policy: {conflict_policy}. Must be 'skip', 'update', or 'fail'."
+        raise HTTPException(status_code=400, detail=detail) from None
+
+    options = ImportOptions(dry_run=dry_run, conflict_policy=policy)
+
     if idempotency_key is not None:
         try:
             key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
@@ -388,7 +432,11 @@ def loop_import_endpoint(
             raise HTTPException(status_code=400, detail=str(e)) from None
 
         scope = build_http_scope("POST", "/loops/import")
-        payload = {"loops": [loop.model_dump() for loop in request.loops]}
+        payload = {
+            "loops": [loop.model_dump() for loop in request.loops],
+            "dry_run": dry_run,
+            "conflict_policy": conflict_policy,
+        }
         request_hash = canonical_request_hash(payload)
         expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
 
@@ -411,8 +459,19 @@ def loop_import_endpoint(
                     status_code=replay["status_code"],
                 )
 
-            imported = loop_service.import_loops(loops=request.loops, conn=conn)
-            response = LoopImportResponse(imported=imported).model_dump()
+            try:
+                result = loop_service.import_loops(loops=request.loops, conn=conn, options=options)
+            except loop_service.ValidationError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from None
+
+            response = LoopImportResponse(
+                imported=result.imported,
+                skipped=result.skipped,
+                updated=result.updated,
+                conflicts_detected=result.conflicts_detected,
+                dry_run=result.dry_run,
+                preview=result.preview.model_dump() if result.preview else None,
+            ).model_dump()
             db.finalize_idempotency_response(
                 scope=scope,
                 idempotency_key=key,
@@ -423,8 +482,19 @@ def loop_import_endpoint(
             return LoopImportResponse(**response)
 
     with db.core_connection(settings) as conn:
-        imported = loop_service.import_loops(loops=request.loops, conn=conn)
-    return LoopImportResponse(imported=imported)
+        try:
+            result = loop_service.import_loops(loops=request.loops, conn=conn, options=options)
+        except loop_service.ValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from None
+
+    return LoopImportResponse(
+        imported=result.imported,
+        skipped=result.skipped,
+        updated=result.updated,
+        conflicts_detected=result.conflicts_detected,
+        dry_run=result.dry_run,
+        preview=result.preview.model_dump() if result.preview else None,
+    )
 
 
 @router.get("/next", response_model=LoopNextResponse)

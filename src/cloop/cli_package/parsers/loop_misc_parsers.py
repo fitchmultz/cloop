@@ -248,21 +248,52 @@ def add_export_parser(subparsers: Any) -> None:
     export_parser = subparsers.add_parser(
         "export",
         help="Export loops",
-        description="Export all loops to JSON",
+        description="Export loops to JSON with optional filters",
         epilog="""
 Examples:
-  # Export to stdout
+  # Export all loops to stdout
   cloop export
 
   # Export to file
   cloop export --output backup.json
 
-  # Export and view as table
-  cloop export --format table
+  # Export only actionable loops
+  cloop export --status actionable
+
+  # Export loops from specific project
+  cloop export --project "My Project"
+
+  # Export loops with a tag
+  cloop export --tag urgent
+
+  # Export loops created in last week
+  cloop export --created-after "2026-02-12T00:00:00Z"
+
+  # Combine filters
+  cloop export --status actionable --project Work --output work_tasks.json
         """,
         formatter_class=RawDescriptionHelpFormatter,
     )
     export_parser.add_argument("--output", help="Write to file instead of stdout")
+    export_parser.add_argument(
+        "--status",
+        action="append",
+        help="Filter by status (can be specified multiple times)",
+    )
+    export_parser.add_argument("--project", help="Filter by project name")
+    export_parser.add_argument("--tag", help="Filter by tag")
+    export_parser.add_argument(
+        "--created-after",
+        help="Only loops created after this ISO datetime",
+    )
+    export_parser.add_argument(
+        "--created-before",
+        help="Only loops created before this ISO datetime",
+    )
+    export_parser.add_argument(
+        "--updated-after",
+        help="Only loops updated after this ISO datetime",
+    )
     add_format_option(export_parser)
 
 
@@ -273,11 +304,23 @@ def add_import_parser(subparsers: Any) -> None:
     import_parser = subparsers.add_parser(
         "import",
         help="Import loops",
-        description="Import loops from JSON (previously exported)",
+        description="Import loops from JSON with dry-run and conflict handling",
         epilog="""
 Examples:
   # Import from file
   cloop import --file backup.json
+
+  # Preview import without making changes (dry-run)
+  cloop import --file backup.json --dry-run
+
+  # Import, skipping conflicting records
+  cloop import --file backup.json --conflict-policy skip
+
+  # Import, updating existing records on conflict
+  cloop import --file backup.json --conflict-policy update
+
+  # Abort on any conflict (default)
+  cloop import --file backup.json --conflict-policy fail
 
   # Import from stdin (pipe)
   cat backup.json | cloop import
@@ -285,6 +328,17 @@ Examples:
         formatter_class=RawDescriptionHelpFormatter,
     )
     import_parser.add_argument("--file", help="Read from file instead of stdin")
+    import_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without writing to database",
+    )
+    import_parser.add_argument(
+        "--conflict-policy",
+        choices=["skip", "update", "fail"],
+        default="fail",
+        help="How to handle conflicts: skip, update existing, or fail (default: fail)",
+    )
     add_format_option(import_parser)
 
 

@@ -23,6 +23,14 @@ import sqlite3
 from typing import TYPE_CHECKING, Any, Mapping
 
 from .. import typingx
+from ..schemas.export_import import (
+    ConflictInfo,
+    ConflictPolicy,
+    ExportFilters,
+    ImportOptions,
+    ImportPreview,
+    ImportResult,
+)
 from ..settings import Settings, get_settings
 from ..webhooks.service import queue_deliveries
 from . import repo
@@ -380,8 +388,28 @@ def list_tags(*, conn: sqlite3.Connection) -> list[str]:
 
 
 @typingx.validate_io()
-def export_loops(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    records = repo.list_all_loops(conn=conn)
+def export_loops(
+    *,
+    conn: sqlite3.Connection,
+    filters: ExportFilters | None = None,
+) -> list[dict[str, Any]]:
+    """Export loops with optional filters."""
+    if filters is None:
+        records = repo.list_all_loops(conn=conn)
+    else:
+        status_list = None
+        if filters.status:
+            status_list = [LoopStatus(s) for s in filters.status]
+
+        records = repo.export_loops_filtered(
+            status=status_list,
+            project_name=filters.project,
+            tag=filters.tag,
+            created_after=filters.created_after.isoformat() if filters.created_after else None,
+            created_before=filters.created_before.isoformat() if filters.created_before else None,
+            updated_after=filters.updated_after.isoformat() if filters.updated_after else None,
+            conn=conn,
+        )
     return _enrich_records_batch(records, conn=conn)
 
 
@@ -390,15 +418,99 @@ def import_loops(
     *,
     loops: list[Mapping[str, Any]],
     conn: sqlite3.Connection,
-) -> int:
-    imported = 0
+    options: ImportOptions | None = None,
+) -> ImportResult:
+    """Import loops with dry-run and conflict handling support."""
+    if options is None:
+        options = ImportOptions()
+
     now = utc_now()
+    conflicts: list[ConflictInfo] = []
+    validation_errors: list[dict[str, Any]] = []
+    to_create: list[dict[str, Any]] = []
+    to_update: list[tuple[int, dict[str, Any]]] = []  # (existing_id, imported_data)
+
+    # First pass: detect conflicts and validate
+    for idx, item in enumerate(loops):
+        if isinstance(item, Mapping):
+            item_map = dict(item)
+        else:
+            item_map = item.model_dump()
+
+        # Validate required fields
+        if not item_map.get("raw_text"):
+            validation_errors.append(
+                {
+                    "index": idx,
+                    "error": "missing required field: raw_text",
+                }
+            )
+            continue
+
+        # Check for conflicts
+        existing = repo.find_loop_by_raw_text(
+            raw_text=str(item_map.get("raw_text", "")),
+            conn=conn,
+        )
+        match_field = "raw_text"
+
+        if not existing and item_map.get("title"):
+            existing = repo.find_loop_by_title(
+                title=str(item_map.get("title")),
+                conn=conn,
+            )
+            match_field = "title"
+
+        if existing:
+            conflicts.append(
+                ConflictInfo(
+                    imported_loop=item_map,
+                    existing_loop_id=existing.id,
+                    match_field=match_field,
+                )
+            )
+
+            if options.conflict_policy == ConflictPolicy.SKIP:
+                continue
+            elif options.conflict_policy == ConflictPolicy.UPDATE:
+                to_update.append((existing.id, item_map))
+                continue
+            elif options.conflict_policy == ConflictPolicy.FAIL:
+                if not options.dry_run:
+                    msg = (
+                        f"Import conflict detected: loop matches "
+                        f"existing loop {existing.id} by {match_field}"
+                    )
+                    raise ValidationError("conflict", msg)
+        else:
+            to_create.append(item_map)
+
+    # If dry-run, return preview without writing
+    if options.dry_run:
+        return ImportResult(
+            imported=0,
+            skipped=len(conflicts) if options.conflict_policy == ConflictPolicy.SKIP else 0,
+            updated=0,
+            conflicts_detected=len(conflicts),
+            dry_run=True,
+            preview=ImportPreview(
+                total_loops=len(loops),
+                would_create=len(to_create),
+                would_skip=len(conflicts) if options.conflict_policy == ConflictPolicy.SKIP else 0,
+                would_update=len(to_update),
+                conflicts=conflicts,
+                validation_errors=validation_errors,
+            ),
+        )
+
+    # Actually perform the import
+    imported = 0
+    updated = 0
+    skipped = len([c for c in conflicts if options.conflict_policy == ConflictPolicy.SKIP])
+
     with conn:
-        for item in loops:
-            if isinstance(item, Mapping):
-                item_map = dict(item)
-            else:
-                item_map = item.model_dump()
+        # Create new loops
+        for item_map in to_create:
             status = LoopStatus(str(item_map.get("status", "inbox")))
             captured_at = item_map.get("captured_at_utc")
             if captured_at:
@@ -449,7 +561,46 @@ def import_loops(
                 normalized_tags = normalize_tags(tags)
                 repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
             imported += 1
-    return imported
+
+        # Update existing loops (for conflict_policy=update)
+        for existing_id, item_map in to_update:
+            # Build update fields from imported data
+            update_fields: dict[str, Any] = {}
+            for field in [
+                "title",
+                "summary",
+                "definition_of_done",
+                "next_action",
+                "due_at_utc",
+                "snooze_until_utc",
+                "time_minutes",
+                "activation_energy",
+                "urgency",
+                "importance",
+                "blocked_reason",
+                "completion_note",
+            ]:
+                if field in item_map and item_map[field] is not None:
+                    update_fields[field] = item_map[field]
+
+            if update_fields:
+                repo.update_loop_fields(loop_id=existing_id, fields=update_fields, conn=conn)
+
+            # Update tags if provided
+            tags = item_map.get("tags")
+            if tags:
+                normalized_tags = normalize_tags(tags)
+                repo.replace_loop_tags(loop_id=existing_id, tag_names=normalized_tags, conn=conn)
+
+            updated += 1
+
+    return ImportResult(
+        imported=imported,
+        skipped=skipped,
+        updated=updated,
+        conflicts_detected=len(conflicts),
+        dry_run=False,
+    )
 
 
 @typingx.validate_io()

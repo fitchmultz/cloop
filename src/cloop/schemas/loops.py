@@ -282,6 +282,7 @@ class LoopExportResponse(BaseModel):
 
     version: int = 1
     loops: List[LoopExportItem]
+    filtered: bool = Field(default=False, description="True if filters were applied")
 
 
 class LoopImportRequest(BaseModel):
@@ -294,6 +295,13 @@ class LoopImportResponse(BaseModel):
     """Response from loop import."""
 
     imported: int
+    skipped: int = Field(default=0, description="Number of loops skipped due to conflicts")
+    updated: int = Field(default=0, description="Number of existing loops updated")
+    conflicts_detected: int = Field(default=0, description="Number of conflicts detected")
+    dry_run: bool = Field(default=False, description="Whether this was a dry-run preview")
+    preview: dict[str, Any] | None = Field(
+        default=None, description="Preview details for dry-run mode"
+    )
 
 
 class LoopSearchRequest(BaseModel):

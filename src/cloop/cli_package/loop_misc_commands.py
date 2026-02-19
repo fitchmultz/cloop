@@ -23,6 +23,7 @@ from .. import db
 from ..loops import repo, service
 from ..loops.errors import LoopNotFoundError, UndoNotPossibleError, ValidationError
 from ..loops.models import utc_now
+from ..schemas.export_import import ConflictPolicy, ExportFilters, ImportOptions
 from ..settings import Settings
 from .output import emit_output
 
@@ -213,9 +214,41 @@ def projects_command(args: Namespace, settings: Settings) -> int:
 
 def export_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop export' command."""
+    from ..loops.models import LoopStatus, parse_utc_datetime
+
+    # Build filters from args
+    filters = None
+    if any(
+        [
+            args.status,
+            args.project,
+            args.tag,
+            args.created_after,
+            args.created_before,
+            args.updated_after,
+        ]
+    ):
+        status_list = None
+        if args.status:
+            try:
+                status_list = [LoopStatus(s).value for s in args.status]
+            except ValueError as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 1
+
+        filters = ExportFilters(
+            status=status_list,
+            project=args.project,
+            tag=args.tag,
+            created_after=parse_utc_datetime(args.created_after) if args.created_after else None,
+            created_before=parse_utc_datetime(args.created_before) if args.created_before else None,
+            updated_after=parse_utc_datetime(args.updated_after) if args.updated_after else None,
+        )
+
     with db.core_connection(settings) as conn:
-        loops = service.export_loops(conn=conn)
-    payload = {"version": 1, "loops": loops}
+        loops = service.export_loops(conn=conn, filters=filters)
+
+    payload = {"version": 1, "loops": loops, "filtered": filters is not None}
     if args.output:
         from pathlib import Path
 
@@ -238,10 +271,40 @@ def import_command(args: Namespace, settings: Settings) -> int:
 
         loops = data.get("loops", data) if isinstance(data, dict) else data
 
-        with db.core_connection(settings) as conn:
-            imported = service.import_loops(loops=loops, conn=conn)
+        options = ImportOptions(
+            dry_run=args.dry_run,
+            conflict_policy=ConflictPolicy(args.conflict_policy),
+        )
 
-        emit_output({"imported": imported}, args.format)
+        with db.core_connection(settings) as conn:
+            result = service.import_loops(loops=loops, conn=conn, options=options)
+
+        output = {
+            "imported": result.imported,
+            "skipped": result.skipped,
+            "updated": result.updated,
+            "conflicts_detected": result.conflicts_detected,
+            "dry_run": result.dry_run,
+        }
+
+        if result.dry_run and result.preview:
+            output["preview"] = {
+                "total_loops": result.preview.total_loops,
+                "would_create": result.preview.would_create,
+                "would_skip": result.preview.would_skip,
+                "would_update": result.preview.would_update,
+                "conflicts": [
+                    {
+                        "existing_loop_id": c.existing_loop_id,
+                        "match_field": c.match_field,
+                        "raw_text": c.imported_loop.get("raw_text", ""),
+                    }
+                    for c in result.preview.conflicts
+                ],
+                "validation_errors": result.preview.validation_errors,
+            }
+
+        emit_output(output, args.format)
         return 0
     except json.JSONDecodeError as e:
         print(f"error: invalid JSON: {e}", file=sys.stderr)

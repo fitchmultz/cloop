@@ -1593,25 +1593,114 @@ def test_export_import_roundtrip(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:
     """Test export -> import roundtrip preserves data."""
-    settings = _make_settings(tmp_path, monkeypatch)
-    parser = cli.build_parser()
+    # Create loops in primary database
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "primary"))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    get_settings.cache_clear()
+    db.init_databases(get_settings())
 
-    cli._capture_command(parser.parse_args(["capture", "Loop 1"]), settings)
-    cli._loop_update_command(
-        parser.parse_args(["loop", "update", "1", "--title", "Test Title", "--tags", "work"]),
-        settings,
-    )
-    cli._capture_command(parser.parse_args(["capture", "Loop 2", "--actionable"]), settings)
+    cli.main(["capture", "Loop 1"])
+    cli.main(["loop", "update", "1", "--title", "Test Title", "--tags", "work"])
+    cli.main(["capture", "Loop 2", "--actionable"])
     capsys.readouterr()
 
     export_file = tmp_path / "roundtrip.json"
     exit_code = cli.main(["export", "--output", str(export_file)])
     assert exit_code == 0
 
+    # Import into fresh database
+    fresh_dir = tmp_path / "imported"
+    fresh_dir.mkdir()
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(fresh_dir))
+    get_settings.cache_clear()
+    db.init_databases(get_settings())
+
     exit_code = cli.main(["import", "--file", str(export_file)])
     assert exit_code == 0
     output = _get_last_json(capsys)
     assert output["imported"] == 2
+
+
+def test_export_with_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
+    """Test export command with filters."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    get_settings.cache_clear()
+    db.init_databases(get_settings())
+
+    # Create loops
+    cli.main(["capture", "inbox item"])
+    cli.main(["capture", "actionable item", "--actionable"])
+    capsys.readouterr()
+
+    exit_code = cli.main(["export", "--status", "actionable"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert len(output["loops"]) == 1
+    assert output["loops"][0]["status"] == "actionable"
+    assert output["filtered"] is True
+
+
+def test_import_dry_run_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
+    """Test import command with --dry-run flag."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    get_settings.cache_clear()
+    db.init_databases(get_settings())
+
+    import_file = tmp_path / "import.json"
+    import_file.write_text(
+        json.dumps({"version": 1, "loops": [{"raw_text": "dry run test", "status": "inbox"}]})
+    )
+
+    exit_code = cli.main(["import", "--file", str(import_file), "--dry-run"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["dry_run"] is True
+    assert output["imported"] == 0
+    assert "preview" in output
+    assert output["preview"]["would_create"] == 1
+
+
+def test_import_conflict_policy_skip_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test import command with --conflict-policy skip."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    get_settings.cache_clear()
+    db.init_databases(get_settings())
+
+    # Create existing loop
+    cli.main(["capture", "existing task"])
+    capsys.readouterr()
+
+    import_file = tmp_path / "import.json"
+    import_file.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "loops": [
+                    {"raw_text": "existing task", "status": "actionable"},
+                    {"raw_text": "new task", "status": "inbox"},
+                ],
+            }
+        )
+    )
+
+    exit_code = cli.main(["import", "--file", str(import_file), "--conflict-policy", "skip"])
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["skipped"] == 1
+    assert output["imported"] == 1
 
 
 # =============================================================================

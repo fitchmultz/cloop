@@ -310,6 +310,88 @@ def list_all_loops(*, conn: sqlite3.Connection) -> list[LoopRecord]:
     return [_row_to_record(row) for row in rows]
 
 
+def export_loops_filtered(
+    *,
+    status: list[LoopStatus] | None = None,
+    project_name: str | None = None,
+    tag: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
+    updated_after: str | None = None,
+    conn: sqlite3.Connection,
+) -> list[LoopRecord]:
+    """Export loops with optional filters."""
+    sql = "SELECT DISTINCT loops.* FROM loops"
+    params: list[Any] = []
+    conditions: list[str] = []
+    joins: list[str] = []
+
+    if project_name:
+        joins.append("JOIN projects ON projects.id = loops.project_id")
+        conditions.append("LOWER(projects.name) = LOWER(?)")
+        params.append(project_name.strip())
+
+    if tag:
+        joins.append("JOIN loop_tags ON loop_tags.loop_id = loops.id")
+        joins.append("JOIN tags ON tags.id = loop_tags.tag_id")
+        conditions.append("LOWER(tags.name) = LOWER(?)")
+        params.append(normalize_tag(tag))
+
+    if status:
+        placeholders = ", ".join("?" for _ in status)
+        conditions.append(f"loops.status IN ({placeholders})")
+        params.extend(s.value for s in status)
+
+    if created_after:
+        conditions.append("loops.created_at >= ?")
+        params.append(created_after)
+
+    if created_before:
+        conditions.append("loops.created_at <= ?")
+        params.append(created_before)
+
+    if updated_after:
+        conditions.append("loops.updated_at >= ?")
+        params.append(updated_after)
+
+    if joins:
+        sql += " " + " ".join(joins)
+
+    if conditions:
+        sql += " WHERE " + " AND ".join(conditions)
+
+    sql += " ORDER BY loops.updated_at DESC, loops.captured_at_utc DESC, loops.id DESC"
+
+    rows = conn.execute(sql, params).fetchall()
+    return [_row_to_record(row) for row in rows]
+
+
+def find_loop_by_raw_text(
+    *,
+    raw_text: str,
+    conn: sqlite3.Connection,
+) -> LoopRecord | None:
+    """Find a loop by exact raw_text match."""
+    row = conn.execute(
+        "SELECT * FROM loops WHERE raw_text = ? LIMIT 1",
+        [raw_text],
+    ).fetchone()
+    return _row_to_record(row) if row else None
+
+
+def find_loop_by_title(
+    *,
+    title: str,
+    conn: sqlite3.Connection,
+) -> LoopRecord | None:
+    """Find a loop by exact title match."""
+    row = conn.execute(
+        "SELECT * FROM loops WHERE title = ? LIMIT 1",
+        [title],
+    ).fetchone()
+    return _row_to_record(row) if row else None
+
+
 def list_loops_by_tag(
     *,
     tag: str,
