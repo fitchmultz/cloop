@@ -13,7 +13,7 @@ Non-scope:
 
 Supports:
 - Basic chat completions
-- Manual tool execution (read_note, write_note)
+- Manual tool execution (read_note, write_note, loop_*)
 - LLM-orchestrated tool mode
 - SSE streaming for real-time responses
 """
@@ -38,7 +38,7 @@ from ..loops.errors import CloopError
 from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
 from ..settings import Settings, ToolMode, get_settings
 from ..sse import format_sse_event
-from ..tools import EXECUTORS, TOOL_SPECS
+from ..tools import TOOL_SPECS
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -47,12 +47,13 @@ SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
 
 def handle_tool_call(tool_call, settings: Settings) -> Dict[str, Any]:
     """Execute a manual tool call."""
+    from ..tools import EXECUTORS
+
     executor = EXECUTORS.get(tool_call.name)
     if executor is None:
-        raise HTTPException(status_code=400, detail="Unsupported tool name")
-    payload = tool_call.model_dump(exclude_none=True, exclude={"name"})
+        raise HTTPException(status_code=400, detail=f"Unsupported tool: {tool_call.name}")
     try:
-        return executor(**payload)
+        return executor(**tool_call.arguments)
     except CloopError:
         raise
     except ValueError as exc:

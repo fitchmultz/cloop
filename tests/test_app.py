@@ -35,8 +35,7 @@ def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> N
         "messages": [{"role": "user", "content": "Log a new note."}],
         "tool_call": {
             "name": "write_note",
-            "title": "todo",
-            "body": "remember to test",
+            "arguments": {"title": "todo", "body": "remember to test"},
         },
     }
     write_response = test_client.post("/chat", json=write_payload)
@@ -49,7 +48,7 @@ def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> N
 
     read_payload = {
         "messages": [{"role": "user", "content": "Fetch my note."}],
-        "tool_call": {"name": "read_note", "note_id": note_id},
+        "tool_call": {"name": "read_note", "arguments": {"note_id": note_id}},
     }
     read_response = test_client.post("/chat", json=read_payload)
     assert read_response.status_code == 200
@@ -64,6 +63,169 @@ def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> N
         ).fetchone()
     assert row is not None
     assert row["tool_calls"] == "[]"
+
+
+def test_chat_manual_loop_create(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Manual mode can create loops via loop_create tool."""
+    payload = {
+        "messages": [{"role": "user", "content": "Create a task"}],
+        "tool_call": {
+            "name": "loop_create",
+            "arguments": {"raw_text": "Pay rent", "status": "inbox"},
+        },
+    }
+    response = test_client.post("/chat", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tool_result"]["action"] == "loop_create"
+    assert data["tool_result"]["loop"]["raw_text"] == "Pay rent"
+    assert data["tool_result"]["loop"]["status"] == "inbox"
+
+
+def test_chat_manual_loop_update(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Manual mode can update loops via loop_update tool."""
+    # Create a loop first
+    create_payload = {
+        "messages": [{"role": "user", "content": "Create"}],
+        "tool_call": {
+            "name": "loop_create",
+            "arguments": {"raw_text": "Original task"},
+        },
+    }
+    create_resp = test_client.post("/chat", json=create_payload)
+    loop_id = create_resp.json()["tool_result"]["loop"]["id"]
+
+    # Update the loop
+    update_payload = {
+        "messages": [{"role": "user", "content": "Update"}],
+        "tool_call": {
+            "name": "loop_update",
+            "arguments": {
+                "loop_id": loop_id,
+                "fields": {"title": "Updated Title", "time_minutes": 30},
+            },
+        },
+    }
+    response = test_client.post("/chat", json=update_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tool_result"]["action"] == "loop_update"
+    assert data["tool_result"]["loop"]["title"] == "Updated Title"
+    assert data["tool_result"]["loop"]["time_minutes"] == 30
+
+
+def test_chat_manual_loop_list(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Manual mode can list loops via loop_list tool."""
+    # Create some loops
+    for i in range(3):
+        test_client.post(
+            "/chat",
+            json={
+                "messages": [{"role": "user", "content": f"Create {i}"}],
+                "tool_call": {
+                    "name": "loop_create",
+                    "arguments": {"raw_text": f"Task {i}", "status": "actionable"},
+                },
+            },
+        )
+
+    # List actionable loops
+    list_payload = {
+        "messages": [{"role": "user", "content": "List tasks"}],
+        "tool_call": {
+            "name": "loop_list",
+            "arguments": {"status": "actionable", "limit": 10},
+        },
+    }
+    response = test_client.post("/chat", json=list_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tool_result"]["action"] == "loop_list"
+    assert len(data["tool_result"]["items"]) >= 3
+
+
+def test_chat_manual_loop_close(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Manual mode can close loops via loop_close tool."""
+    # Create a loop
+    create_resp = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Create"}],
+            "tool_call": {"name": "loop_create", "arguments": {"raw_text": "Done task"}},
+        },
+    )
+    loop_id = create_resp.json()["tool_result"]["loop"]["id"]
+
+    # Close the loop
+    close_payload = {
+        "messages": [{"role": "user", "content": "Complete"}],
+        "tool_call": {
+            "name": "loop_close",
+            "arguments": {"loop_id": loop_id, "status": "completed"},
+        },
+    }
+    response = test_client.post("/chat", json=close_payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tool_result"]["action"] == "loop_close"
+    assert data["tool_result"]["loop"]["status"] == "completed"
+
+
+def test_chat_manual_invalid_tool_arguments(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Manual mode validates tool arguments and returns 400 on validation errors."""
+    # Missing required raw_text for loop_create
+    payload = {
+        "messages": [{"role": "user", "content": "Invalid"}],
+        "tool_call": {
+            "name": "loop_create",
+            "arguments": {},  # Missing raw_text
+        },
+    }
+    response = test_client.post("/chat", json=payload)
+    assert response.status_code == 400
+
+
+def test_chat_manual_unsupported_tool(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Manual mode returns 400 for unsupported tool names."""
+    payload = {
+        "messages": [{"role": "user", "content": "Bad tool"}],
+        "tool_call": {
+            "name": "nonexistent_tool",
+            "arguments": {},
+        },
+    }
+    response = test_client.post("/chat", json=payload)
+    assert response.status_code == 400
+    assert "Unsupported tool" in response.json()["error"]["message"]
+
+
+def test_chat_manual_backward_compat_note_tools(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Existing note tool calls work with new arguments-based schema."""
+    # write_note with new schema
+    write_payload = {
+        "messages": [{"role": "user", "content": "Write note"}],
+        "tool_call": {
+            "name": "write_note",
+            "arguments": {"title": "Test", "body": "Content"},
+        },
+    }
+    write_resp = test_client.post("/chat", json=write_payload)
+    assert write_resp.status_code == 200
+    note_id = write_resp.json()["tool_result"]["note"]["id"]
+
+    # read_note with new schema
+    read_payload = {
+        "messages": [{"role": "user", "content": "Read note"}],
+        "tool_call": {
+            "name": "read_note",
+            "arguments": {"note_id": note_id},
+        },
+    }
+    read_resp = test_client.post("/chat", json=read_payload)
+    assert read_resp.status_code == 200
+    assert read_resp.json()["tool_result"]["note"]["title"] == "Test"
 
 
 def test_chat_llm_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> None:

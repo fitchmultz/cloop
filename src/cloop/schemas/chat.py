@@ -13,7 +13,7 @@ Non-scope:
 
 Models for the /chat endpoint supporting:
 - Basic chat completions
-- Manual tool execution (read_note, write_note)
+- Manual tool execution (read_note, write_note, loop_*)
 - LLM-orchestrated tool mode
 """
 
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, TypedDict
 
 from pydantic import BaseModel, Field, conlist, model_validator
 
-from ..constants import CHAT_MESSAGE_MAX, NOTE_BODY_MAX, TITLE_MAX
+from ..constants import CHAT_MESSAGE_MAX
 from ..settings import ToolMode
 
 
@@ -43,13 +43,18 @@ class ChatMessage(BaseModel):
 class ToolCall(BaseModel):
     """Manual tool call instruction for chat requests.
 
-    Supported tools: read_note, write_note
+    Supports all tools defined in TOOL_SPECS:
+    - Note tools: read_note, write_note
+    - Loop tools: loop_create, loop_update, loop_close, loop_list,
+      loop_search, loop_next, loop_transition, loop_snooze,
+      loop_enrich, loop_get
     """
 
-    name: str = Field(..., description="Supported: read_note, write_note")
-    note_id: int | None = None
-    title: str | None = Field(default=None, max_length=TITLE_MAX)
-    body: str | None = Field(default=None, max_length=NOTE_BODY_MAX)
+    name: str = Field(..., description="Tool name from TOOL_SPECS")
+    arguments: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Tool-specific arguments matching TOOL_SPECS parameters",
+    )
 
 
 if TYPE_CHECKING:
