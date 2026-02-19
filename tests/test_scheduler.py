@@ -167,6 +167,76 @@ class TestWeeklyReview:
 class TestDueSoonNudge:
     """Tests for due-soon nudge scheduler task."""
 
+    def test_snoozed_loops_excluded_from_due_soon_nudge(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Snoozed loops should not receive due-soon nudges."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
+        snooze_12h = (now + timedelta(hours=12)).isoformat(timespec="seconds")
+
+        # Create loop due in 1h but snoozed for 12h
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                due_at_utc, snooze_until_utc)
+               VALUES ('snoozed task', 'actionable', datetime('now'), 0, ?, ?)
+            """,
+            (due_1h, snooze_12h),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 0
+        assert result["loop_ids"] == []
+
+    def test_expired_snooze_allows_due_soon_nudge(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Loops with past snooze_until_utc should still get nudged."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
+        snooze_past = (now - timedelta(hours=1)).isoformat(timespec="seconds")
+
+        # Create loop due in 1h with expired snooze
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                due_at_utc, snooze_until_utc)
+               VALUES ('was snoozed', 'actionable', datetime('now'), 0, ?, ?)
+            """,
+            (due_1h, snooze_past),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+
+    def test_null_snooze_allows_due_soon_nudge(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Loops with NULL snooze_until_utc should get nudged (baseline)."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('unsnoozed task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_1h,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+
     def test_nudges_due_soon_without_next_action(
         self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -322,6 +392,75 @@ class TestDueSoonNudge:
 
 class TestStaleRescue:
     """Tests for stale loop rescue scheduler task."""
+
+    def test_snoozed_loops_excluded_from_stale_rescue(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Snoozed loops should not receive stale rescue nudges."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        snooze_future = (now + timedelta(hours=12)).isoformat(timespec="seconds")
+
+        # Create stale loop that is also snoozed
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at,
+                snooze_until_utc)
+               VALUES ('stale snoozed task', 'actionable', datetime('now', '-100 hours'), 0,
+                       datetime('now', '-100 hours'), ?)
+            """,
+            (snooze_future,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
+
+        assert result["rescued"] == 0
+        assert result["loop_ids"] == []
+
+    def test_expired_snooze_allows_stale_rescue(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stale loops with past snooze_until_utc should still get rescued."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        snooze_past = (now - timedelta(hours=1)).isoformat(timespec="seconds")
+
+        # Create stale loop with expired snooze
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at,
+                snooze_until_utc)
+               VALUES ('was snoozed', 'actionable', datetime('now', '-100 hours'), 0,
+                       datetime('now', '-100 hours'), ?)
+            """,
+            (snooze_past,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
+
+        assert result["rescued"] >= 1
+
+    def test_null_snooze_allows_stale_rescue(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stale loops with NULL snooze_until_utc should get rescued (baseline)."""
+        settings = get_settings()
+
+        # Create stale loop without snooze
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at)
+               VALUES ('stale unsnoozed task', 'actionable', datetime('now', '-100 hours'), 0,
+                       datetime('now', '-100 hours'))
+            """
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
+
+        assert result["rescued"] >= 1
 
     def test_nudges_stale_loops(
         self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -196,9 +196,11 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
 
     now = utc_now()
     due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.review_due_soon_hours))
+    now_str = format_utc_datetime(now)
 
     # Find due-soon and overdue loops without next_action
     # Include overdue loops (due_at_utc <= now) for escalation
+    # Exclude snoozed loops (snooze_until_utc in the future)
     rows = conn.execute(
         """SELECT id, title, due_at_utc, urgency, importance, time_minutes, activation_energy
            FROM loops
@@ -206,8 +208,9 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
              AND due_at_utc <= ?
              AND next_action IS NULL
              AND status IN ('inbox', 'actionable', 'scheduled')
+             AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
         """,
-        (due_soon_cutoff,),
+        (due_soon_cutoff, now_str),
     ).fetchall()
 
     if not rows:
@@ -358,15 +361,18 @@ async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict
 
     now = utc_now()
     stale_cutoff = format_utc_datetime(now - timedelta(hours=settings.review_stale_hours))
+    now_str = format_utc_datetime(now)
 
+    # Find stale loops, excluding snoozed loops
     rows = conn.execute(
         """SELECT id, title, status, updated_at FROM loops
            WHERE status IN ('inbox', 'actionable', 'blocked', 'scheduled')
              AND updated_at < ?
+             AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
            ORDER BY updated_at ASC
            LIMIT 100
         """,
-        (stale_cutoff,),
+        (stale_cutoff, now_str),
     ).fetchall()
 
     loop_ids = [row["id"] for row in rows]
