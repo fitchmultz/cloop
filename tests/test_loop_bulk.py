@@ -16,8 +16,14 @@ def _now_iso():
 
 @pytest.fixture
 def client_with_loops(tmp_path, monkeypatch):
-    """Create test client with sample loops."""
+    """Create test client with sample loops.
+
+    Autopilot is disabled to prevent background enrichment from interfering
+    with bulk-query test assertions. Without this, capture operations would
+    trigger async LLM calls that introduce non-deterministic behavior.
+    """
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     get_settings.cache_clear()
     db.init_databases(get_settings())
 
