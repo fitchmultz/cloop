@@ -171,14 +171,15 @@ def compute_review_cohorts(
         weekly.append(blocked_result)
 
     # DUE_SOON_UNPLANNED: Due soon but no next action
+    # Use COALESCE to include recurring loops with only next_due_at_utc
     due_soon_sql = """
         SELECT * FROM loops
-        WHERE due_at_utc IS NOT NULL
-          AND due_at_utc > ?
-          AND due_at_utc <= ?
+        WHERE COALESCE(due_at_utc, next_due_at_utc) IS NOT NULL
+          AND COALESCE(due_at_utc, next_due_at_utc) > ?
+          AND COALESCE(due_at_utc, next_due_at_utc) <= ?
           AND next_action IS NULL
           AND status IN ('inbox', 'actionable', 'scheduled')
-        ORDER BY due_at_utc ASC
+        ORDER BY COALESCE(due_at_utc, next_due_at_utc) ASC
     """
     due_soon_result = _run_cohort(
         due_soon_sql,

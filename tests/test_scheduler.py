@@ -237,6 +237,33 @@ class TestDueSoonNudge:
 
         assert result["nudged"] == 1
 
+    def test_recurring_loop_with_next_due_at_only_gets_nudged(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Recurring loops with only next_due_at_utc (no due_at_utc) should be nudged."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        next_due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
+
+        # Create a spawned recurring loop with only next_due_at_utc populated
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                next_due_at_utc, recurrence_enabled, recurrence_rrule)
+               VALUES ('weekly review', 'actionable', datetime('now'), 0, ?, 1, 'FREQ=WEEKLY')
+            """,
+            (next_due_1h,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+        assert len(result["loop_ids"]) == 1
+        detail = result["details"][0]
+        assert detail["next_due_at_utc"] is not None
+        assert detail["bucket"] in {"due_soon", "quick_wins", "high_leverage", "standard"}
+
     def test_nudges_due_soon_without_next_action(
         self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -201,11 +201,13 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     # Find due-soon and overdue loops without next_action
     # Include overdue loops (due_at_utc <= now) for escalation
     # Exclude snoozed loops (snooze_until_utc in the future)
+    # Use COALESCE to include recurring loops with only next_due_at_utc
     rows = conn.execute(
-        """SELECT id, title, due_at_utc, urgency, importance, time_minutes, activation_energy
+        """SELECT id, title, due_at_utc, next_due_at_utc, urgency, importance,
+                  time_minutes, activation_energy
            FROM loops
-           WHERE due_at_utc IS NOT NULL
-             AND due_at_utc <= ?
+           WHERE COALESCE(due_at_utc, next_due_at_utc) IS NOT NULL
+             AND COALESCE(due_at_utc, next_due_at_utc) <= ?
              AND next_action IS NULL
              AND status IN ('inbox', 'actionable', 'scheduled')
              AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
@@ -230,6 +232,9 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     scored_candidates = []
     for row in rows:
         loop_dict = dict(row)
+        # Compute effective due date: prefer due_at_utc, fall back to next_due_at_utc
+        effective_due = row["due_at_utc"] or row["next_due_at_utc"]
+        loop_dict["due_at_utc"] = effective_due  # Override for scoring/bucketing
         has_open_deps = loop_repo.has_open_dependencies(loop_id=row["id"], conn=conn)
         score = compute_priority_score(
             loop_dict,
@@ -247,6 +252,7 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
         scored_candidates.append(
             {
                 "row": row,
+                "effective_due": effective_due,
                 "score": score,
                 "bucket": bucket,
                 "has_open_deps": has_open_deps,
@@ -274,7 +280,8 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
         row = candidate["row"]
         loop_id = row["id"]
         state = existing_states.get(loop_id)
-        due_at = parse_utc_datetime(row["due_at_utc"]) if row["due_at_utc"] else now
+        effective_due = candidate["effective_due"]
+        due_at = parse_utc_datetime(effective_due) if effective_due else now
         hours_until_due = (due_at - now).total_seconds() / 3600
         is_overdue = hours_until_due < 0
 
@@ -306,6 +313,7 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
                 "id": loop_id,
                 "title": row["title"],
                 "due_at_utc": row["due_at_utc"],
+                "next_due_at_utc": row["next_due_at_utc"],
                 "escalation_level": escalation_level,
                 "nudge_count": nudge_count,
                 "is_overdue": is_overdue,

@@ -170,6 +170,38 @@ def test_review_cohorts_due_soon_unplanned(
     assert any(item["id"] == loop_id for item in due_soon_cohort["items"])
 
 
+def test_review_cohorts_due_soon_unplanned_recurring(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Recurring loops with only next_due_at_utc should appear in due_soon_unplanned."""
+    settings = get_settings()
+    now = datetime.now(timezone.utc)
+    next_due_24h = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+    conn = sqlite3.connect(str(settings.core_db_path))
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """INSERT INTO loops
+           (raw_text, status, captured_at_utc, captured_tz_offset_min,
+            next_due_at_utc, recurrence_enabled, recurrence_rrule)
+           VALUES ('weekly review', 'actionable', datetime('now'), 0, ?, 1, 'FREQ=WEEKLY')
+        """,
+        (next_due_24h,),
+    )
+    conn.commit()
+
+    from cloop.loops.review import compute_review_cohorts
+
+    result = compute_review_cohorts(
+        conn=conn, settings=settings, now_utc=now, include_daily=True, include_weekly=False
+    )
+    conn.close()
+
+    due_soon_cohort = next((c for c in result.daily if c.cohort == "due_soon_unplanned"), None)
+    assert due_soon_cohort is not None
+    assert due_soon_cohort.count >= 1
+
+
 def test_review_weekly_subset(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
