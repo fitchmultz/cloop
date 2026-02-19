@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -188,7 +189,9 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     """Find loops due soon without next_action and emit escalating nudge events."""
     from datetime import timedelta
 
+    from .loops import repo as loop_repo
     from .loops.models import format_utc_datetime, parse_utc_datetime
+    from .loops.prioritization import PriorityWeights, bucketize, compute_priority_score
     from .loops.repo import get_nudge_states_batch, upsert_nudge_state
 
     now = utc_now()
@@ -197,21 +200,61 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     # Find due-soon and overdue loops without next_action
     # Include overdue loops (due_at_utc <= now) for escalation
     rows = conn.execute(
-        """SELECT id, title, due_at_utc FROM loops
+        """SELECT id, title, due_at_utc, urgency, importance, time_minutes, activation_energy
+           FROM loops
            WHERE due_at_utc IS NOT NULL
              AND due_at_utc <= ?
              AND next_action IS NULL
              AND status IN ('inbox', 'actionable', 'scheduled')
-           ORDER BY due_at_utc ASC
-           LIMIT 50
         """,
         (due_soon_cutoff,),
     ).fetchall()
 
-    loop_ids = [row["id"] for row in rows]
+    if not rows:
+        return {"nudged": 0, "loop_ids": [], "escalation_summary": {}, "bucket_summary": {}}
 
-    if not loop_ids:
-        return {"nudged": 0, "loop_ids": [], "escalation_summary": {}}
+    # Build priority weights from settings
+    weights = PriorityWeights(
+        due_weight=settings.priority_weight_due,
+        urgency_weight=settings.priority_weight_urgency,
+        importance_weight=settings.priority_weight_importance,
+        time_penalty=settings.priority_weight_time_penalty,
+        activation_penalty=settings.priority_weight_activation_penalty,
+        blocked_penalty=settings.priority_weight_blocked_penalty,
+    )
+
+    # Score each candidate
+    scored_candidates = []
+    for row in rows:
+        loop_dict = dict(row)
+        has_open_deps = loop_repo.has_open_dependencies(loop_id=row["id"], conn=conn)
+        score = compute_priority_score(
+            loop_dict,
+            now_utc=now,
+            w=weights,
+            settings=settings,
+            has_open_dependencies=has_open_deps,
+        )
+        bucket = bucketize(
+            loop_dict,
+            now_utc=now,
+            settings=settings,
+            has_open_dependencies=has_open_deps,
+        )
+        scored_candidates.append(
+            {
+                "row": row,
+                "score": score,
+                "bucket": bucket,
+                "has_open_deps": has_open_deps,
+            }
+        )
+
+    # Sort by score descending and truncate to top 50
+    scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+    scored_candidates = scored_candidates[:50]
+
+    loop_ids = [c["row"]["id"] for c in scored_candidates]
 
     # Fetch existing nudge states
     existing_states = get_nudge_states_batch(
@@ -224,7 +267,8 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     details = []
     escalation_summary: dict[int, int] = {}  # level -> count
 
-    for row in rows:
+    for candidate in scored_candidates:
+        row = candidate["row"]
         loop_id = row["id"]
         state = existing_states.get(loop_id)
         due_at = parse_utc_datetime(row["due_at_utc"]) if row["due_at_utc"] else now
@@ -262,14 +306,19 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
                 "escalation_level": escalation_level,
                 "nudge_count": nudge_count,
                 "is_overdue": is_overdue,
+                "priority_score": round(candidate["score"], 3),
+                "bucket": candidate["bucket"],
             }
         )
+
+    bucket_summary = dict(Counter(c["bucket"] for c in scored_candidates))
 
     payload = {
         "nudge_type": "due_soon",
         "loop_ids": loop_ids,
         "details": details,
         "escalation_summary": escalation_summary,
+        "bucket_summary": bucket_summary,
         "generated_at_utc": format_utc_datetime(now),
     }
 
@@ -293,7 +342,10 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
         )
     conn.commit()
 
-    logger.info(f"Due-soon nudge: {len(loop_ids)} loops, escalation levels: {escalation_summary}")
+    logger.info(
+        f"Due-soon nudge: {len(loop_ids)} loops, buckets: {bucket_summary}, "
+        f"escalation: {escalation_summary}"
+    )
 
     return {"event_id": event_id, "nudged": len(loop_ids), **payload}
 

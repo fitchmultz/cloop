@@ -217,6 +217,108 @@ class TestDueSoonNudge:
 
         assert result["nudged"] == 0
 
+    def test_due_soon_nudge_orders_by_priority_score(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify due-soon nudges are ordered by priority score, not just due date."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+
+        # Task A: due in 2h, LOW urgency/importance (should rank lower)
+        due_2h = (now + timedelta(hours=2)).isoformat(timespec="seconds")
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                due_at_utc, urgency, importance)
+               VALUES ('low priority task', 'actionable', datetime('now'), 0,
+                       ?, 0.1, 0.1)
+            """,
+            (due_2h,),
+        )
+
+        # Task B: due in 24h, HIGH urgency/importance (should rank higher despite later due)
+        due_24h = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                due_at_utc, urgency, importance)
+               VALUES ('high priority task', 'actionable', datetime('now'), 0,
+                       ?, 0.9, 0.9)
+            """,
+            (due_24h,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 2
+        # High-priority task should appear first despite later due date
+        # The one with higher score should be first
+        assert result["details"][0]["priority_score"] > result["details"][1]["priority_score"]
+
+    def test_due_soon_payload_includes_priority_score_and_bucket(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify payload includes priority_score and bucket fields."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                due_at_utc, urgency, importance)
+               VALUES ('test task', 'actionable', datetime('now'), 0, ?, 0.5, 0.5)
+            """,
+            (due_soon,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert result["nudged"] == 1
+        detail = result["details"][0]
+        assert "priority_score" in detail
+        assert "bucket" in detail
+        assert isinstance(detail["priority_score"], (float, int))
+        assert detail["bucket"] in {"due_soon", "quick_wins", "high_leverage", "standard"}
+
+    def test_due_soon_payload_includes_bucket_summary(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify payload includes bucket_summary for UI categorization."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+
+        # Create a due_soon bucket item
+        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('due soon', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_1h,),
+        )
+
+        # Create a quick_win bucket item (short time, low activation)
+        due_24h = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                due_at_utc, time_minutes, activation_energy)
+               VALUES ('quick win', 'actionable', datetime('now'), 0, ?, 15, 1)
+            """,
+            (due_24h,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        assert "bucket_summary" in result
+        assert isinstance(result["bucket_summary"], dict)
+        # Should have at least one bucket with count
+        assert sum(result["bucket_summary"].values()) >= 1
+
 
 class TestStaleRescue:
     """Tests for stale loop rescue scheduler task."""
