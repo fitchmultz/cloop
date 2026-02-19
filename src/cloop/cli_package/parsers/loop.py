@@ -142,6 +142,12 @@ Examples:
   # DSL: due today
   cloop loop search "status:open due:today"
 
+  # DSL: due on specific date
+  cloop loop search "due:on:2026-02-25"
+
+  # DSL: due in date range
+  cloop loop search "due:between:2026-02-20..2026-02-28"
+
   # DSL: blocked items
   cloop loop search "blocked"
 
@@ -344,6 +350,9 @@ def _add_view_parsers(loop_subparsers: Any) -> None:
 Examples:
   # Create a simple view
   cloop loop view create --name "Today's tasks" --query "status:open due:today"
+
+  # Create with date range
+  cloop loop view create --name "This week" --query "due:between:2026-02-20..2026-02-28"
 
   # Create with description
   cloop loop view create --name "Work items" --query "tag:work" --description "All work tasks"

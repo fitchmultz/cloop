@@ -739,6 +739,185 @@ def test_search_due_tomorrow_overdue_and_next7d(
 
 
 # =============================================================================
+# Date filter parser tests
+# =============================================================================
+
+
+def test_parse_due_on_date():
+    """Parser accepts due:on:YYYY-MM-DD."""
+    query = parse_loop_query("due:on:2026-02-25")
+    assert len(query.due_date_filters) == 1
+    assert query.due_date_filters[0].operator == "on"
+    assert query.due_date_filters[0].date == "2026-02-25"
+
+
+def test_parse_due_before_date():
+    """Parser accepts due:before:YYYY-MM-DD."""
+    query = parse_loop_query("due:before:2026-03-01")
+    assert query.due_date_filters[0].operator == "before"
+    assert query.due_date_filters[0].date == "2026-03-01"
+
+
+def test_parse_due_after_date():
+    """Parser accepts due:after:YYYY-MM-DD."""
+    query = parse_loop_query("due:after:2026-02-20")
+    assert query.due_date_filters[0].operator == "after"
+    assert query.due_date_filters[0].date == "2026-02-20"
+
+
+def test_parse_due_between_range():
+    """Parser accepts due:between:START..END."""
+    query = parse_loop_query("due:between:2026-02-20..2026-02-28")
+    assert query.due_date_filters[0].operator == "between"
+    assert query.due_date_filters[0].date == "2026-02-20"
+    assert query.due_date_filters[0].date_end == "2026-02-28"
+
+
+def test_parse_invalid_date_format_rejected():
+    """Invalid date formats are rejected with clear error."""
+    with pytest.raises(ValidationError, match="invalid date"):
+        parse_loop_query("due:on:02-25-2026")  # Wrong format
+
+
+def test_parse_invalid_date_value_rejected():
+    """Invalid date values (e.g., Feb 30) are rejected."""
+    with pytest.raises(ValidationError, match="invalid date"):
+        parse_loop_query("due:on:2026-02-30")
+
+
+def test_parse_between_inverted_range_rejected():
+    """Between with start > end is rejected."""
+    with pytest.raises(ValidationError, match="start.*after end"):
+        parse_loop_query("due:between:2026-03-01..2026-02-20")
+
+
+def test_parse_between_missing_separator_rejected():
+    """Between without .. separator is rejected."""
+    with pytest.raises(ValidationError, match="invalid between syntax"):
+        parse_loop_query("due:between:2026-02-20:2026-02-28")
+
+
+def test_parse_mixed_due_filters():
+    """Can combine keyword and date due filters (they OR together)."""
+    query = parse_loop_query("due:today due:on:2026-03-15")
+    assert "today" in query.due_filters
+    assert len(query.due_date_filters) == 1
+
+
+# =============================================================================
+# Date filter SQL compiler tests
+# =============================================================================
+
+
+def test_compile_due_on_date():
+    """SQL for due:on generates correct range predicate."""
+    from cloop.loops.query import compile_loop_query
+
+    query = parse_loop_query("due:on:2026-02-25")
+    where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
+    assert "due_at_utc >= ?" in where_sql
+    assert "due_at_utc <= ?" in where_sql
+    assert "2026-02-25T00:00:00Z" in params
+    assert "2026-02-25T23:59:59" in str(params)
+
+
+def test_compile_due_before_date():
+    """SQL for due:before generates correct < predicate."""
+    from cloop.loops.query import compile_loop_query
+
+    query = parse_loop_query("due:before:2026-03-01")
+    where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
+    assert "due_at_utc < ?" in where_sql
+    assert "2026-03-01T00:00:00Z" in params
+
+
+def test_compile_due_after_date():
+    """SQL for due:after generates correct > predicate."""
+    from cloop.loops.query import compile_loop_query
+
+    query = parse_loop_query("due:after:2026-02-20")
+    where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
+    assert "due_at_utc > ?" in where_sql
+    assert "2026-02-20T23:59:59" in str(params)
+
+
+def test_compile_due_between_range():
+    """SQL for due:between generates correct range predicate."""
+    from cloop.loops.query import compile_loop_query
+
+    query = parse_loop_query("due:between:2026-02-20..2026-02-28")
+    where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
+    assert "due_at_utc >= ?" in where_sql
+    assert "due_at_utc <= ?" in where_sql
+    assert "2026-02-20T00:00:00Z" in params
+    assert "2026-02-28T23:59:59" in str(params)
+
+
+# =============================================================================
+# Date filter integration tests via API
+# =============================================================================
+
+
+def test_search_due_on_date(tmp_path, monkeypatch, make_test_client):
+    """API search with due:on:YYYY-MM-DD returns correct loops."""
+    client = make_test_client()
+
+    target_date = "2026-02-25"
+    resp = client.post(
+        "/loops/capture",
+        json={"raw_text": "Due on 25th", "captured_at": _now_iso(), "client_tz_offset_min": 0},
+    )
+    client.patch(f"/loops/{resp.json()['id']}", json={"due_at_utc": f"{target_date}T12:00:00Z"})
+
+    other_date = "2026-02-26"
+    resp2 = client.post(
+        "/loops/capture",
+        json={"raw_text": "Due on 26th", "captured_at": _now_iso(), "client_tz_offset_min": 0},
+    )
+    client.patch(f"/loops/{resp2.json()['id']}", json={"due_at_utc": f"{other_date}T12:00:00Z"})
+
+    search = client.post("/loops/search", json={"query": f"due:on:{target_date}", "limit": 10})
+    assert search.status_code == 200
+    ids = {item["id"] for item in search.json()["items"]}
+    assert resp.json()["id"] in ids
+    assert resp2.json()["id"] not in ids
+
+
+def test_search_due_between_range(tmp_path, monkeypatch, make_test_client):
+    """API search with due:between returns loops in range."""
+    client = make_test_client()
+
+    # Create loops on different dates
+    dates_and_ids = []
+    for day in [20, 25, 28, 30]:
+        date_str = f"2026-02-{day:02d}"
+        resp = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": f"Due {date_str}",
+                "captured_at": _now_iso(),
+                "client_tz_offset_min": 0,
+            },
+        )
+        client.patch(f"/loops/{resp.json()['id']}", json={"due_at_utc": f"{date_str}T12:00:00Z"})
+        dates_and_ids.append((day, resp.json()["id"]))
+
+    # Query for 20-28 range
+    search = client.post(
+        "/loops/search",
+        json={"query": "due:between:2026-02-20..2026-02-28", "limit": 10},
+    )
+    assert search.status_code == 200
+    ids = {item["id"] for item in search.json()["items"]}
+
+    # 20, 25, 28 should be in range; 30 should not
+    assert dates_and_ids[0][1] in ids  # Feb 20
+    assert dates_and_ids[1][1] in ids  # Feb 25
+    assert dates_and_ids[2][1] in ids  # Feb 28
+    assert dates_and_ids[3][1] not in ids  # Feb 30
+
+
+# =============================================================================
 # Ordering tests
 # =============================================================================
 

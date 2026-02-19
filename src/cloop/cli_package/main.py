@@ -129,6 +129,8 @@ Examples:
 
   # Query with DSL
   cloop loop search "status:inbox tag:work due:today"
+  cloop loop search "due:on:2026-02-25"
+  cloop loop search "due:between:2026-02-20..2026-02-28"
   cloop loop search "project:ClientAlpha blocked"
   cloop loop search "status:open groceries"
 
