@@ -862,6 +862,31 @@ def list_answered_clarifications(
     return [dict(row) for row in rows]
 
 
+def list_unanswered_clarification_questions(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> set[str]:
+    """Get set of unanswered clarification question texts for deduplication.
+
+    Args:
+        loop_id: Loop to query
+        conn: Database connection
+
+    Returns:
+        Set of question strings that have not been answered
+    """
+    rows = conn.execute(
+        """
+        SELECT question
+        FROM loop_clarifications
+        WHERE loop_id = ? AND answer IS NULL
+        """,
+        (loop_id,),
+    ).fetchall()
+    return {row["question"] for row in rows}
+
+
 def upsert_project(*, name: str, conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT id FROM projects WHERE name = ?", (name,)).fetchone()
     if row:

@@ -577,3 +577,124 @@ def test_context_in_prompt_contains_all_sections() -> None:
     assert "potential_duplicates" in ctx
     assert "current_workload" in ctx
     assert "existing_links" in ctx
+
+
+def test_enrichment_persists_clarification_questions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enrichment should insert clarification questions into loop_clarifications."""
+    from unittest.mock import patch
+
+    from cloop.loops import enrichment as loop_enrichment
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create a loop
+    record = repo.create_loop(
+        raw_text="plan the quarterly review",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    # Mock LLM to return clarification questions
+    mock_response = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "title": "Plan quarterly review",
+                            "needs_clarification": [
+                                "When is the deadline?",
+                                "Who should attend?",
+                            ],
+                            "confidence": {"title": 0.9},
+                        }
+                    )
+                }
+            }
+        ]
+    }
+
+    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+        result = loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
+
+    # Verify clarifications were persisted
+    assert result["needs_clarification"] == ["When is the deadline?", "Who should attend?"]
+
+    clarifications = repo.list_loop_clarifications(loop_id=record.id, conn=conn)
+    assert len(clarifications) == 2
+    questions = {c["question"] for c in clarifications}
+    assert "When is the deadline?" in questions
+    assert "Who should attend?" in questions
+    # All should be unanswered initially
+    assert all(c["answer"] is None for c in clarifications)
+
+    conn.close()
+
+
+def test_enrichment_deduplicates_clarification_questions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repeated enrichment should not insert duplicate clarification questions."""
+    from unittest.mock import patch
+
+    from cloop.loops import enrichment as loop_enrichment
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    record = repo.create_loop(
+        raw_text="plan the quarterly review",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    mock_response = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "title": "Plan quarterly review",
+                            "needs_clarification": ["When is the deadline?"],
+                            "confidence": {"title": 0.9},
+                        }
+                    )
+                }
+            }
+        ]
+    }
+
+    # Run enrichment twice with same question
+    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+        loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
+
+    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+        loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
+
+    # Should only have one clarification row
+    clarifications = repo.list_loop_clarifications(loop_id=record.id, conn=conn)
+    assert len(clarifications) == 1
+    assert clarifications[0]["question"] == "When is the deadline?"
+
+    conn.close()

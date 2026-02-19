@@ -638,6 +638,20 @@ def enrich_loop(
             conn=conn,
         )
 
+        # Insert clarification questions from enrichment (with deduplication)
+        if suggestion.needs_clarification:
+            existing_questions = repo.list_unanswered_clarification_questions(
+                loop_id=loop_id, conn=conn
+            )
+            for question in suggestion.needs_clarification:
+                question_text = question.strip()
+                if question_text and question_text not in existing_questions:
+                    repo.insert_loop_clarification(
+                        loop_id=loop_id,
+                        question=question_text,
+                        conn=conn,
+                    )
+
     if settings.autopilot_enabled:
         try:
             text_for_embedding = " ".join(
