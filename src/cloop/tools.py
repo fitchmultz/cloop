@@ -106,6 +106,35 @@ def execute_read_note(**kwargs: Any) -> Dict[str, Any]:
     return {"action": "read_note", "note": note}
 
 
+def execute_list_notes(**kwargs: Any) -> Dict[str, Any]:
+    """List notes with cursor-based pagination."""
+    limit = kwargs.get("limit", 50)
+    cursor = kwargs.get("cursor")
+
+    result = db.list_notes(
+        limit=min(limit, 100),
+        cursor=cursor,
+    )
+    return {"action": "list_notes", **result}
+
+
+def execute_search_notes(**kwargs: Any) -> Dict[str, Any]:
+    """Search notes by text query."""
+    query = kwargs.get("query", "")
+    if not query:
+        raise ValidationError("query", "required for search_notes")
+
+    limit = kwargs.get("limit", 50)
+    cursor = kwargs.get("cursor")
+
+    result = db.search_notes(
+        query=query,
+        limit=min(limit, 100),
+        cursor=cursor,
+    )
+    return {"action": "search_notes", **result}
+
+
 # ============================================================================
 # Loop Tool Executors
 # ============================================================================
@@ -468,6 +497,51 @@ TOOL_SPECS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_notes",
+            "description": "List stored notes with pagination. Use to browse available notes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default: 50, max: 100).",
+                    },
+                    "cursor": {
+                        "type": "string",
+                        "description": "Pagination cursor from previous response.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_notes",
+            "description": "Search notes by text query. Matches title and body.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search text to match against note title and body.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max results (default: 50, max: 100).",
+                    },
+                    "cursor": {
+                        "type": "string",
+                        "description": "Pagination cursor from previous response.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
     # Loop tools
     {
         "type": "function",
@@ -696,6 +770,8 @@ EXECUTORS: Dict[str, ToolExecutor] = {
     # Note tools
     "write_note": execute_write_note,
     "read_note": execute_read_note,
+    "list_notes": execute_list_notes,
+    "search_notes": execute_search_notes,
     # Loop tools
     "loop_create": execute_loop_create,
     "loop_update": execute_loop_update,

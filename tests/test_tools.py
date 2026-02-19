@@ -3,6 +3,7 @@ import pytest
 from cloop.loops.errors import ValidationError
 from cloop.tools import (
     _require_fields,
+    execute_list_notes,
     execute_loop_close,
     execute_loop_create,
     execute_loop_get,
@@ -12,6 +13,8 @@ from cloop.tools import (
     execute_loop_snooze,
     execute_loop_transition,
     execute_loop_update,
+    execute_search_notes,
+    execute_write_note,
     normalize_tool_arguments,
 )
 
@@ -486,6 +489,121 @@ class TestLoopSearch:
 
         assert result["action"] == "loop_search"
         assert len(result["items"]) == 0
+
+
+class TestListNotes:
+    """Tests for execute_list_notes."""
+
+    def test_lists_notes_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        result = execute_list_notes()
+
+        assert result["action"] == "list_notes"
+        assert result["items"] == []
+        assert result["next_cursor"] is None
+        assert "limit" in result
+
+    def test_lists_notes_with_data(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        # Create some notes
+        execute_write_note(title="Note 1", body="Body 1")
+        execute_write_note(title="Note 2", body="Body 2")
+
+        result = execute_list_notes()
+
+        assert result["action"] == "list_notes"
+        assert len(result["items"]) == 2
+
+    def test_respects_limit(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        # Create multiple notes
+        for i in range(5):
+            execute_write_note(title=f"Note {i}", body=f"Body {i}")
+
+        result = execute_list_notes(limit=2)
+
+        assert result["limit"] == 2
+        assert len(result["items"]) == 2
+
+
+class TestSearchNotes:
+    """Tests for execute_search_notes."""
+
+    def test_searches_notes(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        execute_write_note(title="Shopping list", body="Buy groceries")
+        execute_write_note(title="Work tasks", body="Finish report")
+
+        result = execute_search_notes(query="groceries")
+
+        assert result["action"] == "search_notes"
+        assert len(result["items"]) == 1
+        assert "groceries" in result["items"][0]["body"].lower()
+
+    def test_searches_title(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        execute_write_note(title="Important meeting", body="Discuss project")
+
+        result = execute_search_notes(query="meeting")
+
+        assert len(result["items"]) == 1
+        assert "meeting" in result["items"][0]["title"].lower()
+
+    def test_returns_empty_for_no_matches(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        execute_write_note(title="Shopping", body="Buy groceries")
+
+        result = execute_search_notes(query="nonexistent")
+
+        assert result["action"] == "search_notes"
+        assert result["items"] == []
+
+    def test_requires_query(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        db.init_databases(get_settings())
+
+        with pytest.raises(ValidationError, match="query"):
+            execute_search_notes()
 
 
 class TestLoopNext:

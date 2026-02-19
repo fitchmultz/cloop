@@ -1301,6 +1301,156 @@ def read_note(note_id: int, settings: Settings | None = None) -> Dict[str, Any] 
     return dict(row) if row else None
 
 
+def list_notes(
+    *,
+    limit: int = 50,
+    cursor: str | None = None,
+    settings: Settings | None = None,
+) -> Dict[str, Any]:
+    """List notes with cursor-based pagination.
+
+    Args:
+        limit: Maximum results (default 50, max 100)
+        cursor: Optional pagination cursor from previous response
+        settings: Application settings
+
+    Returns:
+        Dict with 'items', 'next_cursor' (or None), and 'limit'
+    """
+    from .loops.pagination import LoopCursor, encode_cursor, prepare_cursor_state
+
+    settings = settings or get_settings()
+    limit = min(limit, 100)
+
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "note.list"},
+        cursor=cursor,
+    )
+
+    with core_connection(settings) as conn:
+        if state.cursor_anchor:
+            # Continue from cursor position
+            anchor_updated_at, anchor_captured_at, anchor_id = state.cursor_anchor
+            rows = conn.execute(
+                """
+                SELECT id, title, body, created_at, updated_at
+                FROM notes
+                WHERE (updated_at < ?) OR (updated_at = ? AND id < ?)
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                (anchor_updated_at, anchor_updated_at, anchor_id, limit + 1),
+            ).fetchall()
+        else:
+            # First page
+            rows = conn.execute(
+                """
+                SELECT id, title, body, created_at, updated_at
+                FROM notes
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                (limit + 1,),
+            ).fetchall()
+
+    items = [dict(row) for row in rows[:limit]]
+
+    # Build cursor from last item
+    next_cursor = None
+    if len(rows) > limit and items:
+        last = items[-1]
+        cursor_obj = LoopCursor(
+            snapshot_utc=state.snapshot_utc,
+            updated_at_utc=last["updated_at"],
+            captured_at_utc=last["updated_at"],  # Use updated_at for notes
+            loop_id=last["id"],
+            fingerprint=state.fingerprint,
+        )
+        next_cursor = encode_cursor(cursor_obj)
+
+    return {"items": items, "next_cursor": next_cursor, "limit": limit}
+
+
+def search_notes(
+    *,
+    query: str,
+    limit: int = 50,
+    cursor: str | None = None,
+    settings: Settings | None = None,
+) -> Dict[str, Any]:
+    """Search notes by text query.
+
+    Args:
+        query: Search string (matches title and body)
+        limit: Maximum results (default 50, max 100)
+        cursor: Optional pagination cursor from previous response
+        settings: Application settings
+
+    Returns:
+        Dict with 'items', 'next_cursor' (or None), 'limit', and 'query'
+    """
+    from .loops.pagination import LoopCursor, encode_cursor, prepare_cursor_state
+
+    settings = settings or get_settings()
+    limit = min(limit, 100)
+
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "note.search", "query": query},
+        cursor=cursor,
+    )
+
+    search_pattern = f"%{query}%"
+
+    with core_connection(settings) as conn:
+        if state.cursor_anchor:
+            anchor_updated_at, anchor_captured_at, anchor_id = state.cursor_anchor
+            rows = conn.execute(
+                """
+                SELECT id, title, body, created_at, updated_at
+                FROM notes
+                WHERE (title LIKE ? OR body LIKE ?)
+                  AND ((updated_at < ?) OR (updated_at = ? AND id < ?))
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                (
+                    search_pattern,
+                    search_pattern,
+                    anchor_updated_at,
+                    anchor_updated_at,
+                    anchor_id,
+                    limit + 1,
+                ),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, title, body, created_at, updated_at
+                FROM notes
+                WHERE title LIKE ? OR body LIKE ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """,
+                (search_pattern, search_pattern, limit + 1),
+            ).fetchall()
+
+    items = [dict(row) for row in rows[:limit]]
+
+    next_cursor = None
+    if len(rows) > limit and items:
+        last = items[-1]
+        cursor_obj = LoopCursor(
+            snapshot_utc=state.snapshot_utc,
+            updated_at_utc=last["updated_at"],
+            captured_at_utc=last["updated_at"],
+            loop_id=last["id"],
+            fingerprint=state.fingerprint,
+        )
+        next_cursor = encode_cursor(cursor_obj)
+
+    return {"items": items, "next_cursor": next_cursor, "limit": limit, "query": query}
+
+
 def purge_expired_idempotency_keys(*, conn: sqlite3.Connection) -> int:
     """Delete expired idempotency keys from the database.
 

@@ -413,6 +413,24 @@ OpenRouter:
   - `none`: tools disabled
 - `CLOOP_STREAM_DEFAULT`: set to `true` to stream by default (note: streaming is disallowed when tool mode is `llm`)
 
+#### Note Discovery Tools
+
+Notes support enumeration and search via tool operations:
+
+- `list_notes`: List all stored notes with pagination
+- `search_notes`: Search notes by text (matches title and body)
+
+Example chat usage:
+```json
+{"tool_call": {"name": "list_notes", "arguments": {"limit": 10}}}
+{"tool_call": {"name": "search_notes", "arguments": {"query": "meeting notes"}}}
+```
+
+Both operations return:
+- `items`: Array of note objects with id, title, body, created_at, updated_at
+- `next_cursor`: Pagination cursor for fetching more results (null if no more)
+- `limit`: The limit used for this query
+
 ### Organizer autopilot
 
 - `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
