@@ -698,3 +698,87 @@ def test_enrichment_deduplicates_clarification_questions(
     assert clarifications[0]["question"] == "When is the deadline?"
 
     conn.close()
+
+
+def test_suggest_links_creates_related_links(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """suggest_links should create 'related' rows when similar embeddings exist."""
+    import sqlite3
+
+    import numpy as np
+
+    from cloop import db
+    from cloop.loops import repo
+    from cloop.loops.models import LoopStatus
+    from cloop.loops.related import suggest_links
+    from cloop.settings import get_settings
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    # Create two loops
+    loop1 = repo.create_loop(
+        raw_text="Test loop for related link detection",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    loop2 = repo.create_loop(
+        raw_text="Test loop for related link detection",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    # Create embeddings for both loops with high similarity
+    # Use identical vectors to ensure high similarity
+    vec = np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32)
+    vec = vec / np.linalg.norm(vec)  # normalize
+
+    repo.upsert_loop_embedding(
+        loop_id=loop1.id,
+        embedding_blob=vec.tobytes(),
+        embedding_dim=4,
+        embedding_norm=float(np.linalg.norm(vec)),
+        embed_model="test",
+        conn=conn,
+    )
+    repo.upsert_loop_embedding(
+        loop_id=loop2.id,
+        embedding_blob=vec.tobytes(),
+        embedding_dim=4,
+        embedding_norm=float(np.linalg.norm(vec)),
+        embed_model="test",
+        conn=conn,
+    )
+    conn.commit()
+
+    # Run suggest_links for loop1
+    result = suggest_links(loop_id=loop1.id, conn=conn, settings=settings)
+
+    # Verify a related link was created
+    assert len(result) >= 1, "suggest_links should find at least one related loop"
+    assert result[0]["loop_id"] == loop2.id
+
+    # Verify the link was persisted to loop_links table
+    links = repo.list_loop_links_by_type(
+        loop_id=loop1.id,
+        relationship_type="related",
+        conn=conn,
+    )
+    assert len(links) >= 1, "loop_links table should have related entry"
+    assert links[0]["related_loop_id"] == loop2.id
+    assert links[0]["relationship_type"] == "related"
+
+    conn.close()

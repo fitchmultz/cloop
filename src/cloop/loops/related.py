@@ -149,17 +149,16 @@ def find_duplicate_candidates(
     """
     settings = settings or get_settings()
 
-    # Fetch current loop's embedding directly by loop_id
-    rows = conn.execute(
+    # Fetch current loop's embedding directly
+    current = conn.execute(
         """
         SELECT loop_id, embedding_blob, embedding_dim, embedding_norm
         FROM loop_embeddings
         WHERE loop_id = ?
         """,
         (loop_id,),
-    ).fetchall()
+    ).fetchone()
 
-    current = next((row for row in rows if int(row["loop_id"]) == loop_id), None)
     if current is None:
         return []
 
@@ -228,19 +227,38 @@ def suggest_links(
     conn: sqlite3.Connection,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
+    """Find and link loops related to the given loop by embedding similarity.
+
+    Fetches the current loop's embedding, finds similar loops using
+    vector similarity, and creates 'related' links in the loop_links table.
+
+    Args:
+        loop_id: The source loop ID to find relations for
+        conn: Database connection
+        settings: Optional settings override
+
+    Returns:
+        List of related loop dicts with 'loop_id' and 'score' keys
+    """
     settings = settings or get_settings()
-    rows = repo.fetch_loop_embeddings(
-        conn=conn,
-        limit=settings.related_max_candidates,
-        exclude_loop_id=loop_id,
-    )
-    if not rows:
-        return []
-    current = next((row for row in rows if int(row["loop_id"]) == loop_id), None)
+
+    # Fetch current loop's embedding directly
+    current = conn.execute(
+        """
+        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm
+        FROM loop_embeddings
+        WHERE loop_id = ?
+        """,
+        (loop_id,),
+    ).fetchone()
+
     if current is None:
         return []
+
     dim = int(current["embedding_dim"])
     query_vec = np.frombuffer(current["embedding_blob"], dtype=np.float32, count=dim)
+
+    # Find related loops using existing helper
     related = find_related_loops(
         loop_id=loop_id,
         query_vec=query_vec,
@@ -249,6 +267,8 @@ def suggest_links(
         conn=conn,
         settings=settings,
     )
+
+    # Insert links for each related loop
     with conn:
         for item in related:
             repo.insert_loop_link(
@@ -259,4 +279,5 @@ def suggest_links(
                 source="ai",
                 conn=conn,
             )
+
     return related
