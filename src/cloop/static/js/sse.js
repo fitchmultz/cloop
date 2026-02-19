@@ -18,6 +18,57 @@
 import { refreshLoop, handleLoopClosed } from './loop.js';
 import { loadTimerStatus, startTimerUI } from './timer.js';
 
+/**
+ * Scheduler notification handlers
+ */
+async function handleDueSoonNudge(payload) {
+  const { details, escalation_summary } = payload;
+  if (!details || details.length === 0) return;
+
+  const { showSchedulerNotification } = await import('./notifications.js');
+
+  const urgentCount = escalation_summary ? (escalation_summary[3] || 0) : 0;
+  const overdueCount = details.filter(d => d.is_overdue).length;
+
+  showSchedulerNotification({
+    type: 'due_soon',
+    title: overdueCount > 0 ? `${overdueCount} overdue loops` : `${details.length} loops due soon`,
+    body: details.slice(0, 3).map(d => d.title).join(', '),
+    severity: urgentCount > 0 ? 'alert' : overdueCount > 0 ? 'warning' : 'info',
+    details: details,
+    action: { type: 'navigate', tab: 'review' }
+  });
+}
+
+async function handleStaleNudge(payload) {
+  const { details } = payload;
+  if (!details || details.length === 0) return;
+
+  const { showSchedulerNotification } = await import('./notifications.js');
+
+  showSchedulerNotification({
+    type: 'stale',
+    title: `${details.length} stale loops need attention`,
+    body: details.slice(0, 3).map(d => d.title).join(', '),
+    severity: 'warning',
+    details: details,
+    action: { type: 'navigate', tab: 'review' }
+  });
+}
+
+async function handleReviewGenerated(payload) {
+  const { review_type, cohorts, total_items } = payload;
+  if (total_items === 0) return;
+
+  const { showReviewBanner } = await import('./notifications.js');
+
+  showReviewBanner({
+    type: review_type,
+    itemCount: total_items,
+    cohorts: cohorts
+  });
+}
+
 let eventSource = null;
 let lastEventId = null;
 let reconnectAttempts = 0;
@@ -105,9 +156,23 @@ async function handleLoopEvent(event) {
       handleLoopClosed(loop_id, payload);
       break;
 
+    case 'nudge_due_soon':
+      await handleDueSoonNudge(payload);
+      break;
+
+    case 'nudge_stale':
+      await handleStaleNudge(payload);
+      break;
+
+    case 'review_generated':
+      await handleReviewGenerated(payload);
+      break;
+
     default:
       // Unknown event type - refresh loop to be safe
-      await fetchAndReplaceLoop(loop_id);
+      if (loop_id && loop_id > 0) {
+        await fetchAndReplaceLoop(loop_id);
+      }
   }
 }
 

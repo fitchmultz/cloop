@@ -248,6 +248,84 @@ class TestStaleRescue:
         assert row is not None
 
 
+class TestSchedulerEventPayloads:
+    """Tests verifying scheduler event payloads have required notification fields."""
+
+    def test_due_soon_payload_has_notification_fields(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify due-soon nudge payload contains fields needed for UI rendering."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
+               VALUES ('test task', 'actionable', datetime('now'), 0, ?)
+            """,
+            (due_soon,),
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        # Verify payload structure for UI
+        assert "details" in result
+        assert len(result["details"]) >= 1
+
+        detail = result["details"][0]
+        assert "id" in detail
+        assert "title" in detail
+        assert "due_at_utc" in detail
+        assert "escalation_level" in detail
+        assert "is_overdue" in detail
+
+    def test_stale_payload_has_notification_fields(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify stale nudge payload contains fields needed for UI rendering."""
+        settings = get_settings()
+
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at)
+               VALUES ('stale task', 'actionable', datetime('now', '-100 hours'), 0,
+                       datetime('now', '-100 hours'))
+            """
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
+
+        assert "details" in result
+        detail = result["details"][0]
+        assert "id" in detail
+        assert "title" in detail
+        assert "status" in detail
+
+    def test_review_payload_has_notification_fields(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify review generated payload contains fields needed for UI rendering."""
+        settings = get_settings()
+
+        # Create a loop without next_action for review
+        scheduler_db.execute(
+            """INSERT INTO loops
+               (raw_text, status, captured_at_utc, captured_tz_offset_min)
+               VALUES ('review item', 'actionable', datetime('now'), 0)
+            """
+        )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_daily_review(settings, scheduler_db))
+
+        assert "review_type" in result
+        assert "total_items" in result
+        assert "cohorts" in result
+
+
 class TestSchedulerIntegration:
     """Integration tests for scheduler lifecycle."""
 

@@ -297,3 +297,138 @@ select:focus {
 .sse-status.disconnected {
   background-color: #ef4444;
 }
+
+/* Scheduler Notification Container */
+.notification-container {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  z-index: 1000;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Notification Card */
+.scheduler-notification {
+  background: var(--card);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  overflow: hidden;
+  animation: slide-in 0.3s ease;
+}
+
+.scheduler-notification.alert {
+  border-left: 4px solid var(--danger, #ef4444);
+}
+
+.scheduler-notification.warning {
+  border-left: 4px solid var(--warning, #fbbf24);
+}
+
+.scheduler-notification.info {
+  border-left: 4px solid var(--primary, #d66b3f);
+}
+
+.notification-content {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.notification-icon {
+  font-size: 1.5rem;
+}
+
+.notification-text {
+  flex: 1;
+}
+
+.notification-text strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.notification-text p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.notification-dismiss {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+}
+
+.notification-details {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.notification-details.collapsed {
+  display: none;
+}
+
+.notification-details ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+/* Review Banner */
+.review-banner {
+  background: linear-gradient(135deg, var(--primary, #d66b3f), var(--accent, #ff8a65));
+  color: white;
+  border-radius: 8px;
+  padding: 12px;
+  animation: slide-in 0.3s ease;
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.banner-text {
+  flex: 1;
+}
+
+.banner-action {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.banner-dismiss {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.fade-out {
+  animation: fade-out 0.3s ease forwards;
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}

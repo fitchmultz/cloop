@@ -33,6 +33,7 @@ from .core import router as core_router
 from .dependencies import router as dependencies_router
 from .duplicates import router as duplicates_router
 from .events import router as events_router
+from .push import router as push_router
 from .templates import router as templates_router
 from .timers import router as timers_router
 from .views import router as views_router
@@ -61,7 +62,10 @@ router.include_router(templates_router)
 # Must be registered after other static paths but before nested dynamic routes
 router.include_router(core_router)
 
-# 6. Loop-specific nested routes - all start with /{loop_id}/...
+# 6. Push subscriptions - static paths: /push/*
+router.include_router(push_router)
+
+# 7. Loop-specific nested routes - all start with /{loop_id}/...
 # These are least specific and should be registered last
 router.include_router(dependencies_router)
 router.include_router(claims_router)

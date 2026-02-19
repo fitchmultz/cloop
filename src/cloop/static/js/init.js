@@ -362,12 +362,70 @@ function renderMetrics(data) {
 
 async function requestNotificationPermission() {
   if (!("Notification" in window)) return false;
-  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "granted") {
+    // Also subscribe to push notifications
+    await subscribeToPush();
+    return true;
+  }
   if (Notification.permission !== "denied") {
     const permission = await Notification.requestPermission();
-    return permission === "granted";
+    if (permission === "granted") {
+      await subscribeToPush();
+      return true;
+    }
   }
   return false;
+}
+
+async function subscribeToPush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    console.log("Push not supported");
+    return;
+  }
+
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+
+    if (!subscription) {
+      // Create new subscription (requires VAPID key in production)
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        // applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+      });
+    }
+
+    // Send subscription to server
+    const response = await fetch("/loops/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: arrayBufferToBase64(subscription.getKey("p256dh")),
+          auth: arrayBufferToBase64(subscription.getKey("auth"))
+        }
+      })
+    });
+
+    if (response.ok) {
+      console.log("Push subscription registered");
+    } else {
+      console.error("Failed to register push subscription:", await response.text());
+    }
+  } catch (err) {
+    console.error("Push subscription failed:", err);
+  }
+}
+
+function arrayBufferToBase64(buffer) {
+  if (!buffer) return "";
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
 async function registerServiceWorker() {

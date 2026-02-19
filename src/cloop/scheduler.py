@@ -24,6 +24,7 @@ from typing import Any
 from . import db
 from .loops.models import LoopEventType, utc_now
 from .loops.review import compute_review_cohorts
+from .push_sender import send_scheduler_push
 from .settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,12 @@ async def run_daily_review(settings: Settings, conn: sqlite3.Connection) -> dict
         f"Daily review generated: {payload['total_items']} items across {len(result.daily)} cohorts"
     )
 
+    # Send push notification
+    try:
+        send_scheduler_push("review_generated", payload, settings, conn)
+    except Exception as e:
+        logger.warning(f"Push notification failed: {e}")
+
     return {"event_id": event_id, **payload}
 
 
@@ -167,6 +174,12 @@ async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dic
     logger.info(
         f"Weekly review generated: {payload['total_items']} items across {cohort_count} cohorts"
     )
+
+    # Send push notification
+    try:
+        send_scheduler_push("review_generated", payload, settings, conn)
+    except Exception as e:
+        logger.warning(f"Push notification failed: {e}")
 
     return {"event_id": event_id, **payload}
 
@@ -262,6 +275,12 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
 
     event_id = _emit_scheduler_event(LoopEventType.NUDGE_DUE_SOON, payload, conn)
 
+    # Send push notification
+    try:
+        send_scheduler_push("nudge_due_soon", payload, settings, conn)
+    except Exception as e:
+        logger.warning(f"Push notification failed: {e}")
+
     # Persist nudge states
     for detail in details:
         upsert_nudge_state(
@@ -320,6 +339,12 @@ async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict
 
     event_id = _emit_scheduler_event(LoopEventType.NUDGE_STALE, payload, conn)
     logger.info(f"Stale rescue nudge: {len(loop_ids)} loops")
+
+    # Send push notification
+    try:
+        send_scheduler_push("nudge_stale", payload, settings, conn)
+    except Exception as e:
+        logger.warning(f"Push notification failed: {e}")
 
     return {"event_id": event_id, "rescued": len(loop_ids), **payload}
 

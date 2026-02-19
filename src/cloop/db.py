@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 24
+SCHEMA_VERSION: int = 25
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -450,6 +450,19 @@ CREATE TABLE loop_nudges (
 CREATE INDEX idx_loop_nudges_escalation ON loop_nudges(escalation_level, nudge_type);
 CREATE INDEX idx_loop_nudges_last_nudged ON loop_nudges(last_nudged_at DESC);
 
+-- Push notification subscriptions
+CREATE TABLE push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT,
+    created_at_utc TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at_utc TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_push_subscriptions_endpoint ON push_subscriptions(endpoint);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
@@ -460,6 +473,21 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    25: """
+    -- Create push_subscriptions table for browser push notifications
+    CREATE TABLE push_subscriptions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        user_agent TEXT,
+        created_at_utc TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at_utc TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint
+    ON push_subscriptions(endpoint);
+    """,
     24: """
     -- Create loop_nudges table for tracking nudge escalation state
     CREATE TABLE loop_nudges (
