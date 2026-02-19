@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 26
+SCHEMA_VERSION: int = 27
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -476,6 +476,26 @@ CREATE TABLE push_subscriptions (
 
 CREATE INDEX idx_push_subscriptions_endpoint ON push_subscriptions(endpoint);
 
+-- Create memory_entries table for durable assistant memory
+CREATE TABLE memory_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL DEFAULT 'fact'
+        CHECK (category IN ('preference', 'fact', 'commitment', 'context')),
+    priority INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'user_stated'
+        CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_memory_entries_category ON memory_entries(category);
+CREATE INDEX idx_memory_entries_priority ON memory_entries(priority DESC);
+CREATE INDEX idx_memory_entries_key ON memory_entries(key) WHERE key IS NOT NULL;
+CREATE INDEX idx_memory_entries_updated ON memory_entries(updated_at DESC);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
@@ -486,6 +506,27 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    27: """
+    -- Create memory_entries table for durable assistant memory
+    CREATE TABLE memory_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'fact'
+            CHECK (category IN ('preference', 'fact', 'commitment', 'context')),
+        priority INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'user_stated'
+            CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_memory_entries_category ON memory_entries(category);
+    CREATE INDEX idx_memory_entries_priority ON memory_entries(priority DESC);
+    CREATE INDEX idx_memory_entries_key ON memory_entries(key) WHERE key IS NOT NULL;
+    CREATE INDEX idx_memory_entries_updated ON memory_entries(updated_at DESC);
+    """,
     26: """
     -- Create loop_clarifications table for AI clarification Q&A
     CREATE TABLE loop_clarifications (
@@ -1435,6 +1476,278 @@ def search_notes(
             ).fetchall()
 
     items = [dict(row) for row in rows[:limit]]
+
+    next_cursor = None
+    if len(rows) > limit and items:
+        last = items[-1]
+        cursor_obj = LoopCursor(
+            snapshot_utc=state.snapshot_utc,
+            updated_at_utc=last["updated_at"],
+            captured_at_utc=last["updated_at"],
+            loop_id=last["id"],
+            fingerprint=state.fingerprint,
+        )
+        next_cursor = encode_cursor(cursor_obj)
+
+    return {"items": items, "next_cursor": next_cursor, "limit": limit, "query": query}
+
+
+def _row_to_memory_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    """Convert a memory_entries row to dict."""
+    metadata_json = row["metadata_json"]
+    metadata = json.loads(metadata_json) if metadata_json else {}
+    return {
+        "id": row["id"],
+        "key": row["key"],
+        "content": row["content"],
+        "category": row["category"],
+        "priority": row["priority"],
+        "source": row["source"],
+        "metadata": metadata,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def create_memory_entry(
+    *,
+    key: str | None,
+    content: str,
+    category: str = "fact",
+    priority: int = 0,
+    source: str = "user_stated",
+    metadata: Dict[str, Any] | None = None,
+    settings: Settings | None = None,
+) -> Dict[str, Any]:
+    """Create a new memory entry."""
+    settings = settings or get_settings()
+    metadata_json = json.dumps(metadata or {})
+    with core_connection(settings) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO memory_entries (key, content, category, priority, source, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (key, content, category, priority, source, metadata_json),
+        )
+        conn.commit()
+        entry_id = cursor.lastrowid
+        row = conn.execute(
+            "SELECT id, key, content, category, priority, source, metadata_json, created_at, updated_at "
+            "FROM memory_entries WHERE id = ?",
+            (entry_id,),
+        ).fetchone()
+    return _row_to_memory_dict(row)
+
+
+def get_memory_entry(entry_id: int, settings: Settings | None = None) -> Dict[str, Any] | None:
+    """Get a memory entry by ID."""
+    settings = settings or get_settings()
+    with core_connection(settings) as conn:
+        row = conn.execute(
+            "SELECT id, key, content, category, priority, source, metadata_json, created_at, updated_at "
+            "FROM memory_entries WHERE id = ?",
+            (entry_id,),
+        ).fetchone()
+    return _row_to_memory_dict(row) if row else None
+
+
+def update_memory_entry(
+    entry_id: int,
+    *,
+    key: str | None = None,
+    content: str | None = None,
+    category: str | None = None,
+    priority: int | None = None,
+    source: str | None = None,
+    metadata: Dict[str, Any] | None = None,
+    settings: Settings | None = None,
+) -> Dict[str, Any] | None:
+    """Update a memory entry. Only provided fields are updated."""
+    settings = settings or get_settings()
+    updates: list[str] = []
+    params: list[Any] = []
+
+    if key is not None:
+        updates.append("key = ?")
+        params.append(key)
+    if content is not None:
+        updates.append("content = ?")
+        params.append(content)
+    if category is not None:
+        updates.append("category = ?")
+        params.append(category)
+    if priority is not None:
+        updates.append("priority = ?")
+        params.append(priority)
+    if source is not None:
+        updates.append("source = ?")
+        params.append(source)
+    if metadata is not None:
+        updates.append("metadata_json = ?")
+        params.append(json.dumps(metadata))
+
+    if not updates:
+        return get_memory_entry(entry_id, settings)
+
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(entry_id)
+
+    with core_connection(settings) as conn:
+        conn.execute(
+            f"UPDATE memory_entries SET {', '.join(updates)} WHERE id = ?",
+            params,
+        )
+        conn.commit()
+        return get_memory_entry(entry_id, settings)
+
+
+def delete_memory_entry(entry_id: int, settings: Settings | None = None) -> bool:
+    """Delete a memory entry. Returns True if deleted, False if not found."""
+    settings = settings or get_settings()
+    with core_connection(settings) as conn:
+        cursor = conn.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def list_memory_entries(
+    *,
+    category: str | None = None,
+    source: str | None = None,
+    min_priority: int | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    settings: Settings | None = None,
+) -> Dict[str, Any]:
+    """List memory entries with optional filters and pagination."""
+    from .loops.pagination import LoopCursor, encode_cursor, prepare_cursor_state
+
+    settings = settings or get_settings()
+    limit = min(limit, 100)
+
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "memory.list", "category": category, "source": source},
+        cursor=cursor,
+    )
+
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if category:
+        conditions.append("category = ?")
+        params.append(category)
+    if source:
+        conditions.append("source = ?")
+        params.append(source)
+    if min_priority is not None:
+        conditions.append("priority >= ?")
+        params.append(min_priority)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    with core_connection(settings) as conn:
+        if state.cursor_anchor:
+            anchor_updated_at, _, anchor_id = state.cursor_anchor
+            order_cond = "(updated_at < ?) OR (updated_at = ? AND id < ?)"
+            query = f"""
+                SELECT id, key, content, category, priority, source, metadata_json, created_at, updated_at
+                FROM memory_entries
+                {where_clause}
+                {"AND" if conditions else "WHERE"} {order_cond}
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+            """
+            params.extend([anchor_updated_at, anchor_updated_at, anchor_id, limit + 1])
+        else:
+            query = f"""
+                SELECT id, key, content, category, priority, source, metadata_json, created_at, updated_at
+                FROM memory_entries
+                {where_clause}
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+            """
+            params.append(limit + 1)
+
+        rows = conn.execute(query, params).fetchall()
+
+    items = [_row_to_memory_dict(row) for row in rows[:limit]]
+
+    next_cursor = None
+    if len(rows) > limit and items:
+        last = items[-1]
+        cursor_obj = LoopCursor(
+            snapshot_utc=state.snapshot_utc,
+            updated_at_utc=last["updated_at"],
+            captured_at_utc=last["updated_at"],
+            loop_id=last["id"],
+            fingerprint=state.fingerprint,
+        )
+        next_cursor = encode_cursor(cursor_obj)
+
+    return {"items": items, "next_cursor": next_cursor, "limit": limit}
+
+
+def search_memory_entries(
+    *,
+    query: str,
+    category: str | None = None,
+    source: str | None = None,
+    min_priority: int | None = None,
+    limit: int = 50,
+    cursor: str | None = None,
+    settings: Settings | None = None,
+) -> Dict[str, Any]:
+    """Search memory entries by text query."""
+    from .loops.pagination import LoopCursor, encode_cursor, prepare_cursor_state
+
+    settings = settings or get_settings()
+    limit = min(limit, 100)
+
+    state = prepare_cursor_state(
+        fingerprint_payload_dict={"tool": "memory.search", "query": query, "category": category},
+        cursor=cursor,
+    )
+
+    search_pattern = f"%{query}%"
+    conditions = ["(key LIKE ? OR content LIKE ?)"]
+    params: list[Any] = [search_pattern, search_pattern]
+
+    if category:
+        conditions.append("category = ?")
+        params.append(category)
+    if source:
+        conditions.append("source = ?")
+        params.append(source)
+    if min_priority is not None:
+        conditions.append("priority >= ?")
+        params.append(min_priority)
+
+    with core_connection(settings) as conn:
+        if state.cursor_anchor:
+            anchor_updated_at, _, anchor_id = state.cursor_anchor
+            query_sql = f"""
+                SELECT id, key, content, category, priority, source, metadata_json, created_at, updated_at
+                FROM memory_entries
+                WHERE {" AND ".join(conditions)}
+                  AND ((updated_at < ?) OR (updated_at = ? AND id < ?))
+                ORDER BY priority DESC, updated_at DESC, id DESC
+                LIMIT ?
+            """
+            params.extend([anchor_updated_at, anchor_updated_at, anchor_id, limit + 1])
+        else:
+            query_sql = f"""
+                SELECT id, key, content, category, priority, source, metadata_json, created_at, updated_at
+                FROM memory_entries
+                WHERE {" AND ".join(conditions)}
+                ORDER BY priority DESC, updated_at DESC, id DESC
+                LIMIT ?
+            """
+            params.append(limit + 1)
+
+        rows = conn.execute(query_sql, params).fetchall()
+
+    items = [_row_to_memory_dict(row) for row in rows[:limit]]
 
     next_cursor = None
     if len(rows) > limit and items:

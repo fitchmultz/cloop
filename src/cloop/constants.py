@@ -45,6 +45,10 @@ WEBHOOK_DESCRIPTION_MAX: int = 500
 # Chat fields
 CHAT_MESSAGE_MAX: int = 50000  # Single chat message
 
+# Memory fields
+MEMORY_KEY_MAX: int = 200
+MEMORY_CONTENT_MAX: int = 2000
+
 # View/query fields
 VIEW_NAME_MAX: int = 255
 VIEW_DESCRIPTION_MAX: int = 1000

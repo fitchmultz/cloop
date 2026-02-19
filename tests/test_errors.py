@@ -3,6 +3,7 @@
 from cloop.loops.errors import (
     CloopError,
     LoopNotFoundError,
+    MemoryNotFoundError,
     NoteNotFoundError,
     NotFoundError,
     TransitionError,
@@ -20,6 +21,11 @@ class TestExceptionHierarchy:
 
     def test_note_not_found_is_not_found(self) -> None:
         exc = NoteNotFoundError(1)
+        assert isinstance(exc, NotFoundError)
+        assert isinstance(exc, CloopError)
+
+    def test_memory_not_found_is_not_found(self) -> None:
+        exc = MemoryNotFoundError(42)
         assert isinstance(exc, NotFoundError)
         assert isinstance(exc, CloopError)
 
@@ -49,6 +55,12 @@ class TestExceptionMessages:
         assert "5" in str(exc)
         assert exc.note_id == 5
 
+    def test_memory_not_found_message(self) -> None:
+        exc = MemoryNotFoundError(99)
+        assert "Memory not found" in str(exc)
+        assert "99" in str(exc)
+        assert exc.memory_id == 99
+
     def test_validation_error_message(self) -> None:
         exc = ValidationError("due_at_utc", "invalid date format")
         assert "Invalid due_at_utc" in str(exc)
@@ -75,6 +87,10 @@ class TestExceptionDetails:
     def test_note_not_found_detail(self) -> None:
         exc = NoteNotFoundError(99)
         assert exc.detail == "note_id=99"
+
+    def test_memory_not_found_detail(self) -> None:
+        exc = MemoryNotFoundError(42)
+        assert exc.detail == "memory_id=42"
 
     def test_validation_error_detail(self) -> None:
         exc = ValidationError("status", "invalid value")

@@ -20,7 +20,8 @@ Exception Hierarchy:
     CloopError (base)
     ├── NotFoundError (base for 404s)
     │   ├── LoopNotFoundError
-    │   └── NoteNotFoundError
+    │   ├── NoteNotFoundError
+    │   └── MemoryNotFoundError
     ├── ValidationError (for invalid_* errors)
     └── TransitionError (for invalid_status_transition)
 """
@@ -62,6 +63,14 @@ class NoteNotFoundError(NotFoundError):
     def __init__(self, note_id: int) -> None:
         super().__init__(f"Note not found: {note_id}", detail=f"note_id={note_id}")
         self.note_id = note_id
+
+
+class MemoryNotFoundError(NotFoundError):
+    """Raised when a memory entry with the specified ID does not exist."""
+
+    def __init__(self, memory_id: int) -> None:
+        super().__init__(f"Memory not found: {memory_id}", detail=f"memory_id={memory_id}")
+        self.memory_id = memory_id
 
 
 class SuggestionNotFoundError(NotFoundError):

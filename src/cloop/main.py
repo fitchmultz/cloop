@@ -28,7 +28,7 @@ from fastapi import Depends, FastAPI
 from . import db, web
 from .handlers import register_exception_handlers
 from .rag import _SQL_PY_METRIC, _VECLIKE_METRIC, _select_retrieval_order
-from .routes import chat_router, loops_router, rag_router
+from .routes import chat_router, loops_router, memory_router, rag_router
 from .schemas.health import DependencyStatus, HealthResponse
 from .settings import Settings, get_settings
 
@@ -53,6 +53,7 @@ app = FastAPI(title="Cloop LLM Service", version="0.1.0", lifespan=lifespan)
 app.include_router(web.router)
 app.include_router(chat_router)
 app.include_router(loops_router)
+app.include_router(memory_router)
 app.include_router(rag_router)
 register_exception_handlers(app)
 

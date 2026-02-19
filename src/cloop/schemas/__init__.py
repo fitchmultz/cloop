@@ -6,6 +6,7 @@ All models use Pydantic v2 for validation and serialization.
 Organization:
 - chat.py: Chat completions and tool interactions
 - loops.py: Loop/task management (CRUD, transitions, export/import)
+- memory.py: Assistant memory store (preferences, facts, commitments)
 - rag.py: Document ingestion and retrieval
 - health.py: Health check responses
 """
@@ -31,6 +32,15 @@ from .loops import (
     LoopStatusRequest,
     LoopUpdateRequest,
 )
+from .memory import (
+    MemoryCategory,
+    MemoryCreateRequest,
+    MemoryEntryBase,
+    MemoryListResponse,
+    MemoryResponse,
+    MemorySource,
+    MemoryUpdateRequest,
+)
 from .rag import AskResponse, FailedFileInfo, IngestMode, IngestRequest, IngestResponse
 
 __all__ = [
@@ -51,6 +61,13 @@ __all__ = [
     "LoopResponse",
     "LoopStatusRequest",
     "LoopUpdateRequest",
+    "MemoryCategory",
+    "MemoryCreateRequest",
+    "MemoryEntryBase",
+    "MemoryListResponse",
+    "MemoryResponse",
+    "MemorySource",
+    "MemoryUpdateRequest",
     "AskResponse",
     "FailedFileInfo",
     "IngestMode",

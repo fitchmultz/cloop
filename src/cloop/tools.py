@@ -26,10 +26,11 @@ import json
 from typing import Any, Dict, List, Protocol
 
 from . import db
-from .constants import NOTE_BODY_MAX, TITLE_MAX
+from .constants import MEMORY_CONTENT_MAX, MEMORY_KEY_MAX, NOTE_BODY_MAX, TITLE_MAX
 from .loops.errors import (
     CloopError,
     LoopNotFoundError,
+    MemoryNotFoundError,
     NoteNotFoundError,
     TransitionError,
     ValidationError,
@@ -455,6 +456,87 @@ def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:
 
 
 # ============================================================================
+# Memory Tool Executors
+# ============================================================================
+
+
+def execute_memory_create(**kwargs: Any) -> Dict[str, Any]:
+    """Create a new memory entry."""
+    content = kwargs.get("content")
+    if not content:
+        raise ValidationError("content", "content is required")
+
+    key = kwargs.get("key")
+    if key is not None and len(str(key)) > MEMORY_KEY_MAX:
+        raise ValidationError("key", f"exceeds maximum length of {MEMORY_KEY_MAX} characters")
+    if len(str(content)) > MEMORY_CONTENT_MAX:
+        raise ValidationError(
+            "content", f"exceeds maximum length of {MEMORY_CONTENT_MAX} characters"
+        )
+
+    entry = db.create_memory_entry(
+        key=key,
+        content=content,
+        category=kwargs.get("category", "fact"),
+        priority=kwargs.get("priority", 0),
+        source=kwargs.get("source", "user_stated"),
+        metadata=kwargs.get("metadata"),
+        settings=get_settings(),
+    )
+    return {"action": "memory_create", "memory": entry}
+
+
+def execute_memory_search(**kwargs: Any) -> Dict[str, Any]:
+    """Search memory entries."""
+    query = kwargs.get("query")
+    if not query:
+        raise ValidationError("query", "query is required")
+
+    result = db.search_memory_entries(
+        query=query,
+        category=kwargs.get("category"),
+        source=kwargs.get("source"),
+        min_priority=kwargs.get("min_priority"),
+        limit=kwargs.get("limit", 10),
+        settings=get_settings(),
+    )
+    return {"action": "memory_search", "memories": result["items"], "query": query}
+
+
+def execute_memory_update(**kwargs: Any) -> Dict[str, Any]:
+    """Update a memory entry."""
+    entry_id = kwargs.get("entry_id")
+    if not entry_id:
+        raise ValidationError("entry_id", "entry_id is required")
+
+    entry = db.update_memory_entry(
+        entry_id,
+        key=kwargs.get("key"),
+        content=kwargs.get("content"),
+        category=kwargs.get("category"),
+        priority=kwargs.get("priority"),
+        source=kwargs.get("source"),
+        metadata=kwargs.get("metadata"),
+        settings=get_settings(),
+    )
+    if entry is None:
+        raise MemoryNotFoundError(entry_id)
+    return {"action": "memory_update", "memory": entry}
+
+
+def execute_memory_delete(**kwargs: Any) -> Dict[str, Any]:
+    """Delete a memory entry."""
+    entry_id = kwargs.get("entry_id")
+    if not entry_id:
+        raise ValidationError("entry_id", "entry_id is required")
+
+    deleted = db.delete_memory_entry(entry_id, settings=get_settings())
+    if not deleted:
+        raise MemoryNotFoundError(entry_id)
+    return {"action": "memory_delete", "deleted": True, "entry_id": entry_id}
+
+
+# ============================================================================
 # Tool Specifications
 # ============================================================================
 
@@ -763,6 +845,82 @@ TOOL_SPECS: List[Dict[str, Any]] = [
             },
         },
     },
+    # Memory tools
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_create",
+            "description": "Create a memory entry to persist preferences, facts, or commitments",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "description": "Optional identifier for the memory"},
+                    "content": {"type": "string", "description": "The memory content to store"},
+                    "category": {
+                        "type": "string",
+                        "enum": ["preference", "fact", "commitment", "context"],
+                        "default": "fact",
+                    },
+                    "priority": {"type": "integer", "default": 0, "minimum": 0, "maximum": 100},
+                    "source": {
+                        "type": "string",
+                        "enum": ["user_stated", "inferred", "imported", "system"],
+                        "default": "user_stated",
+                    },
+                },
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_search",
+            "description": "Search memory entries by text query",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query string"},
+                    "category": {
+                        "type": "string",
+                        "enum": ["preference", "fact", "commitment", "context"],
+                    },
+                    "limit": {"type": "integer", "default": 10, "minimum": 1, "maximum": 100},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_update",
+            "description": "Update an existing memory entry",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "integer"},
+                    "content": {"type": "string"},
+                    "priority": {"type": "integer", "minimum": 0, "maximum": 100},
+                },
+                "required": ["entry_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "memory_delete",
+            "description": "Delete a memory entry by ID",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entry_id": {"type": "integer"},
+                },
+                "required": ["entry_id"],
+            },
+        },
+    },
 ]
 
 
@@ -783,6 +941,11 @@ EXECUTORS: Dict[str, ToolExecutor] = {
     "loop_snooze": execute_loop_snooze,
     "loop_enrich": execute_loop_enrich,
     "loop_get": execute_loop_get,
+    # Memory tools
+    "memory_create": execute_memory_create,
+    "memory_search": execute_memory_search,
+    "memory_update": execute_memory_update,
+    "memory_delete": execute_memory_delete,
 }
 
 
