@@ -199,6 +199,10 @@ def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
                 status=status,
                 conn=conn,
             )
+    except ValidationError, LoopNotFoundError:
+        raise
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_create", e)
 
@@ -227,6 +231,10 @@ def execute_loop_update(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
+    except ValidationError, TransitionError:
+        raise
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_update", e)
 
@@ -267,6 +275,10 @@ def execute_loop_close(**kwargs: Any) -> Dict[str, Any]:
         raise ValidationError(
             "status", f"Invalid transition: {e.from_status} -> {e.to_status}"
         ) from e
+    except (ValidationError, ValueError) as e:
+        raise ValidationError("fields", str(e)) from e
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_close", e)
 
@@ -297,6 +309,10 @@ def execute_loop_list(**kwargs: Any) -> Dict[str, Any]:
                 cursor=cursor,
                 conn=conn,
             )
+    except ValidationError, LoopNotFoundError:
+        raise
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_list", e)
 
@@ -320,6 +336,10 @@ def execute_loop_search(**kwargs: Any) -> Dict[str, Any]:
                 cursor=cursor,
                 conn=conn,
             )
+    except ValidationError, LoopNotFoundError:
+        raise
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_search", e)
 
@@ -340,6 +360,10 @@ def execute_loop_next(**kwargs: Any) -> Dict[str, Any]:
                 conn=conn,
                 settings=settings,
             )
+    except ValidationError, LoopNotFoundError:
+        raise
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_next", e)
 
@@ -383,6 +407,10 @@ def execute_loop_transition(**kwargs: Any) -> Dict[str, Any]:
         raise ValidationError(
             "status", f"Invalid transition: {e.from_status} -> {e.to_status}"
         ) from e
+    except ValidationError:
+        raise
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_transition", e)
 
@@ -411,6 +439,10 @@ def execute_loop_snooze(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
+    except (ValidationError, ValueError) as e:
+        raise ValidationError("fields", str(e)) from e
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_snooze", e)
 
@@ -437,6 +469,10 @@ def execute_loop_enrich(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
+    except (ValidationError, ValueError) as e:
+        raise ValidationError("fields", str(e)) from e
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_enrich", e)
 
@@ -457,6 +493,10 @@ def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:
             result = loop_service.get_loop(loop_id=int(loop_id), conn=conn)
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
+    except (ValidationError, ValueError) as e:
+        raise ValidationError("fields", str(e)) from e
+    except sqlite3.Error as e:
+        raise ValidationError("database", f"Database error: {e}") from e
     except Exception as e:
         _handle_tool_error("loop_get", e)
 

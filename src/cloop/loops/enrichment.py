@@ -48,6 +48,8 @@ from .related import (
 )
 from .utils import normalize_tags
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True, slots=True)
 class EnrichmentContext:
@@ -200,8 +202,8 @@ def _gather_enrichment_context(
                             ),
                         }
                     )
-    except Exception:
-        pass  # Graceful degradation
+    except sqlite3.Error, ValueError, KeyError, TypeError:
+        logger.debug("Failed to fetch related loops for loop %s", loop_id)
 
     try:
         # Fetch duplicate candidates (limit 3)
@@ -216,8 +218,8 @@ def _gather_enrichment_context(
                     "preview": d.raw_text_preview,
                 }
             )
-    except Exception:
-        pass
+    except sqlite3.Error, ValueError, AttributeError:
+        logger.debug("Failed to fetch duplicate candidates for loop %s", loop_id)
 
     try:
         # Fetch workload snapshot (top 3 actionable)
@@ -238,8 +240,8 @@ def _gather_enrichment_context(
                     "project": item.get("project"),
                 }
             )
-    except Exception:
-        pass
+    except sqlite3.Error, ValueError, KeyError, TypeError:
+        logger.debug("Failed to fetch workload snapshot for loop %s", loop_id)
 
     try:
         # Fetch all existing link types for this loop
@@ -257,8 +259,8 @@ def _gather_enrichment_context(
                         "confidence": link.get("confidence"),
                     }
                 )
-    except Exception:
-        pass
+    except sqlite3.Error, ValueError, KeyError, TypeError:
+        logger.debug("Failed to fetch existing links for loop %s", loop_id)
 
     try:
         # Fetch answered clarifications for this loop
@@ -271,8 +273,8 @@ def _gather_enrichment_context(
                     "answered_at": clar["answered_at"],
                 }
             )
-    except Exception:
-        pass  # Graceful degradation
+    except sqlite3.Error, ValueError, KeyError, TypeError:
+        logger.debug("Failed to fetch clarifications for loop %s", loop_id)
 
     return EnrichmentContext(
         related_loops=related_loops,
@@ -534,7 +536,10 @@ def enrich_loop(
             content = str(message.get("content", ""))
         raw_json = _extract_json(content)
         suggestion = LoopSuggestion.model_validate(raw_json)
-    except KeyboardInterrupt, SystemExit:
+    except KeyboardInterrupt:
+        # Re-raise system signals without modification
+        raise
+    except SystemExit:
         # Re-raise system signals without modification
         raise
     except json.JSONDecodeError as exc:
@@ -678,7 +683,7 @@ def enrich_loop(
                         source="ai",
                         conn=conn,
                     )
-        except Exception as exc:
+        except (sqlite3.Error, ValueError, AttributeError, TypeError) as exc:
             # Log embedding/suggestion failures but don't fail the enrichment
             logging.warning(
                 "Failed to create embedding or suggestions for loop %s: %s",

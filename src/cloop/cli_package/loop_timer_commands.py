@@ -14,11 +14,12 @@ Non-scope:
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 from argparse import Namespace
 
 from .. import db
-from ..loops.errors import LoopNotFoundError
+from ..loops.errors import LoopNotFoundError, ValidationError
 from ..loops.models import format_utc_datetime
 from ..loops.service import (
     ActiveTimerExistsError,
@@ -107,8 +108,11 @@ def timer_command(args: Namespace, settings: Settings) -> int:
             else:
                 print(f"Error: Unknown timer action: {action}", file=sys.stderr)
                 return 2
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1
 
 
@@ -145,6 +149,9 @@ def sessions_command(args: Namespace, settings: Settings) -> int:
     except LoopNotFoundError:
         print(f"Error: Loop {loop_id} not found", file=sys.stderr)
         return 2
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1

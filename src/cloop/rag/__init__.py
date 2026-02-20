@@ -15,6 +15,7 @@ Public API:
 
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, TypedDict
 
@@ -228,7 +229,7 @@ def ingest_paths(
                         upsert_vector(conn, int(chunk_id), vector, vector_backend)
                     inserted_chunks += 1
                 conn.commit()
-            except Exception:
+            except sqlite3.Error, OSError, ValueError:
                 conn.rollback()
                 raise
 

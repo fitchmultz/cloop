@@ -35,7 +35,7 @@ try:
 
         try:
             return validate_iso8601_timestamp(duration, "snooze_until")
-        except Exception:
+        except ValueError, TypeError:
             pass
 
         match = re_match(r"^(\d+)([mhdw])$", duration.strip())

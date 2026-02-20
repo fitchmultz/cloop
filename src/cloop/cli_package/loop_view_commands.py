@@ -14,11 +14,13 @@ Non-scope:
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 from argparse import Namespace
 from typing import Any, Dict
 
 from .. import db
+from ..loops.errors import ValidationError
 from ..loops.service import (
     apply_loop_view,
     create_loop_view,
@@ -43,8 +45,11 @@ def loop_view_create_command(args: Namespace, settings: Settings) -> int:
             )
         emit_output(view, args.format)
         return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1
 
 
@@ -63,8 +68,11 @@ def loop_view_get_command(args: Namespace, settings: Settings) -> int:
             view = get_loop_view(view_id=args.id, conn=conn)
         emit_output(view, args.format)
         return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1
 
 
@@ -87,8 +95,11 @@ def loop_view_update_command(args: Namespace, settings: Settings) -> int:
             view = update_loop_view(view_id=args.id, conn=conn, **fields)
         emit_output(view, args.format)
         return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1
 
 
@@ -99,8 +110,11 @@ def loop_view_delete_command(args: Namespace, settings: Settings) -> int:
             delete_loop_view(view_id=args.id, conn=conn)
         emit_output({"deleted": True}, args.format)
         return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1
 
 
@@ -116,6 +130,9 @@ def loop_view_apply_command(args: Namespace, settings: Settings) -> int:
             )
         emit_output(result, args.format)
         return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except ValidationError as e:
+        print(f"error: {e.message}", file=sys.stderr)
+        return 1
+    except sqlite3.Error as e:
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1

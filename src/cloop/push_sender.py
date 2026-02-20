@@ -97,8 +97,8 @@ def send_push_notification(
                     (sub["endpoint"],),
                 )
                 conn.commit()
-        except Exception as e:
-            logger.error(f"Unexpected push error: {e}")
+        except (ValueError, TypeError, ConnectionError, TimeoutError) as e:
+            logger.error(f"Push delivery error: {e}")
 
     return success_count
 
