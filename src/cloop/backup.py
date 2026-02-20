@@ -209,12 +209,13 @@ def create_backup(
             manifest=manifest,
         )
 
-    except Exception as e:
+    except (OSError, IOError, zipfile.BadZipFile) as e:
+        logger.exception("Backup creation failed")
         return BackupResult(
             success=False,
             backup_path=None,
             manifest=None,
-            error=str(e),
+            error=f"I/O error: {e}",
         )
 
 
@@ -364,7 +365,8 @@ def restore_backup(
                     rag_restored=rag_restored,
                 )
 
-    except Exception as e:
+    except (OSError, IOError, zipfile.BadZipFile, shutil.Error) as e:
+        logger.exception("Backup restore failed")
         return RestoreResult(
             success=False,
             dry_run=dry_run,
@@ -372,7 +374,7 @@ def restore_backup(
             manifest=None,
             core_restored=False,
             rag_restored=False,
-            error=str(e),
+            error=f"Restore error: {e}",
         )
 
 
@@ -469,9 +471,9 @@ def list_backups(
                 invalid_backups.append(
                     InvalidBackupInfo(path=backup_file, reason=f"I/O error: {e}")
                 )
-        except Exception as e:
+        except (ValueError, AttributeError, RuntimeError) as e:
             logger.warning(
-                "Skipping invalid backup %s: unexpected error (%s: %s)",
+                "Skipping invalid backup %s: data error (%s: %s)",
                 backup_file.name,
                 type(e).__name__,
                 e,
@@ -479,7 +481,7 @@ def list_backups(
             if include_invalid:
                 invalid_backups.append(
                     InvalidBackupInfo(
-                        path=backup_file, reason=f"Unexpected error ({type(e).__name__}): {e}"
+                        path=backup_file, reason=f"Data error ({type(e).__name__}): {e}"
                     )
                 )
 
@@ -589,14 +591,15 @@ def verify_backup(
                 errors=errors,
             )
 
-    except Exception as e:
+    except (OSError, IOError, zipfile.BadZipFile, sqlite3.Error) as e:
+        logger.exception("Backup verification failed")
         return VerifyResult(
             valid=False,
             backup_path=backup_path,
             manifest=None,
             core_integrity=False,
             rag_integrity=False,
-            errors=[str(e)],
+            errors=[f"Verification error: {e}"],
         )
 
 
@@ -624,7 +627,7 @@ def rotate_backups(
         try:
             backup.path.unlink()
             deleted.append(backup.path)
-        except Exception:
-            pass
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to delete backup %s: %s", backup.path, e)
 
     return deleted

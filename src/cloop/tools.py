@@ -23,6 +23,8 @@ Entrypoints:
 """
 
 import json
+import logging
+import sqlite3
 from typing import Any, Dict, List, Protocol
 
 from . import db
@@ -37,6 +39,8 @@ from .loops.errors import (
 )
 from .loops.models import LoopStatus, format_utc_datetime, is_terminal_status, utc_now
 from .settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutor(Protocol):
@@ -141,6 +145,30 @@ def execute_search_notes(**kwargs: Any) -> Dict[str, Any]:
 # ============================================================================
 
 
+def _handle_tool_error(operation: str, exc: Exception) -> None:
+    """Handle tool execution errors with proper logging.
+
+    Re-raises CloopError instances unchanged.
+    Converts known error types to ValidationError.
+    Logs unexpected errors for debugging.
+    """
+    if isinstance(exc, CloopError):
+        raise
+
+    # Known error types that should be converted to validation errors
+    if isinstance(exc, (ValueError, TypeError, KeyError, AttributeError)):
+        raise ValidationError(operation, f"failed to {operation.replace('_', ' ')}: {exc}") from exc
+
+    # Database errors
+    if isinstance(exc, sqlite3.Error):
+        logger.error(f"Database error in {operation}: {exc}")
+        raise ValidationError(operation, f"database error during {operation}: {exc}") from exc
+
+    # Unexpected errors - log and re-raise as validation error
+    logger.exception(f"Unexpected error in {operation}: {exc}")
+    raise ValidationError(operation, f"unexpected error during {operation}: {exc}") from exc
+
+
 def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
     """Create a new loop."""
     from .loops import service as loop_service
@@ -171,10 +199,8 @@ def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
                 status=status,
                 conn=conn,
             )
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_create", f"failed to create loop: {e}") from e
+        _handle_tool_error("loop_create", e)
 
     return {"action": "loop_create", "loop": result}
 
@@ -201,10 +227,8 @@ def execute_loop_update(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_update", f"failed to update loop: {e}") from e
+        _handle_tool_error("loop_update", e)
 
     return {"action": "loop_update", "loop": result}
 
@@ -243,10 +267,8 @@ def execute_loop_close(**kwargs: Any) -> Dict[str, Any]:
         raise ValidationError(
             "status", f"Invalid transition: {e.from_status} -> {e.to_status}"
         ) from e
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_close", f"failed to close loop: {e}") from e
+        _handle_tool_error("loop_close", e)
 
     return {"action": "loop_close", "loop": result}
 
@@ -275,10 +297,8 @@ def execute_loop_list(**kwargs: Any) -> Dict[str, Any]:
                 cursor=cursor,
                 conn=conn,
             )
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_list", f"failed to list loops: {e}") from e
+        _handle_tool_error("loop_list", e)
 
     return {"action": "loop_list", **result}
 
@@ -300,10 +320,8 @@ def execute_loop_search(**kwargs: Any) -> Dict[str, Any]:
                 cursor=cursor,
                 conn=conn,
             )
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_search", f"failed to search loops: {e}") from e
+        _handle_tool_error("loop_search", e)
 
     return {"action": "loop_search", **result}
 
@@ -322,10 +340,8 @@ def execute_loop_next(**kwargs: Any) -> Dict[str, Any]:
                 conn=conn,
                 settings=settings,
             )
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_next", f"failed to get next loops: {e}") from e
+        _handle_tool_error("loop_next", e)
 
     # Result is already a dict with bucket names
     return {"action": "loop_next", **result}
@@ -367,10 +383,8 @@ def execute_loop_transition(**kwargs: Any) -> Dict[str, Any]:
         raise ValidationError(
             "status", f"Invalid transition: {e.from_status} -> {e.to_status}"
         ) from e
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_transition", f"failed to transition loop: {e}") from e
+        _handle_tool_error("loop_transition", e)
 
     return {"action": "loop_transition", "loop": result}
 
@@ -397,10 +411,8 @@ def execute_loop_snooze(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_snooze", f"failed to snooze loop: {e}") from e
+        _handle_tool_error("loop_snooze", e)
 
     return {"action": "loop_snooze", "loop": result}
 
@@ -425,10 +437,8 @@ def execute_loop_enrich(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_enrich", f"failed to enrich loop: {e}") from e
+        _handle_tool_error("loop_enrich", e)
 
     return {"action": "loop_enrich", "loop": result}
 
@@ -447,10 +457,8 @@ def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:
             result = loop_service.get_loop(loop_id=int(loop_id), conn=conn)
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except CloopError:
-        raise
     except Exception as e:
-        raise ValidationError("loop_get", f"failed to get loop: {e}") from e
+        _handle_tool_error("loop_get", e)
 
     return {"action": "loop_get", "loop": result}
 

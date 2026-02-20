@@ -1261,8 +1261,8 @@ def check_database_connectivity(settings: Settings | None = None) -> Dict[str, D
             conn.execute("SELECT 1").fetchone()
         core_result["latency_ms"] = (time.monotonic() - start) * 1000
         core_result["ok"] = True
-    except Exception as e:
-        core_result["error"] = str(e)
+    except (sqlite3.Error, OSError) as e:
+        core_result["error"] = f"{type(e).__name__}: {e}"
     results["core_db"] = core_result
 
     # Check RAG database
@@ -1273,8 +1273,8 @@ def check_database_connectivity(settings: Settings | None = None) -> Dict[str, D
             conn.execute("SELECT 1").fetchone()
         rag_result["latency_ms"] = (time.monotonic() - start) * 1000
         rag_result["ok"] = True
-    except Exception as e:
-        rag_result["error"] = str(e)
+    except (sqlite3.Error, OSError) as e:
+        rag_result["error"] = f"{type(e).__name__}: {e}"
     results["rag_db"] = rag_result
 
     return results

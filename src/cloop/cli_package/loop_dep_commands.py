@@ -14,6 +14,8 @@ Non-scope:
 
 from __future__ import annotations
 
+import logging
+import sqlite3
 import sys
 from argparse import Namespace
 
@@ -28,6 +30,8 @@ from ..loops.service import (
 from ..settings import Settings
 from .output import emit_output
 
+logger = logging.getLogger(__name__)
+
 
 def loop_dep_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop dep' commands."""
@@ -36,6 +40,7 @@ def loop_dep_command(args: Namespace, settings: Settings) -> int:
         with db.core_connection(settings) as conn:
             if action == "add":
                 if not args.loop_id or not args.depends_on:
+                    logger.error("--loop and --on required for add")
                     print("error: --loop and --on required for add", file=sys.stderr)
                     return 2
                 try:
@@ -47,11 +52,13 @@ def loop_dep_command(args: Namespace, settings: Settings) -> int:
                     emit_output(result, args.format)
                     return 0
                 except DependencyCycleError as e:
+                    logger.error("Dependency cycle: %s", e)
                     print(f"error: {e.message}", file=sys.stderr)
                     return 1
 
             elif action == "remove":
                 if not args.loop_id or not args.depends_on:
+                    logger.error("--loop and --on required for remove")
                     print("error: --loop and --on required for remove", file=sys.stderr)
                     return 2
                 result = remove_loop_dependency(
@@ -64,6 +71,7 @@ def loop_dep_command(args: Namespace, settings: Settings) -> int:
 
             elif action == "list":
                 if not args.loop_id:
+                    logger.error("--loop required for list")
                     print("error: --loop required for list", file=sys.stderr)
                     return 2
                 deps = get_loop_dependencies(loop_id=args.loop_id, conn=conn)
@@ -72,6 +80,7 @@ def loop_dep_command(args: Namespace, settings: Settings) -> int:
 
             elif action == "blocking":
                 if not args.loop_id:
+                    logger.error("--loop required for blocking")
                     print("error: --loop required for blocking", file=sys.stderr)
                     return 2
                 blocking = get_loop_blocking(loop_id=args.loop_id, conn=conn)
@@ -79,11 +88,14 @@ def loop_dep_command(args: Namespace, settings: Settings) -> int:
                 return 0
 
             else:
+                logger.error("Unknown dep action: %s", action)
                 print(f"error: unknown dep action: {action}", file=sys.stderr)
                 return 2
     except LoopNotFoundError as e:
+        logger.error("Loop not found: %s", e.loop_id)
         print(f"error: loop not found: {e.loop_id}", file=sys.stderr)
         return 2
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except sqlite3.Error as e:
+        logger.error("Database error: %s", e)
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1

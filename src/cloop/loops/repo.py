@@ -1947,6 +1947,37 @@ def has_open_dependencies(
     return row is not None
 
 
+def has_open_dependencies_batch(
+    *,
+    loop_ids: list[int],
+    conn: sqlite3.Connection,
+) -> set[int]:
+    """Check for open dependencies for multiple loops in a single query.
+
+    Args:
+        loop_ids: List of loop IDs to check
+        conn: Database connection
+
+    Returns:
+        Set of loop IDs that have open dependencies
+    """
+    if not loop_ids:
+        return set()
+
+    placeholders = ", ".join("?" for _ in loop_ids)
+    rows = conn.execute(
+        f"""
+        SELECT DISTINCT ld.loop_id
+        FROM loop_dependencies ld
+        JOIN loops l ON l.id = ld.depends_on_loop_id
+        WHERE ld.loop_id IN ({placeholders})
+          AND l.status NOT IN ('completed', 'dropped')
+        """,
+        loop_ids,
+    ).fetchall()
+    return {row["loop_id"] for row in rows}
+
+
 def detect_dependency_cycle(
     *,
     loop_id: int,

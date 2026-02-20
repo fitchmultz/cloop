@@ -1026,12 +1026,12 @@ def next_loops(
         now_utc=now,
         conn=conn,
     )
-    actionable_records: list[LoopRecord] = []
-    for record in candidates:
-        # Keep dependency check in Python (requires join)
-        if repo.has_open_dependencies(loop_id=record.id, conn=conn):
-            continue
-        actionable_records.append(record)
+    # Batch check dependencies for all candidates (O(1) query vs O(N))
+    candidate_ids = [record.id for record in candidates]
+    blocked_ids = repo.has_open_dependencies_batch(loop_ids=candidate_ids, conn=conn)
+    actionable_records: list[LoopRecord] = [
+        record for record in candidates if record.id not in blocked_ids
+    ]
 
     weights = PriorityWeights(
         due_weight=settings.priority_weight_due,

@@ -15,7 +15,9 @@ Non-scope:
 from __future__ import annotations
 
 import json
+import logging
 import re
+import sqlite3
 import sys
 from argparse import Namespace
 from datetime import datetime, timedelta
@@ -53,6 +55,8 @@ from ..loops.service import (
 from ..loops.utils import normalize_tags
 from ..settings import Settings
 from .output import emit_output
+
+logger = logging.getLogger(__name__)
 
 _OPEN_STATUSES = [
     LoopStatus.INBOX,
@@ -102,7 +106,8 @@ def capture_command(args: Namespace, settings: Settings) -> int:
         try:
             parsed = parse_recurrence_schedule(args.schedule)
             recurrence_rrule = parsed.rrule
-        except Exception as e:
+        except ValueError as e:
+            logger.error("Invalid schedule: %s", e)
             print(f"error: invalid schedule: {e}", file=sys.stderr)
             return 1
     elif getattr(args, "rrule", None):
@@ -125,6 +130,7 @@ def capture_command(args: Namespace, settings: Settings) -> int:
                 template = repo.get_loop_template_by_name(name=args.template, conn=conn)
 
         if not template:
+            logger.error("Template not found: %s", args.template)
             print(f"Template not found: {args.template}", file=sys.stderr)
             return 2
 
@@ -221,6 +227,7 @@ def loop_get_command(args: Namespace, settings: Settings) -> int:
         emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
+        logger.error("Loop %s not found", args.id)
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
 
@@ -230,6 +237,7 @@ def loop_list_command(args: Namespace, settings: Settings) -> int:
     try:
         statuses = parse_list_status_filter(args.status)
     except ValueError as error:
+        logger.error("Invalid status filter: %s", error)
         print(f"error: {error}", file=sys.stderr)
         return 1
 
@@ -272,10 +280,12 @@ def loop_search_command(args: Namespace, settings: Settings) -> int:
     positional_query = args.query
     flag_query = args.query_flag
     if positional_query and flag_query:
+        logger.error("Both positional and flag query provided")
         print("error: provide either positional query or --query, not both", file=sys.stderr)
         return 1
     query = flag_query or positional_query
     if not query:
+        logger.error("No query provided")
         print("error: missing query (use positional value or --query)", file=sys.stderr)
         return 1
 
@@ -290,10 +300,12 @@ def loop_search_command(args: Namespace, settings: Settings) -> int:
         emit_output(records, args.format)
         return 0
     except ValidationError as e:
+        logger.error("Validation error in search: %s", e)
         print(f"error: {e}", file=sys.stderr)
         return 1
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
+    except sqlite3.Error as e:
+        logger.error("Database error in search: %s", e)
+        print(f"error: database error - {e}", file=sys.stderr)
         return 1
 
 
@@ -326,6 +338,7 @@ def loop_update_command(args: Namespace, settings: Settings) -> int:
         fields["tags"] = normalize_tags(args.tags.split(",")) if args.tags else []
 
     if not fields:
+        logger.error("No fields to update")
         print("error: no fields to update", file=sys.stderr)
         return 1
 
@@ -337,15 +350,19 @@ def loop_update_command(args: Namespace, settings: Settings) -> int:
         emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
+        logger.error("Loop %s not found", args.id)
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
     except LoopClaimedError as e:
+        logger.error("Loop claimed: %s", e)
         print(f"error: {e}", file=sys.stderr)
         return 1
     except ClaimNotFoundError:
+        logger.error("Invalid or expired claim token")
         print("error: invalid or expired claim token", file=sys.stderr)
         return 1
     except ValidationError as e:
+        logger.error("Validation error: %s", e)
         print(f"error: {e}", file=sys.stderr)
         return 1
 
@@ -355,6 +372,7 @@ def loop_status_command(args: Namespace, settings: Settings) -> int:
     try:
         to_status = LoopStatus(args.status)
     except ValueError:
+        logger.error("Invalid status: %s", args.status)
         print(f"error: invalid status '{args.status}'", file=sys.stderr)
         return 1
 
@@ -372,21 +390,27 @@ def loop_status_command(args: Namespace, settings: Settings) -> int:
         emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
+        logger.error("Loop %s not found", args.id)
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
     except LoopClaimedError as e:
+        logger.error("Loop claimed: %s", e)
         print(f"error: {e}", file=sys.stderr)
         return 1
     except ClaimNotFoundError:
+        logger.error("Invalid or expired claim token")
         print("error: invalid or expired claim token", file=sys.stderr)
         return 1
     except TransitionError as e:
+        logger.error("Invalid transition: %s -> %s", e.from_status, e.to_status)
         print(f"error: {e}", file=sys.stderr)
         return 2
     except DependencyNotMetError as e:
+        logger.error("Dependencies not met for loop %s: %s", args.id, e.open_dependencies)
         print(f"error: {e.message} (open dependencies: {e.open_dependencies})", file=sys.stderr)
         return 2
     except DependencyCycleError as e:
+        logger.error("Dependency cycle: %s", e)
         print(f"error: {e.message}", file=sys.stderr)
         return 2
 
@@ -409,15 +433,19 @@ def loop_close_command(args: Namespace, settings: Settings) -> int:
         emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
+        logger.error("Loop %s not found", args.id)
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
     except LoopClaimedError as e:
+        logger.error("Loop claimed: %s", e)
         print(f"error: {e}", file=sys.stderr)
         return 1
     except ClaimNotFoundError:
+        logger.error("Invalid or expired claim token")
         print("error: invalid or expired claim token", file=sys.stderr)
         return 1
     except TransitionError as e:
+        logger.error("Invalid transition: %s", e)
         print(f"error: {e}", file=sys.stderr)
         return 2
 
@@ -430,6 +458,7 @@ def loop_enrich_command(args: Namespace, settings: Settings) -> int:
         emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
+        logger.error("Loop %s not found", args.id)
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
 
@@ -438,7 +467,7 @@ def parse_snooze_duration(duration: str) -> str | None:
     """Parse snooze duration. Supports: 30m, 1h, 2d, 1w, or ISO8601 timestamp."""
     try:
         return validate_iso8601_timestamp(duration, "snooze_until")
-    except Exception:
+    except ValidationError:
         pass
 
     match = re.match(r"^(\d+)([mhdw])$", duration.strip())
@@ -456,6 +485,7 @@ def loop_snooze_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop snooze' command."""
     snooze_until = parse_snooze_duration(args.duration)
     if snooze_until is None:
+        logger.error("Invalid duration: %s", args.duration)
         print(f"error: invalid duration '{args.duration}'", file=sys.stderr)
         return 1
 
@@ -469,5 +499,6 @@ def loop_snooze_command(args: Namespace, settings: Settings) -> int:
         emit_output(record, args.format)
         return 0
     except LoopNotFoundError:
+        logger.error("Loop %s not found", args.id)
         print(f"error: loop {args.id} not found", file=sys.stderr)
         return 2
