@@ -32,9 +32,9 @@ import * as comments from './comments.js';
 import * as sse from './sse.js';
 import * as duplicates from './duplicates.js';
 import * as suggestions from './suggestions.js';
-import { renderSuggestionPanel } from './suggestions.js';
 import { snoozeDurationToUtc } from './utils.js';
-import { selectedLoopIds, updateBulkActionBar } from './state.js';
+import { selectedLoopIds } from './state.js';
+import { updateBulkActionBar } from './bulk.js';
 
 // ========================================
 // DOM Element References
@@ -905,14 +905,6 @@ function init() {
   comments.setupCommentHandlers();
   suggestions.setupSuggestionHandlers();
   duplicates.setupMergeHandlers();
-
-  // Hook renderLoop to add suggestions
-  const originalRenderLoop = loop.renderLoop || (() => {});
-  loop.renderLoop = function(l) {
-    const card = originalRenderLoop(l);
-    renderSuggestionPanel(card, l);
-    return card;
-  };
 
   // Initial load
   loop.loadInbox();

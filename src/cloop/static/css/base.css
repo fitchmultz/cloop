@@ -1,49 +1,77 @@
 /**
- * base.css - CSS variables, reset, fonts, and animations
+ * base.css - Base styles, reset, and animations
  *
  * Purpose:
- *   Define design tokens, global reset, and base typography for the Cloop UI.
+ *   Global reset, base typography, and animations for the Cloop UI.
  *
  * Responsibilities:
- *   - CSS custom properties (colors, spacing, shadows)
- *   - Font imports and base font stack
+ *   - Font imports
  *   - CSS reset and box-sizing
+ *   - Base element styles
  *   - Global keyframe animations
  *
  * Non-scope:
+ *   - Design tokens (see tokens.css)
  *   - Component-specific styles (see components.css)
  *   - Layout grid systems (see layout.css)
- *   - Modal styles (see modals.css)
  */
 
+@import url("tokens.css");
 @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&family=Space+Grotesk:wght@400;600&display=swap");
-
-:root {
-  --bg: #f7f4ef;
-  --bg-accent: #efe5d4;
-  --ink: #2f2a24;
-  --muted: #6e6357;
-  --brand: #d66b3f;
-  --card: #fffdf9;
-  --border: #e3d8c8;
-  --shadow: 0 10px 30px rgba(47, 42, 36, 0.12);
-}
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   margin: 0;
-  font-family: "IBM Plex Sans", sans-serif;
-  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-ink);
   background:
-    radial-gradient(1200px 600px at 20% -10%, var(--bg-accent), transparent),
+    radial-gradient(1200px 600px at 20% -10%, var(--color-bg-accent), transparent),
     radial-gradient(900px 500px at 110% 10%, #f3e6d8, transparent),
-    var(--bg);
+    var(--color-bg);
   min-height: 100vh;
 }
 
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: var(--font-semibold);
+  line-height: var(--leading-tight);
+  margin: 0 0 var(--space-4) 0;
+}
+
+h1 { font-size: var(--text-2xl); }
+h2 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+h4 { font-size: var(--text-md); }
+
+/* Links */
+a {
+  color: var(--color-brand);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Form elements */
+input, textarea, select, button {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Animations */
 @keyframes rise {
   from {
     opacity: 0;

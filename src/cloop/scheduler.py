@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import Any
 
 from . import db
+from .constants import MAX_ESCALATION_LEVEL, NUDGE_THRESHOLD_HIGH, NUDGE_THRESHOLD_LOW
 from .loops.models import LoopEventType, utc_now
 from .loops.review import compute_review_cohorts
 from .push_sender import send_scheduler_push
@@ -94,7 +95,7 @@ def _emit_scheduler_event(
     now = utc_now()
     cursor = conn.execute(
         """INSERT INTO loop_events (loop_id, event_type, payload_json, created_at)
-           VALUES (0, ?, ?, ?)
+           VALUES (NULL, ?, ?, ?)
         """,
         (event_type.value, json.dumps(payload), now.isoformat()),
     )
@@ -288,20 +289,23 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
         # Calculate escalation
         if state is None:
             nudge_count = 1
-            # First nudge: overdue loops start at level 2
+            # First nudge: overdue loops start at max escalation
             if is_overdue:
-                escalation_level = 2
+                escalation_level = MAX_ESCALATION_LEVEL
             else:
                 escalation_level = 0
         else:
             nudge_count = state.nudge_count + 1
             # Escalate based on count and overdue status
             if is_overdue:
-                escalation_level = min(3, max(state.escalation_level, 2) + (nudge_count // 2))
-            elif nudge_count >= 4:
-                escalation_level = min(3, 2)
-            elif nudge_count >= 2:
-                escalation_level = min(3, 1)
+                escalation_level = min(
+                    MAX_ESCALATION_LEVEL + 1,
+                    max(state.escalation_level, MAX_ESCALATION_LEVEL) + (nudge_count // 2),
+                )
+            elif nudge_count >= NUDGE_THRESHOLD_HIGH:
+                escalation_level = min(MAX_ESCALATION_LEVEL + 1, MAX_ESCALATION_LEVEL)
+            elif nudge_count >= NUDGE_THRESHOLD_LOW:
+                escalation_level = min(MAX_ESCALATION_LEVEL + 1, 1)
             else:
                 escalation_level = state.escalation_level
 

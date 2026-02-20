@@ -13,15 +13,15 @@ Non-scope:
     - Loop enrichment prompt construction (see loops/enrichment.py)
 
 Entrypoints:
-    - chat_completion(messages, settings) -> Tuple[str, Dict]
+    - chat_completion(messages, settings) -> tuple[str, dict]
     - stream_completion(messages, settings) -> Generator
-    - chat_with_tools(messages, tools, settings) -> Tuple[str, Dict, List[Dict]]
+    - chat_with_tools(messages, tools, settings) -> tuple[str, dict, list[dict]]
 """
 
 import json
 import time
 from copy import deepcopy
-from typing import Any, Dict, Generator, Iterable, List, Tuple, cast
+from typing import Any, Generator, Iterable, cast
 
 import litellm
 
@@ -30,27 +30,27 @@ from .retry import with_llm_retry
 from .settings import Settings, get_settings
 from .tools import EXECUTORS, TOOL_SPECS, normalize_tool_arguments
 
-Message = Dict[str, Any]
+Message = dict[str, Any]
 
 
 class ToolCallError(ValueError):
     """Raised when LLM-specified tool calls are invalid."""
 
 
-def estimate_tokens(messages: List[Message]) -> int:
+def estimate_tokens(messages: list[Message]) -> int:
     return sum(len((message.get("content") or "").split()) for message in messages)
 
 
 def chat_completion(
-    messages: List[Message],
+    messages: list[Message],
     *,
     settings: Settings | None = None,
-) -> Tuple[str, Dict[str, Any]]:
+) -> tuple[str, dict[str, Any]]:
     settings = settings or get_settings()
     provider_kwargs = resolve_provider_kwargs(settings.llm_model, settings)
     start = time.time()
     response = cast(
-        Dict[str, Any],
+        dict[str, Any],
         with_llm_retry(litellm.completion, settings)(
             model=settings.llm_model,
             messages=messages,
@@ -59,10 +59,10 @@ def chat_completion(
         ),
     )
     latency_ms = (time.time() - start) * 1000
-    choices = cast(List[Dict[str, Any]], response.get("choices", []))
+    choices = cast(list[dict[str, Any]], response.get("choices", []))
     content = ""
     if choices:
-        message = cast(Dict[str, Any], choices[0].get("message", {}))
+        message = cast(dict[str, Any], choices[0].get("message", {}))
         content = str(message.get("content", ""))
     metadata = {
         "latency_ms": latency_ms,
@@ -73,7 +73,7 @@ def chat_completion(
 
 
 def stream_completion(
-    messages: List[Message],
+    messages: list[Message],
     *,
     settings: Settings | None = None,
 ) -> Generator[str, None, None]:
@@ -91,22 +91,22 @@ def stream_completion(
             if chunk:
                 yield chunk
             continue
-        choice_list = cast(List[Dict[str, Any]], chunk.get("choices", []))
+        choice_list = cast(list[dict[str, Any]], chunk.get("choices", []))
         if not choice_list:
             continue
-        delta = cast(Dict[str, Any], choice_list[0].get("delta", {}))
+        delta = cast(dict[str, Any], choice_list[0].get("delta", {}))
         token = delta.get("content")
         if token:
             yield str(token)
 
 
 def chat_with_tools(
-    messages: List[Message],
-    tools: List[Dict[str, Any]] | None = None,
+    messages: list[Message],
+    tools: list[dict[str, Any]] | None = None,
     *,
     tool_choice: str = "auto",
     settings: Settings | None = None,
-) -> Tuple[str, Dict[str, Any], List[Dict[str, Any]]]:
+) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
     settings = settings or get_settings()
     tools = tools or TOOL_SPECS
     request_messages = deepcopy(messages)
@@ -114,7 +114,7 @@ def chat_with_tools(
 
     start = time.time()
     first_response = cast(
-        Dict[str, Any],
+        dict[str, Any],
         with_llm_retry(litellm.completion, settings)(
             model=settings.llm_model,
             messages=request_messages,
@@ -125,12 +125,12 @@ def chat_with_tools(
         ),
     )
     latency_ms = (time.time() - start) * 1000
-    choices = cast(List[Dict[str, Any]], first_response.get("choices", []))
-    first_message = cast(Dict[str, Any], choices[0].get("message", {})) if choices else {}
-    tool_calls = cast(List[Dict[str, Any]], first_message.get("tool_calls") or [])
+    choices = cast(list[dict[str, Any]], first_response.get("choices", []))
+    first_message = cast(dict[str, Any], choices[0].get("message", {})) if choices else {}
+    tool_calls = cast(list[dict[str, Any]], first_message.get("tool_calls") or [])
 
-    normalized_calls: List[Dict[str, Any]] = []
-    tool_outputs: List[Dict[str, Any]] = []
+    normalized_calls: list[dict[str, Any]] = []
+    tool_outputs: list[dict[str, Any]] = []
 
     if not tool_calls:
         content = str(first_message.get("content", ""))
@@ -142,7 +142,7 @@ def chat_with_tools(
         }
         return content, metadata, normalized_calls
 
-    assistant_entry: Dict[str, Any] = {
+    assistant_entry: dict[str, Any] = {
         "role": first_message.get("role", "assistant"),
     }
     if "content" in first_message:
@@ -153,7 +153,7 @@ def chat_with_tools(
     augmented_messages = request_messages + [assistant_entry]
 
     for call in tool_calls:
-        function_payload = cast(Dict[str, Any], call.get("function") or {})
+        function_payload = cast(dict[str, Any], call.get("function") or {})
         name = cast(str, function_payload.get("name"))
         if not name:
             continue
@@ -181,7 +181,7 @@ def chat_with_tools(
 
     second_start = time.time()
     second_response = cast(
-        Dict[str, Any],
+        dict[str, Any],
         with_llm_retry(litellm.completion, settings)(
             model=settings.llm_model,
             messages=augmented_messages,
@@ -192,9 +192,9 @@ def chat_with_tools(
         ),
     )
     latency_ms += (time.time() - second_start) * 1000
-    second_choices = cast(List[Dict[str, Any]], second_response.get("choices", []))
+    second_choices = cast(list[dict[str, Any]], second_response.get("choices", []))
     second_message = (
-        cast(Dict[str, Any], second_choices[0].get("message", {})) if second_choices else {}
+        cast(dict[str, Any], second_choices[0].get("message", {})) if second_choices else {}
     )
     final_content = str(second_message.get("content", ""))
 

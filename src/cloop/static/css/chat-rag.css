@@ -16,6 +16,8 @@
  *   - Modals (see modals.css)
  */
 
+@import url("tokens.css");
+
 /* Chat Styles */
 .chat-panel {
   display: flex;
@@ -44,15 +46,15 @@
 
 .chat-bubble.user {
   align-self: flex-end;
-  background: var(--brand);
+  background: var(--color-brand);
   color: white;
   border-bottom-right-radius: 4px;
 }
 
 .chat-bubble.assistant {
   align-self: flex-start;
-  background: #fff7ed;
-  border: 1px solid var(--border);
+  background: var(--color-bg-accent);
+  border: 1px solid var(--color-border);
   border-bottom-left-radius: 4px;
 }
 
@@ -64,20 +66,20 @@
 .chat-form input {
   flex: 1;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   padding: 10px 16px;
   font-size: 15px;
   font-family: inherit;
-  background: #fffefb;
+  background: var(--color-card-alt);
 }
 
 .chat-form input:focus {
   outline: none;
-  border-color: var(--brand);
+  border-color: var(--color-brand);
 }
 
 .chat-placeholder {
-  color: var(--muted);
+  color: var(--color-muted);
   text-align: center;
   padding: 40px 20px;
   font-style: italic;
@@ -98,21 +100,21 @@
 .rag-form input {
   flex: 1;
   border-radius: 999px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   padding: 10px 16px;
   font-size: 15px;
   font-family: inherit;
-  background: #fffefb;
+  background: var(--color-card-alt);
 }
 
 .rag-form input:focus {
   outline: none;
-  border-color: var(--brand);
+  border-color: var(--color-brand);
 }
 
 .rag-answer {
-  background: #fff7ed;
-  border: 1px solid var(--border);
+  background: var(--color-bg-accent);
+  border: 1px solid var(--color-border);
   border-radius: 14px;
   padding: 16px;
   animation: rise 280ms ease both;
@@ -127,8 +129,8 @@
 .rag-sources h3 {
   margin: 0 0 10px;
   font-size: 14px;
-  color: var(--muted);
-  font-family: "Space Grotesk", sans-serif;
+  color: var(--color-muted);
+  font-family: var(--font-display);
 }
 
 .rag-sources-list {
@@ -138,8 +140,8 @@
 }
 
 .rag-source {
-  background: var(--card);
-  border: 1px solid var(--border);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 13px;
@@ -147,20 +149,20 @@
 
 .rag-source-path {
   font-weight: 600;
-  color: var(--ink);
+  color: var(--color-ink);
   word-break: break-all;
 }
 
 .rag-source-meta {
-  color: var(--muted);
+  color: var(--color-muted);
   margin-top: 4px;
 }
 
 .rag-source-content {
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px dashed var(--border);
-  color: var(--muted);
+  border-top: 1px dashed var(--color-border);
+  color: var(--color-muted);
   font-size: 12px;
   line-height: 1.4;
   max-height: 80px;
@@ -168,7 +170,7 @@
 }
 
 .rag-placeholder {
-  color: var(--muted);
+  color: var(--color-muted);
   text-align: center;
   padding: 40px 20px;
   font-style: italic;

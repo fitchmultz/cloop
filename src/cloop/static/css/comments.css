@@ -15,9 +15,11 @@
  *   - Loop cards (see loop.css)
  */
 
+@import url("tokens.css");
+
 .comments-section {
   margin-top: 12px;
-  border-top: 1px dashed var(--border);
+  border-top: 1px dashed var(--color-border);
   padding-top: 12px;
 }
 
@@ -27,24 +29,24 @@
   align-items: center;
   cursor: pointer;
   padding: 6px 8px;
-  background: var(--bg);
+  background: var(--color-bg);
   border-radius: 8px;
   transition: background 150ms ease;
 }
 
 .comments-header:hover {
-  background: var(--bg-accent);
+  background: var(--color-bg-accent);
 }
 
 .comments-count {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--color-muted);
   font-weight: 500;
 }
 
 .comments-toggle {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--color-muted);
   transition: transform 200ms ease;
 }
 
@@ -71,20 +73,20 @@
 
 .comment {
   padding: 10px 12px;
-  background: var(--card);
-  border: 1px solid var(--border);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  border-left: 3px solid var(--brand);
+  border-left: 3px solid var(--color-brand);
 }
 
 .comment.reply {
   margin-left: 24px;
-  border-left-color: var(--muted);
+  border-left-color: var(--color-muted);
 }
 
 .comment.deleted {
   opacity: 0.5;
-  border-left-color: var(--border);
+  border-left-color: var(--color-border);
 }
 
 .comment-meta {
@@ -97,18 +99,18 @@
 .comment-author {
   font-weight: 600;
   font-size: 13px;
-  color: var(--ink);
+  color: var(--color-ink);
 }
 
 .comment-time {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--color-muted);
 }
 
 .comment-body {
   font-size: 14px;
   line-height: 1.5;
-  color: var(--ink);
+  color: var(--color-ink);
   white-space: pre-wrap;
 }
 
@@ -121,15 +123,15 @@
 }
 
 .comment-body code {
-  background: var(--bg-accent);
+  background: var(--color-bg-accent);
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: "Space Grotesk", monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .comment-body pre {
-  background: var(--bg-accent);
+  background: var(--color-bg-accent);
   padding: 10px;
   border-radius: 8px;
   overflow-x: auto;
@@ -151,7 +153,7 @@
 .comment-action-btn {
   background: none;
   border: none;
-  color: var(--brand);
+  color: var(--color-brand);
   cursor: pointer;
   padding: 0;
   font-size: 12px;
@@ -167,7 +169,7 @@
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: var(--bg);
+  background: var(--color-bg);
   border-radius: 10px;
 }
 
@@ -178,39 +180,39 @@
 
 .comment-author-input {
   flex: 0 0 140px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 13px;
   font-family: inherit;
-  background: #fffefb;
+  background: var(--color-card-alt);
 }
 
 .comment-author-input:focus {
   outline: none;
-  border-color: var(--brand);
+  border-color: var(--color-brand);
 }
 
 .comment-textarea {
   width: 100%;
   min-height: 60px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 14px;
   font-family: inherit;
-  background: #fffefb;
+  background: var(--color-card-alt);
   resize: vertical;
 }
 
 .comment-textarea:focus {
   outline: none;
-  border-color: var(--brand);
+  border-color: var(--color-brand);
 }
 
 .comment-submit-btn {
   align-self: flex-start;
-  background: var(--brand);
+  background: var(--color-brand);
   border: none;
   border-radius: 999px;
   padding: 8px 16px;
@@ -228,7 +230,7 @@
   display: none;
   margin-top: 8px;
   padding: 10px;
-  background: var(--bg);
+  background: var(--color-bg);
   border-radius: 8px;
 }
 

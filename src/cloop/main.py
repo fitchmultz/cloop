@@ -21,9 +21,10 @@ All exception handlers are in handlers.py
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Dict
+from typing import Annotated
 
 from fastapi import Depends, FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from . import db, web
 from .handlers import register_exception_handlers
@@ -50,6 +51,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Cloop LLM Service", version="0.1.0", lifespan=lifespan)
+
+# Mount static files directly on app (APIRouter.mount doesn't propagate via include_router)
+app.mount("/static", StaticFiles(directory=web._STATIC_DIR), name="static")
+
 app.include_router(web.router)
 app.include_router(chat_router)
 app.include_router(loops_router)
@@ -71,7 +76,7 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
     db_checks = db.check_database_connectivity(settings)
 
     # Build check status objects
-    checks: Dict[str, DependencyStatus] = {}
+    checks: dict[str, DependencyStatus] = {}
     all_ok = True
 
     for name, result in db_checks.items():

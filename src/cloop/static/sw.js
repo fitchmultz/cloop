@@ -18,7 +18,7 @@
  *     - Cache version must be incremented when assets change
  *     - Capture queue is persisted in IndexedDB until sync succeeds
  */
-const CACHE_VERSION = "cloop-v1";
+const CACHE_VERSION = "cloop-v2";
 const STATIC_ASSETS = [
   "/",
   "/static/manifest.json",

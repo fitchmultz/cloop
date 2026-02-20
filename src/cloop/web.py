@@ -20,7 +20,6 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -65,4 +64,5 @@ def serve_service_worker() -> FileResponse:
     )
 
 
-router.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+# Note: Static files are mounted directly on the app in main.py
+# APIRouter.mount() doesn't propagate when included via include_router()

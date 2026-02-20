@@ -247,8 +247,8 @@ def loop_events_stream(
         conn = None
         iterations = 0
         try:
-            # Open database connection
-            conn = sqlite3.connect(settings.core_db_path)
+            # Open database connection (check_same_thread=False for SSE generator thread safety)
+            conn = sqlite3.connect(settings.core_db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             for pragma, value in db.PRAGMAS:
                 conn.execute(f"PRAGMA {pragma}={value}")

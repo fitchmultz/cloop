@@ -12,6 +12,7 @@
     <title>Cloop Loops</title>
 
     <!-- CSS Modules -->
+    <link rel="stylesheet" href="/static/css/tokens.css">
     <link rel="stylesheet" href="/static/css/base.css">
     <link rel="stylesheet" href="/static/css/components.css">
     <link rel="stylesheet" href="/static/css/loop.css">
@@ -48,9 +49,9 @@
       <section class="panel">
         <h2>Quick capture</h2>
         <form id="capture-form">
-          <div class="template-row" style="display: flex; gap: 8px; margin-bottom: 8px; align-items: center;">
-            <label for="template-select" style="font-size: 13px; color: var(--muted);">template:</label>
-            <select id="template-select" style="flex: 1; border-radius: 999px; border: 1px solid var(--border); padding: 6px 12px; background: #fffefb; font-family: inherit; font-size: 13px;">
+          <div class="form-row template-row">
+            <label for="template-select" class="form-label">template:</label>
+            <select id="template-select" class="input-flex">
               <option value="">None</option>
             </select>
           </div>
@@ -69,19 +70,19 @@
               Blocked
             </label>
           </div>
-          <div class="metadata-row" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 13px;">
-            <input type="date" id="due-date" style="flex: 0 0 auto; border-radius: 999px; border: 1px solid var(--border); padding: 4px 8px; background: #fffefb; font-family: inherit; font-size: 13px;" placeholder="Due date">
-            <input type="text" id="next-action" style="flex: 1 1 150px; min-width: 100px; border-radius: 999px; border: 1px solid var(--border); padding: 4px 8px; background: #fffefb; font-family: inherit; font-size: 13px;" placeholder="Next action">
-            <input type="number" id="time-minutes" min="1" step="1" style="flex: 0 0 70px; border-radius: 999px; border: 1px solid var(--border); padding: 4px 8px; background: #fffefb; font-family: inherit; font-size: 13px;" placeholder="Min">
-            <select id="activation-energy" style="flex: 0 0 80px; border-radius: 999px; border: 1px solid var(--border); padding: 4px 8px; background: #fffefb; font-family: inherit; font-size: 13px;">
+          <div class="form-row wrap metadata-row">
+            <input type="date" id="due-date" class="input-flex-sm" placeholder="Due date">
+            <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Next action">
+            <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
+            <select id="activation-energy" class="input-w-md">
               <option value="">Effort</option>
               <option value="0">0 - Trivial</option>
               <option value="1">1 - Easy</option>
               <option value="2">2 - Medium</option>
               <option value="3">3 - Hard</option>
             </select>
-            <input type="text" id="project" style="flex: 1 1 100px; min-width: 80px; border-radius: 999px; border: 1px solid var(--border); padding: 4px 8px; background: #fffefb; font-family: inherit; font-size: 13px;" placeholder="Project">
-            <input type="text" id="tags" style="flex: 1 1 120px; min-width: 100px; border-radius: 999px; border: 1px solid var(--border); padding: 4px 8px; background: #fffefb; font-family: inherit; font-size: 13px;" placeholder="Tags (comma sep)">
+            <input type="text" id="project" class="input-w-lg input-min-sm" placeholder="Project">
+            <input type="text" id="tags" class="input-w-xl input-min-md" placeholder="Tags (comma sep)">
           </div>
           <div class="actions">
             <span id="status" class="loop-meta">Ready.</span>
@@ -97,9 +98,8 @@
           <input
             type="text"
             id="query-filter"
-            class="query-input"
+            class="query-input input-flex"
             placeholder="e.g., status:inbox due:today"
-            style="flex: 1; min-width: 200px; border-radius: 999px; border: 1px solid var(--border); padding: 6px 12px; background: #fffefb; font-family: inherit;"
           >
         </div>
         <div class="filters">
@@ -122,7 +122,7 @@
           <select id="view-filter">
             <option value="" selected>-</option>
           </select>
-          <button class="tag-add" type="button" id="save-view-btn" style="padding: 4px 8px; font-size: 12px;">save</button>
+          <button class="tag-add" type="button" id="save-view-btn">save</button>
         </div>
         <div id="inbox" class="inbox-list"></div>
       </section>
@@ -173,7 +173,7 @@
           >
           <button type="submit">Ask</button>
         </form>
-        <div id="rag-answer" class="rag-answer" style="display: none;" role="region" aria-live="polite" aria-label="RAG answer">
+        <div id="rag-answer" class="rag-answer hidden" role="region" aria-live="polite" aria-label="RAG answer">
           <div class="rag-answer-text"></div>
           <div class="rag-sources">
             <h3>Sources</h3>

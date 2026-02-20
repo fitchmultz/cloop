@@ -17,6 +17,32 @@ DEFAULT_LOOP_LIST_LIMIT: int = 50
 DEFAULT_LOOP_NEXT_LIMIT: int = 5
 
 # =============================================================================
+# HTTP Status Codes
+# =============================================================================
+
+HTTP_OK: int = 200
+HTTP_CREATED: int = 201
+HTTP_BAD_REQUEST: int = 400
+HTTP_UNAUTHORIZED: int = 401
+HTTP_FORBIDDEN: int = 403
+HTTP_NOT_FOUND: int = 404
+HTTP_CONFLICT: int = 409
+HTTP_UNPROCESSABLE_ENTITY: int = 422
+HTTP_INTERNAL_SERVER_ERROR: int = 500
+
+# =============================================================================
+# Scheduler/Prioritization Thresholds
+# =============================================================================
+
+NUDGE_THRESHOLD_LOW: int = 2
+NUDGE_THRESHOLD_HIGH: int = 4
+MAX_ESCALATION_LEVEL: int = 2
+
+DUE_SOON_HOURS_DEFAULT: float = 24.0
+STALE_HOURS_DEFAULT: float = 72.0
+BLOCKED_HOURS_DEFAULT: float = 48.0
+
+# =============================================================================
 # Text field max lengths
 # =============================================================================
 

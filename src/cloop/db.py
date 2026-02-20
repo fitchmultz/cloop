@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 27
+SCHEMA_VERSION: int = 28
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -257,7 +257,7 @@ CREATE UNIQUE INDEX idx_loop_links_unique
 
 CREATE TABLE loop_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
+    loop_id INTEGER,
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -506,6 +506,27 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    28: """
+    -- Make loop_id nullable to support system-level events (e.g., REVIEW_GENERATED)
+    -- SQLite requires recreating the table to drop NOT NULL constraint
+    CREATE TABLE loop_events_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loop_id INTEGER,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
+    );
+
+    INSERT INTO loop_events_new (id, loop_id, event_type, payload_json, created_at)
+        SELECT id, loop_id, event_type, payload_json, created_at FROM loop_events;
+
+    DROP TABLE loop_events;
+    ALTER TABLE loop_events_new RENAME TO loop_events;
+
+    CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
+    CREATE INDEX idx_loop_events_type_created ON loop_events(event_type, created_at);
+    """,
     27: """
     -- Create memory_entries table for durable assistant memory
     CREATE TABLE memory_entries (
@@ -671,7 +692,7 @@ _CORE_MIGRATIONS: dict[int, str] = {
 
     CREATE TABLE loop_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
+        loop_id INTEGER,
         event_type TEXT NOT NULL,
         payload_json TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
