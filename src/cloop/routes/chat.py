@@ -149,6 +149,63 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
     return result if result != "## Current Loop Context" else ""
 
 
+def _build_memory_context(settings: Settings, limit: int = 10) -> str:
+    """Build compact memory context for LLM system message.
+
+    Returns markdown-formatted string with:
+    - Preferences
+    - Facts
+    - Commitments
+    - Context entries
+
+    Sorted by priority (highest first), bounded by limit.
+    Target: ~300-500 tokens to avoid context bloat.
+    """
+    try:
+        result = db.list_memory_entries(
+            limit=limit,
+            settings=settings,
+        )
+    except Exception:
+        return ""
+
+    items = result.get("items", [])
+    if not items:
+        return ""
+
+    # Sort by priority (highest first) to match docstring promise
+    items = sorted(items, key=lambda x: x.get("priority", 0), reverse=True)
+
+    lines = ["## User Memory"]
+
+    by_category: dict[str, list[dict]] = {}
+    for item in items:
+        cat = item.get("category", "fact")
+        by_category.setdefault(cat, []).append(item)
+
+    category_labels = {
+        "preference": "Preferences",
+        "fact": "Facts",
+        "commitment": "Commitments",
+        "context": "Context",
+    }
+
+    for cat in ["preference", "commitment", "fact", "context"]:
+        if cat not in by_category:
+            continue
+        lines.append(f"\n### {category_labels.get(cat, cat)}")
+        for item in by_category[cat]:
+            key = item.get("key")
+            content = item.get("content", "")[:200]
+            if key:
+                lines.append(f"- {key}: {content}")
+            else:
+                lines.append(f"- {content}")
+
+    result_str = "\n".join(lines)
+    return result_str if result_str != "## User Memory" else ""
+
+
 @router.post("", response_model=ChatResponse)
 def chat_endpoint(
     request: ChatRequest,
@@ -169,6 +226,19 @@ def chat_endpoint(
                 {
                     "role": "system",
                     "content": loop_context,
+                },
+            )
+
+    # Build and inject memory context if requested (inserted first so memory precedes loop context)
+    memory_context: str | None = None
+    if request.include_memory_context:
+        memory_context = _build_memory_context(settings, limit=request.memory_limit)
+        if memory_context:
+            messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": memory_context,
                 },
             )
 
@@ -195,6 +265,8 @@ def chat_endpoint(
         raise HTTPException(status_code=400, detail="Streaming not supported for llm tool_mode")
 
     context_snapshot = _interaction_context(settings)
+    if memory_context:
+        context_snapshot["memory_context"] = memory_context
     if loop_context:
         context_snapshot["loop_context"] = loop_context
 

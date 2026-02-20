@@ -1409,3 +1409,126 @@ def test_chat_loop_context_empty_when_no_loops(test_client: TestClient, tmp_data
     # Either absent or empty string is acceptable
     loop_context = response_payload.get("context", {}).get("loop_context")
     assert loop_context is None or loop_context == ""
+
+
+def test_chat_memory_context_not_injected_by_default(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Memory context is NOT injected when include_memory_context is False/default."""
+    # Create a memory entry
+    test_client.post(
+        "/memory",
+        json={"content": "I prefer dark mode", "category": "preference"},
+    )
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_mode": "none",
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT request_payload, response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    request_payload = json.loads(row["request_payload"])
+    response_payload = json.loads(row["response_payload"])
+
+    assert request_payload.get("include_memory_context") is False
+    assert "memory_context" not in response_payload.get("context", {})
+
+
+def test_chat_memory_context_injected_when_enabled(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Memory context IS injected when include_memory_context=True."""
+    # Create a memory entry
+    test_client.post(
+        "/memory",
+        json={"content": "I prefer dark mode", "category": "preference", "priority": 50},
+    )
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_mode": "none",
+            "include_memory_context": True,
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    response_payload = json.loads(row["response_payload"])
+
+    assert "memory_context" in response_payload.get("context", {})
+    memory_context = response_payload["context"]["memory_context"]
+    assert "User Memory" in memory_context
+    assert "dark mode" in memory_context.lower()
+
+
+def test_chat_memory_context_respects_limit(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Memory context respects the memory_limit parameter."""
+    # Create multiple memory entries
+    for i in range(15):
+        test_client.post(
+            "/memory",
+            json={"content": f"Memory {i}", "category": "fact", "priority": i},
+        )
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_mode": "none",
+            "include_memory_context": True,
+            "memory_limit": 5,
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    response_payload = json.loads(row["response_payload"])
+    memory_context = response_payload["context"].get("memory_context", "")
+
+    # Should have at most 5 entries (limit applied)
+    count = memory_context.count("- ")
+    assert count <= 5
+
+
+def test_chat_memory_context_empty_when_no_memories(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Memory context is absent when no memories exist."""
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Hello"}],
+            "tool_mode": "none",
+            "include_memory_context": True,
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT response_payload FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    response_payload = json.loads(row["response_payload"])
+
+    # Either absent or empty string is acceptable
+    memory_context = response_payload.get("context", {}).get("memory_context")
+    assert memory_context is None or memory_context == ""

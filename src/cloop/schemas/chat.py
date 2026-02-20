@@ -78,6 +78,16 @@ class ChatRequest(BaseModel):
         default=False,
         description="When True, inject prioritized loop state as system context.",
     )
+    include_memory_context: bool = Field(
+        default=False,
+        description="When True, inject relevant memory entries as system context.",
+    )
+    memory_limit: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Max memory entries to include when include_memory_context is True.",
+    )
 
     @model_validator(mode="after")
     def _manual_requires_tool(self) -> "ChatRequest":
