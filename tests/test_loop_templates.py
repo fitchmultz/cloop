@@ -26,7 +26,7 @@ Invariants/Assumptions:
 """
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -433,3 +433,60 @@ def test_save_loop_as_template_endpoint(
     template = response.json()
     assert template["name"] == "My Weekly Template"
     assert template["is_system"] is False
+
+
+def test_capture_fields_override_template_defaults(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Explicit capture fields must take precedence over template defaults."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    client = make_test_client()
+
+    # Create a template with a default due_at_utc (+7 days)
+    template_response = client.post(
+        "/loops/templates",
+        json={
+            "name": "Precedence Test Template",
+            "description": "Tests capture field precedence",
+            "raw_text_pattern": "Task for {{date}}",
+            "defaults": {
+                "due_at_utc": "2026-02-27T10:00:00Z",  # +7 days from test date
+                "time_minutes": 60,
+            },
+        },
+    )
+    assert template_response.status_code == 201
+    template_id = template_response.json()["id"]
+
+    # Capture with template but explicitly set due_at_utc to +1 day
+    now = datetime.now(timezone.utc)
+    explicit_due = (now + timedelta(days=1)).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+    capture_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "My urgent task",
+            "template_id": template_id,
+            "captured_at": "2026-02-20T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "due_at_utc": explicit_due,  # Explicit - must win over template default
+            "time_minutes": 30,  # Explicit - must win over template default
+        },
+    )
+    assert capture_response.status_code == 200
+    loop = capture_response.json()
+
+    # Explicit values must win (not template defaults)
+    assert loop["due_at_utc"] is not None
+    # Should be ~1 day out, not ~7 days
+    due_dt = datetime.fromisoformat(loop["due_at_utc"].replace("Z", "+00:00"))
+    delta_hours = (due_dt - now).total_seconds() / 3600
+    assert delta_hours < 48, f"Expected ~24h but got {delta_hours}h - template default may have won"
+
+    # time_minutes should also be explicit value
+    assert loop["time_minutes"] == 30, "Expected explicit time_minutes=30, not template default 60"

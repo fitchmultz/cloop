@@ -813,6 +813,24 @@ def test_chat_streaming_ui_flow(test_client: TestClient, tmp_data_dir: Path) -> 
         assert "event: token" in body or "event: done" in body
 
 
+def test_chat_streaming_with_llm_tool_mode_returns_400(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Streaming with tool_mode='llm' must return 400 error."""
+    payload = {
+        "messages": [{"role": "user", "content": "Stream with tools"}],
+        "tool_mode": "llm",
+    }
+
+    response = test_client.post("/chat?stream=true", json=payload)
+    assert response.status_code == 400
+    error_data = response.json()
+    assert "error" in error_data
+    assert "message" in error_data["error"]
+    assert "Streaming not supported" in error_data["error"]["message"]
+    assert "llm tool_mode" in error_data["error"]["message"]
+
+
 def test_rag_returns_sources_for_ui(test_client: TestClient, tmp_data_dir: Path) -> None:
     """Verify RAG endpoint returns source structure needed for UI citations."""
     doc = tmp_data_dir / "source-test.txt"

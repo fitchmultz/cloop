@@ -416,6 +416,38 @@ class TestDueSoonNudge:
         # Should have at least one bucket with count
         assert sum(result["bucket_summary"].values()) >= 1
 
+    def test_due_soon_nudge_caps_at_50_candidates(
+        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Due-soon nudge must cap output at 50 candidates, sorted by priority."""
+        settings = get_settings()
+        now = datetime.now(timezone.utc)
+        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+
+        # Create 55 due-soon candidates with varying priority scores
+        for i in range(55):
+            urgency = 0.9 if i < 10 else 0.5  # First 10 have highest priority
+            importance = 0.9 if i < 10 else 0.5
+            scheduler_db.execute(
+                """INSERT INTO loops
+                   (raw_text, status, captured_at_utc, captured_tz_offset_min,
+                    due_at_utc, urgency, importance)
+                   VALUES (?, 'actionable', datetime('now'), 0, ?, ?, ?)
+                """,
+                (f"task-{i:02d}", due_soon, urgency, importance),
+            )
+        scheduler_db.commit()
+
+        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
+
+        # Must cap at exactly 50
+        assert result["nudged"] == 50
+        assert len(result["loop_ids"]) == 50
+
+        # Must be sorted by score (high-urgency tasks first)
+        # First item should have higher score than last
+        assert result["details"][0]["priority_score"] > result["details"][-1]["priority_score"]
+
 
 class TestStaleRescue:
     """Tests for stale loop rescue scheduler task."""
