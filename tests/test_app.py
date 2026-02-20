@@ -1532,3 +1532,121 @@ def test_chat_memory_context_empty_when_no_memories(
     # Either absent or empty string is acceptable
     memory_context = response_payload.get("context", {}).get("memory_context")
     assert memory_context is None or memory_context == ""
+
+
+def test_chat_rag_context_disabled_by_default(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """RAG context is NOT retrieved when not requested (defaults to False)."""
+    doc = tmp_data_dir / "knowledge.txt"
+    doc.write_text("The answer to everything is 42.", encoding="utf-8")
+    ingest = test_client.post("/ingest", json={"paths": [str(doc)]})
+    assert ingest.status_code == 200
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What is the answer?"}],
+            "tool_mode": "none",
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT request_payload, selected_chunks FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    request_payload = json.loads(row["request_payload"])
+    selected_chunks = json.loads(row["selected_chunks"])
+
+    assert request_payload.get("include_rag_context") is False
+    assert selected_chunks == []
+
+
+def test_chat_rag_context_injected_when_enabled(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """RAG context IS retrieved and injected when include_rag_context=True."""
+    doc = tmp_data_dir / "secret.txt"
+    doc.write_text("The secret code is ALPHA-7749.", encoding="utf-8")
+    ingest = test_client.post("/ingest", json={"paths": [str(doc)]})
+    assert ingest.status_code == 200
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What is the secret code?"}],
+            "tool_mode": "none",
+            "include_rag_context": True,
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT request_payload, selected_chunks FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    request_payload = json.loads(row["request_payload"])
+    selected_chunks = json.loads(row["selected_chunks"])
+
+    assert request_payload.get("include_rag_context") is True
+    assert len(selected_chunks) >= 1
+    assert any("ALPHA-7749" in chunk.get("content", "") for chunk in selected_chunks)
+
+
+def test_chat_rag_context_with_scope(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """RAG context respects scope filter."""
+    doc_a = tmp_data_dir / "alpha.txt"
+    doc_b = tmp_data_dir / "beta.txt"
+    doc_a.write_text("Alpha project uses Python.", encoding="utf-8")
+    doc_b.write_text("Beta project uses Rust.", encoding="utf-8")
+
+    ingest = test_client.post("/ingest", json={"paths": [str(doc_a), str(doc_b)]})
+    assert ingest.status_code == 200
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What language?"}],
+            "tool_mode": "none",
+            "include_rag_context": True,
+            "rag_scope": "alpha.txt",
+        },
+    )
+    assert response.status_code == 200
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT selected_chunks FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    selected_chunks = json.loads(row["selected_chunks"])
+
+    assert len(selected_chunks) >= 1
+    assert all("alpha.txt" in chunk.get("document_path", "") for chunk in selected_chunks)
+
+
+def test_chat_rag_context_graceful_failure(
+    test_client: TestClient, tmp_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chat continues without error when RAG retrieval fails."""
+    from unittest.mock import patch
+
+    doc = tmp_data_dir / "test.txt"
+    doc.write_text("Test content", encoding="utf-8")
+    test_client.post("/ingest", json={"paths": [str(doc)]})
+
+    def mock_retrieve_fail(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
+        raise RuntimeError("Simulated RAG failure")
+
+    with patch("cloop.routes.chat.retrieve_similar_chunks", mock_retrieve_fail):
+        response = test_client.post(
+            "/chat",
+            json={
+                "messages": [{"role": "user", "content": "Hello"}],
+                "tool_mode": "none",
+                "include_rag_context": True,
+            },
+        )
+
+    assert response.status_code == 200

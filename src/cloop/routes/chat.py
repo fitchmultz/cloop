@@ -35,6 +35,7 @@ from ..llm import (
     stream_completion,
 )
 from ..loops.errors import CloopError
+from ..rag import retrieve_similar_chunks
 from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
 from ..settings import Settings, ToolMode, get_settings
 from ..sse import format_sse_event
@@ -242,6 +243,36 @@ def chat_endpoint(
                 },
             )
 
+    # Build and inject RAG context if requested
+    rag_chunks: List[Dict[str, Any]] = []
+    rag_context: str | None = None
+    if request.include_rag_context:
+        user_messages = [m for m in request.messages if m.role == "user"]
+        if user_messages:
+            query = user_messages[-1].content
+            try:
+                rag_chunks = retrieve_similar_chunks(
+                    query,
+                    top_k=request.rag_k,
+                    scope=request.rag_scope,
+                    settings=settings,
+                )
+            except RuntimeError, CloopError:
+                rag_chunks = []
+
+            if rag_chunks:
+                context_parts = [
+                    f"[{idx}] {chunk['content']}" for idx, chunk in enumerate(rag_chunks, start=1)
+                ]
+                rag_context = "\n\n".join(context_parts)
+                messages.insert(
+                    0,
+                    {
+                        "role": "system",
+                        "content": f"Relevant context from your documents:\n\n{rag_context}",
+                    },
+                )
+
     tool_mode = request.tool_mode or settings.tool_mode_default
 
     if request.tool_call and tool_mode is not ToolMode.MANUAL:
@@ -269,6 +300,8 @@ def chat_endpoint(
         context_snapshot["memory_context"] = memory_context
     if loop_context:
         context_snapshot["loop_context"] = loop_context
+    if rag_context:
+        context_snapshot["rag_context"] = rag_context
 
     if stream_enabled:
         request_payload = request.model_dump()
@@ -295,6 +328,9 @@ def chat_endpoint(
                 "tool_calls": tool_calls,
                 "context": context_snapshot,
             }
+            sanitized_rag_chunks = [
+                {k: v for k, v in chunk.items() if k != "embedding_blob"} for chunk in rag_chunks
+            ]
             db.record_interaction(
                 endpoint="/chat",
                 request_payload=request_payload,
@@ -302,6 +338,7 @@ def chat_endpoint(
                 model=metadata["model"],
                 latency_ms=metadata["latency_ms"],
                 token_estimate=token_estimate,
+                selected_chunks=sanitized_rag_chunks,
                 tool_calls=tool_calls,
                 settings=settings,
             )
@@ -334,6 +371,9 @@ def chat_endpoint(
         "tool_calls": tool_calls,
         "context": context_snapshot,
     }
+    sanitized_rag_chunks = [
+        {k: v for k, v in chunk.items() if k != "embedding_blob"} for chunk in rag_chunks
+    ]
     db.record_interaction(
         endpoint="/chat",
         request_payload=request.model_dump(),
@@ -341,6 +381,7 @@ def chat_endpoint(
         model=metadata.get("model"),
         latency_ms=metadata.get("latency_ms"),
         token_estimate=token_estimate,
+        selected_chunks=sanitized_rag_chunks,
         tool_calls=tool_calls,
         settings=settings,
     )

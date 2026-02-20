@@ -88,6 +88,20 @@ class ChatRequest(BaseModel):
         le=50,
         description="Max memory entries to include when include_memory_context is True.",
     )
+    include_rag_context: bool = Field(
+        default=False,
+        description="When True, retrieve relevant document chunks and inject as context.",
+    )
+    rag_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Number of chunks to retrieve when include_rag_context is True.",
+    )
+    rag_scope: str | None = Field(
+        default=None,
+        description="Optional scope filter for retrieval (path substring or doc:ID).",
+    )
 
     @model_validator(mode="after")
     def _manual_requires_tool(self) -> "ChatRequest":
