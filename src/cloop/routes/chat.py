@@ -19,6 +19,7 @@ Supports:
 """
 
 import json
+import sqlite3
 import time
 from collections.abc import Iterator
 from typing import Annotated, Any, Dict, List
@@ -98,7 +99,7 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
                 offset=0,
                 conn=conn,
             )
-    except Exception:
+    except sqlite3.Error:
         # Fail gracefully - don't block chat if loop context fails
         return ""
 
@@ -167,7 +168,7 @@ def _build_memory_context(settings: Settings, limit: int = 10) -> str:
             limit=limit,
             settings=settings,
         )
-    except Exception:
+    except sqlite3.Error:
         return ""
 
     items = result.get("items", [])
