@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible problem in Cloop.
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Cloop. Please include enough detail for someone else to reproduce quickly.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What broke?
+      placeholder: A concise description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Numbered steps with exact commands, API calls, or UI actions.
+      placeholder: |
+        1. Run `uv run uvicorn cloop.main:app --reload`
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack traces
+      description: Paste relevant logs. Redact keys, tokens, and private URLs.
+      render: shell
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share versions and runtime details.
+      placeholder: |
+        - OS:
+        - Python version (`python --version`):
+        - uv version (`uv --version`):
+        - Cloop version:
+        - Model provider/runtime (Ollama/LM Studio/OpenAI/etc.):
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I ran `make ci` on the current branch.
+          required: false
+        - label: I searched existing issues before opening this bug report.
+          required: true

@@ -91,6 +91,16 @@ class TestRepoMetadataDocumented:
         """README prerequisites should match supported Python policy."""
         assert "Python 3.11+" in readme_content
 
+    def test_api_docs_and_health_endpoints_referenced(self, readme_content: str) -> None:
+        """README should expose interactive API docs and machine-readable schema endpoints."""
+        for expected in ["/docs", "/redoc", "/openapi.json", "/health"]:
+            assert expected in readme_content
+
+    def test_release_links_section_present(self, readme_content: str) -> None:
+        """README should link release/tag pages for evaluator discoverability."""
+        assert "Releases" in readme_content
+        assert "Tags" in readme_content
+
 
 class TestWorkflowDocumented:
     """Verify overall workflow is documented."""

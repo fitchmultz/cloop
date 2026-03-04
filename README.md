@@ -276,6 +276,9 @@ Then open `http://127.0.0.1:8000/` for the Quick Capture UI.
 
 Endpoints:
 
+- `GET /docs`: interactive Swagger UI for all API operations.
+- `GET /redoc`: ReDoc-style API reference.
+- `GET /openapi.json`: machine-readable OpenAPI schema.
 - `POST /chat`: chat completion (optionally with tools); `?stream=true` for SSE streaming.
 - `POST /ingest`: ingest local files/folders into `rag.db`.
 - `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
@@ -602,3 +605,10 @@ and `project.list`.
 - [Release process](docs/release.md)
 - [Public release checklist](docs/public_release_checklist.md)
 - [License](LICENSE)
+
+## Release and provenance links
+
+- [Releases](https://github.com/fitchmultz/cloop/releases)
+- [Tags](https://github.com/fitchmultz/cloop/tags)
+- [CI workflow](.github/workflows/ci.yml)
+- [Release workflow](.github/workflows/release.yml)

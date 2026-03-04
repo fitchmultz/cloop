@@ -27,7 +27,7 @@ Run the same gate expected before merge/release:
 make ci
 ```
 
-This runs formatting checks, linting, env/header/secret/version checks, typing, and tests.
+This runs formatting checks, linting, env/header/secret/version/changelog checks, typing, tests, and packaging metadata validation (`twine check`).
 
 ## Coding standards
 
