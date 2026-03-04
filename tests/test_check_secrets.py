@@ -75,8 +75,10 @@ def test_scan_text_for_secrets_detects_google_key() -> None:
 
 def test_scan_text_for_secrets_detects_private_key_block() -> None:
     module = _load_check_secrets_module()
+    private_key_header = "-----BEGIN " + "PRIVATE KEY-----"
+    private_key_footer = "-----END " + "PRIVATE KEY-----"
     findings = module.scan_text_for_secrets(
-        "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----",
+        f"{private_key_header}\nabc\n{private_key_footer}",
         "secret.pem",
     )
 
@@ -116,8 +118,9 @@ def test_check_secrets_cli_ignores_untracked_files(tmp_path: Path) -> None:
 def test_check_secrets_cli_flags_tracked_secrets(tmp_path: Path) -> None:
     _init_git_repo(tmp_path)
 
+    fake_openai_key = "sk-" + ("1234567890" * 3)
     (tmp_path / "tracked_secret.txt").write_text(
-        "api=sk-123456789012345678901234",
+        f"api={fake_openai_key}",
         encoding="utf-8",
     )
     subprocess.run(
