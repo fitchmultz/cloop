@@ -1,7 +1,11 @@
 # Cloop (Closed Loop): Your Private, Local-First AI Knowledge Base
 
+[![CI](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+
 Cloop turns a folder of documents into a private, searchable knowledge base on your machine.
-Ingest local files into a lightweight SQLite database, then ask questions with answers grounded inthe exact chunks that were retrieved.
+Ingest local files into a lightweight SQLite database, then ask questions with answers grounded in the exact chunks that were retrieved.
 
 No Docker. No external vector database. Your data stays in local SQLite files (`core.db`, `rag.db`).
 
@@ -15,15 +19,15 @@ A **loop** is anything that’s “open” in your mind:
 - a decision you haven’t made yet
 - a thread you don’t want to forget (“follow up with…”, “figure out…”, “buy…”, “read…”)
 
-Keeping lots of loops in your head consumes working memory. That mental background load makes itharder to focus, easier to forget things, and more exhausting to start or finish work.
+Keeping lots of loops in your head consumes working memory. That mental background load makes it harder to focus, easier to forget things, and more exhausting to start or finish work.
 
-The long-term goal of Cloop is simple: **get loops out of your head and into a trusted local system**that you control — so you can close them deliberately instead of carrying them around.
+The long-term goal of Cloop is simple: **get loops out of your head and into a trusted local system** that you control — so you can close them deliberately instead of carrying them around.
 
-Today, Cloop is the foundation for that: a private local knowledge base + lightweight persistentmemory you can query. The “closed loop” experience is: capture → retrieve → act → confirm → close.
+Today, Cloop is the foundation for that: a private local knowledge base + lightweight persistent memory you can query. The “closed loop” experience is: capture → retrieve → act → confirm → close.
 
 ## Design and Architecture
 
-See [docs/assistant_blueprint.md](docs/assistant_blueprint.md) for the complete design specification, including:
+See [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md) for the complete design specification, including:
 - Mission and design principles
 - User journey (capture → organize → prioritize → act → close)
 - Automation boundaries and trust model
@@ -62,13 +66,13 @@ If you want a simple mental model, treat each loop as having:
 - **Context**: Links, filenames, snippets, and references that make it easy to resume later
 - **Review cadence**: When should you look at it again? (today, next week, someday)
 
-Cloop’s role is to keep the **context** and make retrieval effortless, so “next action” is the onlything you have to hold in your head.
+Cloop’s role is to keep the **context** and make retrieval effortless, so “next action” is the only thing you have to hold in your head.
 
 ## Installation
 
 ### Prerequisites
 
-- Python 3.14+
+- Python 3.11+
 - `uv` (recommended): https://docs.astral.sh/uv/
 
 ### Setup
@@ -79,6 +83,14 @@ cp .env.example .env
 ```
 
 Then edit `.env` to point at your model runtime (see Configuration).
+
+## Security and privacy
+
+- Keep Cloop local by default (`localhost` / trusted private network only).
+- Do not expose the service directly to the public internet without adding your own auth and perimeter controls.
+- Never commit `.env` or other credential files. Use `.env.example` as your template.
+- If a secret is ever exposed, revoke/rotate it immediately.
+- See [SECURITY.md](SECURITY.md) for reporting and handling guidance.
 
 ## Quick Start (CLI)
 
@@ -578,4 +590,15 @@ and `project.list`.
 
 ## Development
 
-- `make sync` (upgrade deps), `make check` (format-check, lint, type, tests)
+- `make sync` (upgrade deps), `make check` (format-check, lint, env/header sync, secrets/version checks, type, tests)
+- `make ci` runs the full local gate used for release readiness checks
+
+## Project maintenance docs
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CHANGELOG.md](CHANGELOG.md)
+- [SECURITY.md](SECURITY.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [Release process](docs/release.md)
+- [Public release checklist](docs/public_release_checklist.md)
+- [License](LICENSE)

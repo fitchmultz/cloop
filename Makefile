@@ -1,4 +1,4 @@
-.PHONY: help sync fmt fmt-check lint lint-fix env-sync header-check type test check ci run
+.PHONY: help sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check type test check ci run
 
 help:
 	@printf "%s\n" \
@@ -13,7 +13,9 @@ help:
 		"  type       Type check with ty" \
 		"  test       Run tests with pytest" \
 		"  env-sync   Check .env.example sync with settings.py" \
-		"  check      Run fmt-check, lint, env-sync, header-check, type, test" \
+		"  secrets-check Scan tracked files for likely secrets" \
+		"  version-check Ensure pyproject version matches runtime version" \
+		"  check      Run fmt-check, lint, env-sync, header-check, secrets-check, version-check, type, test" \
 		"  run        Run FastAPI locally (uvicorn)"
 
 sync:
@@ -37,13 +39,19 @@ env-sync:
 header-check:
 	uv run python scripts/check_headers.py
 
+secrets-check:
+	uv run python scripts/check_secrets.py
+
+version-check:
+	uv run python scripts/check_version_sync.py
+
 type:
 	uv run ty check
 
 test:
 	uv run pytest
 
-check: fmt-check lint env-sync header-check type test
+check: fmt-check lint env-sync header-check secrets-check version-check type test
 
 ci: check
 

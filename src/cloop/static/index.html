@@ -23,12 +23,14 @@
     <link rel="stylesheet" href="/static/css/modals.css">
   </head>
   <body>
+    <a class="skip-link" href="#inbox-main">Skip to main content</a>
+
     <header>
       <h1>Cloop Loops <span id="sse-status" class="sse-status reconnecting" title="Connecting..."></span></h1>
       <p>Capture fast. Organize later.</p>
     </header>
 
-    <div id="offline-banner" class="offline-banner">
+    <div id="offline-banner" class="offline-banner" role="status" aria-live="polite" aria-atomic="true">
       <span class="sync-status">
         <span class="spinner"></span>
         Offline - captures will sync when connected
@@ -36,16 +38,16 @@
     </div>
 
     <nav class="tabs" role="tablist">
-      <button class="tab active" data-tab="inbox" role="tab" aria-selected="true">Inbox<span class="shortcut-hint">1</span></button>
-      <button class="tab" data-tab="next" role="tab" aria-selected="false">Next<span class="shortcut-hint">2</span></button>
-      <button class="tab" data-tab="chat" role="tab" aria-selected="false">Chat<span class="shortcut-hint">3</span></button>
-      <button class="tab" data-tab="rag" role="tab" aria-selected="false">RAG<span class="shortcut-hint">4</span></button>
-      <button class="tab" data-tab="review" role="tab" aria-selected="false">Review<span class="shortcut-hint">5</span></button>
-      <button class="tab" data-tab="metrics" role="tab" aria-selected="false">Metrics<span class="shortcut-hint">6</span></button>
+      <button class="tab active" data-tab="inbox" role="tab" aria-selected="true" id="tab-inbox" aria-controls="inbox-main" type="button">Inbox<span class="shortcut-hint">1</span></button>
+      <button class="tab" data-tab="next" role="tab" aria-selected="false" id="tab-next" aria-controls="next-main" type="button">Next<span class="shortcut-hint">2</span></button>
+      <button class="tab" data-tab="chat" role="tab" aria-selected="false" id="tab-chat" aria-controls="chat-main" type="button">Chat<span class="shortcut-hint">3</span></button>
+      <button class="tab" data-tab="rag" role="tab" aria-selected="false" id="tab-rag" aria-controls="rag-main" type="button">RAG<span class="shortcut-hint">4</span></button>
+      <button class="tab" data-tab="review" role="tab" aria-selected="false" id="tab-review" aria-controls="review-main" type="button">Review<span class="shortcut-hint">5</span></button>
+      <button class="tab" data-tab="metrics" role="tab" aria-selected="false" id="tab-metrics" aria-controls="metrics-main" type="button">Metrics<span class="shortcut-hint">6</span></button>
     </nav>
 
     <!-- Inbox Tab -->
-    <main id="inbox-main">
+    <main id="inbox-main" tabindex="-1">
       <section class="panel">
         <h2>Quick capture</h2>
         <form id="capture-form">
@@ -55,6 +57,7 @@
               <option value="">None</option>
             </select>
           </div>
+          <label for="raw-text" class="sr-only">Loop text</label>
           <textarea id="raw-text" placeholder="Drop a loop, idea, or task..." required></textarea>
           <div class="toggles">
             <label class="toggle">
@@ -71,9 +74,13 @@
             </label>
           </div>
           <div class="form-row wrap metadata-row">
+            <label for="due-date" class="sr-only">Due date</label>
             <input type="date" id="due-date" class="input-flex-sm" placeholder="Due date">
+            <label for="next-action" class="sr-only">Next action</label>
             <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Next action">
+            <label for="time-minutes" class="sr-only">Estimated minutes</label>
             <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
+            <label for="activation-energy" class="sr-only">Activation energy</label>
             <select id="activation-energy" class="input-w-md">
               <option value="">Effort</option>
               <option value="0">0 - Trivial</option>
@@ -81,11 +88,13 @@
               <option value="2">2 - Medium</option>
               <option value="3">3 - Hard</option>
             </select>
+            <label for="project" class="sr-only">Project</label>
             <input type="text" id="project" class="input-w-lg input-min-sm" placeholder="Project">
+            <label for="tags" class="sr-only">Tags</label>
             <input type="text" id="tags" class="input-w-xl input-min-md" placeholder="Tags (comma sep)">
           </div>
           <div class="actions">
-            <span id="status" class="loop-meta">Ready.</span>
+            <span id="status" class="loop-meta" role="status" aria-live="polite" aria-atomic="true">Ready.</span>
             <button type="submit">Save</button>
           </div>
         </form>
@@ -136,6 +145,7 @@
           <div class="chat-placeholder">Start a conversation...</div>
         </div>
         <form id="chat-form" class="chat-form">
+          <label for="chat-input" class="sr-only">Chat message</label>
           <input
             type="text"
             id="chat-input"
@@ -164,6 +174,7 @@
       <section class="panel rag-panel">
         <h2>Ask Your Knowledge Base</h2>
         <form id="rag-form" class="rag-form">
+          <label for="rag-input" class="sr-only">RAG question</label>
           <input
             type="text"
             id="rag-input"

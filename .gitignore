@@ -1,18 +1,58 @@
-**/.hypothesis
-**.pytest_cache
-**/.repoprompt
-**/.ruff_cache
-**/.venv
+# Purpose: Keep local artifacts, secrets, generated files, and agent state out of git.
+# Responsibilities:
+#   - Ignore Python cache/build outputs and test tooling state.
+#   - Ignore local runtime data and SQLite databases.
+#   - Ignore local environment/secrets files while keeping .env.example tracked.
+#   - Ignore local editor/agent workspace files.
+# Non-scope:
+#   - Managing global gitignore behavior outside this repository.
+
+# Python caches and tooling
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.venv/
+.coverage
+.coverage.*
+htmlcov/
+
+# Packaging/build artifacts
+build/
+dist/
+*.egg-info/
+src/*.egg-info/
+
+# Project runtime data
 data/
-# Commit .env since the repo is private
-!**/.env
+*.db
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 
-.claude/settings.local.json
+# Environment / secrets
+.env
+.env.*
+!.env.example
 
-# Ralph debug logs (raw/unredacted; do not commit)
-.ralph/logs/
-.ralph
-# Ralph parallel mode workspace directories
-.ralph/workspaces/
+# Local tooling/agent state
+.repoprompt/
+.ralph/
+.codex/
+.pi
+.pi/
+.claude/
 CLAUDE.md
 .scratchpad.md
+
+# Editor / OS noise
+.DS_Store
+.vscode/
+.idea/
+*.log

@@ -65,6 +65,28 @@ a:hover {
   text-decoration: underline;
 }
 
+:where(a, button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--color-border-focus, #1d4ed8);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateY(-200%);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-card);
+  color: var(--color-ink);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  z-index: var(--z-tooltip);
+}
+
+.skip-link:focus {
+  transform: translateY(var(--space-2));
+}
+
 /* Form elements */
 input, textarea, select, button {
   font-family: inherit;

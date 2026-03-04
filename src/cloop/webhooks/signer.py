@@ -89,5 +89,5 @@ def verify_signature(payload: dict[str, Any], secret: str, signature_header: str
         # Compare signatures using constant-time comparison
         return hmac.compare_digest(expected, signature_header)
 
-    except IndexError, ValueError, KeyError:
+    except (IndexError, ValueError, KeyError):
         return False

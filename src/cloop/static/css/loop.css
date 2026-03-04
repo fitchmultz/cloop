@@ -393,9 +393,16 @@
 }
 
 .snooze-option {
+  display: block;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   padding: 10px 14px;
   cursor: pointer;
   font-size: 13px;
+  font-weight: var(--font-normal);
+  text-align: left;
   color: var(--color-ink);
   transition: background 120ms ease;
 }

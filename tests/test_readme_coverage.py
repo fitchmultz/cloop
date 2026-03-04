@@ -65,6 +65,33 @@ class TestWebUIDocumented:
         )
 
 
+class TestRepoMetadataDocumented:
+    """Verify repository maintenance artifacts are referenced."""
+
+    def test_project_maintenance_docs_linked(self, readme_content: str) -> None:
+        """README should link core repository policy and process docs."""
+        for expected in [
+            "CONTRIBUTING.md",
+            "CHANGELOG.md",
+            "SECURITY.md",
+            "CODE_OF_CONDUCT.md",
+            "docs/release.md",
+            "docs/public_release_checklist.md",
+            "LICENSE",
+        ]:
+            assert expected in readme_content
+
+    def test_badges_present(self, readme_content: str) -> None:
+        """README should expose CI/license/Python badges for first impressions."""
+        assert "actions/workflows/ci.yml/badge.svg" in readme_content
+        assert "License-MIT" in readme_content
+        assert "python-3.11%2B" in readme_content
+
+    def test_python_prerequisite_mentions_311_plus(self, readme_content: str) -> None:
+        """README prerequisites should match supported Python policy."""
+        assert "Python 3.11+" in readme_content
+
+
 class TestWorkflowDocumented:
     """Verify overall workflow is documented."""
 

@@ -101,6 +101,7 @@ export function renderLoop(loop) {
                 type="button"
                 data-action="remove-tag"
                 data-tag="${escapeHtml(tag)}"
+                aria-label="Remove tag ${escapeHtml(tag)}"
               >
                 x
               </button>
@@ -230,13 +231,13 @@ export function renderLoop(loop) {
           Snooze<span class="shortcut-hint">s</span>
         </button>
         <div class="snooze-dropdown" data-snooze-dropdown="${loop.id}">
-          <div class="snooze-option" data-snooze-duration="1h">1 hour</div>
-          <div class="snooze-option" data-snooze-duration="4h">4 hours</div>
-          <div class="snooze-option" data-snooze-duration="1d">1 day</div>
-          <div class="snooze-option" data-snooze-duration="1w">1 week</div>
+          <button type="button" class="snooze-option" data-snooze-duration="1h">1 hour</button>
+          <button type="button" class="snooze-option" data-snooze-duration="4h">4 hours</button>
+          <button type="button" class="snooze-option" data-snooze-duration="1d">1 day</button>
+          <button type="button" class="snooze-option" data-snooze-duration="1w">1 week</button>
           <div class="snooze-custom">
-            <label>Custom</label>
-            <input type="datetime-local" class="snooze-datetime" data-snooze-custom="${loop.id}">
+            <label for="snooze-custom-${loop.id}">Custom</label>
+            <input type="datetime-local" id="snooze-custom-${loop.id}" class="snooze-datetime" data-snooze-custom="${loop.id}" aria-label="Custom snooze date and time">
           </div>
         </div>
       </div>
@@ -252,7 +253,7 @@ export function renderLoop(loop) {
         placeholder="Add a note (optional)"
         data-action="completion-note"
       >
-      <button class="completion-cancel" data-action="cancel-complete" data-id="${loop.id}">
+      <button class="completion-cancel" data-action="cancel-complete" data-id="${loop.id}" aria-label="Cancel completion note">
         ×
       </button>
     </div>

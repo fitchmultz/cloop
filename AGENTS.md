@@ -21,13 +21,14 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Scheduler | `src/cloop/scheduler.py` |
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
-| Design/Architecture | `docs/assistant_blueprint.md` |
+| Design/Architecture | `docs/internal/assistant_blueprint.md` |
 
 ## User Preferences
 
 - Run `make ci` before claiming completion
 - Use `uv run` for all Python commands
 - Prefer strict typing with Pydantic where valuable
+- Treat `make ci` as the public-readiness gate; it includes `secrets-check` and `version-check`
 
 ## Non-Obvious Patterns
 

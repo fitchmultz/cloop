@@ -27,6 +27,7 @@ import argparse
 from typing import List
 
 from .. import db
+from .._version import __version__
 from ..settings import Settings, get_settings
 
 # Import command handlers
@@ -175,6 +176,12 @@ Exit codes:
   2  not found or invalid transition
         """,
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     add_ingest_parser(subparsers)

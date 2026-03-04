@@ -5,10 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cloop"
 version = "0.1.0"
-description = "Local-first FastAPI service for chat and RAG."
+description = "Local-first FastAPI service for private chat, RAG, and loop/task workflows."
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
-authors = [{name = "Cloop"}]
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Cloop" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Scheduling",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
@@ -32,15 +47,29 @@ dev = [
     "freezegun>=1.5.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/fitchmultz/cloop"
+Issues = "https://github.com/fitchmultz/cloop/issues"
+Security = "https://github.com/fitchmultz/cloop/blob/main/SECURITY.md"
+Changelog = "https://github.com/fitchmultz/cloop/blob/main/CHANGELOG.md"
+
 [project.scripts]
 cloop = "cloop.cli:main"
 cloop-mcp = "cloop.mcp_server:main"
 
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+cloop = ["static/**", "db/migrations/**"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py314"
+target-version = "py311"
 fix = false
 
 [tool.ruff.lint]
