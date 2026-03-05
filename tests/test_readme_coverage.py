@@ -75,6 +75,11 @@ class TestRepoMetadataDocumented:
             "CHANGELOG.md",
             "SECURITY.md",
             "CODE_OF_CONDUCT.md",
+            "docs/architecture.md",
+            "docs/ci_strategy.md",
+            "docs/reviewer_validation_checklist.md",
+            "docs/release_readiness_report.md",
+            "docs/history_rewrite_plan.md",
             "docs/release.md",
             "docs/public_release_checklist.md",
             "LICENSE",
@@ -100,6 +105,13 @@ class TestRepoMetadataDocumented:
         """README should link release/tag pages for evaluator discoverability."""
         assert "Releases" in readme_content
         assert "Tags" in readme_content
+
+    def test_ci_strategy_summary_present(self, readme_content: str) -> None:
+        """README should document PR-fast and full/nightly CI strategy."""
+        lower = readme_content.lower()
+        assert "pr required" in lower
+        assert "nightly" in lower
+        assert "make test-fast" in readme_content
 
 
 class TestWorkflowDocumented:

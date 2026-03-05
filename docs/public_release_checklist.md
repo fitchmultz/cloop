@@ -26,13 +26,15 @@ Use this checklist before changing repository visibility to public.
 ## Reproducibility checks
 
 - [ ] Fresh clone test: `uv sync --all-groups --all-extras && make ci`.
+- [ ] Fast developer gate: `make check-fast`.
 - [ ] CLI smoke test: `uv run cloop --help`.
 - [ ] Server smoke test: `uv run uvicorn cloop.main:app --reload`.
 
 ## GitHub repository settings
 
 - [ ] Add repository description and topics.
-- [ ] Ensure branch protections and required checks are configured.
+- [ ] Ensure branch protections and required checks are configured (PR-fast workflow checks only).
+- [ ] Verify full/nightly workflow is active for post-merge deep checks.
 - [ ] Enable security alerts and private vulnerability reporting.
 - [ ] Confirm release workflow works by publishing a test tag on a non-production branch or fork.
 - [ ] Draft first release notes from `CHANGELOG.md`.

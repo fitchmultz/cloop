@@ -19,30 +19,62 @@ Thanks for contributing to Cloop.
 
 4. Fill `.env` with your local provider settings. Never commit secrets.
 
-## Local quality gate
+## Fast feedback loop (recommended during development)
 
-Run the same gate expected before merge/release:
+```bash
+make check-fast
+```
+
+This runs all quality checks plus the fast test subset (`not slow and not performance`).
+
+## Full local CI gate (release-grade)
 
 ```bash
 make ci
 ```
 
-This runs formatting checks, linting, env/header/secret/version/changelog checks, typing, tests, and packaging metadata validation (`twine check`).
+This runs formatting, linting, env/header/secret/version/changelog checks, typing,
+full tests, and packaging metadata validation (`twine check`).
 
-## Coding standards
+## Branch and commit conventions
 
-- Use `uv run` for Python tooling commands.
-- Keep strict typing (`ty`) and Ruff checks green.
-- Add tests for behavior changes and regressions.
-- Update user-facing docs when command/API/UI behavior changes.
+Use focused branches and commits to keep history reviewer-friendly.
+
+- Branch naming:
+  - `feat/<short-topic>`
+  - `fix/<short-topic>`
+  - `docs/<short-topic>`
+  - `chore/<short-topic>`
+- Commit style (recommended):
+  - `feat: ...`
+  - `fix: ...`
+  - `docs: ...`
+  - `chore: ...`
+
+## Test markers and CI intent
+
+Cloop uses pytest markers to control CI cost and runtime:
+
+- `slow`: tests with deliberate timing windows (`sleep`) or long-running behavior
+- `performance`: query/perf-oriented regression checks
+
+Helpful commands:
+
+```bash
+make test-fast
+make test-slow
+make test-performance
+make test-cov
+```
 
 ## Pull requests
 
 Please keep PRs focused and include:
 
 - What changed and why
-- How to verify (`make ci`, manual checks)
+- How to verify (`make check-fast` and/or `make ci`)
 - Any migration or compatibility notes
+- Docs updates when command/API/UI behavior changes
 
 ## Security
 

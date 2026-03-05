@@ -1,6 +1,7 @@
 # Cloop (Closed Loop): Your Private, Local-First AI Knowledge Base
 
-[![CI](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml)
+[![CI (PR Fast)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml)
+[![CI Full](https://github.com/fitchmultz/cloop/actions/workflows/ci_full.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci_full.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 
@@ -8,6 +9,23 @@ Cloop turns a folder of documents into a private, searchable knowledge base on y
 Ingest local files into a lightweight SQLite database, then ask questions with answers grounded in the exact chunks that were retrieved.
 
 No Docker. No external vector database. Your data stays in local SQLite files (`core.db`, `rag.db`).
+
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+  UI[Web UI] --> API[FastAPI app]
+  CLI[CLI] --> API
+  MCP[MCP server] --> API
+  API --> LOOPS[Loop services]
+  API --> RAG[RAG services]
+  LOOPS --> CORE[(core.db)]
+  RAG --> RAGDB[(rag.db)]
+  LOOPS --> EVENTS[SSE + Webhooks]
+```
+
+- Public architecture summary: [`docs/architecture.md`](docs/architecture.md)
+- Detailed design blueprint: [`docs/internal/assistant_blueprint.md`](docs/internal/assistant_blueprint.md)
 
 ## Why “Closed Loop”?
 
@@ -27,13 +45,8 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 
 ## Design and Architecture
 
-See [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md) for the complete design specification, including:
-- Mission and design principles
-- User journey (capture → organize → prioritize → act → close)
-- Automation boundaries and trust model
-- Architecture overview (SQLite-first, service layers, MCP)
-- Mobile/desktop flows
-- Data lifecycle and multi-agent coordination
+- Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
+- Dive deeper into design rationale and product blueprint: [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md)
 
 ## Features
 
@@ -84,6 +97,20 @@ cp .env.example .env
 
 Then edit `.env` to point at your model runtime (see Configuration).
 
+### Minimal local-only configuration (recommended first run)
+
+If you want the shortest path to a running local instance, start with:
+
+```dotenv
+CLOOP_LLM_MODEL=ollama/llama3
+CLOOP_EMBED_MODEL=ollama/nomic-embed-text
+CLOOP_OLLAMA_API_BASE=http://localhost:11434
+CLOOP_AUTOPILOT_ENABLED=false
+CLOOP_SCHEDULER_ENABLED=false
+```
+
+This keeps setup predictable while you validate core capture/search/chat flows.
+
 ## Security and privacy
 
 - Keep Cloop local by default (`localhost` / trusted private network only).
@@ -121,6 +148,11 @@ Notes:
 - `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
 - For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
 - Loop lifecycle and utility commands support `--format json|table` (default: `json`).
+
+## Reviewer validation shortcut
+
+If you are evaluating repo quality end-to-end, use:
+- [docs/reviewer_validation_checklist.md](docs/reviewer_validation_checklist.md)
 
 ## CLI Reference
 
@@ -591,10 +623,28 @@ Exposed tools include `loop.create`, `loop.update`, `loop.close`, `loop.get`, `l
 `loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.snooze`, `loop.enrich`,
 and `project.list`.
 
+## CI and test strategy
+
+Cloop intentionally separates fast PR checks from deeper full-suite checks to avoid saturating developer machines and CI runners.
+
+- **PR required (`.github/workflows/ci.yml`)**
+  - `make quality`
+  - `make test-fast` (excludes `slow` and `performance` markers)
+- **Main/nightly/manual (`.github/workflows/ci_full.yml`)**
+  - `make ci` (full gate)
+  - compatibility fast tests on additional Python versions
+  - `make test-cov` (coverage artifact)
+  - `make test-performance` (nightly/manual)
+
+Detailed CI behavior, runtime targets, and resource controls:
+- [docs/ci_strategy.md](docs/ci_strategy.md)
+
 ## Development
 
-- `make sync` (upgrade deps), `make check` (format-check, lint, env/header sync, secrets/version checks, type, tests)
-- `make ci` runs the full local gate used for release readiness checks
+- `make sync` (upgrade deps)
+- `make check-fast` for rapid iteration
+- `make ci` for release-grade validation
+- `make test-cov` for coverage reporting
 
 ## Project maintenance docs
 
@@ -602,6 +652,11 @@ and `project.list`.
 - [CHANGELOG.md](CHANGELOG.md)
 - [SECURITY.md](SECURITY.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [Architecture overview](docs/architecture.md)
+- [CI strategy and resource controls](docs/ci_strategy.md)
+- [Reviewer validation checklist](docs/reviewer_validation_checklist.md)
+- [Release readiness report](docs/release_readiness_report.md)
+- [Optional private-repo history rewrite plan](docs/history_rewrite_plan.md)
 - [Release process](docs/release.md)
 - [Public release checklist](docs/public_release_checklist.md)
 - [License](LICENSE)
@@ -610,5 +665,6 @@ and `project.list`.
 
 - [Releases](https://github.com/fitchmultz/cloop/releases)
 - [Tags](https://github.com/fitchmultz/cloop/tags)
-- [CI workflow](.github/workflows/ci.yml)
+- [CI workflow (PR fast)](.github/workflows/ci.yml)
+- [CI workflow (full main/nightly)](.github/workflows/ci_full.yml)
 - [Release workflow](.github/workflows/release.yml)

@@ -9,6 +9,15 @@ Responsibilities:
     - Load environment variables with CLOOP_ prefix
     - Provide cached get_settings() for dependency injection
 
+Configuration domains:
+    - Paths and storage (`CLOOP_DATA_DIR`, DB paths, backup paths)
+    - Model/provider settings (LLM, embeddings, organizer/provider API bases)
+    - Retrieval behavior (chunking, top-k, vector mode/storage)
+    - Loop orchestration (prioritization, related/duplicate thresholds)
+    - Reliability controls (timeouts, retries, idempotency, claims)
+    - Event delivery (webhooks, SSE heartbeat)
+    - Background automation (scheduler, review thresholds, operation metrics)
+
 Non-scope:
     - Runtime configuration changes (settings are frozen)
     - Secrets management (use environment variables)
@@ -46,9 +55,12 @@ class EmbedStorageMode(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class Settings:
+    # Paths and persistence
     root_dir: Path
     core_db_path: Path
     rag_db_path: Path
+
+    # Model and retrieval runtime
     llm_model: str
     embed_model: str
     default_top_k: int
@@ -60,12 +72,16 @@ class Settings:
     vector_search_mode: VectorSearchMode
     tool_mode_default: ToolMode
     embed_storage_mode: EmbedStorageMode
+
+    # Provider credentials and endpoints
     openai_api_base: str | None
     openai_api_key: str | None
     google_api_key: str | None
     ollama_api_base: str | None
     lmstudio_api_base: str | None
     openrouter_api_base: str | None
+
+    # Chat/organizer behavior
     stream_default: bool
     organizer_model: str
     organizer_timeout: float
