@@ -7,6 +7,7 @@ to external AI agents via the Model Context Protocol.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1141,7 +1142,7 @@ def test_loop_create_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
     assert result1["id"] == result2["id"]
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
 
@@ -1191,7 +1192,7 @@ def test_loop_create_idempotency_concurrent_replay(
     assert len(set(ids)) == 1
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
 
@@ -1224,7 +1225,7 @@ def test_loop_update_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
     assert result1["title"] == result2["title"]
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute(
             "SELECT COUNT(*) FROM loop_events WHERE loop_id = ?", (loop_id,)
         ).fetchone()[0]
@@ -1434,7 +1435,7 @@ def test_mcp_no_request_id_creates_separate_loops(
     assert result1["id"] != result2["id"]
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 2
 
@@ -1463,7 +1464,7 @@ def test_mcp_different_tools_allow_same_request_id(
     assert update_result["title"] == "Updated"
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
 

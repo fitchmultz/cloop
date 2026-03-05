@@ -17,6 +17,7 @@ import asyncio
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 
@@ -38,7 +39,7 @@ from cloop.settings import get_settings
 
 
 @pytest.fixture
-def scheduler_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
+def scheduler_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[sqlite3.Connection]:
     """Create an isolated database with scheduler tables."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
@@ -48,7 +49,10 @@ def scheduler_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Con
 
     conn = sqlite3.connect(str(settings.core_db_path))
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 class TestSchedulerState:

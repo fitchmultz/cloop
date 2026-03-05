@@ -24,6 +24,7 @@
 
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -61,7 +62,7 @@ def test_loop_capture_idempotency_replay(
     assert response2.json()["id"] == loop_id_1
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
 
@@ -96,7 +97,7 @@ def test_loop_capture_idempotency_concurrent_replay(
     assert statuses == [200, 200, 200, 200]
     assert len(set(ids)) == 1
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
 
@@ -154,7 +155,7 @@ def test_loop_update_idempotency_replay(
     assert response2.json()["title"] == "Updated Title"
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute(
             "SELECT COUNT(*) FROM loop_events WHERE loop_id = ?", (loop_id,)
         ).fetchone()[0]
@@ -259,7 +260,7 @@ def test_no_idempotency_key_creates_separate_loops(
     assert loop_id_1 != loop_id_2
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 2
 
@@ -286,7 +287,7 @@ def test_different_scopes_allow_same_key(
     assert response2.status_code == 200
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 1
 
@@ -338,7 +339,7 @@ def test_loop_import_idempotency_replay(
     assert response2.json()["imported"] == imported_count_1
 
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == imported_count_1
 
@@ -393,7 +394,7 @@ def test_idempotency_expiry_allows_new_request(
     assert response1.status_code == 200
     loop_id_1 = response1.json()["id"]
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         conn.execute(
             """
             UPDATE idempotency_keys
@@ -411,7 +412,7 @@ def test_idempotency_expiry_allows_new_request(
 
     assert loop_id_1 != loop_id_2
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         count = conn.execute("SELECT COUNT(*) FROM loops").fetchone()[0]
     assert count == 2
 

@@ -8,6 +8,8 @@ Coverage:
 - Tool executors
 """
 
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -28,9 +30,7 @@ class TestMemoryMigration:
         get_settings.cache_clear()
         db.init_databases(get_settings())
 
-        import sqlite3
-
-        with sqlite3.connect(tmp_path / "core.db") as conn:
+        with closing(sqlite3.connect(tmp_path / "core.db")) as conn:
             row = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='memory_entries'"
             ).fetchone()
@@ -42,9 +42,7 @@ class TestMemoryMigration:
         get_settings.cache_clear()
         db.init_databases(get_settings())
 
-        import sqlite3
-
-        with sqlite3.connect(tmp_path / "core.db") as conn:
+        with closing(sqlite3.connect(tmp_path / "core.db")) as conn:
             indexes = conn.execute(
                 "SELECT name FROM pragma_index_list('memory_entries')"
             ).fetchall()

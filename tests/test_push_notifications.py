@@ -15,6 +15,7 @@ Non-scope:
 
 import sqlite3
 from pathlib import Path
+from typing import Iterator
 
 import pytest
 
@@ -24,7 +25,7 @@ from cloop.settings import get_settings
 
 
 @pytest.fixture
-def push_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connection:
+def push_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[sqlite3.Connection]:
     """Create isolated database with push subscriptions table."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     get_settings.cache_clear()
@@ -33,7 +34,10 @@ def push_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sqlite3.Connecti
 
     conn = sqlite3.connect(str(settings.core_db_path))
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 class TestPushSubscriptions:

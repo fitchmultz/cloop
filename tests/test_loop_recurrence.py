@@ -23,6 +23,7 @@
 # ==============================================================================
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -144,7 +145,7 @@ def test_bulk_close_recurring_creates_next_occurrence(
 
     # Bulk close it using the service directly (no HTTP endpoint for bulk_close)
     settings = get_settings()
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         conn.row_factory = sqlite3.Row
         bulk_result = loop_service.bulk_close_loops(
             items=[{"loop_id": loop_id, "status": "completed"}],

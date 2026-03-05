@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 from concurrent import futures
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -22,11 +23,11 @@ def test_init_databases_sets_schema_version(
     settings = _prepare_settings(tmp_path, monkeypatch)
     db.init_databases(settings)
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert int(version) == db.SCHEMA_VERSION
 
-    with sqlite3.connect(settings.rag_db_path) as conn:
+    with closing(sqlite3.connect(settings.rag_db_path)) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert int(version) == db.RAG_SCHEMA_VERSION
 
@@ -45,7 +46,7 @@ def test_init_databases_errors_on_version_mismatch(
     settings = get_settings()
 
     for path in (settings.core_db_path, settings.rag_db_path):
-        with sqlite3.connect(path) as conn:
+        with closing(sqlite3.connect(path)) as conn:
             conn.execute("PRAGMA user_version = 999")
             conn.commit()
 
@@ -85,7 +86,7 @@ def test_idempotency_keys_table_exists(tmp_path: Path, monkeypatch: pytest.Monke
     settings = _prepare_settings(tmp_path, monkeypatch)
     db.init_databases(settings)
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='idempotency_keys'"
         ).fetchone()
@@ -99,7 +100,7 @@ def test_idempotency_keys_table_has_unique_constraint(
     settings = _prepare_settings(tmp_path, monkeypatch)
     db.init_databases(settings)
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         info = conn.execute("PRAGMA index_list('idempotency_keys')").fetchall()
     has_unique = False
     for row in info:
@@ -146,13 +147,13 @@ def test_migration_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.Monke
     db.init_databases(settings)
 
     # Verify we're at the current schema version
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         initial_version = conn.execute("PRAGMA user_version").fetchone()[0]
     assert initial_version == db.SCHEMA_VERSION
 
     # Manually set version back to simulate being at an older version
     # and inject a bad migration that will fail
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         conn.execute("PRAGMA user_version = 4")  # Set to version before data migrations
         conn.commit()
 
@@ -173,12 +174,12 @@ def test_migration_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.Monke
         db._CORE_MIGRATIONS = original_migrations
 
     # Verify database is still at version 4 (rolled back)
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         version_after_failure = conn.execute("PRAGMA user_version").fetchone()[0]
     assert version_after_failure == 4
 
     # Verify the table created by partial migration was rolled back
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         table_exists = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='test_rollback_marker'"
         ).fetchone()
@@ -192,7 +193,7 @@ def test_critical_performance_indexes_exist(
     settings = _prepare_settings(tmp_path, monkeypatch)
     db.init_databases(settings)
 
-    with sqlite3.connect(settings.core_db_path) as conn:
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
         # Check loop_events indexes
         events_indexes = conn.execute(
             "SELECT name FROM pragma_index_list('loop_events') WHERE name IN "

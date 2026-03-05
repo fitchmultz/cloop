@@ -1127,9 +1127,13 @@ def _detect_vector_backend(conn: sqlite3.Connection) -> VectorBackend:
 
 def _connect(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    _apply_pragmas(conn)
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        _apply_pragmas(conn)
+        return conn
+    except Exception:
+        conn.close()
+        raise
 
 
 @contextmanager

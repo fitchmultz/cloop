@@ -16,6 +16,7 @@ Non-scope:
 """
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -52,7 +53,7 @@ def test_review_cohorts_stale(
 
     # Update updated_at to be 100 hours ago (exceeds default 72h stale threshold)
     settings = get_settings()
-    with sqlite3.connect(str(settings.core_db_path)) as conn:
+    with closing(sqlite3.connect(str(settings.core_db_path))) as conn:
         conn.execute(
             "UPDATE loops SET updated_at = datetime('now', '-100 hours') WHERE id = ?",
             (loop_id,),
@@ -120,7 +121,7 @@ def test_review_cohorts_blocked_too_long(
 
     # Age the loop 72 hours (exceeds default 48h blocked threshold)
     settings = get_settings()
-    with sqlite3.connect(str(settings.core_db_path)) as conn:
+    with closing(sqlite3.connect(str(settings.core_db_path))) as conn:
         conn.execute(
             "UPDATE loops SET updated_at = datetime('now', '-72 hours') WHERE id = ?",
             (loop_id,),

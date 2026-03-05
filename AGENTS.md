@@ -23,13 +23,15 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | MCP server | `src/cloop/mcp_server.py` |
 | Design/Architecture | `docs/internal/assistant_blueprint.md` |
 | Repo templates/workflows | `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/*` |
+| Public review docs | `docs/architecture.md`, `docs/ci_strategy.md`, `docs/release_readiness_report.md`, `docs/reviewer_validation_checklist.md`, `docs/history_rewrite_plan.md` |
 
 ## User Preferences
 
 - Run `make ci` before claiming completion
 - Use `uv run` for all Python commands
 - Prefer strict typing with Pydantic where valuable
-- Treat `make ci` as the public-readiness gate; it includes `secrets-check` and `version-check`
+- Treat `make ci` as the public-readiness gate; it includes `secrets-check`, `version-check`, and packaging validation
+- Use `make check-fast` for rapid local iteration before running full `make ci`
 
 ## Non-Obvious Patterns
 
@@ -42,3 +44,4 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Loops**: State machine transitions in `loops/service.py` (inbox → actionable/blocked/scheduled → completed/dropped)
 - **Scheduler**: Periodic tasks in `scheduler.py` (daily/weekly reviews, due-soon nudges, stale rescue)
 - **SSE**: Streaming utilities in `sse.py` for real-time responses
+- **SQLite in tests**: `with sqlite3.connect(...)` does **not** close connections; use `contextlib.closing(sqlite3.connect(...))` or explicit `conn.close()` in fixtures/finalizers.

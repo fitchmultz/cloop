@@ -365,6 +365,7 @@ class TestRecurrenceErrorHandling:
     ) -> None:
         """Completing a loop with invalid RRULE should still succeed."""
         import sqlite3
+        from contextlib import closing
 
         from cloop import db
         from cloop.loops import service as loop_service
@@ -378,7 +379,7 @@ class TestRecurrenceErrorHandling:
         settings = get_settings()
         db.init_databases(settings)
 
-        with sqlite3.connect(settings.core_db_path) as conn:
+        with closing(sqlite3.connect(settings.core_db_path)) as conn:
             conn.row_factory = sqlite3.Row
 
             # Create a loop with recurrence
