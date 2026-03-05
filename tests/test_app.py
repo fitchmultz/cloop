@@ -1113,19 +1113,8 @@ def test_web_service_worker_returns_js(test_client: TestClient, tmp_data_dir: Pa
     assert "self.addEventListener" in js or "importScripts" in js or "const" in js or "var" in js
 
 
-@pytest.mark.xfail(
-    reason=(
-        "StaticFiles mounted on router doesn't propagate to app - "
-        "needs fix in web.py to mount on app instead"
-    )
-)
 def test_web_static_files_served(test_client: TestClient, tmp_data_dir: Path) -> None:
-    """Verify static files are served from /static/ path.
-
-    NOTE: This test documents expected behavior. Currently fails because
-    router.mount() doesn't propagate to parent app. Fix: mount StaticFiles
-    directly on app in main.py instead of on router in web.py.
-    """
+    """Verify static files are served from /static/ path."""
     # Test manifest.json via static path (since it's in static dir)
     response = test_client.get("/static/manifest.json")
     assert response.status_code == 200

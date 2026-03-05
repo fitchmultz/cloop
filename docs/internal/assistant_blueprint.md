@@ -265,7 +265,7 @@ score = (due_weight * due_score +
 **Key assistant behavior settings**:
 
 ```python
-autopilot_enabled: bool = True
+autopilot_enabled: bool = False
 autopilot_autoapply_min_confidence: float = 0.85
 
 # Prioritization

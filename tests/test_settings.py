@@ -56,13 +56,32 @@ def test_stream_default_disallowed_with_llm_tool_mode(monkeypatch: pytest.Monkey
         get_settings()
 
 
+def test_defaults_disable_background_automation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Autopilot and scheduler should default to disabled for safe first-run behavior."""
+    import cloop.settings as settings_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("CLOOP_AUTOPILOT_ENABLED", raising=False)
+    monkeypatch.delenv("CLOOP_SCHEDULER_ENABLED", raising=False)
+
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    settings = settings_module.get_settings()
+    assert settings.autopilot_enabled is False
+    assert settings.scheduler_enabled is False
+
+
 def test_negative_priority_weight_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Negative priority weights should raise ValueError."""
     import cloop.settings as settings_module
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_PRIORITY_WEIGHT_DUE", "-1.0")
-    settings_module._DOTENV_LOADED = False
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
     settings_module.get_settings.cache_clear()
 
     with pytest.raises(ValueError, match="PRIORITY_WEIGHT_DUE must be non-negative"):

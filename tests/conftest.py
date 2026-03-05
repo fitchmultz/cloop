@@ -129,6 +129,7 @@ def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
     get_settings.cache_clear()
     db.init_databases(get_settings())

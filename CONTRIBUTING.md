@@ -34,7 +34,13 @@ make ci
 ```
 
 This runs formatting, linting, env/header/secret/version/changelog checks, typing,
-full tests, and packaging metadata validation (`twine check`).
+non-performance tests, and packaging metadata validation (`twine check`).
+
+For exhaustive all-marker validation before a release cut:
+
+```bash
+make test-all
+```
 
 ## Branch and commit conventions
 
@@ -64,6 +70,7 @@ Helpful commands:
 make test-fast
 make test-slow
 make test-performance
+make test-all
 make test-cov
 ```
 

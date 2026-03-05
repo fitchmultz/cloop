@@ -252,6 +252,7 @@ def test_parse_json_list_raises_on_malformed_json(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -290,6 +291,7 @@ def test_parse_json_dict_raises_on_malformed_json(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -328,6 +330,7 @@ def test_parse_json_list_truncates_long_value_in_error(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -381,6 +384,7 @@ def test_request_enrichment_raises_for_nonexistent_loop(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -406,6 +410,7 @@ def test_gather_enrichment_context_returns_structure(
     """_gather_enrichment_context returns EnrichmentContext with expected fields."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -495,6 +500,7 @@ def test_context_gathering_gracefully_degrades(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -589,6 +595,7 @@ def test_enrichment_persists_clarification_questions(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -653,6 +660,7 @@ def test_enrichment_deduplicates_clarification_questions(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -716,6 +724,7 @@ def test_suggest_links_creates_related_links(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)

@@ -213,7 +213,7 @@ def get_settings() -> Settings:
         stream_default=_resolve_bool(os.getenv("CLOOP_STREAM_DEFAULT")),
         organizer_model=os.getenv("CLOOP_ORGANIZER_MODEL", "gemini/gemini-3-flash-preview"),
         organizer_timeout=float(os.getenv("CLOOP_ORGANIZER_TIMEOUT", "20.0")),
-        autopilot_enabled=_resolve_bool(os.getenv("CLOOP_AUTOPILOT_ENABLED", "true")),
+        autopilot_enabled=_resolve_bool(os.getenv("CLOOP_AUTOPILOT_ENABLED", "false")),
         autopilot_autoapply_min_confidence=float(
             os.getenv("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE", "0.85")
         ),
@@ -271,7 +271,7 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_OPERATION_METRICS_ENABLED", "false")
         ),
         # Scheduler settings
-        scheduler_enabled=_resolve_bool(os.getenv("CLOOP_SCHEDULER_ENABLED", "true")),
+        scheduler_enabled=_resolve_bool(os.getenv("CLOOP_SCHEDULER_ENABLED", "false")),
         scheduler_daily_review_interval_hours=float(
             os.getenv("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS", "24.0")
         ),

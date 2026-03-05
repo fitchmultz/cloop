@@ -481,8 +481,9 @@ Both operations return:
 ### Organizer autopilot
 
 - `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
-- `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `true`)
+- `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `false`)
 - `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
+- `CLOOP_SCHEDULER_ENABLED`: enable background review/nudge scheduler (default: `false`)
 
 ### Idempotency (safe retries)
 
@@ -631,9 +632,9 @@ Cloop intentionally separates fast PR checks from deeper full-suite checks to av
   - `make quality`
   - `make test-fast` (excludes `slow` and `performance` markers)
 - **Main/nightly/manual (`.github/workflows/ci_full.yml`)**
-  - `make ci` (full gate)
+  - `make ci` (release gate: quality + tests excluding `performance` + packaging checks)
   - compatibility fast tests on additional Python versions
-  - `make test-cov` (coverage artifact)
+  - `make test-cov` (coverage artifact, excludes `performance` marker)
   - `make test-performance` (nightly/manual)
 
 Detailed CI behavior, runtime targets, and resource controls:
@@ -644,6 +645,7 @@ Detailed CI behavior, runtime targets, and resource controls:
 - `make sync` (upgrade deps)
 - `make check-fast` for rapid iteration
 - `make ci` for release-grade validation
+- `make test-all` for exhaustive local verification (includes `performance` tests)
 - `make test-cov` for coverage reporting
 
 ## Project maintenance docs
@@ -656,6 +658,7 @@ Detailed CI behavior, runtime targets, and resource controls:
 - [CI strategy and resource controls](docs/ci_strategy.md)
 - [Reviewer validation checklist](docs/reviewer_validation_checklist.md)
 - [Release readiness report](docs/release_readiness_report.md)
+- [Role evidence pack](docs/role-evidence/)
 - [Optional private-repo history rewrite plan](docs/history_rewrite_plan.md)
 - [Release process](docs/release.md)
 - [Public release checklist](docs/public_release_checklist.md)

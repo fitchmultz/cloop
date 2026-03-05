@@ -45,3 +45,5 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Scheduler**: Periodic tasks in `scheduler.py` (daily/weekly reviews, due-soon nudges, stale rescue)
 - **SSE**: Streaming utilities in `sse.py` for real-time responses
 - **SQLite in tests**: `with sqlite3.connect(...)` does **not** close connections; use `contextlib.closing(sqlite3.connect(...))` or explicit `conn.close()` in fixtures/finalizers.
+- **CI test contract**: `make ci` runs quality + tests excluding `performance` + packaging; use `make test-all` for exhaustive marker-inclusive runs.
+- **Safe first-run defaults**: `CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false`; enable explicitly when validating automation paths.

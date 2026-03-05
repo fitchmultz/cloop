@@ -26,10 +26,10 @@ Runs on:
 - manual dispatch
 
 Runs:
-- `make ci` (full release-grade gate) on Python 3.13
+- `make ci` (release-grade gate: quality + tests excluding `performance` + packaging checks) on Python 3.13
 - compatibility fast tests on 3.11 and 3.12
-- coverage job (`make test-cov`) with `coverage.xml` artifact upload
-- performance-marker tests on nightly/manual events
+- coverage job (`make test-cov`, excludes `performance`) with `coverage.xml` artifact upload
+- performance-marker tests on nightly/manual events via dedicated `performance` job
 
 Runtime and resource controls:
 - Job-level timeouts on all jobs
@@ -40,7 +40,7 @@ Typical runtime target:
 - `full_gate`: ~12–25 minutes
 - `compatibility_fast`: ~4–8 minutes each matrix leg
 - `coverage`: ~8–15 minutes
-- `performance` (nightly/manual): variable, intentionally isolated from PR gate
+- `performance` (nightly/manual): variable, intentionally isolated from release gate and PR gate
 
 ## Release checks (`.github/workflows/release.yml`)
 
@@ -58,5 +58,6 @@ Resource controls:
 
 - Fast PR-equivalent local run: `make check-fast`
 - Full release-grade local run: `make ci`
+- Exhaustive all-markers local run: `make test-all`
 - Coverage local run: `make test-cov`
 - Performance-only local run: `make test-performance`

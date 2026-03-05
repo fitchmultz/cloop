@@ -1,4 +1,4 @@
-.PHONY: help sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.PHONY: help sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
 
 help:
 	@printf "%s\n" \
@@ -17,7 +17,8 @@ help:
 		"  changelog-check Ensure current version is documented in CHANGELOG.md" \
 		"  type            Type check with ty" \
 		"  quality         Run all non-test quality checks" \
-		"  test            Run full pytest suite" \
+		"  test            Run CI release suite (exclude performance marker)" \
+		"  test-all        Run full pytest suite (includes performance marker)" \
 		"  test-fast       Run PR-fast suite (exclude slow/performance markers)" \
 		"  test-slow       Run only slow-marker tests" \
 		"  test-performance Run only performance-marker tests" \
@@ -66,6 +67,9 @@ type:
 quality: fmt-check lint env-sync header-check secrets-check version-check changelog-check type
 
 test:
+	uv run pytest -m "not performance"
+
+test-all:
 	uv run pytest
 
 test-fast:
@@ -78,7 +82,7 @@ test-performance:
 	uv run pytest -m "performance"
 
 test-cov:
-	uv run pytest --cov=cloop --cov-report=term-missing --cov-report=xml
+	uv run pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
 
 dist:
 	rm -rf dist build

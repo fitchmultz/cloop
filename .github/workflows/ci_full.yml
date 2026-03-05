@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   full_gate:
-    name: Full release-grade gate (py3.13)
+    name: Release gate (py3.13, non-performance)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -35,7 +35,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups --all-extras
 
-      - name: Run full local CI gate
+      - name: Run release local gate (excludes performance marker)
         run: make ci
 
   compatibility_fast:

@@ -17,9 +17,9 @@ For a minimal local-only run, set these in `.env`:
 CLOOP_LLM_MODEL=ollama/llama3
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
-CLOOP_AUTOPILOT_ENABLED=false
-CLOOP_SCHEDULER_ENABLED=false
 ```
+
+`CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false` for first-run determinism.
 
 ## 2) Local development gates
 
@@ -33,6 +33,12 @@ Full release-grade gate (CI-equivalent local command):
 
 ```bash
 make ci
+```
+
+Exhaustive all-markers local run (includes `performance` tests):
+
+```bash
+make test-all
 ```
 
 Coverage report:
@@ -70,7 +76,7 @@ uv run cloop-mcp
 - PR-fast workflow: `.github/workflows/ci.yml`
   - quality checks + fast tests (`not slow and not performance`)
 - Full workflow: `.github/workflows/ci_full.yml`
-  - full gate on `main`, nightly schedule, coverage artifact, performance tests (nightly/manual)
+  - release gate on `main` (`make ci`, excludes `performance` marker), nightly schedule, coverage artifact, dedicated performance tests (nightly/manual)
 - Release workflow: `.github/workflows/release.yml`
   - tag-triggered release with full gate and artifact publishing
 

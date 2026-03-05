@@ -5,13 +5,19 @@ This document describes the standard release workflow for Cloop.
 ## 1) Stabilize main
 
 - Ensure `main` is green locally.
-- Run the full gate:
+- Run the release gate:
 
 ```bash
 make ci
 ```
 
-This includes formatting/lint/type/tests, metadata checks, and artifact validation (`twine check`).
+- Run exhaustive tests (includes `performance` marker) before cutting the tag:
+
+```bash
+make test-all
+```
+
+`make ci` includes formatting/lint/type/tests (excluding `performance`), metadata checks, and artifact validation (`twine check`).
 
 ## 2) Update release metadata
 

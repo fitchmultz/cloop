@@ -27,6 +27,7 @@ Use this checklist before changing repository visibility to public.
 
 - [ ] Fresh clone test: `uv sync --all-groups --all-extras && make ci`.
 - [ ] Fast developer gate: `make check-fast`.
+- [ ] Exhaustive marker-inclusive run before release cut: `make test-all`.
 - [ ] CLI smoke test: `uv run cloop --help`.
 - [ ] Server smoke test: `uv run uvicorn cloop.main:app --reload`.
 
@@ -38,3 +39,4 @@ Use this checklist before changing repository visibility to public.
 - [ ] Enable security alerts and private vulnerability reporting.
 - [ ] Confirm release workflow works by publishing a test tag on a non-production branch or fork.
 - [ ] Draft first release notes from `CHANGELOG.md`.
+- [ ] Verify `docs/role-evidence/` is current for external reviewer walkthroughs.

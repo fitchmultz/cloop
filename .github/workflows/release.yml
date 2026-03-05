@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups --all-extras
 
-      - name: Run full quality gate
+      - name: Run release local gate (excludes performance marker)
         run: make ci
 
       - name: Create GitHub release
