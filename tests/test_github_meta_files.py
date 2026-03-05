@@ -5,8 +5,8 @@ Purpose:
 
 Responsibilities:
     - Verify issue templates and PR template exist.
-    - Verify release workflow exists and includes core safeguards.
-    - Prevent accidental regressions in contributor experience.
+    - Verify PR-fast, full/nightly, and release workflows include key safeguards.
+    - Prevent accidental regressions in contributor and CI strategy experience.
 
 Non-scope:
     - Validating full GitHub Actions YAML schema semantics.
@@ -23,12 +23,14 @@ def _read(relative_path: str) -> str:
 
 
 def test_github_templates_exist() -> None:
-    """Required GitHub issue/PR templates should exist."""
+    """Required GitHub issue/PR templates and workflows should exist."""
     for rel in [
         ".github/ISSUE_TEMPLATE/config.yml",
         ".github/ISSUE_TEMPLATE/bug_report.yml",
         ".github/ISSUE_TEMPLATE/feature_request.yml",
         ".github/PULL_REQUEST_TEMPLATE.md",
+        ".github/workflows/ci.yml",
+        ".github/workflows/ci_full.yml",
         ".github/workflows/release.yml",
     ]:
         assert (REPO_ROOT / rel).exists(), f"Missing required GitHub metadata file: {rel}"
@@ -67,11 +69,35 @@ def test_pr_template_reinforces_quality_gate() -> None:
     assert "Documentation" in template
 
 
+def test_ci_fast_workflow_is_pr_scoped_and_resource_bounded() -> None:
+    """PR CI workflow should be fast, bounded, and avoid full release-grade runs."""
+    workflow = _read(".github/workflows/ci.yml")
+    assert "pull_request" in workflow
+    assert "timeout-minutes" in workflow
+    assert "max-parallel" in workflow
+    assert "make quality" in workflow
+    assert "make test-fast" in workflow
+    assert "make ci" not in workflow
+
+
+def test_ci_full_workflow_covers_main_nightly_and_manual_runs() -> None:
+    """Full CI workflow should cover push-to-main, nightly schedule, and manual dispatch."""
+    workflow = _read(".github/workflows/ci_full.yml")
+    assert "push:" in workflow
+    assert "branches: [main]" in workflow
+    assert "schedule:" in workflow
+    assert "workflow_dispatch" in workflow
+    assert "make ci" in workflow
+    assert "make test-performance" in workflow
+    assert "upload-artifact" in workflow
+
+
 def test_release_workflow_requires_tag_and_quality_gate() -> None:
     """Release workflow should be tag-triggered and run make ci before publishing artifacts."""
     workflow = _read(".github/workflows/release.yml")
     assert "tags:" in workflow
     assert "v*.*.*" in workflow
     assert "make ci" in workflow
+    assert "timeout-minutes" in workflow
     assert "action-gh-release" in workflow
     assert "dist/*" in workflow

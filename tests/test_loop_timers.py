@@ -29,6 +29,8 @@ from pathlib import Path
 import pytest
 from conftest import _now_iso
 
+pytestmark = pytest.mark.slow
+
 # ============================================================================
 # Time Tracking Tests
 # ============================================================================

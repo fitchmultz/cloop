@@ -98,7 +98,7 @@ def test_settings() -> Callable[..., Settings]:
             "review_stale_hours": 72.0,
             "review_blocked_hours": 48.0,
             "operation_metrics_enabled": False,
-            "scheduler_enabled": True,
+            "scheduler_enabled": False,
             "scheduler_daily_review_interval_hours": 24.0,
             "scheduler_weekly_review_interval_hours": 168.0,
             "scheduler_due_soon_nudge_interval_hours": 1.0,
@@ -129,6 +129,7 @@ def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
     get_settings.cache_clear()
     db.init_databases(get_settings())
     return tmp_path
@@ -167,6 +168,7 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
         monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
         monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
         monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+        monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
         get_settings.cache_clear()
         db.init_databases(get_settings())
         return TestClient(app, raise_server_exceptions=raise_server_exceptions)
@@ -333,6 +335,7 @@ def test_client(
     5. Returns a TestClient ready for API testing
     """
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
     get_settings.cache_clear()
 
     monkeypatch.setattr("cloop.llm.litellm.completion", mock_completion)

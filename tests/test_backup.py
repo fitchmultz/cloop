@@ -288,6 +288,7 @@ def test_list_backups_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert backups == []
 
 
+@pytest.mark.slow
 def test_list_backups_sorted_by_time(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that backups are sorted by creation time (newest first)."""
     settings = _make_settings_with_data(tmp_path, monkeypatch)
@@ -307,6 +308,7 @@ def test_list_backups_sorted_by_time(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert backups[2].name == "first"
 
 
+@pytest.mark.slow
 def test_list_backups_with_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test listing backups with limit."""
     settings = _make_settings_with_data(tmp_path, monkeypatch)
@@ -375,6 +377,7 @@ def test_list_backups_include_invalid(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "Corrupted zip file" in invalid[0].reason
 
 
+@pytest.mark.slow
 def test_backup_rotation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that old backups are rotated when count exceeds limit."""
     monkeypatch.setenv("CLOOP_BACKUP_KEEP_COUNT", "2")
@@ -476,6 +479,7 @@ def test_cli_backup_restore_dry_run(
     assert output["dry_run"] is True
 
 
+@pytest.mark.slow
 def test_cli_backup_rotate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     """Test CLI backup rotate command."""
     monkeypatch.setenv("CLOOP_BACKUP_KEEP_COUNT", "2")
@@ -497,6 +501,7 @@ def test_cli_backup_rotate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caps
     assert len(output["deleted"]) == 1
 
 
+@pytest.mark.slow
 def test_cli_backup_rotate_dry_run(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:

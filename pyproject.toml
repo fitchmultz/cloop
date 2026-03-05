@@ -45,6 +45,7 @@ dev = [
     "hypothesis>=6.108.0",
     "ty>=0.0.16",
     "freezegun>=1.5.0",
+    "pytest-cov>=6.0.0",
     "build>=1.2.2.post1",
     "twine>=6.1.0",
 ]
@@ -83,6 +84,11 @@ select = ["E", "F", "B", "I", "UP045"]
 [tool.ty]
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
+markers = [
+    "slow: tests that intentionally sleep, use time-based expiry windows, or otherwise run longer",
+    "performance: tests focused on performance/scalability behavior and query efficiency",
+]
 filterwarnings = [
     "ignore:'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction\\(\\) instead:DeprecationWarning:litellm\\.litellm_core_utils\\.logging_utils",
 ]

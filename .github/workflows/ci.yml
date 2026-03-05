@@ -1,13 +1,12 @@
-name: CI
+name: CI (PR Fast Gate)
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-pr-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -15,7 +14,9 @@ permissions:
 
 jobs:
   quality:
+    name: Quality checks (py3.13)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -32,15 +33,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups --all-extras
 
-      - name: Run full local CI gate
-        run: make ci
+      - name: Run quality-only local gate
+        run: make quality
 
-  tests:
+  tests_fast:
+    name: Fast tests (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
 
@@ -57,5 +61,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups --all-extras
 
-      - name: Run tests
-        run: make test
+      - name: Run fast test subset
+        run: make test-fast

@@ -29,6 +29,8 @@ from cloop.loops.models import LoopStatus
 from cloop.loops.related import find_related_loops
 from cloop.settings import get_settings
 
+pytestmark = pytest.mark.performance
+
 
 def test_list_loops_query_count_not_n_plus_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client

@@ -506,6 +506,7 @@ def test_settings_claim_validation(
     get_settings.cache_clear()
 
 
+@pytest.mark.slow
 def test_loop_claim_expired_allows_update(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
@@ -542,6 +543,7 @@ def test_loop_claim_expired_allows_update(
     assert update_response.json()["title"] == "New title"
 
 
+@pytest.mark.slow
 def test_loop_claim_expired_allows_new_claim(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
