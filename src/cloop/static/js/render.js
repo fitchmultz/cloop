@@ -66,6 +66,13 @@ function isCompactLoop(loop) {
   return new Set(["completed", "dropped"]).has(loop.status);
 }
 
+function hasLongMobileCardText(compactCard, capturedText, summary) {
+  if (compactCard) {
+    return false;
+  }
+  return capturedText.length > 260 || summary.length > 180;
+}
+
 export function setCompactCardExpanded(card, expanded) {
   if (!card?.classList?.contains("compact-card")) {
     return;
@@ -120,13 +127,27 @@ export function setCompactCardExpanded(card, expanded) {
   });
 }
 
+export function setMobileCardTextExpanded(card, expanded) {
+  if (!card?.classList?.contains("mobile-text-collapsible")) {
+    return;
+  }
+
+  card.classList.toggle("mobile-text-expanded", expanded);
+  card.dataset.mobileTextMode = expanded ? "expanded" : "collapsed";
+
+  const toggle = card.querySelector('[data-action="toggle-card-body"]');
+  if (toggle instanceof HTMLButtonElement) {
+    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    toggle.textContent = expanded ? "Show less" : "Show full context";
+  }
+}
+
 /**
  * Render a single loop card
  */
 export function renderLoop(loop) {
   const card = document.createElement("div");
   const compactCard = isCompactLoop(loop);
-  card.className = `loop-card has-checkbox${compactCard ? " compact-card" : ""}`;
   card.dataset.loopId = loop.id;
   card.dataset.status = loop.status;
   card.dataset.tags = JSON.stringify(loop.tags || []);
@@ -148,6 +169,8 @@ export function renderLoop(loop) {
     loop.raw_text && loop.raw_text.trim() && loop.raw_text.trim() !== title
       ? loop.raw_text.trim()
       : "";
+  const mobileTextCollapsible = hasLongMobileCardText(compactCard, capturedText, summary);
+  card.className = `loop-card has-checkbox${compactCard ? " compact-card" : ""}${mobileTextCollapsible ? " mobile-text-collapsible" : ""}`;
   const closed = loop.closed_at_utc ? `Closed: ${formatTime(loop.closed_at_utc)}` : "";
   const completionNoteValue = loop.completion_note || "";
   const completionVisible = Boolean(completionNoteValue.trim());
@@ -294,6 +317,16 @@ export function renderLoop(loop) {
       <div class="loop-content">
         ${capturedText ? `<div class="captured-text"><span class="captured-text-label">Captured text</span><p>${escapeHtml(capturedText)}</p></div>` : ""}
         ${summary ? `<div class="loop-summary">${escapeHtml(summary)}</div>` : ""}
+        ${mobileTextCollapsible ? `
+          <button
+            type="button"
+            class="secondary mobile-card-toggle"
+            data-action="toggle-card-body"
+            aria-expanded="false"
+          >
+            Show full context
+          </button>
+        ` : ""}
         <div class="loop-planning-grid">
           ${compactCard ? `
             <div class="compact-next-action-summary ${nextActionSummary ? "" : "empty"}">
@@ -466,6 +499,9 @@ export function renderLoop(loop) {
     completionInput.dataset.mode = completionVisible ? "edit" : "";
   }
 
+  if (mobileTextCollapsible) {
+    setMobileCardTextExpanded(card, false);
+  }
   if (compactCard) {
     setCompactCardExpanded(card, false);
   }

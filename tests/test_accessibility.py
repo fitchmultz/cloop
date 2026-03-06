@@ -85,8 +85,10 @@ def test_skip_link_and_focus_styles_exist() -> None:
 def test_render_templates_have_accessible_labels_for_icon_controls() -> None:
     js = _read(RENDER_JS)
     assert "compact-card" in js
+    assert "mobile-text-collapsible" in js
     assert "compact-actions-menu" in js
     assert 'data-action="toggle-compact"' in js
+    assert 'data-action="toggle-card-body"' in js
     assert "compact-summary-strip" in js
     assert "compact-next-action-summary" in js
     assert 'class="loop-card-shell"' in js

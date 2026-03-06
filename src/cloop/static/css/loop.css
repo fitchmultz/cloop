@@ -306,6 +306,10 @@
   overflow: hidden;
 }
 
+.mobile-card-toggle {
+  display: none;
+}
+
 .loop-meta {
   color: var(--color-muted);
   font-size: 12px;
@@ -1022,6 +1026,31 @@
 .loop-card:hover .loop-checkbox,
 .loop-card.selected .loop-checkbox {
   opacity: 1;
+}
+
+@media (max-width: 640px) {
+  .loop-card.mobile-text-collapsible:not(.mobile-text-expanded) .captured-text p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 6;
+    overflow: hidden;
+  }
+
+  .loop-card.mobile-text-collapsible:not(.mobile-text-expanded) .loop-summary {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+    overflow: hidden;
+  }
+
+  .loop-card.mobile-text-collapsible .mobile-card-toggle {
+    display: inline-flex;
+    width: fit-content;
+    justify-self: start;
+    align-items: center;
+    min-height: 36px;
+    padding: 0 14px;
+  }
 }
 
 /* Bulk Action Bar */

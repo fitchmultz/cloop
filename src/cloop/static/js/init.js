@@ -691,6 +691,8 @@ function setupLoopCardHandlers(container) {
         loop.showCompletionNote(button.dataset.id);
       } else if (button.dataset.action === "toggle-compact") {
         loop.toggleCompactCard(button.closest(".loop-card")?.dataset.loopId);
+      } else if (button.dataset.action === "toggle-card-body") {
+        loop.toggleMobileCardText(button.closest(".loop-card")?.dataset.loopId);
       } else if (button.dataset.action === "confirm-complete") {
         const card = button.closest(".loop-card");
         const input = card?.querySelector(".completion-note-input");

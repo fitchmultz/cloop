@@ -75,6 +75,16 @@ export function toggleCompactCard(loopId) {
   render.setCompactCardExpanded(card, expanded);
 }
 
+export function toggleMobileCardText(loopId) {
+  const card = document.querySelector(`.loop-card[data-loop-id="${loopId}"]`);
+  if (!card?.classList?.contains("mobile-text-collapsible")) {
+    return;
+  }
+
+  const expanded = !card.classList.contains("mobile-text-expanded");
+  render.setMobileCardTextExpanded(card, expanded);
+}
+
 /**
  * Load loops into inbox based on current filters
  */
