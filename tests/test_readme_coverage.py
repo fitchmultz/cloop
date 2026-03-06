@@ -77,7 +77,7 @@ class TestRepoMetadataDocumented:
             "CODE_OF_CONDUCT.md",
             "docs/architecture.md",
             "docs/ci_strategy.md",
-            "docs/reviewer_validation_checklist.md",
+            "docs/verification_checklist.md",
             "docs/release_readiness_report.md",
             "docs/history_rewrite_plan.md",
             "docs/release.md",
@@ -102,7 +102,7 @@ class TestRepoMetadataDocumented:
             assert expected in readme_content
 
     def test_release_links_section_present(self, readme_content: str) -> None:
-        """README should link release/tag pages for evaluator discoverability."""
+        """README should link release/tag pages for repo discoverability."""
         assert "Releases" in readme_content
         assert "Tags" in readme_content
 

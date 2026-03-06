@@ -39,4 +39,4 @@ Use this checklist before changing repository visibility to public.
 - [ ] Enable security alerts and private vulnerability reporting.
 - [ ] Confirm release workflow works by publishing a test tag on a non-production branch or fork.
 - [ ] Draft first release notes from `CHANGELOG.md`.
-- [ ] Verify the primary public docs (`README.md`, `docs/reviewer_guide.md`, `docs/architecture.md`) reflect the current product and verification path.
+- [ ] Verify the primary public docs (`README.md`, `docs/architecture.md`, `docs/verification_checklist.md`) reflect the current product and validation path.

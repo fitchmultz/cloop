@@ -1,7 +1,7 @@
 # Cloop Architecture Overview
 
 This document is the public architecture summary for how Cloop actually works.
-If you are evaluating the repository, pair it with [`docs/reviewer_guide.md`](reviewer_guide.md).
+Pair it with [`docs/verification_checklist.md`](verification_checklist.md) for setup and validation commands.
 For deeper product-thinking context, see [`docs/internal/assistant_blueprint.md`](internal/assistant_blueprint.md).
 
 ## 1) System shape
@@ -107,7 +107,7 @@ The MCP server is a meaningful part of the project, not a sidecar demo.
 - It reuses the same service/repository logic as the API and CLI.
 - It avoids giving agents raw SQL or overly broad host access for common loop workflows.
 
-That makes Cloop a useful reference point for evaluating safe agent-tool integration patterns in a real application, not just a standalone chat/RAG demo.
+That makes Cloop a practical example of agent-tool integration in a real application, not just a standalone chat/RAG demo.
 
 ## 7) Where to go next in code
 

@@ -11,10 +11,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Full CI workflow split with separate PR-fast (`ci.yml`) and main/nightly (`ci_full.yml`) gates.
 - Coverage command and artifact pipeline (`make test-cov`, `coverage.xml` upload in full CI).
 - Explicit exhaustive test target (`make test-all`) for all-marker verification.
-- Role evidence pack for external reviewer walkthroughs (`docs/role-evidence/`).
 - Public-facing architecture and readiness docs:
   - `docs/architecture.md`
-  - `docs/reviewer_validation_checklist.md`
+  - `docs/verification_checklist.md`
   - `docs/release_readiness_report.md`
 
 ### Changed
@@ -42,7 +41,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Compact cards now start in read-only summary mode and require an explicit `Edit` expansion before showing the full editing/footer surface.
 - Mobile tab navigation now scrolls horizontally instead of clipping off-screen tabs, and long active-card capture text now starts as a collapsed preview with an explicit expand/collapse control.
 - Mobile quick capture now collapses secondary metadata behind an `Add details` control so the inbox starts higher on the screen, and small filter/footer utility buttons no longer stretch into awkward full-width pills on phone-sized widths.
-- Public docs now separate the primary reviewer path from internal blueprint material more clearly, add a dedicated reviewer guide, and soften optional demo/workshop artifacts so they do not read like required “portfolio evidence.”
+- Public docs now keep the primary path focused on product, architecture, and validation, while keeping internal design material clearly secondary.
 
 ## [0.1.0] - 2026-03-04
 

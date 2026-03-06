@@ -10,8 +10,6 @@ It lets you capture work, manage loop state, ingest local documents for RAG, and
 
 No Docker. No external vector database. Loop and retrieval data stay in local SQLite files (`core.db`, `rag.db`) by default.
 
-If you are evaluating the repository itself, start with [`docs/reviewer_guide.md`](docs/reviewer_guide.md).
-
 ## Architecture at a glance
 
 ```mermaid
@@ -27,7 +25,7 @@ flowchart LR
 ```
 
 - Public architecture summary: [`docs/architecture.md`](docs/architecture.md)
-- Reviewer/evaluator path: [`docs/reviewer_guide.md`](docs/reviewer_guide.md)
+- Verification checklist: [`docs/verification_checklist.md`](docs/verification_checklist.md)
 
 ## Why “Closed Loop”?
 
@@ -48,8 +46,8 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 ## Design and Architecture
 
 - Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
-- Use the reviewer/evaluator path if you want the shortest repo-quality walkthrough: [docs/reviewer_guide.md](docs/reviewer_guide.md)
-- The deeper product blueprint lives in [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md) and is best treated as internal design context, not the primary public entrypoint.
+- Use [docs/verification_checklist.md](docs/verification_checklist.md) for setup, validation, and smoke-test commands.
+- The deeper product blueprint lives in [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md) and is internal design context rather than the main getting-started path.
 
 ## Features
 
@@ -152,11 +150,10 @@ Notes:
 - For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
 - Loop lifecycle and utility commands support `--format json|table` (default: `json`).
 
-## Reviewer validation shortcut
+## Validation shortcut
 
-If you are evaluating repo quality end-to-end, use:
-- [docs/reviewer_guide.md](docs/reviewer_guide.md)
-- [docs/reviewer_validation_checklist.md](docs/reviewer_validation_checklist.md)
+If you want a quick end-to-end repo validation path, use:
+- [docs/verification_checklist.md](docs/verification_checklist.md)
 
 ## CLI Reference
 
@@ -659,11 +656,9 @@ Detailed CI behavior, runtime targets, and resource controls:
 - [SECURITY.md](SECURITY.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [Architecture overview](docs/architecture.md)
-- [Reviewer guide](docs/reviewer_guide.md)
 - [CI strategy and resource controls](docs/ci_strategy.md)
-- [Reviewer validation checklist](docs/reviewer_validation_checklist.md)
+- [Verification checklist](docs/verification_checklist.md)
 - [Release readiness report](docs/release_readiness_report.md)
-- [Optional demo/enablement materials](docs/role-evidence/)
 - [Optional private-repo history rewrite plan](docs/history_rewrite_plan.md)
 - [Release process](docs/release.md)
 - [Public release checklist](docs/public_release_checklist.md)
