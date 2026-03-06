@@ -32,6 +32,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - Prefer strict typing with Pydantic where valuable
 - Treat `make ci` as the public-readiness gate; it includes `secrets-check`, `version-check`, and packaging validation
 - Use `make check-fast` for rapid local iteration before running full `make ci`
+- Runtime/toolchain policy is now Python 3.14+ only; align local env, docs, and workflow references to 3.14 when touching versioned setup
 
 ## Non-Obvious Patterns
 

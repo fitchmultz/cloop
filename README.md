@@ -3,7 +3,7 @@
 [![CI (PR Fast)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml)
 [![CI Full](https://github.com/fitchmultz/cloop/actions/workflows/ci_full.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci_full.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
+[![Python](https://img.shields.io/badge/python-3.14%2B-blue)](pyproject.toml)
 
 Cloop is a local-first loop/task and knowledge assistant with a web UI, CLI, HTTP API, and MCP server.
 It lets you capture work, manage loop state, ingest local documents for RAG, and expose a narrow tool surface to agents without standing up external infrastructure.
@@ -85,7 +85,7 @@ Cloop’s role is to keep the **context** and make retrieval effortless, so “n
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.14+
 - `uv` (recommended): https://docs.astral.sh/uv/
 
 ### Setup

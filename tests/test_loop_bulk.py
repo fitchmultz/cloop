@@ -40,13 +40,12 @@ def client_with_loops(tmp_path, monkeypatch):
     ]
     created = []
     for payload in loops:
-        payload.update(
-            {
-                "captured_at": captured_at,
-                "client_tz_offset_min": 0,
-            }
-        )
-        resp = client.post("/loops/capture", json=payload)
+        request_payload = {
+            **payload,
+            "captured_at": captured_at,
+            "client_tz_offset_min": 0,
+        }
+        resp = client.post("/loops/capture", json=request_payload)
         assert resp.status_code == 200, f"Failed to create loop: {resp.text}"
         created.append(resp.json())
 

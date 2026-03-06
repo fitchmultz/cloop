@@ -45,13 +45,12 @@ def test_loop_capture_and_filters(
 
     loop_ids: list[int] = []
     for payload in capture_payloads:
-        payload.update(
-            {
-                "captured_at": captured_at,
-                "client_tz_offset_min": 0,
-            }
-        )
-        response = client.post("/loops/capture", json=payload)
+        request_payload = {
+            **payload,
+            "captured_at": captured_at,
+            "client_tz_offset_min": 0,
+        }
+        response = client.post("/loops/capture", json=request_payload)
         assert response.status_code == 200
         loop_ids.append(response.json()["id"])
 

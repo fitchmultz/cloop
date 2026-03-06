@@ -87,11 +87,11 @@ class TestRepoMetadataDocumented:
         """README should expose CI/license/Python badges for first impressions."""
         assert "actions/workflows/ci.yml/badge.svg" in readme_content
         assert "License-MIT" in readme_content
-        assert "python-3.11%2B" in readme_content
+        assert "python-3.14%2B" in readme_content
 
-    def test_python_prerequisite_mentions_311_plus(self, readme_content: str) -> None:
+    def test_python_prerequisite_mentions_314_plus(self, readme_content: str) -> None:
         """README prerequisites should match supported Python policy."""
-        assert "Python 3.11+" in readme_content
+        assert "Python 3.14+" in readme_content
 
     def test_api_docs_and_health_endpoints_referenced(self, readme_content: str) -> None:
         """README should expose interactive API docs and machine-readable schema endpoints."""

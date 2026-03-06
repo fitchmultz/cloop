@@ -229,7 +229,7 @@ def ingest_paths(
                         upsert_vector(conn, int(chunk_id), vector, vector_backend)
                     inserted_chunks += 1
                 conn.commit()
-            except (sqlite3.Error, OSError, ValueError):
+            except sqlite3.Error, OSError, ValueError:
                 conn.rollback()
                 raise
 

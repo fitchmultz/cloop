@@ -303,7 +303,7 @@ def chat_endpoint(
                     scope=request.rag_scope,
                     settings=settings,
                 )
-            except (RuntimeError, CloopError):
+            except RuntimeError, CloopError:
                 rag_chunks = []
 
             if rag_chunks:

@@ -8,7 +8,7 @@ Intended for deterministic, fast feedback on every pull request.
 
 Runs:
 - `make quality` (format/lint/type + config/security/version/changelog checks)
-- `make test-fast` on Python 3.11 and 3.13
+- `make test-fast` on Python 3.14
 
 Runtime and resource controls:
 - Job-level timeouts (`timeout-minutes`)
@@ -26,8 +26,8 @@ Runs on:
 - manual dispatch
 
 Runs:
-- `make ci` (release-grade gate: quality + tests excluding `performance` + packaging checks) on Python 3.13
-- compatibility fast tests on 3.11 and 3.12
+- `make ci` (release-grade gate: quality + tests excluding `performance` + packaging checks) on Python 3.14
+- fast validation tests on Python 3.14
 - coverage job (`make test-cov`, excludes `performance`) with `coverage.xml` artifact upload
 - performance-marker tests on nightly/manual events via dedicated `performance` job
 

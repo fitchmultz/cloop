@@ -288,7 +288,7 @@ def capture_loop(
                     conn=conn,
                 )
 
-        event_payload = {
+        event_payload: dict[str, Any] = {
             "raw_text": raw_text,
             "status": status.value,
             "captured_at_utc": captured_at_utc_str,
@@ -744,7 +744,7 @@ def transition_status(
         next_loop_id = _handle_recurrence_on_completion(record=record, conn=conn)
 
     with conn:
-        updates = {"status": to_status.value, "closed_at": closed_at}
+        updates: dict[str, Any] = {"status": to_status.value, "closed_at": closed_at}
         if to_status is LoopStatus.COMPLETED and note and note.strip():
             updates["completion_note"] = note.strip()
         # Disable recurrence on completed loop so it doesn't generate more

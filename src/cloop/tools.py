@@ -199,7 +199,7 @@ def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
                 status=status,
                 conn=conn,
             )
-    except (ValidationError, LoopNotFoundError):
+    except ValidationError, LoopNotFoundError:
         raise
     except sqlite3.Error as e:
         raise ValidationError("database", f"Database error: {e}") from e
@@ -231,7 +231,7 @@ def execute_loop_update(**kwargs: Any) -> Dict[str, Any]:
             )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except (ValidationError, TransitionError):
+    except ValidationError, TransitionError:
         raise
     except sqlite3.Error as e:
         raise ValidationError("database", f"Database error: {e}") from e
@@ -309,7 +309,7 @@ def execute_loop_list(**kwargs: Any) -> Dict[str, Any]:
                 cursor=cursor,
                 conn=conn,
             )
-    except (ValidationError, LoopNotFoundError):
+    except ValidationError, LoopNotFoundError:
         raise
     except sqlite3.Error as e:
         raise ValidationError("database", f"Database error: {e}") from e
@@ -336,7 +336,7 @@ def execute_loop_search(**kwargs: Any) -> Dict[str, Any]:
                 cursor=cursor,
                 conn=conn,
             )
-    except (ValidationError, LoopNotFoundError):
+    except ValidationError, LoopNotFoundError:
         raise
     except sqlite3.Error as e:
         raise ValidationError("database", f"Database error: {e}") from e
@@ -360,7 +360,7 @@ def execute_loop_next(**kwargs: Any) -> Dict[str, Any]:
                 conn=conn,
                 settings=settings,
             )
-    except (ValidationError, LoopNotFoundError):
+    except ValidationError, LoopNotFoundError:
         raise
     except sqlite3.Error as e:
         raise ValidationError("database", f"Database error: {e}") from e

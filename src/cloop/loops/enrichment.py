@@ -202,7 +202,7 @@ def _gather_enrichment_context(
                             ),
                         }
                     )
-    except (sqlite3.Error, ValueError, KeyError, TypeError):
+    except sqlite3.Error, ValueError, KeyError, TypeError:
         logger.debug("Failed to fetch related loops for loop %s", loop_id)
 
     try:
@@ -218,7 +218,7 @@ def _gather_enrichment_context(
                     "preview": d.raw_text_preview,
                 }
             )
-    except (sqlite3.Error, ValueError, AttributeError):
+    except sqlite3.Error, ValueError, AttributeError:
         logger.debug("Failed to fetch duplicate candidates for loop %s", loop_id)
 
     try:
@@ -240,7 +240,7 @@ def _gather_enrichment_context(
                     "project": item.get("project"),
                 }
             )
-    except (sqlite3.Error, ValueError, KeyError, TypeError):
+    except sqlite3.Error, ValueError, KeyError, TypeError:
         logger.debug("Failed to fetch workload snapshot for loop %s", loop_id)
 
     try:
@@ -259,7 +259,7 @@ def _gather_enrichment_context(
                         "confidence": link.get("confidence"),
                     }
                 )
-    except (sqlite3.Error, ValueError, KeyError, TypeError):
+    except sqlite3.Error, ValueError, KeyError, TypeError:
         logger.debug("Failed to fetch existing links for loop %s", loop_id)
 
     try:
@@ -273,7 +273,7 @@ def _gather_enrichment_context(
                     "answered_at": clar["answered_at"],
                 }
             )
-    except (sqlite3.Error, ValueError, KeyError, TypeError):
+    except sqlite3.Error, ValueError, KeyError, TypeError:
         logger.debug("Failed to fetch clarifications for loop %s", loop_id)
 
     return EnrichmentContext(

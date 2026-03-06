@@ -133,7 +133,7 @@ def loop_metrics_command(args: Namespace, settings: Settings) -> int:
             trend_window_days=trend_window_days,
         )
 
-    output = {
+    output: dict[str, Any] = {
         "generated_at_utc": metrics.generated_at_utc,
         "total_loops": metrics.total_loops,
         "status_counts": {
@@ -279,7 +279,7 @@ def import_command(args: Namespace, settings: Settings) -> int:
         with db.core_connection(settings) as conn:
             result = service.import_loops(loops=loops, conn=conn, options=options)
 
-        output = {
+        output: dict[str, Any] = {
             "imported": result.imported,
             "skipped": result.skipped,
             "updated": result.updated,

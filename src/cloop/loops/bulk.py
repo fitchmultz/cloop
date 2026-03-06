@@ -305,7 +305,7 @@ def bulk_close_loops(
         if to_status == LoopStatus.COMPLETED:
             next_loop_id = _handle_recurrence_on_completion(record=record, conn=conn)
 
-        updates = {"status": to_status.value, "closed_at": closed_at}
+        updates: dict[str, Any] = {"status": to_status.value, "closed_at": closed_at}
         if to_status is LoopStatus.COMPLETED and note and note.strip():
             updates["completion_note"] = note.strip()
         # Disable recurrence on completed loop so it doesn't generate more
@@ -769,6 +769,7 @@ def _rollback_transaction_results(results: list[dict[str, Any]]) -> list[dict[st
             continue
 
         error = result.get("error")
+        merged_error: dict[str, Any]
         if isinstance(error, Mapping):
             merged_error = dict(error)
         else:

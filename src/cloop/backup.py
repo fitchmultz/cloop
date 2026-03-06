@@ -125,7 +125,7 @@ def _get_cloop_version() -> str:
         from importlib.metadata import version
 
         return version("cloop")
-    except (ImportError, ModuleNotFoundError):
+    except ImportError, ModuleNotFoundError:
         return "0.1.0"
 
 
