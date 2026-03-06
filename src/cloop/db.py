@@ -1297,6 +1297,16 @@ def record_interaction(
     settings: Settings | None = None,
 ) -> None:
     settings = settings or get_settings()
+
+    def _json_default(value: Any) -> Any:
+        if hasattr(value, "model_dump"):
+            return value.model_dump()
+        if hasattr(value, "dict"):
+            return value.dict()
+        if hasattr(value, "__dict__"):
+            return value.__dict__
+        return str(value)
+
     sanitized_chunks: list[Dict[str, Any]] = []
     if selected_chunks:
         for chunk in selected_chunks:
@@ -1309,10 +1319,10 @@ def record_interaction(
         "endpoint": endpoint,
         "model": model,
         "latency_ms": latency_ms,
-        "request_payload": json.dumps(request_payload),
-        "response_payload": json.dumps(response_payload),
-        "tool_calls": json.dumps(list(tool_calls) if tool_calls else []),
-        "selected_chunks": json.dumps(sanitized_chunks),
+        "request_payload": json.dumps(request_payload, default=_json_default),
+        "response_payload": json.dumps(response_payload, default=_json_default),
+        "tool_calls": json.dumps(list(tool_calls) if tool_calls else [], default=_json_default),
+        "selected_chunks": json.dumps(sanitized_chunks, default=_json_default),
         "token_estimate": token_estimate,
     }
     with core_connection(settings) as conn:

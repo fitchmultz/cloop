@@ -34,12 +34,16 @@ export function init(elements) {
  */
 function renderChatMessages() {
   if (state.state.chatMessages.length === 0) {
-    chatMessagesEl.innerHTML = '<div class="chat-placeholder">Start a conversation...</div>';
+    chatMessagesEl.innerHTML = `
+      <div class="chat-placeholder">
+        Ask about your real work: "What should I focus on next?", "What is blocked?", or "What is due soon?"
+      </div>
+    `;
     return;
   }
 
   chatMessagesEl.innerHTML = state.state.chatMessages.map(msg =>
-    `<div class="chat-bubble ${msg.role}">${escapeHtml(msg.content)}</div>`
+    `<div class="chat-bubble ${msg.role}">${renderMessageContent(msg.content, msg.role)}</div>`
   ).join("");
 
   chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
@@ -51,6 +55,20 @@ function renderChatMessages() {
 function addChatBubble(role, content) {
   state.state.chatMessages.push({ role, content });
   renderChatMessages();
+}
+
+function renderMessageContent(content, role) {
+  const escaped = escapeHtml(content);
+  if (role === "user") {
+    return escaped;
+  }
+
+  const formatted = escaped
+    .replace(/^### (.+)$/gm, "<strong>$1</strong>")
+    .replace(/^\* (.+)$/gm, "• $1")
+    .replace(/\n/g, "<br>");
+
+  return `<p>${formatted.replace(/(?:<br>){2,}/g, "</p><p>")}</p>`;
 }
 
 /**

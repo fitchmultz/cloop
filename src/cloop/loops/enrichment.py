@@ -505,8 +505,6 @@ def enrich_loop(
         "provenance": dict(record.provenance),
     }
 
-    provider_kwargs = resolve_provider_kwargs(settings.organizer_model, settings)
-
     # NEW: Gather context before building prompt
     context: EnrichmentContext | None = None
     if settings.autopilot_enabled:
@@ -523,6 +521,7 @@ def enrich_loop(
     messages = _build_prompt(loop_payload, context=context)
 
     try:
+        provider_kwargs = resolve_provider_kwargs(settings.organizer_model, settings)
         response = with_llm_retry(litellm.completion, settings)(
             model=settings.organizer_model,
             messages=messages,
@@ -683,8 +682,16 @@ def enrich_loop(
                         source="ai",
                         conn=conn,
                     )
-        except (sqlite3.Error, ValueError, AttributeError, TypeError) as exc:
-            # Log embedding/suggestion failures but don't fail the enrichment
+        except ValueError as exc:
+            # Common expected case: provider misconfiguration (e.g., missing api_base).
+            # Keep autopilot capture successful, but avoid scary traceback spam.
+            logging.warning(
+                "Skipping embedding/suggestion phase for loop %s due to configuration: %s",
+                loop_id,
+                exc,
+            )
+        except (sqlite3.Error, AttributeError, TypeError) as exc:
+            # Unexpected embedding/suggestion failures: include traceback for diagnosis.
             logging.warning(
                 "Failed to create embedding or suggestions for loop %s: %s",
                 loop_id,

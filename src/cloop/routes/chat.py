@@ -73,6 +73,39 @@ def _interaction_context(settings: Settings) -> Dict[str, str]:
     }
 
 
+def _build_chat_guidance(
+    *,
+    include_loop_context: bool,
+    include_memory_context: bool,
+    include_rag_context: bool,
+) -> str:
+    """Return product-specific chat guidance to keep answers grounded and useful."""
+    guidance = [
+        "You are Cloop's loop-aware planning assistant.",
+        "Prioritize concrete, actionable guidance over generic self-help language.",
+        (
+            "If loop context is available, ground your answer in the actual loop "
+            "titles, statuses, due items, and blockers you were given."
+        ),
+        "Prefer naming 1-3 specific loops or next actions instead of broad categories.",
+        (
+            "If the user asks what to focus on next, rank the most relevant current "
+            "loops and explain why briefly."
+        ),
+        "Be concise, clear, and practical. Avoid motivational filler.",
+    ]
+    if include_memory_context:
+        guidance.append("Use memory context to personalize recommendations when it is relevant.")
+    if include_rag_context:
+        guidance.append("Use retrieved document context when it directly supports the answer.")
+    if not include_loop_context:
+        guidance.append(
+            "If no loop context is available, say that you are answering generally "
+            "rather than pretending you inspected the user's loop state."
+        )
+    return "\n".join(guidance)
+
+
 def _build_loop_context_snapshot(settings: Settings) -> str:
     """Build compact loop context snapshot for LLM system message.
 
@@ -230,6 +263,18 @@ def chat_endpoint(
                     "content": loop_context,
                 },
             )
+
+    messages.insert(
+        0,
+        {
+            "role": "system",
+            "content": _build_chat_guidance(
+                include_loop_context=request.include_loop_context,
+                include_memory_context=request.include_memory_context,
+                include_rag_context=request.include_rag_context,
+            ),
+        },
+    )
 
     # Build and inject memory context if requested (inserted first so memory precedes loop context)
     memory_context: str | None = None

@@ -132,8 +132,17 @@ def _safe_enrich_loop(*, loop_id: int, settings: "Settings") -> None:
     except SystemExit:
         # Re-raise system signals for graceful shutdown
         raise
+    except ValueError as exc:
+        # Expected configuration/provider mismatch in some environments.
+        # Enrichment function already persisted failure state.
+        _logger.warning(
+            "Background enrichment configuration error for loop %s (error persisted to DB): %s",
+            loop_id,
+            exc,
+        )
     except Exception as exc:
-        # Log but don't re-raise - enrichment already persisted failure state
+        # Unexpected failure: include traceback for diagnosis.
+        # Enrichment function already persisted failure state.
         _logger.exception(
             "Background enrichment failed for loop %s (error persisted to DB): %s",
             loop_id,

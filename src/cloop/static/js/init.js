@@ -689,6 +689,15 @@ function setupLoopCardHandlers(container) {
     if (button) {
       if (button.dataset.action === "complete") {
         loop.showCompletionNote(button.dataset.id);
+      } else if (button.dataset.action === "toggle-compact") {
+        loop.toggleCompactCard(button.closest(".loop-card")?.dataset.loopId);
+      } else if (button.dataset.action === "confirm-complete") {
+        const card = button.closest(".loop-card");
+        const input = card?.querySelector(".completion-note-input");
+        if (input) {
+          input.dataset.skipComplete = "true";
+        }
+        loop.confirmComplete(button.dataset.id, input?.value || "");
       } else if (button.dataset.action === "cancel-complete") {
         loop.hideCompletionNote(button.dataset.id);
       } else if (button.dataset.action === "enrich") {

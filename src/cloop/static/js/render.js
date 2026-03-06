@@ -62,12 +62,71 @@ export function queueNextActionResize(root) {
   });
 }
 
+function isCompactLoop(loop) {
+  return new Set(["completed", "dropped"]).has(loop.status);
+}
+
+export function setCompactCardExpanded(card, expanded) {
+  if (!card?.classList?.contains("compact-card")) {
+    return;
+  }
+
+  card.classList.toggle("compact-expanded", expanded);
+  card.dataset.compactMode = expanded ? "expanded" : "summary";
+
+  const toggle = card.querySelector('[data-action="toggle-compact"]');
+  if (toggle) {
+    card.querySelectorAll('[data-action="toggle-compact"]').forEach((button) => {
+      button.setAttribute("aria-expanded", expanded ? "true" : "false");
+    });
+  }
+
+  const readonlySelectors = [
+    '[data-field="title"]',
+    '[data-field="next_action"]',
+    '[data-field="blocked_reason"]',
+    ".completion-note-input",
+    '[data-field="tags_add"]',
+  ];
+
+  readonlySelectors.forEach((selector) => {
+    const field = card.querySelector(selector);
+    if (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) {
+      field.readOnly = !expanded;
+      field.tabIndex = expanded ? 0 : -1;
+    }
+  });
+
+  const disabledSelectors = [
+    '[data-field="status"]',
+    '[data-field="due_at_utc"]',
+    '[data-recurrence-toggle]',
+    '[data-recurrence-schedule]',
+  ];
+
+  disabledSelectors.forEach((selector) => {
+    const field = card.querySelector(selector);
+    if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement) {
+      field.disabled = !expanded;
+      field.tabIndex = expanded ? 0 : -1;
+    }
+  });
+
+  card.querySelectorAll('[data-action="remove-tag"], [data-action="edit-tags"]').forEach((button) => {
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = !expanded;
+      button.tabIndex = expanded ? 0 : -1;
+    }
+  });
+}
+
 /**
  * Render a single loop card
  */
 export function renderLoop(loop) {
   const card = document.createElement("div");
-  card.className = "loop-card has-checkbox";
+  const compactCard = isCompactLoop(loop);
+  card.className = `loop-card has-checkbox${compactCard ? " compact-card" : ""}`;
   card.dataset.loopId = loop.id;
   card.dataset.status = loop.status;
   card.dataset.tags = JSON.stringify(loop.tags || []);
@@ -85,10 +144,14 @@ export function renderLoop(loop) {
 
   const title = loop.title || loop.raw_text;
   const summary = loop.summary || loop.definition_of_done || "";
+  const capturedText =
+    loop.raw_text && loop.raw_text.trim() && loop.raw_text.trim() !== title
+      ? loop.raw_text.trim()
+      : "";
   const closed = loop.closed_at_utc ? `Closed: ${formatTime(loop.closed_at_utc)}` : "";
   const completionNoteValue = loop.completion_note || "";
-  const completionVisible =
-    loop.status === "completed" || Boolean(completionNoteValue.trim());
+  const completionVisible = Boolean(completionNoteValue.trim());
+  const nextActionSummary = loop.next_action?.trim() || "";
 
   const tagChips = Array.isArray(loop.tags) && loop.tags.length
     ? loop.tags
@@ -143,31 +206,36 @@ export function renderLoop(loop) {
   const recurrenceEnabled = loop.recurrence_enabled || false;
   const recurrenceRrule = loop.recurrence_rrule || "";
   const nextDueAt = loop.next_due_at_utc || "";
-
-  card.innerHTML = `
-    ${checkboxHtml}
-    <input
-      class="title-input"
-      type="text"
-      data-field="title"
-      placeholder="Untitled"
-    >
-    <div class="loop-meta">
-      <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
-      <span>Updated: ${formatTime(loop.updated_at_utc)}</span>
-    </div>
-    ${summary ? `<div class="loop-summary">${escapeHtml(summary)}</div>` : ""}
-    <div class="inline-row">
-      <span class="inline-label">Next action</span>
-      <textarea
-        class="inline-input inline-textarea"
-        rows="1"
-        data-field="next_action"
-        placeholder="Add next action"
-      ></textarea>
-    </div>
-    <div class="badges">
-      <select class="badge-select" data-field="status">
+  const showRecurrenceSection = recurrenceEnabled || !compactCard;
+  const compactSummaryStateHtml = compactCard
+    ? `
+      <div class="compact-summary-strip">
+        <span class="badge">${loop.status}</span>
+        ${loop.due_at_utc ? `<span class="badge">Due ${formatTime(loop.due_at_utc)}</span>` : ""}
+        ${closed ? `<span class="badge">${closed}</span>` : ""}
+        <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+        ${snoozeIndicatorHtml}
+        <button type="button" class="secondary compact-toggle compact-toggle-summary" data-action="toggle-compact" aria-expanded="false">Edit</button>
+      </div>
+      <div class="compact-edit-strip">
+        <select class="badge-select" data-field="status" aria-label="Loop status">
+          ${statusSelectOptions(loop.status)}
+        </select>
+        <input
+          class="badge-input"
+          type="datetime-local"
+          data-field="due_at_utc"
+          placeholder="Due"
+          aria-label="Due date"
+        >
+        ${closed ? `<span class="badge">${closed}</span>` : ""}
+        <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+        ${snoozeIndicatorHtml}
+        <button type="button" class="secondary compact-toggle compact-toggle-edit" data-action="toggle-compact" aria-expanded="true">Done</button>
+      </div>
+    `
+    : `
+      <select class="badge-select" data-field="status" aria-label="Loop status">
         ${statusSelectOptions(loop.status)}
       </select>
       <input
@@ -175,110 +243,184 @@ export function renderLoop(loop) {
         type="datetime-local"
         data-field="due_at_utc"
         placeholder="Due"
+        aria-label="Due date"
       >
       ${closed ? `<span class="badge">${closed}</span>` : ""}
       <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
       ${snoozeIndicatorHtml}
-    </div>
-    ${tags}
-    <div class="blocked-reason-row ${loop.status === "blocked" ? "visible" : ""}">
-      <span class="inline-label">Blocked by</span>
-      <input
-        class="inline-input"
-        type="text"
-        data-field="blocked_reason"
-        placeholder="What's blocking this?"
-      >
-    </div>
-    <div class="timer-section">
-      <button class="timer-btn ${loop.timer_running ? 'running' : ''}" data-action="timer-toggle" data-id="${loop.id}" data-running="${loop.timer_running ? 'true' : 'false'}">
-        ${loop.timer_running ? '⏹ Stop' : '▶ Start'}<span class="shortcut-hint">t</span>
+    `;
+  const secondaryActionsHtml = `
+    <div class="snooze-wrapper">
+      <button class="secondary snooze-btn" data-action="snooze" data-id="${loop.id}" aria-keyshortcuts="S" title="Snooze (S)">
+        Snooze
       </button>
-      <span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">
-        ${loop.timer_display || ''}
-      </span>
-      ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
-      ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
-    </div>
-    <div class="recurrence-section ${recurrenceEnabled ? 'expanded' : ''}" data-recurrence-section="${loop.id}">
-      <div class="recurrence-header">
-        <label class="recurrence-toggle">
-          <input type="checkbox" data-recurrence-toggle="${loop.id}" ${recurrenceEnabled ? 'checked' : ''}>
-          <span class="recurrence-slider"></span>
-        </label>
-        <span class="recurrence-label">Recurring</span>
-      </div>
-      <div class="recurrence-config ${recurrenceEnabled ? 'visible' : ''}">
-        <input
-          type="text"
-          class="recurrence-schedule-input"
-          data-recurrence-schedule="${loop.id}"
-          placeholder="e.g., 'every weekday', 'every Monday at 9am', 'every 2 weeks'"
-          value="${escapeHtml(recurrenceRrule)}"
-        >
-        <div class="recurrence-preview" data-recurrence-preview="${loop.id}">
-          ${nextDueAt ? `Next: ${formatTime(nextDueAt)}` : 'Enter a schedule to see next occurrence'}
+      <div class="snooze-dropdown" data-snooze-dropdown="${loop.id}">
+        <button type="button" class="snooze-option" data-snooze-duration="1h">1 hour</button>
+        <button type="button" class="snooze-option" data-snooze-duration="4h">4 hours</button>
+        <button type="button" class="snooze-option" data-snooze-duration="1d">1 day</button>
+        <button type="button" class="snooze-option" data-snooze-duration="1w">1 week</button>
+        <div class="snooze-custom">
+          <label for="snooze-custom-${loop.id}">Custom</label>
+          <input type="datetime-local" id="snooze-custom-${loop.id}" class="snooze-datetime" data-snooze-custom="${loop.id}" aria-label="Custom snooze date and time">
         </div>
-        <div class="recurrence-error" data-recurrence-error="${loop.id}"></div>
       </div>
     </div>
-    <div class="loop-actions">
-      <button class="secondary" data-action="complete" data-id="${loop.id}">
-        Complete<span class="shortcut-hint">c</span>
-      </button>
-      <div class="snooze-wrapper">
-        <button class="secondary snooze-btn" data-action="snooze" data-id="${loop.id}">
-          Snooze<span class="shortcut-hint">s</span>
-        </button>
-        <div class="snooze-dropdown" data-snooze-dropdown="${loop.id}">
-          <button type="button" class="snooze-option" data-snooze-duration="1h">1 hour</button>
-          <button type="button" class="snooze-option" data-snooze-duration="4h">4 hours</button>
-          <button type="button" class="snooze-option" data-snooze-duration="1d">1 day</button>
-          <button type="button" class="snooze-option" data-snooze-duration="1w">1 week</button>
-          <div class="snooze-custom">
-            <label for="snooze-custom-${loop.id}">Custom</label>
-            <input type="datetime-local" id="snooze-custom-${loop.id}" class="snooze-datetime" data-snooze-custom="${loop.id}" aria-label="Custom snooze date and time">
+    <button class="secondary" data-action="enrich" data-id="${loop.id}" aria-keyshortcuts="E" title="Re-run enrichment (E)">Enrich</button>
+    <button class="secondary" data-action="refresh" data-id="${loop.id}" aria-keyshortcuts="R" title="Refresh loop details (R)">Refresh</button>
+    <button class="secondary" data-action="save-template" data-id="${loop.id}" title="Save as template">Template</button>
+  `;
+
+  card.innerHTML = `
+    ${checkboxHtml}
+    <div class="loop-card-shell">
+      <div class="loop-header">
+        <div class="loop-identity">
+          ${compactCard ? `<div class="compact-title-summary">${escapeHtml(title)}</div>` : ""}
+          <input
+            class="title-input ${compactCard ? "compact-edit-field" : ""}"
+            type="text"
+            data-field="title"
+            placeholder="Untitled"
+          >
+          <div class="loop-meta">
+            <span>Captured: ${formatTime(loop.captured_at_utc)}</span>
+            <span>Updated: ${formatTime(loop.updated_at_utc)}</span>
+          </div>
+        </div>
+        <div class="loop-state-strip">
+          ${compactSummaryStateHtml}
+        </div>
+      </div>
+      <div class="loop-content">
+        ${capturedText ? `<div class="captured-text"><span class="captured-text-label">Captured text</span><p>${escapeHtml(capturedText)}</p></div>` : ""}
+        ${summary ? `<div class="loop-summary">${escapeHtml(summary)}</div>` : ""}
+        <div class="loop-planning-grid">
+          ${compactCard ? `
+            <div class="compact-next-action-summary ${nextActionSummary ? "" : "empty"}">
+              <span class="inline-label">Next action</span>
+              <p>${nextActionSummary ? escapeHtml(nextActionSummary) : "No next action captured."}</p>
+            </div>
+          ` : ""}
+          <div class="inline-row loop-next-action ${compactCard ? "compact-edit-field" : ""}">
+            <span class="inline-label">Next action</span>
+            <textarea
+              class="inline-input inline-textarea"
+              rows="1"
+              data-field="next_action"
+              placeholder="Add next action"
+            ></textarea>
+          </div>
+          <div class="loop-supporting-fields">
+            ${tags}
+            <div class="blocked-reason-row ${loop.status === "blocked" ? "visible" : ""}">
+              <span class="inline-label">Blocked by</span>
+              <input
+                class="inline-input"
+                type="text"
+                data-field="blocked_reason"
+                placeholder="What's blocking this?"
+              >
+            </div>
           </div>
         </div>
       </div>
-      <button class="secondary" data-action="enrich" data-id="${loop.id}">Enrich<span class="shortcut-hint">e</span></button>
-      <button class="secondary" data-action="refresh" data-id="${loop.id}">Refresh<span class="shortcut-hint">r</span></button>
-      <button class="secondary" data-action="save-template" data-id="${loop.id}" title="Save as template">Template</button>
-    </div>
-    <div class="completion-note-row ${completionVisible ? "visible" : ""}">
-      <span class="inline-label">completion note</span>
-      <input
-        class="inline-input completion-note-input"
-        type="text"
-        placeholder="Add a note (optional)"
-        data-action="completion-note"
-      >
-      <button class="completion-cancel" data-action="cancel-complete" data-id="${loop.id}" aria-label="Cancel completion note">
-        ×
-      </button>
-    </div>
-    <div class="comments-section" data-comments-section="${loop.id}">
-      <div class="comments-header" data-comments-toggle="${loop.id}">
-        <span class="comments-count" data-comments-count="${loop.id}">Loading comments...</span>
-        <span class="comments-toggle">▼</span>
-      </div>
-      <div class="comments-body" data-comments-body="${loop.id}">
-        <div class="comments-list" data-comments-list="${loop.id}"></div>
-        <div class="comment-form">
-          <input
-            type="text"
-            class="comment-author-input"
-            data-comment-author="${loop.id}"
-            placeholder="Your name"
+      <div class="loop-operations">
+        <div class="timer-section">
+          <button
+            class="timer-btn ${loop.timer_running ? 'running' : ''}"
+            data-action="timer-toggle"
+            data-id="${loop.id}"
+            data-running="${loop.timer_running ? 'true' : 'false'}"
+            aria-keyshortcuts="T"
+            title="Toggle timer (T)"
           >
-          <textarea
-            class="comment-textarea"
-            data-comment-body="${loop.id}"
-            placeholder="Add a note or context... (markdown supported)"
-          ></textarea>
-          <button class="comment-submit-btn" data-action="post-comment" data-loop-id="${loop.id}">
-            Post Comment
+            ${loop.timer_running ? '⏹ Stop' : '▶ Start'}
           </button>
+          <span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">
+            ${loop.timer_display || ''}
+          </span>
+          ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
+          ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
+        </div>
+        ${showRecurrenceSection ? `
+          <div class="recurrence-section ${recurrenceEnabled ? 'expanded' : ''}" data-recurrence-section="${loop.id}">
+            <div class="recurrence-header">
+              <label class="recurrence-toggle">
+                <input type="checkbox" data-recurrence-toggle="${loop.id}" ${recurrenceEnabled ? 'checked' : ''}>
+                <span class="recurrence-slider"></span>
+              </label>
+              <span class="recurrence-label">Recurring</span>
+            </div>
+            <div class="recurrence-config ${recurrenceEnabled ? 'visible' : ''}">
+              <input
+                type="text"
+                class="recurrence-schedule-input"
+                data-recurrence-schedule="${loop.id}"
+                placeholder="e.g., 'every weekday', 'every Monday at 9am', 'every 2 weeks'"
+                value="${escapeHtml(recurrenceRrule)}"
+              >
+              <div class="recurrence-preview" data-recurrence-preview="${loop.id}">
+                ${nextDueAt ? `Next: ${formatTime(nextDueAt)}` : 'Enter a schedule to see next occurrence'}
+              </div>
+              <div class="recurrence-error" data-recurrence-error="${loop.id}"></div>
+            </div>
+          </div>
+        ` : ""}
+      </div>
+      <div class="loop-footer">
+        <div class="loop-actions">
+          <button class="secondary" data-action="complete" data-id="${loop.id}" aria-keyshortcuts="C" title="Complete with note (C)">
+            Complete…
+          </button>
+          ${compactCard ? `
+            <details class="compact-actions-menu">
+              <summary class="secondary compact-actions-trigger">More</summary>
+              <div class="compact-actions-panel">
+                ${secondaryActionsHtml}
+              </div>
+            </details>
+          ` : secondaryActionsHtml}
+        </div>
+        <div class="completion-note-row ${completionVisible ? "visible" : ""}">
+          <span class="inline-label">completion note</span>
+          <input
+            class="inline-input completion-note-input"
+            type="text"
+            placeholder="Add a note (optional)"
+            data-action="completion-note"
+          >
+          <button class="completion-confirm" data-action="confirm-complete" data-id="${loop.id}" type="button">
+            Mark done
+          </button>
+          <button class="completion-cancel" data-action="cancel-complete" data-id="${loop.id}" aria-label="Cancel completion note">
+            ×
+          </button>
+          <span class="completion-hint">Press Enter to confirm or Esc to cancel.</span>
+        </div>
+        <div class="comments-section" data-comments-section="${loop.id}">
+          <div class="comments-header" data-comments-toggle="${loop.id}">
+            <span class="comments-count" data-comments-count="${loop.id}">Comments</span>
+            <span class="comments-toggle">▼</span>
+          </div>
+          <div class="comments-body" data-comments-body="${loop.id}">
+            <div class="comments-list" data-comments-list="${loop.id}"></div>
+            <div class="comment-form">
+              <input
+                type="text"
+                class="comment-author-input"
+                data-comment-author="${loop.id}"
+                placeholder="Your name"
+              >
+              <textarea
+                class="comment-textarea"
+                data-comment-body="${loop.id}"
+                placeholder="Add a note or context... (markdown supported)"
+              ></textarea>
+              <button class="comment-submit-btn" data-action="post-comment" data-loop-id="${loop.id}">
+                Post Comment
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -322,6 +464,10 @@ export function renderLoop(loop) {
     completionInput.value = completionNoteValue;
     completionInput.dataset.initial = completionNoteValue;
     completionInput.dataset.mode = completionVisible ? "edit" : "";
+  }
+
+  if (compactCard) {
+    setCompactCardExpanded(card, false);
   }
 
   return card;

@@ -24,7 +24,6 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI
-from fastapi.staticfiles import StaticFiles
 
 from . import db, web
 from ._version import __version__
@@ -54,7 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Cloop LLM Service", version=__version__, lifespan=lifespan)
 
 # Mount static files directly on app (APIRouter.mount doesn't propagate via include_router)
-app.mount("/static", StaticFiles(directory=web._STATIC_DIR), name="static")
+app.mount("/static", web.CloopStaticFiles(directory=web._STATIC_DIR), name="static")
 
 app.include_router(web.router)
 app.include_router(chat_router)
@@ -72,6 +71,7 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
 @app.get("/health", response_model=HealthResponse)
+@app.get("/healthz", response_model=HealthResponse, include_in_schema=False)
 def health_endpoint(settings: SettingsDep) -> HealthResponse:
     # Run dependency checks
     db_checks = db.check_database_connectivity(settings)

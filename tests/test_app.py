@@ -371,6 +371,32 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
         assert payload["vector_available"] is False
 
 
+def test_healthz_alias_matches_health(test_client: TestClient, tmp_data_dir: Path) -> None:
+    health = test_client.get("/health")
+    healthz = test_client.get("/healthz")
+    assert health.status_code == 200
+    assert healthz.status_code == 200
+    health_payload = health.json()
+    healthz_payload = healthz.json()
+    for key in health_payload:
+        if key == "checks":
+            continue
+        assert healthz_payload[key] == health_payload[key]
+    assert set(healthz_payload["checks"]) == set(health_payload["checks"])
+    for check_name in health_payload["checks"]:
+        health_check = health_payload["checks"][check_name]
+        healthz_check = healthz_payload["checks"][check_name]
+        assert healthz_check["ok"] == health_check["ok"]
+        assert healthz_check["error"] == health_check["error"]
+        assert healthz_payload["checks"][check_name]["latency_ms"] >= 0
+
+
+def test_static_js_uses_no_cache_headers(test_client: TestClient, tmp_data_dir: Path) -> None:
+    response = test_client.get("/static/js/init.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+
+
 def test_health_endpoint_with_broken_core_db(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -705,10 +731,13 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert 'id="rag-form"' in html
     assert 'id="rag-input"' in html
     assert 'id="rag-answer"' in html
+    assert "Export data" in html
+    assert "Import data" in html
 
     # Verify modular CSS/JS is loaded (new architecture)
     assert "chat.js" in html or "init.js" in html
     assert "chat-rag.css" in html or "components.css" in html
+    assert "/static/js/init.js?v=" in html
 
 
 def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -1389,6 +1418,78 @@ def test_chat_loop_context_injected_when_enabled(
         or "Standard" in loop_context
         or "High Leverage" in loop_context
     )
+
+
+def test_chat_injects_grounding_guidance_when_loop_context_enabled(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_chat_completion(
+        messages: list[dict[str, Any]],
+        *,
+        settings: Any = None,
+    ) -> tuple[str, dict[str, Any]]:
+        captured["messages"] = messages
+        return "grounded-response", {"latency_ms": 1.0, "model": "mock-llm", "usage": {}}
+
+    monkeypatch.setattr("cloop.routes.chat.chat_completion", fake_chat_completion)
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What should I do next?"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+        },
+    )
+    assert response.status_code == 200
+    messages = captured["messages"]
+    assert messages[0]["role"] == "system"
+    assert "loop-aware planning assistant" in messages[0]["content"]
+    assert "Avoid motivational filler" in messages[0]["content"]
+
+
+def test_chat_ui_requests_loop_and_memory_context_in_static_client() -> None:
+    api_path = Path(__file__).resolve().parents[1] / "src" / "cloop" / "static" / "js" / "api.js"
+    api_js = api_path.read_text(encoding="utf-8")
+    assert "include_loop_context: options.includeLoopContext ?? true" in api_js
+    assert "include_memory_context: options.includeMemoryContext ?? true" in api_js
+
+
+def test_chat_logging_tolerates_non_json_usage_objects(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class UsageLike:
+        def model_dump(self) -> dict[str, int]:
+            return {"prompt_tokens": 3, "completion_tokens": 5}
+
+    def fake_chat_completion(
+        messages: list[dict[str, Any]],
+        *,
+        settings: Any = None,
+    ) -> tuple[str, dict[str, Any]]:
+        return "grounded-response", {
+            "latency_ms": 1.0,
+            "model": "mock-llm",
+            "usage": UsageLike(),
+        }
+
+    monkeypatch.setattr("cloop.routes.chat.chat_completion", fake_chat_completion)
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What should I focus on next?"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+        },
+    )
+    assert response.status_code == 200
 
 
 def test_chat_loop_context_empty_when_no_loops(test_client: TestClient, tmp_data_dir: Path) -> None:

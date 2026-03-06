@@ -113,6 +113,7 @@ export async function loadComments(loopId) {
   if (!countEl || !listEl) return;
 
   try {
+    countEl.textContent = "Loading comments...";
     const data = await api.fetchComments(loopId);
     const total = data.total_count;
 

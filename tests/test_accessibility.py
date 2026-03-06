@@ -40,6 +40,8 @@ def test_status_and_offline_banners_use_live_region_semantics() -> None:
         'id="status" class="loop-meta" role="status" aria-live="polite" aria-atomic="true"' in html
     )
     assert 'id="offline-banner" class="offline-banner" role="status" aria-live="polite"' in html
+    assert 'id="export-btn" aria-label="Export loops"' in html
+    assert 'id="import-btn" aria-label="Import loops"' in html
 
 
 def test_critical_form_controls_have_programmatic_labels() -> None:
@@ -82,7 +84,24 @@ def test_skip_link_and_focus_styles_exist() -> None:
 
 def test_render_templates_have_accessible_labels_for_icon_controls() -> None:
     js = _read(RENDER_JS)
+    assert "compact-card" in js
+    assert "compact-actions-menu" in js
+    assert 'data-action="toggle-compact"' in js
+    assert "compact-summary-strip" in js
+    assert "compact-next-action-summary" in js
+    assert 'class="loop-card-shell"' in js
+    assert 'class="loop-header"' in js
+    assert 'class="loop-content"' in js
+    assert 'class="loop-footer"' in js
     assert 'aria-label="Remove tag' in js
     assert 'aria-label="Cancel completion note"' in js
+    assert 'data-action="confirm-complete"' in js
     assert 'data-snooze-duration="1h"' in js
     assert re.search(r"<button type=\"button\" class=\"snooze-option\"", js)
+    assert 'aria-keyshortcuts="T"' in js
+    assert 'aria-keyshortcuts="C"' in js
+    assert 'aria-keyshortcuts="S"' in js
+    assert 'aria-keyshortcuts="E"' in js
+    assert 'aria-keyshortcuts="R"' in js
+    assert '<span class="shortcut-hint">t</span>' not in js
+    assert '<span class="shortcut-hint">c</span>' not in js

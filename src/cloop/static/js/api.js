@@ -401,11 +401,17 @@ export async function fetchClarifications(loopId) {
 // Chat and RAG
 // ========================================
 
-export async function submitChatMessage(messages, stream = true) {
+export async function submitChatMessage(messages, stream = true, options = {}) {
   const response = await fetch(`/chat?stream=${stream}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ messages, tool_mode: "none" }),
+    body: JSON.stringify({
+      messages,
+      tool_mode: "none",
+      include_loop_context: options.includeLoopContext ?? true,
+      include_memory_context: options.includeMemoryContext ?? true,
+      include_rag_context: options.includeRagContext ?? false,
+    }),
   });
   if (!response.ok) throw new Error("Chat request failed");
   return response;

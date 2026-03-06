@@ -65,7 +65,7 @@ export function startTimerUI(loopId, timerData) {
 
   if (btn) {
     btn.classList.add('running');
-    btn.innerHTML = '⏹ Stop<span class="shortcut-hint">t</span>';
+    btn.textContent = '⏹ Stop';
     btn.dataset.running = 'true';
   }
   if (display) {
@@ -101,7 +101,7 @@ export function stopTimerUI(loopId) {
 
   if (btn) {
     btn.classList.remove('running');
-    btn.innerHTML = '▶ Start<span class="shortcut-hint">t</span>';
+    btn.textContent = '▶ Start';
     btn.dataset.running = 'false';
   }
   if (display) {

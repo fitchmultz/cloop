@@ -58,6 +58,7 @@ function renderRagSources(sources, chunks) {
  * Submit a RAG question
  */
 export async function submitRagQuestion(question) {
+  ragAnswer.classList.remove("hidden");
   ragAnswer.style.display = "block";
   ragAnswerText.textContent = "Thinking...";
   ragSourcesList.innerHTML = "";
@@ -104,7 +105,9 @@ export async function submitRagQuestion(question) {
     }
 
     renderRagSources(sources, chunks);
+    ragAnswer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (err) {
+    ragAnswer.classList.remove("hidden");
     ragAnswerText.textContent = "Connection error. Please try again.";
     console.error("RAG error:", err);
   }

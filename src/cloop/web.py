@@ -19,11 +19,25 @@ Entrypoint:
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+
+from ._version import __version__
 
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 router = APIRouter()
+
+
+class CloopStaticFiles(StaticFiles):
+    """Static file server with safer cache headers for mutable frontend assets."""
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        media_type = response.media_type or ""
+        if media_type.startswith(("text/css", "application/javascript", "text/javascript")):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -32,6 +46,20 @@ def serve_index() -> HTMLResponse:
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="index.html not found")
     html = index_path.read_text(encoding="utf-8")
+    asset_version = __version__
+    for asset_path in (
+        "/static/css/tokens.css",
+        "/static/css/base.css",
+        "/static/css/components.css",
+        "/static/css/loop.css",
+        "/static/css/review.css",
+        "/static/css/chat-rag.css",
+        "/static/css/comments.css",
+        "/static/css/layout.css",
+        "/static/css/modals.css",
+        "/static/js/init.js",
+    ):
+        html = html.replace(asset_path, f"{asset_path}?v={asset_version}")
     return HTMLResponse(html)
 
 

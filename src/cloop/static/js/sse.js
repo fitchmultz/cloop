@@ -16,7 +16,6 @@
  */
 
 import { refreshLoop, handleLoopClosed } from './loop.js';
-import { loadTimerStatus, startTimerUI } from './timer.js';
 
 /**
  * Scheduler notification handlers
@@ -181,23 +180,7 @@ async function handleLoopEvent(event) {
  */
 async function fetchAndReplaceLoop(loopId) {
   try {
-    const response = await fetch(`/loops/${loopId}`);
-    if (!response.ok) return;
-    const loop = await response.json();
-
-    // Check timer status for display
-    const timerStatus = await loadTimerStatus(loopId);
-    loop.timer_running = timerStatus?.has_active_session || false;
-    loop.total_tracked_minutes = timerStatus
-      ? Math.floor(timerStatus.total_tracked_seconds / 60)
-      : 0;
-
     await refreshLoop(loopId);
-
-    // Restore timer UI if running
-    if (timerStatus?.has_active_session) {
-      startTimerUI(loopId, timerStatus);
-    }
   } catch (err) {
     console.error('fetchAndReplaceLoop error:', err);
   }

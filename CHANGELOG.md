@@ -27,7 +27,19 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Runtime defaults now disable autopilot and scheduler unless explicitly enabled.
 - Removed stale app static-files `xfail` marker to eliminate `XPASS` noise from core test output.
 - Enrichment tests now pin organizer model env to avoid host-environment provider-key leakage in clean clones.
+- Autopilot enrichment now downgrades embed-provider misconfiguration errors to a clear warning without traceback spam, while preserving organizer suggestion completion.
 - README and CONTRIBUTING now document architecture, CI strategy, and local validation workflows.
+- Web UI now renders RAG answers visibly, exposes an explicit completion confirm action, shows original captured text when autopilot rewrites titles, and uses clearer import/export labels.
+- Comments UI now treats loading as a lazy-open state instead of showing permanent placeholder text on every loop card.
+- `/healthz` now mirrors `/health`, and static JS/CSS assets are served with `no-cache` headers to reduce stale frontend bundles after UI changes.
+- Chat UI now requests loop and memory context by default, and backend chat guidance now pushes the model toward concrete loop-aware recommendations instead of generic productivity advice.
+- Chat interaction logging now tolerates provider `usage` objects that are not plain JSON, preventing non-stream `/chat` failures with real provider metadata.
+- SSE loop refresh handling now avoids redundant extra fetches on each event.
+- Loop-card keyboard shortcuts now live in `aria-keyshortcuts`/tooltips instead of visible suffix glyphs, so action labels render cleanly during browser use.
+- Loop cards now use clearer identity/planning/operations/footer zones with denser, more legible visual grouping for dogfooding-heavy inbox use.
+- Completed, dropped, and stale loops now render in a compact card treatment to reduce inbox height without sacrificing scanability.
+- Compact cards now collapse secondary footer actions behind a lightweight `More` affordance so historical items keep a tighter primary row.
+- Compact cards now start in read-only summary mode and require an explicit `Edit` expansion before showing the full editing/footer surface.
 
 ## [0.1.0] - 2026-03-04
 

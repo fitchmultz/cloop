@@ -65,6 +65,16 @@ export function replaceLoop(loop) {
   render.queueNextActionResize(rendered);
 }
 
+export function toggleCompactCard(loopId) {
+  const card = document.querySelector(`.loop-card[data-loop-id="${loopId}"]`);
+  if (!card?.classList?.contains("compact-card")) {
+    return;
+  }
+
+  const expanded = !card.classList.contains("compact-expanded");
+  render.setCompactCardExpanded(card, expanded);
+}
+
 /**
  * Load loops into inbox based on current filters
  */

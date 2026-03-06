@@ -52,9 +52,28 @@ main {
   margin: var(--space-4) auto var(--space-10);
   padding: 0 var(--space-5);
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: var(--space-2);
-  opacity: 0.65;
+  opacity: 0.9;
+  flex-wrap: wrap;
+}
+
+.footer-actions::before {
+  content: "Move data safely";
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+}
+
+.footer-actions button {
+  background: var(--color-card);
+  color: var(--color-brand);
+  border: 1px solid var(--color-border);
+}
+
+.footer-actions button:hover {
+  background: var(--color-bg-accent);
 }
 
 /* Responsive - Mobile */

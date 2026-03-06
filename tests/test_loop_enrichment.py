@@ -21,6 +21,7 @@ Invariants:
 """
 
 import json
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -704,6 +705,113 @@ def test_enrichment_deduplicates_clarification_questions(
     clarifications = repo.list_loop_clarifications(loop_id=record.id, conn=conn)
     assert len(clarifications) == 1
     assert clarifications[0]["question"] == "When is the deadline?"
+
+    conn.close()
+
+
+def test_enrichment_skips_embedding_phase_on_valueerror_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Embedding/provider config ValueError should not emit traceback spam."""
+    from unittest.mock import patch
+
+    from cloop.loops import enrichment as loop_enrichment
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "true")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    record = repo.create_loop(
+        raw_text="validate embedding config warning behavior",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    mock_response = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "title": "Validated title",
+                            "confidence": {"title": 0.9},
+                        }
+                    )
+                }
+            }
+        ]
+    }
+
+    caplog.set_level(logging.WARNING)
+
+    with (
+        patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response),
+        patch(
+            "cloop.loops.enrichment.upsert_loop_embedding",
+            side_effect=ValueError("ollama/... requires CLOOP_OLLAMA_API_BASE"),
+        ),
+        patch("cloop.loops.enrichment.suggest_links") as suggest_links_mock,
+    ):
+        result = loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
+
+    assert result["loop_id"] == record.id
+    warning_records = [
+        rec
+        for rec in caplog.records
+        if "Skipping embedding/suggestion phase for loop" in rec.message
+    ]
+    assert warning_records
+    assert warning_records[0].exc_info is None
+    suggest_links_mock.assert_not_called()
+
+    conn.close()
+
+
+def test_enrichment_marks_failed_on_organizer_provider_misconfiguration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Organizer provider config errors should persist enrichment_state=failed."""
+    from cloop.loops import enrichment as loop_enrichment
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.delenv("CLOOP_OPENAI_API_KEY", raising=False)
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    record = repo.create_loop(
+        raw_text="organizer misconfiguration failure test",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    with pytest.raises(ValueError, match="OpenAI model requires CLOOP_OPENAI_API_KEY"):
+        loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
+
+    state_row = conn.execute(
+        "SELECT enrichment_state FROM loops WHERE id = ?", (record.id,)
+    ).fetchone()
+    assert state_row is not None
+    assert state_row["enrichment_state"] == "failed"
 
     conn.close()
 
