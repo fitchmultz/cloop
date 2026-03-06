@@ -47,7 +47,6 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 
 - Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
 - Use [docs/verification_checklist.md](docs/verification_checklist.md) for setup, validation, and smoke-test commands.
-- The deeper product blueprint lives in [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md) and is internal design context rather than the main getting-started path.
 
 ## Features
 
@@ -659,7 +658,6 @@ Detailed CI behavior, runtime targets, and resource controls:
 - [CI strategy and resource controls](docs/ci_strategy.md)
 - [Verification checklist](docs/verification_checklist.md)
 - [Release process](docs/release.md)
-- [Public release checklist](docs/public_release_checklist.md)
 - [License](LICENSE)
 
 ## Release and provenance links

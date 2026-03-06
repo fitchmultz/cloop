@@ -2,7 +2,6 @@
 
 This document is the public architecture summary for how Cloop actually works.
 Pair it with [`docs/verification_checklist.md`](verification_checklist.md) for setup and validation commands.
-For deeper product-thinking context, see [`docs/internal/assistant_blueprint.md`](internal/assistant_blueprint.md).
 
 ## 1) System shape
 

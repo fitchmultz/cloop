@@ -21,9 +21,9 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Scheduler | `src/cloop/scheduler.py` |
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
-| Design/Architecture | `docs/internal/assistant_blueprint.md` |
+| Design/Architecture | `docs/architecture.md` |
 | Repo templates/workflows | `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/*` |
-| Public docs | `docs/architecture.md`, `docs/ci_strategy.md`, `docs/verification_checklist.md`, `docs/release.md`, `docs/public_release_checklist.md` |
+| Public docs | `docs/architecture.md`, `docs/ci_strategy.md`, `docs/verification_checklist.md`, `docs/release.md` |
 
 ## User Preferences
 
@@ -51,7 +51,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Frontend cache behavior**: root HTML injects a version query onto `init.js`, and `/static` serves JS/CSS with `Cache-Control: no-cache`; browser UI verification should still prefer a fresh tab/profile if a session appears to hold stale ES module state.
 - **Comments UX**: comment threads are lazy-loaded on expand; collapsed loop cards should show a neutral `Comments` label until opened, not a loading placeholder.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
-- **Public docs split**: keep `README.md`, `docs/architecture.md`, and `docs/verification_checklist.md` as the primary external path; keep `docs/internal/*` clearly secondary.
+- **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
 - **Keyboard shortcut UX**: loop-card actions keep keyboard shortcuts via `aria-keyshortcuts` and button tooltips; avoid visible single-letter suffix badges inside action labels.
 - **Loop card composition**: keep cards separated into identity, planning/context, operations, and footer zones; preserve visual grouping before adding more inline controls.
 - **Loop card density**: completed, dropped, and stale loops should render in a compact treatment so active work stays spacious while historical items consume less vertical space.

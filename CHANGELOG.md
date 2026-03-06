@@ -15,7 +15,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
   - `docs/architecture.md`
   - `docs/verification_checklist.md`
   - `docs/release.md`
-  - `docs/public_release_checklist.md`
 
 ### Changed
 - CI resource controls now include job timeouts and constrained matrix parallelism.
@@ -43,6 +42,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Mobile tab navigation now scrolls horizontally instead of clipping off-screen tabs, and long active-card capture text now starts as a collapsed preview with an explicit expand/collapse control.
 - Mobile quick capture now collapses secondary metadata behind an `Add details` control so the inbox starts higher on the screen, and small filter/footer utility buttons no longer stretch into awkward full-width pills on phone-sized widths.
 - Public docs now keep the primary path focused on product, architecture, and validation, while keeping internal design material clearly secondary.
+- Public docs no longer publish raw internal planning notes or a one-time public-release checklist.
 
 ## [0.1.0] - 2026-03-04
 

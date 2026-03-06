@@ -79,7 +79,6 @@ class TestRepoMetadataDocumented:
             "docs/ci_strategy.md",
             "docs/verification_checklist.md",
             "docs/release.md",
-            "docs/public_release_checklist.md",
             "LICENSE",
         ]:
             assert expected in readme_content
