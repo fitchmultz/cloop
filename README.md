@@ -658,8 +658,6 @@ Detailed CI behavior, runtime targets, and resource controls:
 - [Architecture overview](docs/architecture.md)
 - [CI strategy and resource controls](docs/ci_strategy.md)
 - [Verification checklist](docs/verification_checklist.md)
-- [Release readiness report](docs/release_readiness_report.md)
-- [Optional private-repo history rewrite plan](docs/history_rewrite_plan.md)
 - [Release process](docs/release.md)
 - [Public release checklist](docs/public_release_checklist.md)
 - [License](LICENSE)

@@ -11,10 +11,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Full CI workflow split with separate PR-fast (`ci.yml`) and main/nightly (`ci_full.yml`) gates.
 - Coverage command and artifact pipeline (`make test-cov`, `coverage.xml` upload in full CI).
 - Explicit exhaustive test target (`make test-all`) for all-marker verification.
-- Public-facing architecture and readiness docs:
+- Public-facing architecture and operations docs:
   - `docs/architecture.md`
   - `docs/verification_checklist.md`
-  - `docs/release_readiness_report.md`
+  - `docs/release.md`
+  - `docs/public_release_checklist.md`
 
 ### Changed
 - CI resource controls now include job timeouts and constrained matrix parallelism.

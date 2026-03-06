@@ -78,8 +78,6 @@ class TestRepoMetadataDocumented:
             "docs/architecture.md",
             "docs/ci_strategy.md",
             "docs/verification_checklist.md",
-            "docs/release_readiness_report.md",
-            "docs/history_rewrite_plan.md",
             "docs/release.md",
             "docs/public_release_checklist.md",
             "LICENSE",
