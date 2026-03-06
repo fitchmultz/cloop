@@ -1,4 +1,6 @@
-.PHONY: help sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.PHONY: help lock-check sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+
+UV_RUN := uv run --locked
 
 help:
 	@printf "%s\n" \
@@ -6,6 +8,7 @@ help:
 		"" \
 		"Targets:" \
 		"  sync            Sync (upgrade) all deps via uv" \
+		"  lock-check      Verify uv.lock matches pyproject metadata" \
 		"  fmt             Format code with ruff" \
 		"  fmt-check       Check formatting (no changes)" \
 		"  lint            Lint with ruff" \
@@ -34,62 +37,65 @@ help:
 sync:
 	uv sync --all-groups --upgrade --all-extras
 
+lock-check:
+	uv lock --check
+
 fmt:
-	uv run ruff format .
+	$(UV_RUN) ruff format .
 
 fmt-check:
-	uv run ruff format --check .
+	$(UV_RUN) ruff format --check .
 
 lint:
-	uv run ruff check .
+	$(UV_RUN) ruff check .
 
 lint-fix:
-	uv run ruff check . --fix
+	$(UV_RUN) ruff check . --fix
 
 env-sync:
-	uv run python scripts/check_env_sync.py
+	$(UV_RUN) python scripts/check_env_sync.py
 
 header-check:
-	uv run python scripts/check_headers.py
+	$(UV_RUN) python scripts/check_headers.py
 
 secrets-check:
-	uv run python scripts/check_secrets.py
+	$(UV_RUN) python scripts/check_secrets.py
 
 version-check:
-	uv run python scripts/check_version_sync.py
+	$(UV_RUN) python scripts/check_version_sync.py
 
 changelog-check:
-	uv run python scripts/check_changelog_sync.py
+	$(UV_RUN) python scripts/check_changelog_sync.py
 
 type:
-	uv run ty check
+	$(UV_RUN) ty check
 
-quality: fmt-check lint env-sync header-check secrets-check version-check changelog-check type
+quality: lock-check fmt-check lint env-sync header-check secrets-check version-check changelog-check type
 
 test:
-	uv run pytest -m "not performance"
+	$(UV_RUN) pytest -m "not performance"
 
 test-all:
-	uv run pytest
+	$(UV_RUN) pytest
 
 test-fast:
-	uv run pytest -m "not slow and not performance"
+	$(UV_RUN) pytest -m "not slow and not performance"
 
 test-slow:
-	uv run pytest -m "slow"
+	$(UV_RUN) pytest -m "slow"
 
 test-performance:
-	uv run pytest -m "performance"
+	$(UV_RUN) pytest -m "performance"
 
 test-cov:
-	uv run pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
+	$(UV_RUN) pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
 
 dist:
 	rm -rf dist build
-	uv run python -m build --sdist --wheel
+	$(UV_RUN) python -m build --sdist --wheel
 
 dist-check: dist
-	uv run twine check dist/*
+	$(UV_RUN) twine check dist/*
 
 check-fast: quality test-fast
 
@@ -100,4 +106,4 @@ check: check-full
 ci: check-full
 
 run:
-	uv run uvicorn cloop.main:app --reload
+	$(UV_RUN) uvicorn cloop.main:app --reload

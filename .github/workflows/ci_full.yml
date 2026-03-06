@@ -26,6 +26,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          version: "0.10.8"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -33,7 +34,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install dependencies
-        run: uv sync --all-groups --all-extras
+        run: uv sync --locked --all-groups --all-extras
 
       - name: Run release local gate (excludes performance marker)
         run: make ci
@@ -54,6 +55,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          version: "0.10.8"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -61,7 +63,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --all-groups --all-extras
+        run: uv sync --locked --all-groups --all-extras
 
       - name: Run fast test subset
         run: make test-fast
@@ -77,6 +79,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          version: "0.10.8"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -84,7 +87,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install dependencies
-        run: uv sync --all-groups --all-extras
+        run: uv sync --locked --all-groups --all-extras
 
       - name: Run coverage
         run: make test-cov
@@ -107,6 +110,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+          version: "0.10.8"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -114,7 +118,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install dependencies
-        run: uv sync --all-groups --all-extras
+        run: uv sync --locked --all-groups --all-extras
 
       - name: Run performance-marked tests
         run: make test-performance

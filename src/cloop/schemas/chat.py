@@ -17,9 +17,9 @@ Models for the /chat endpoint supporting:
 - LLM-orchestrated tool mode
 """
 
-from typing import TYPE_CHECKING, Any, Dict, List, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Self, TypedDict
 
-from pydantic import BaseModel, Field, conlist, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from ..constants import CHAT_MESSAGE_MAX
 from ..settings import ToolMode
@@ -51,16 +51,16 @@ class ToolCall(BaseModel):
     """
 
     name: str = Field(..., description="Tool name from TOOL_SPECS")
-    arguments: Dict[str, Any] = Field(
+    arguments: dict[str, Any] = Field(
         default_factory=dict,
         description="Tool-specific arguments matching TOOL_SPECS parameters",
     )
 
 
 if TYPE_CHECKING:
-    ChatMessageList = List[ChatMessage]
+    ChatMessageList = list[ChatMessage]
 else:
-    ChatMessageList = conlist(ChatMessage, min_length=1)
+    ChatMessageList = Annotated[list[ChatMessage], Field(min_length=1)]
 
 
 class ChatRequest(BaseModel):
@@ -104,7 +104,7 @@ class ChatRequest(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _manual_requires_tool(self) -> "ChatRequest":
+    def _manual_requires_tool(self) -> Self:
         if self.tool_mode is ToolMode.MANUAL and self.tool_call is None:
             raise ValueError("tool_call required in manual mode")
         return self
@@ -114,6 +114,6 @@ class ChatResponse(BaseModel):
     """Response from chat completion."""
 
     message: str
-    tool_result: Dict[str, Any] | None = None
-    tool_calls: List[Dict[str, Any]] = Field(default_factory=list)
+    tool_result: dict[str, Any] | None = None
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     model: str | None = None

@@ -14,6 +14,7 @@ Runtime and resource controls:
 - Job-level timeouts (`timeout-minutes`)
 - Matrix `max-parallel: 2` to avoid runner saturation
 - Concurrency cancellation for superseded runs
+- Locked dependency installs via `uv sync --locked` with a pinned `uv` CLI version for reproducible runners
 
 Typical runtime target:
 - ~6–12 minutes depending on cache state
@@ -35,6 +36,7 @@ Runtime and resource controls:
 - Job-level timeouts on all jobs
 - Matrix `max-parallel: 2`
 - Concurrency cancellation for stale runs
+- Locked dependency installs via `uv sync --locked` with a pinned `uv` CLI version for reproducible runners
 
 Typical runtime target:
 - `full_gate`: ~12–25 minutes
