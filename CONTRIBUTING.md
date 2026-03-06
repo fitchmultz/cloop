@@ -44,7 +44,7 @@ make test-all
 
 ## Branch and commit conventions
 
-Use focused branches and commits to keep history reviewer-friendly.
+Use focused branches and commits to keep history easy to follow.
 
 - Branch naming:
   - `feat/<short-topic>`
