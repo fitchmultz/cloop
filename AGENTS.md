@@ -57,4 +57,6 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Compact card actions**: historical/compact cards should keep only the highest-signal action visible and tuck secondary actions behind a lightweight overflow affordance.
 - **Compact card mode**: compact cards default to summary mode with read-only inline fields; require an explicit `Edit` expansion before exposing the full editing/footer surface.
 - **Mobile inbox behavior**: on phone-sized widths, the top tab rail should scroll horizontally instead of clipping, and long active-card capture/summary text should start in a collapsed preview with an explicit expand control.
+- **Mobile capture behavior**: the quick-capture form should keep raw text, core status toggles, due date, and next action visible; secondary metadata (minutes, effort, project, tags) should collapse behind an explicit `Add details` control on phone-sized widths.
+- **Mobile utility buttons**: small filter/footer utility actions should not inherit the blanket full-width mobile button treatment when that makes the UI look broken or detached.
 - **Interaction logging**: provider metadata may include non-JSON helper objects (for example LiteLLM usage objects); logging code must sanitize or serialize them safely instead of assuming plain dicts.

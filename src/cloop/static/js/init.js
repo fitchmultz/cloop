@@ -54,6 +54,8 @@ const elements = {
   activationEnergy: document.getElementById("activation-energy"),
   project: document.getElementById("project"),
   tags: document.getElementById("tags"),
+  captureDetails: document.getElementById("capture-details"),
+  captureDetailsToggle: document.getElementById("capture-details-toggle"),
   statusFilter: document.getElementById("status-filter"),
   tagFilter: document.getElementById("tag-filter"),
   queryFilter: document.getElementById("query-filter"),
@@ -119,6 +121,30 @@ function switchTab(tabName) {
   }
 
   state.updateState({ activeTab: tabName });
+}
+
+function setCaptureDetailsExpanded(expanded) {
+  if (!elements.captureDetails || !elements.captureDetailsToggle) {
+    return;
+  }
+
+  elements.captureDetails.hidden = !expanded;
+  elements.captureDetailsToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  elements.captureDetailsToggle.textContent = expanded ? "Hide details" : "Add details";
+}
+
+function initializeCaptureDisclosure() {
+  if (!elements.captureDetails || !elements.captureDetailsToggle) {
+    return;
+  }
+
+  const isMobile = window.matchMedia("(max-width: 640px)").matches;
+  setCaptureDetailsExpanded(!isMobile);
+
+  elements.captureDetailsToggle.addEventListener("click", () => {
+    const expanded = elements.captureDetailsToggle.getAttribute("aria-expanded") === "true";
+    setCaptureDetailsExpanded(!expanded);
+  });
 }
 
 // ========================================
@@ -877,6 +903,8 @@ function setupLoopCardHandlers(container) {
 // ========================================
 
 function init() {
+  initializeCaptureDisclosure();
+
   // Initialize modules
   loop.init({
     inbox: elements.inbox,

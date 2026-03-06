@@ -92,8 +92,21 @@ main {
     align-items: stretch;
   }
 
+  .capture-core-row {
+    margin-bottom: var(--space-2);
+  }
+
+  .capture-details {
+    margin-top: var(--space-2);
+  }
+
   button {
     width: 100%;
+  }
+
+  .filters button,
+  .footer-actions button {
+    width: auto;
   }
 
   /* Merge modal responsive */

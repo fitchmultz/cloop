@@ -42,6 +42,8 @@ def test_status_and_offline_banners_use_live_region_semantics() -> None:
     assert 'id="offline-banner" class="offline-banner" role="status" aria-live="polite"' in html
     assert 'id="export-btn" aria-label="Export loops"' in html
     assert 'id="import-btn" aria-label="Import loops"' in html
+    assert 'id="capture-details-toggle"' in html
+    assert 'aria-controls="capture-details"' in html
 
 
 def test_critical_form_controls_have_programmatic_labels() -> None:

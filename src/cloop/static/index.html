@@ -73,11 +73,22 @@
               Blocked
             </label>
           </div>
-          <div class="form-row wrap metadata-row">
+          <div class="form-row wrap capture-core-row">
             <label for="due-date" class="sr-only">Due date</label>
             <input type="date" id="due-date" class="input-flex-sm" placeholder="Due date">
             <label for="next-action" class="sr-only">Next action</label>
             <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Next action">
+          </div>
+          <button
+            type="button"
+            id="capture-details-toggle"
+            class="secondary capture-details-toggle"
+            aria-expanded="false"
+            aria-controls="capture-details"
+          >
+            Add details
+          </button>
+          <div id="capture-details" class="form-row wrap metadata-row capture-details">
             <label for="time-minutes" class="sr-only">Estimated minutes</label>
             <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
             <label for="activation-energy" class="sr-only">Activation energy</label>
