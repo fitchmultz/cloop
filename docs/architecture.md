@@ -1,7 +1,8 @@
 # Cloop Architecture Overview
 
-This document is the external, reviewer-friendly architecture summary.
-For deeper design rationale, see [`docs/internal/assistant_blueprint.md`](internal/assistant_blueprint.md).
+This document is the public architecture summary for how Cloop actually works.
+If you are evaluating the repository, pair it with [`docs/reviewer_guide.md`](reviewer_guide.md).
+For deeper product-thinking context, see [`docs/internal/assistant_blueprint.md`](internal/assistant_blueprint.md).
 
 ## 1) System shape
 
@@ -98,7 +99,17 @@ flowchart LR
 - **Fast dev gate:** `make check-fast` (quality + fast tests).
 - **Release-grade artifacts:** `make dist-check` validates build metadata before release publishing.
 
-## 6) Where to go next in code
+## 6) Why the MCP surface matters
+
+The MCP server is a meaningful part of the project, not a sidecar demo.
+
+- It exposes loop operations through a narrow domain-specific tool boundary.
+- It reuses the same service/repository logic as the API and CLI.
+- It avoids giving agents raw SQL or overly broad host access for common loop workflows.
+
+That makes Cloop a useful reference point for evaluating safe agent-tool integration patterns in a real application, not just a standalone chat/RAG demo.
+
+## 7) Where to go next in code
 
 - API bootstrap: `src/cloop/main.py`
 - Settings/config loading: `src/cloop/settings.py`

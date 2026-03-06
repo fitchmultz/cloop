@@ -1,5 +1,7 @@
 # Reviewer Validation Checklist
 
+For the shortest overview of what to read and run first, start with [`docs/reviewer_guide.md`](reviewer_guide.md).
+
 Use this checklist to validate the repository on a fresh machine.
 
 ## 1) Environment setup

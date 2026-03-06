@@ -1,14 +1,16 @@
-# Cloop (Closed Loop): Your Private, Local-First AI Knowledge Base
+# Cloop (Closed Loop)
 
 [![CI (PR Fast)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci.yml)
 [![CI Full](https://github.com/fitchmultz/cloop/actions/workflows/ci_full.yml/badge.svg)](https://github.com/fitchmultz/cloop/actions/workflows/ci_full.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 
-Cloop turns a folder of documents into a private, searchable knowledge base on your machine.
-Ingest local files into a lightweight SQLite database, then ask questions with answers grounded in the exact chunks that were retrieved.
+Cloop is a local-first loop/task and knowledge assistant with a web UI, CLI, HTTP API, and MCP server.
+It lets you capture work, manage loop state, ingest local documents for RAG, and expose a narrow tool surface to agents without standing up external infrastructure.
 
-No Docker. No external vector database. Your data stays in local SQLite files (`core.db`, `rag.db`).
+No Docker. No external vector database. Loop and retrieval data stay in local SQLite files (`core.db`, `rag.db`) by default.
+
+If you are evaluating the repository itself, start with [`docs/reviewer_guide.md`](docs/reviewer_guide.md).
 
 ## Architecture at a glance
 
@@ -25,7 +27,7 @@ flowchart LR
 ```
 
 - Public architecture summary: [`docs/architecture.md`](docs/architecture.md)
-- Detailed design blueprint: [`docs/internal/assistant_blueprint.md`](docs/internal/assistant_blueprint.md)
+- Reviewer/evaluator path: [`docs/reviewer_guide.md`](docs/reviewer_guide.md)
 
 ## Why “Closed Loop”?
 
@@ -46,7 +48,8 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 ## Design and Architecture
 
 - Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
-- Dive deeper into design rationale and product blueprint: [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md)
+- Use the reviewer/evaluator path if you want the shortest repo-quality walkthrough: [docs/reviewer_guide.md](docs/reviewer_guide.md)
+- The deeper product blueprint lives in [docs/internal/assistant_blueprint.md](docs/internal/assistant_blueprint.md) and is best treated as internal design context, not the primary public entrypoint.
 
 ## Features
 
@@ -152,6 +155,7 @@ Notes:
 ## Reviewer validation shortcut
 
 If you are evaluating repo quality end-to-end, use:
+- [docs/reviewer_guide.md](docs/reviewer_guide.md)
 - [docs/reviewer_validation_checklist.md](docs/reviewer_validation_checklist.md)
 
 ## CLI Reference
@@ -655,10 +659,11 @@ Detailed CI behavior, runtime targets, and resource controls:
 - [SECURITY.md](SECURITY.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [Architecture overview](docs/architecture.md)
+- [Reviewer guide](docs/reviewer_guide.md)
 - [CI strategy and resource controls](docs/ci_strategy.md)
 - [Reviewer validation checklist](docs/reviewer_validation_checklist.md)
 - [Release readiness report](docs/release_readiness_report.md)
-- [Role evidence pack](docs/role-evidence/)
+- [Optional demo/enablement materials](docs/role-evidence/)
 - [Optional private-repo history rewrite plan](docs/history_rewrite_plan.md)
 - [Release process](docs/release.md)
 - [Public release checklist](docs/public_release_checklist.md)

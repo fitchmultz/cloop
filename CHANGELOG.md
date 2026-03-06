@@ -42,6 +42,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Compact cards now start in read-only summary mode and require an explicit `Edit` expansion before showing the full editing/footer surface.
 - Mobile tab navigation now scrolls horizontally instead of clipping off-screen tabs, and long active-card capture text now starts as a collapsed preview with an explicit expand/collapse control.
 - Mobile quick capture now collapses secondary metadata behind an `Add details` control so the inbox starts higher on the screen, and small filter/footer utility buttons no longer stretch into awkward full-width pills on phone-sized widths.
+- Public docs now separate the primary reviewer path from internal blueprint material more clearly, add a dedicated reviewer guide, and soften optional demo/workshop artifacts so they do not read like required “portfolio evidence.”
 
 ## [0.1.0] - 2026-03-04
 

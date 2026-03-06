@@ -73,8 +73,8 @@ Aligned local gate semantics with documented CI strategy:
 ### 4) Documentation consistency hardening (P1)
 - `docs/internal/assistant_blueprint.md` now reflects `autopilot_enabled: bool = False`.
 
-### 5) Public reviewer evidence package (P2)
-Added `docs/role-evidence/`:
+### 5) Optional demo/enablement materials (P2)
+Added `docs/role-evidence/` as optional companion material, not as a required trust path:
 - `evidence-map.md`
 - `demo-script.md`
 - `workshop-outline.md`
@@ -154,4 +154,4 @@ Current state is release-ready for public visibility:
 - explicit heavy-test isolation strategy,
 - safe-first-run defaults,
 - clean test signal (no stale `XPASS`),
-- reproducible local CI commands and reviewer-facing evidence package.
+- reproducible local CI commands and a clearer primary reviewer path through the public docs.

@@ -14,7 +14,7 @@ Use this checklist before changing repository visibility to public.
 
 - [ ] Inspect commit history for noisy/internal-only commits: `git log --oneline --decorate`.
 - [ ] If secret material ever existed in history, scrub history before public launch (for example with `git filter-repo`) and force-push cleaned history.
-- [ ] Reword/squash low-signal commit messages into reviewer-friendly narrative commits when practical.
+- [ ] Remove or squash purely noisy commits when they reduce clarity, but do not rewrite history just to manufacture a better-looking story.
 
 ## Documentation and UX polish
 
@@ -39,4 +39,4 @@ Use this checklist before changing repository visibility to public.
 - [ ] Enable security alerts and private vulnerability reporting.
 - [ ] Confirm release workflow works by publishing a test tag on a non-production branch or fork.
 - [ ] Draft first release notes from `CHANGELOG.md`.
-- [ ] Verify `docs/role-evidence/` is current for external reviewer walkthroughs.
+- [ ] Verify the primary public docs (`README.md`, `docs/reviewer_guide.md`, `docs/architecture.md`) reflect the current product and verification path.
