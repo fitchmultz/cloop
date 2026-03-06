@@ -441,7 +441,6 @@ async function requestNotificationPermission() {
 
 async function subscribeToPush() {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    console.log("Push not supported");
     return;
   }
 
@@ -470,9 +469,7 @@ async function subscribeToPush() {
       })
     });
 
-    if (response.ok) {
-      console.log("Push subscription registered");
-    } else {
+    if (!response.ok) {
       console.error("Failed to register push subscription:", await response.text());
     }
   } catch (err) {
@@ -493,12 +490,7 @@ function arrayBufferToBase64(buffer) {
 async function registerServiceWorker() {
   if ("serviceWorker" in navigator) {
     try {
-      const registration = await navigator.serviceWorker.register("/sw.js");
-      console.log("Service worker registered:", registration.scope);
-
-      if ("sync" in registration) {
-        console.log("Background sync supported");
-      }
+      await navigator.serviceWorker.register("/sw.js");
     } catch (error) {
       console.error("Service worker registration failed:", error);
     }
@@ -962,8 +954,6 @@ function init() {
   // PWA
   updateOnlineStatus();
   registerServiceWorker();
-
-  console.log("Cloop initialized successfully");
 }
 
 // Start when DOM is ready
