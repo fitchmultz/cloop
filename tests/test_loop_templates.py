@@ -490,3 +490,49 @@ def test_capture_fields_override_template_defaults(
 
     # time_minutes should also be explicit value
     assert loop["time_minutes"] == 30, "Expected explicit time_minutes=30, not template default 60"
+
+
+def test_template_create_idempotency_replays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Creating a template with the same idempotency key should replay."""
+    client = make_test_client()
+    headers = {"Idempotency-Key": "template-create-key"}
+    payload = {
+        "name": "Idempotent Template",
+        "description": "Created once",
+        "raw_text_pattern": "Task: {{date}}",
+        "defaults": {"tags": ["idempotent"]},
+    }
+
+    first = client.post("/loops/templates", json=payload, headers=headers)
+    assert first.status_code == 201
+
+    second = client.post("/loops/templates", json=payload, headers=headers)
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]
+
+
+def test_save_as_template_idempotency_replays(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Saving a loop as a template should support idempotent retries."""
+    client = make_test_client()
+    loop = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Reusable loop",
+            "captured_at": "2026-02-14T10:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    ).json()
+
+    headers = {"Idempotency-Key": "save-as-template-key"}
+    payload = {"name": "Replayable Template"}
+
+    first = client.post(f"/loops/{loop['id']}/save-as-template", json=payload, headers=headers)
+    assert first.status_code == 201
+
+    second = client.post(f"/loops/{loop['id']}/save-as-template", json=payload, headers=headers)
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]

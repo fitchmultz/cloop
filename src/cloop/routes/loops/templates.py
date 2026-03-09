@@ -22,9 +22,6 @@ Endpoints:
 - POST /{loop_id}/save-as-template: Create template from an existing loop
 """
 
-import json
-from typing import Any
-
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -44,23 +41,14 @@ from ...schemas.loops import (
     LoopTemplateResponse,
     LoopTemplateUpdateRequest,
 )
-from ._common import IdempotencyKeyHeader, SettingsDep
+from ._common import (
+    IdempotencyKeyHeader,
+    SettingsDep,
+    build_loop_template_response,
+    run_idempotent_loop_route,
+)
 
 router = APIRouter()
-
-
-def _template_to_response(template: dict[str, Any]) -> LoopTemplateResponse:
-    """Convert a template database record to a response model."""
-    return LoopTemplateResponse(
-        id=template["id"],
-        name=template["name"],
-        description=template["description"],
-        raw_text_pattern=template["raw_text_pattern"],
-        defaults=json.loads(template["defaults_json"]) if template["defaults_json"] else {},
-        is_system=bool(template["is_system"]),
-        created_at=template["created_at"],
-        updated_at=template["updated_at"],
-    )
 
 
 @router.get("/templates", response_model=LoopTemplateListResponse)
@@ -69,7 +57,9 @@ def list_templates_endpoint(settings: SettingsDep) -> LoopTemplateListResponse:
     with db.core_connection(settings) as conn:
         templates = list_loop_templates(conn=conn)
 
-    return LoopTemplateListResponse(templates=[_template_to_response(t) for t in templates])
+    return LoopTemplateListResponse(
+        templates=[build_loop_template_response(template) for template in templates]
+    )
 
 
 @router.get("/templates/{template_id}", response_model=LoopTemplateResponse)
@@ -81,7 +71,7 @@ def get_template_endpoint(template_id: int, settings: SettingsDep) -> LoopTempla
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
 
-    return _template_to_response(template)
+    return build_loop_template_response(template)
 
 
 @router.post("/templates", response_model=LoopTemplateResponse, status_code=201)
@@ -91,20 +81,31 @@ def create_template_endpoint(
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopTemplateResponse | JSONResponse:
     """Create a new loop template."""
-    with db.core_connection(settings) as conn:
-        try:
-            template = create_loop_template(
-                name=request.name,
-                description=request.description,
-                raw_text_pattern=request.raw_text_pattern,
-                defaults_json=request.defaults,
-                is_system=False,
-                conn=conn,
-            )
-        except ValidationError as e:
-            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path="/loops/templates",
+            idempotency_key=idempotency_key,
+            payload=request.model_dump(),
+            response_status=201,
+            execute=lambda conn: build_loop_template_response(
+                create_loop_template(
+                    name=request.name,
+                    description=request.description,
+                    raw_text_pattern=request.raw_text_pattern,
+                    defaults_json=request.defaults,
+                    is_system=False,
+                    conn=conn,
+                )
+            ).model_dump(),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
 
-    return _template_to_response(template)
+    if isinstance(result, JSONResponse):
+        return result
+    return LoopTemplateResponse(**result)
 
 
 @router.patch("/templates/{template_id}", response_model=LoopTemplateResponse)
@@ -112,34 +113,59 @@ def update_template_endpoint(
     template_id: int,
     request: LoopTemplateUpdateRequest,
     settings: SettingsDep,
-) -> LoopTemplateResponse:
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> LoopTemplateResponse | JSONResponse:
     """Update a loop template. System templates cannot be modified."""
-    with db.core_connection(settings) as conn:
-        try:
-            template = update_loop_template(
-                template_id=template_id,
-                name=request.name,
-                description=request.description,
-                raw_text_pattern=request.raw_text_pattern,
-                defaults_json=request.defaults,
-                conn=conn,
-            )
-        except ValidationError as e:
-            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+    fields = request.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="no_fields_to_update")
 
-    return _template_to_response(template)
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="PATCH",
+            path=f"/loops/templates/{template_id}",
+            idempotency_key=idempotency_key,
+            payload={"template_id": template_id, "fields": fields},
+            execute=lambda conn: build_loop_template_response(
+                update_loop_template(
+                    template_id=template_id,
+                    name=fields.get("name"),
+                    description=fields.get("description"),
+                    raw_text_pattern=fields.get("raw_text_pattern"),
+                    defaults_json=fields.get("defaults"),
+                    conn=conn,
+                )
+            ).model_dump(),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+
+    if isinstance(result, JSONResponse):
+        return result
+    return LoopTemplateResponse(**result)
 
 
-@router.delete("/templates/{template_id}")
-def delete_template_endpoint(template_id: int, settings: SettingsDep) -> dict[str, bool]:
+@router.delete("/templates/{template_id}", response_model=None)
+def delete_template_endpoint(
+    template_id: int,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> dict[str, bool] | JSONResponse:
     """Delete a loop template. System templates cannot be deleted."""
-    with db.core_connection(settings) as conn:
-        try:
-            deleted = delete_loop_template(template_id=template_id, conn=conn)
-        except ValidationError as e:
-            raise HTTPException(status_code=400, detail={"message": e.message}) from None
-
-    return {"deleted": deleted}
+    try:
+        return run_idempotent_loop_route(
+            settings=settings,
+            method="DELETE",
+            path=f"/loops/templates/{template_id}",
+            idempotency_key=idempotency_key,
+            payload={"template_id": template_id},
+            execute=lambda conn: {
+                "deleted": delete_loop_template(template_id=template_id, conn=conn)
+            },
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
 
 
 @router.post("/{loop_id}/save-as-template", response_model=LoopTemplateResponse, status_code=201)
@@ -147,18 +173,30 @@ def save_as_template_endpoint(
     loop_id: int,
     request: LoopTemplateCreateRequest,
     settings: SettingsDep,
-) -> LoopTemplateResponse:
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> LoopTemplateResponse | JSONResponse:
     """Create a template from an existing loop."""
-    with db.core_connection(settings) as conn:
-        try:
-            template = create_template_from_loop(
-                loop_id=loop_id,
-                template_name=request.name,
-                conn=conn,
-            )
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
-        except ValidationError as e:
-            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/{loop_id}/save-as-template",
+            idempotency_key=idempotency_key,
+            payload={"loop_id": loop_id, **request.model_dump()},
+            response_status=201,
+            execute=lambda conn: build_loop_template_response(
+                create_template_from_loop(
+                    loop_id=loop_id,
+                    template_name=request.name,
+                    conn=conn,
+                )
+            ).model_dump(),
+        )
+    except LoopNotFoundError:
+        raise HTTPException(status_code=404, detail="Loop not found") from None
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
 
-    return _template_to_response(template)
+    if isinstance(result, JSONResponse):
+        return result
+    return LoopTemplateResponse(**result)

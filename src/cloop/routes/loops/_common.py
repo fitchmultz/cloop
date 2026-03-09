@@ -29,7 +29,13 @@ from ...idempotency_flow import (
     replay_http_response,
 )
 from ...loops.errors import LoopClaimedError
-from ...schemas.loops import BulkResultItem, LoopCommentResponse, LoopResponse
+from ...schemas.loops import (
+    BulkResultItem,
+    LoopCommentResponse,
+    LoopResponse,
+    LoopTemplateResponse,
+    LoopViewResponse,
+)
 from ...settings import Settings, get_settings
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -141,3 +147,42 @@ def build_bulk_result_items(results: Sequence[Mapping[str, Any]]) -> list[BulkRe
         )
         for result in results
     ]
+
+
+def build_query_bulk_preview_response(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert a dry-run bulk result into preview response kwargs."""
+    return {
+        "query": result["query"],
+        "dry_run": True,
+        "matched_count": result["matched_count"],
+        "limited": result.get("limited", False),
+        "targets": [LoopResponse(**item) for item in result.get("targets", [])],
+    }
+
+
+def build_loop_view_response(view: Mapping[str, Any]) -> LoopViewResponse:
+    """Convert a saved view record into the route response model."""
+    return LoopViewResponse(
+        id=view["id"],
+        name=view["name"],
+        query=view["query"],
+        description=view.get("description"),
+        created_at_utc=view["created_at"],
+        updated_at_utc=view["updated_at"],
+    )
+
+
+def build_loop_template_response(template: Mapping[str, Any]) -> LoopTemplateResponse:
+    """Convert a template record into the route response model."""
+    import json
+
+    return LoopTemplateResponse(
+        id=template["id"],
+        name=template["name"],
+        description=template["description"],
+        raw_text_pattern=template["raw_text_pattern"],
+        defaults=json.loads(template["defaults_json"]) if template["defaults_json"] else {},
+        is_system=bool(template["is_system"]),
+        created_at=template["created_at"],
+        updated_at=template["updated_at"],
+    )

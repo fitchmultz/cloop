@@ -39,7 +39,7 @@ from ...schemas.loops import (
     LoopViewResponse,
     LoopViewUpdateRequest,
 )
-from ._common import SettingsDep
+from ._common import SettingsDep, build_loop_view_response
 
 router = APIRouter()
 
@@ -57,14 +57,7 @@ def loop_view_create_endpoint(
             description=request.description,
             conn=conn,
         )
-    return LoopViewResponse(
-        id=view["id"],
-        name=view["name"],
-        query=view["query"],
-        description=view.get("description"),
-        created_at_utc=view["created_at"],
-        updated_at_utc=view["updated_at"],
-    )
+    return build_loop_view_response(view)
 
 
 @router.get("/views", response_model=list[LoopViewResponse])
@@ -72,17 +65,7 @@ def loop_view_list_endpoint(settings: SettingsDep) -> list[LoopViewResponse]:
     """List all saved views."""
     with db.core_connection(settings) as conn:
         views = loop_service.list_loop_views(conn=conn)
-    return [
-        LoopViewResponse(
-            id=v["id"],
-            name=v["name"],
-            query=v["query"],
-            description=v.get("description"),
-            created_at_utc=v["created_at"],
-            updated_at_utc=v["updated_at"],
-        )
-        for v in views
-    ]
+    return [build_loop_view_response(view) for view in views]
 
 
 @router.get("/views/{view_id}", response_model=LoopViewResponse)
@@ -93,14 +76,7 @@ def loop_view_get_endpoint(
     """Get a saved view by ID."""
     with db.core_connection(settings) as conn:
         view = loop_service.get_loop_view(view_id=view_id, conn=conn)
-    return LoopViewResponse(
-        id=view["id"],
-        name=view["name"],
-        query=view["query"],
-        description=view.get("description"),
-        created_at_utc=view["created_at"],
-        updated_at_utc=view["updated_at"],
-    )
+    return build_loop_view_response(view)
 
 
 @router.patch("/views/{view_id}", response_model=LoopViewResponse)
@@ -122,14 +98,7 @@ def loop_view_update_endpoint(
             description=fields.get("description"),
             conn=conn,
         )
-    return LoopViewResponse(
-        id=view["id"],
-        name=view["name"],
-        query=view["query"],
-        description=view.get("description"),
-        created_at_utc=view["created_at"],
-        updated_at_utc=view["updated_at"],
-    )
+    return build_loop_view_response(view)
 
 
 @router.delete("/views/{view_id}")
@@ -160,14 +129,7 @@ def loop_view_apply_endpoint(
         )
     view = result["view"]
     return LoopViewApplyResponse(
-        view=LoopViewResponse(
-            id=view["id"],
-            name=view["name"],
-            query=view["query"],
-            description=view.get("description"),
-            created_at_utc=view["created_at"],
-            updated_at_utc=view["updated_at"],
-        ),
+        view=build_loop_view_response(view),
         query=result["query"],
         limit=result["limit"],
         offset=result["offset"],

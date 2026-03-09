@@ -32,7 +32,6 @@ from ...schemas.loops import (
     BulkSnoozeResponse,
     BulkUpdateRequest,
     BulkUpdateResponse,
-    LoopResponse,
     QueryBulkCloseRequest,
     QueryBulkCloseResponse,
     QueryBulkPreviewResponse,
@@ -41,9 +40,51 @@ from ...schemas.loops import (
     QueryBulkUpdateRequest,
     QueryBulkUpdateResponse,
 )
-from ._common import SettingsDep, build_bulk_result_items
+from ._common import (
+    SettingsDep,
+    build_bulk_result_items,
+    build_query_bulk_preview_response,
+)
 
 router = APIRouter()
+
+
+def _serialize_bulk_update_request(request: BulkUpdateRequest) -> list[dict[str, object]]:
+    """Convert bulk update request items into service-layer payloads."""
+    return [
+        {
+            "loop_id": item.loop_id,
+            "fields": item.fields.model_dump(exclude_unset=True),
+        }
+        for item in request.updates
+    ]
+
+
+def _serialize_bulk_close_request(request: BulkCloseRequest) -> list[dict[str, object]]:
+    """Convert bulk close request items into service-layer payloads."""
+    return [
+        {
+            key: value
+            for key, value in {
+                "loop_id": item.loop_id,
+                "status": item.status.value,
+                "note": item.note,
+            }.items()
+            if value is not None
+        }
+        for item in request.items
+    ]
+
+
+def _serialize_bulk_snooze_request(request: BulkSnoozeRequest) -> list[dict[str, object]]:
+    """Convert bulk snooze request items into service-layer payloads."""
+    return [
+        {
+            "loop_id": item.loop_id,
+            "snooze_until_utc": item.snooze_until_utc,
+        }
+        for item in request.items
+    ]
 
 
 @router.post("/bulk/update", response_model=BulkUpdateResponse)
@@ -52,23 +93,13 @@ def bulk_update_endpoint(
     settings: SettingsDep,
 ) -> BulkUpdateResponse:
     """Bulk update multiple loops."""
-    # Convert Pydantic models to dicts for service layer
-    updates = []
-    for item in request.updates:
-        update_dict = {
-            "loop_id": item.loop_id,
-            "fields": item.fields.model_dump(exclude_unset=True),
-        }
-        updates.append(update_dict)
-
     with db.core_connection(settings) as conn:
         result = loop_service.bulk_update_loops(
-            updates=updates,
+            updates=_serialize_bulk_update_request(request),
             transactional=request.transactional,
             conn=conn,
         )
 
-    # Convert results to response models
     return BulkUpdateResponse(
         ok=result["ok"],
         transactional=result["transactional"],
@@ -84,25 +115,13 @@ def bulk_close_endpoint(
     settings: SettingsDep,
 ) -> BulkCloseResponse:
     """Bulk close multiple loops (completed or dropped)."""
-    # Convert Pydantic models to dicts for service layer
-    items = []
-    for item in request.items:
-        item_dict = {
-            "loop_id": item.loop_id,
-            "status": item.status.value,
-        }
-        if item.note:
-            item_dict["note"] = item.note
-        items.append(item_dict)
-
     with db.core_connection(settings) as conn:
         result = loop_service.bulk_close_loops(
-            items=items,
+            items=_serialize_bulk_close_request(request),
             transactional=request.transactional,
             conn=conn,
         )
 
-    # Convert results to response models
     return BulkCloseResponse(
         ok=result["ok"],
         transactional=result["transactional"],
@@ -118,23 +137,13 @@ def bulk_snooze_endpoint(
     settings: SettingsDep,
 ) -> BulkSnoozeResponse:
     """Bulk snooze multiple loops."""
-    # Convert Pydantic models to dicts for service layer
-    items = []
-    for item in request.items:
-        item_dict = {
-            "loop_id": item.loop_id,
-            "snooze_until_utc": item.snooze_until_utc,
-        }
-        items.append(item_dict)
-
     with db.core_connection(settings) as conn:
         result = loop_service.bulk_snooze_loops(
-            items=items,
+            items=_serialize_bulk_snooze_request(request),
             transactional=request.transactional,
             conn=conn,
         )
 
-    # Convert results to response models
     return BulkSnoozeResponse(
         ok=result["ok"],
         transactional=result["transactional"],
@@ -161,13 +170,7 @@ def query_bulk_update_endpoint(
         )
 
     if result.get("dry_run"):
-        return QueryBulkPreviewResponse(
-            query=result["query"],
-            dry_run=True,
-            matched_count=result["matched_count"],
-            limited=result.get("limited", False),
-            targets=[LoopResponse(**t) for t in result.get("targets", [])],
-        )
+        return QueryBulkPreviewResponse(**build_query_bulk_preview_response(result))
 
     return QueryBulkUpdateResponse(
         query=result["query"],
@@ -200,13 +203,7 @@ def query_bulk_close_endpoint(
         )
 
     if result.get("dry_run"):
-        return QueryBulkPreviewResponse(
-            query=result["query"],
-            dry_run=True,
-            matched_count=result["matched_count"],
-            limited=result.get("limited", False),
-            targets=[LoopResponse(**t) for t in result.get("targets", [])],
-        )
+        return QueryBulkPreviewResponse(**build_query_bulk_preview_response(result))
 
     return QueryBulkCloseResponse(
         query=result["query"],
@@ -238,13 +235,7 @@ def query_bulk_snooze_endpoint(
         )
 
     if result.get("dry_run"):
-        return QueryBulkPreviewResponse(
-            query=result["query"],
-            dry_run=True,
-            matched_count=result["matched_count"],
-            limited=result.get("limited", False),
-            targets=[LoopResponse(**t) for t in result.get("targets", [])],
-        )
+        return QueryBulkPreviewResponse(**build_query_bulk_preview_response(result))
 
     return QueryBulkSnoozeResponse(
         query=result["query"],
