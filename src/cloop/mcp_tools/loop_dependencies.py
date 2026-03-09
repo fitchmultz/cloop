@@ -24,19 +24,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .. import db
 from ..loops.service import (
     add_loop_dependency,
     get_loop_blocking,
     get_loop_dependencies,
     remove_loop_dependency,
 )
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -57,28 +51,17 @@ def loop_dependency_add(
     Returns:
         Updated loop with dependencies
     """
-    settings = get_settings()
     payload = {"loop_id": loop_id, "depends_on_loop_id": depends_on_loop_id}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.dependency.add",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = add_loop_dependency(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.dependency.add",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: add_loop_dependency(
             loop_id=loop_id,
             depends_on_loop_id=depends_on_loop_id,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_dependency_remove(
@@ -96,28 +79,17 @@ def loop_dependency_remove(
     Returns:
         Updated loop with dependencies
     """
-    settings = get_settings()
     payload = {"loop_id": loop_id, "depends_on_loop_id": depends_on_loop_id}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.dependency.remove",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = remove_loop_dependency(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.dependency.remove",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: remove_loop_dependency(
             loop_id=loop_id,
             depends_on_loop_id=depends_on_loop_id,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_dependency_list(loop_id: int) -> list[dict[str, Any]]:
@@ -129,6 +101,9 @@ def loop_dependency_list(loop_id: int) -> list[dict[str, Any]]:
     Returns:
         List of dependency loops with status
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return get_loop_dependencies(loop_id=loop_id, conn=conn)
@@ -143,6 +118,9 @@ def loop_dependency_blocking(loop_id: int) -> list[dict[str, Any]]:
     Returns:
         List of dependent loops
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return get_loop_blocking(loop_id=loop_id, conn=conn)

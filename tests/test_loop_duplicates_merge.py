@@ -18,6 +18,7 @@ Non-scope:
     - Enrichment logic (see test_loop_enrichment.py)
 """
 
+import time
 from pathlib import Path
 
 import pytest
@@ -386,3 +387,42 @@ def test_merge_combines_tags(
     assert "priority" in result["merged_tags"]
     assert "personal" in result["merged_tags"]
     assert len(result["merged_tags"]) == 3  # No duplicates
+
+
+def test_merge_ignores_expired_claim_conflicts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Expired claims must not block merges with a different active owner."""
+    client = make_test_client()
+
+    surviving = client.post(
+        "/loops/capture",
+        json={"raw_text": "Surviving", "captured_at": _now_iso(), "client_tz_offset_min": 0},
+    ).json()
+    duplicate = client.post(
+        "/loops/capture",
+        json={"raw_text": "Duplicate", "captured_at": _now_iso(), "client_tz_offset_min": 0},
+    ).json()
+
+    claim_a = client.post(
+        f"/loops/{surviving['id']}/claim",
+        json={"owner": "agent-a", "ttl_seconds": 300},
+    )
+    assert claim_a.status_code == 200
+
+    claim_b = client.post(
+        f"/loops/{duplicate['id']}/claim",
+        json={"owner": "agent-b", "ttl_seconds": 1},
+    )
+    assert claim_b.status_code == 200
+
+    time.sleep(1.1)
+
+    resp = client.post(
+        f"/loops/{duplicate['id']}/merge",
+        json={"target_loop_id": surviving["id"]},
+    )
+    assert resp.status_code == 200
+    result = resp.json()
+    assert result["surviving_loop_id"] == surviving["id"]
+    assert result["closed_loop_id"] == duplicate["id"]

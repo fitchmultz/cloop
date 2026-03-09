@@ -28,12 +28,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from ... import db
-from ...idempotency_flow import (
-    finalize_idempotent_response,
-    prepare_http_idempotency,
-    replay_http_response,
-)
 from ...loops import service as loop_service
 from ...loops.errors import LoopNotFoundError, ValidationError
 from ...schemas.loops import (
@@ -46,6 +40,7 @@ from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
     build_loop_comment_response,
+    run_idempotent_loop_route,
 )
 
 router = APIRouter()
@@ -75,41 +70,33 @@ def create_comment_endpoint(
         "parent_id": request.parent_id,
     }
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="POST",
             path=f"/loops/{loop_id}/comments",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
-
-        try:
-            comment = loop_service.create_loop_comment(
-                loop_id=loop_id,
-                author=request.author,
-                body_md=request.body_md,
-                parent_id=request.parent_id,
-                conn=conn,
-            )
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
-        except ValidationError as exc:
-            raise HTTPException(status_code=400, detail={"message": exc.message}) from None
-
-        response = LoopCommentResponse(**comment, replies=[]).model_dump()
-        finalize_idempotent_response(
-            state=idempotency,
             response_status=201,
-            response_body=response,
-            conn=conn,
+            execute=lambda conn: LoopCommentResponse(
+                **loop_service.create_loop_comment(
+                    loop_id=loop_id,
+                    author=request.author,
+                    body_md=request.body_md,
+                    parent_id=request.parent_id,
+                    conn=conn,
+                ),
+                replies=[],
+            ).model_dump(),
         )
+    except LoopNotFoundError:
+        raise HTTPException(status_code=404, detail="Loop not found") from None
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
 
-    return LoopCommentResponse(**response)
+    if isinstance(result, JSONResponse):
+        return result
+    return LoopCommentResponse(**result)
 
 
 @router.get(
@@ -127,6 +114,8 @@ def list_comments_endpoint(
     Returns comments as a nested tree structure where replies are nested under their parent.
     Comments are ordered by creation time within each thread level.
     """
+    from ... import db
+
     with db.core_connection(settings) as conn:
         try:
             result = loop_service.list_loop_comments(
@@ -162,37 +151,28 @@ def update_comment_endpoint(
     """
     payload = {"comment_id": comment_id, "body_md": request.body_md}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="PATCH",
             path=f"/loops/{loop_id}/comments/{comment_id}",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
+            execute=lambda conn: LoopCommentResponse(
+                **loop_service.update_loop_comment(
+                    comment_id=comment_id,
+                    body_md=request.body_md,
+                    conn=conn,
+                ),
+                replies=[],
+            ).model_dump(),
         )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
+    except RuntimeError:
+        raise HTTPException(status_code=404, detail="Comment not found or deleted") from None
 
-        try:
-            comment = loop_service.update_loop_comment(
-                comment_id=comment_id,
-                body_md=request.body_md,
-                conn=conn,
-            )
-        except RuntimeError:
-            raise HTTPException(status_code=404, detail="Comment not found or deleted") from None
-
-        response = LoopCommentResponse(**comment, replies=[]).model_dump()
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=response,
-            conn=conn,
-        )
-
-    return LoopCommentResponse(**response)
+    if isinstance(result, JSONResponse):
+        return result
+    return LoopCommentResponse(**result)
 
 
 @router.delete(
@@ -213,29 +193,20 @@ def delete_comment_endpoint(
     """
     payload = {"comment_id": comment_id}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
-            method="DELETE",
-            path=f"/loops/{loop_id}/comments/{comment_id}",
-            idempotency_key=idempotency_key,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
-
-        deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Comment not found")
-
-        result = {"ok": True, "deleted": True, "comment_id": comment_id}
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=result,
-            conn=conn,
-        )
-
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="DELETE",
+        path=f"/loops/{loop_id}/comments/{comment_id}",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: _delete_comment_response(comment_id=comment_id, conn=conn),
+    )
     return result
+
+
+def _delete_comment_response(*, comment_id: int, conn: Any) -> dict[str, Any]:
+    """Delete a comment and normalize the route response body."""
+    deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    return {"ok": True, "deleted": True, "comment_id": comment_id}

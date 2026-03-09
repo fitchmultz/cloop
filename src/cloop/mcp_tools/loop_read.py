@@ -29,17 +29,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .. import db
 from ..constants import DEFAULT_LOOP_LIST_LIMIT
 from ..loops import enrichment as loop_enrichment
 from ..loops import service as loop_service
 from ..loops.models import LoopStatus, validate_iso8601_timestamp
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -58,6 +52,9 @@ def loop_list(
     Returns:
         Dict with items, next_cursor (or None), and limit
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     parsed_status = LoopStatus(status) if status else None
     with db.core_connection(settings) as conn:
@@ -96,6 +93,9 @@ def loop_search(
     Returns:
         Dict with items, next_cursor (or None), and limit
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.search_loops_by_query_page(
@@ -126,29 +126,17 @@ def loop_snooze(
     """
     validate_iso8601_timestamp(snooze_until_utc, "snooze_until_utc")
 
-    settings = get_settings()
-
     payload = {"loop_id": loop_id, "snooze_until_utc": snooze_until_utc}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.snooze",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.update_loop(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.snooze",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.update_loop(
             loop_id=loop_id,
             fields={"snooze_until_utc": snooze_until_utc},
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
@@ -170,26 +158,17 @@ def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
     Raises:
         ToolError: If loop not found or enrichment fails.
     """
-    settings = get_settings()
-
     payload = {"loop_id": loop_id}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.enrich",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
+    return run_idempotent_tool_mutation(
+        tool_name="loop.enrich",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: _execute_enrichment(
+            loop_id=loop_id,
             conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        loop_service.request_enrichment(loop_id=loop_id, conn=conn)
-        result = loop_enrichment.enrich_loop(loop_id=loop_id, conn=conn, settings=settings)
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+            settings=settings,
+        ),
+    )
 
 
 def loop_events(
@@ -210,6 +189,9 @@ def loop_events(
     Returns:
         List of event dicts with id, event_type, payload, created_at_utc, is_reversible
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.get_loop_events(
@@ -239,27 +221,13 @@ def loop_undo(
         - undone_event_id: ID of the event that was undone
         - undone_event_type: Type of the undone event
     """
-    settings = get_settings()
     payload = {"loop_id": loop_id}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.undo",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.undo_last_event(
-            loop_id=loop_id,
-            conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+    return run_idempotent_tool_mutation(
+        tool_name="loop.undo",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.undo_last_event(loop_id=loop_id, conn=conn),
+    )
 
 
 def loop_next(limit: int = 5) -> dict[str, list[dict[str, Any]]]:
@@ -283,6 +251,9 @@ def loop_next(limit: int = 5) -> dict[str, list[dict[str, Any]]]:
         Dict with keys: due_soon, quick_wins, high_leverage, standard.
         Each key maps to a list of loop objects sorted by priority score.
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.next_loops(limit=limit, conn=conn, settings=settings)
@@ -298,9 +269,18 @@ def loop_tags() -> list[str]:
     Returns:
         Alphabetically sorted list of unique tag names (lowercase).
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.list_tags(conn=conn)
+
+
+def _execute_enrichment(*, loop_id: int, conn: Any, settings: Any) -> dict[str, Any]:
+    """Run the full loop enrichment flow inside the shared mutation helper."""
+    loop_service.request_enrichment(loop_id=loop_id, conn=conn)
+    return loop_enrichment.enrich_loop(loop_id=loop_id, conn=conn, settings=settings)
 
 
 def register_loop_read_tools(mcp: "FastMCP") -> None:

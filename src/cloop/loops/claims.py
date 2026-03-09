@@ -26,48 +26,14 @@ from .. import typingx
 from ..settings import Settings, get_settings
 from ..webhooks.service import queue_deliveries
 from . import repo
+from .claim_state import claim_to_dict, read_active_claim, validate_claim_for_update
 from .errors import ClaimNotFoundError, LoopClaimedError, LoopNotFoundError
 from .models import LoopEventType, format_utc_datetime, utc_now
 
 logger = logging.getLogger(__name__)
 
 
-def _validate_claim_for_update(
-    *,
-    loop_id: int,
-    claim_token: str | None,
-    conn: sqlite3.Connection,
-) -> None:
-    """Validate that the caller has a valid claim on the loop.
-
-    Call this at the start of mutation operations (update_loop, transition_status, etc.)
-
-    Args:
-        loop_id: Loop being modified
-        claim_token: Token provided by caller (or None)
-        conn: Database connection
-
-    Raises:
-        LoopClaimedError: If loop is claimed by someone else
-        ClaimNotFoundError: If loop is claimed but no/invalid token provided
-    """
-    claim = repo.read_claim(loop_id=loop_id, conn=conn)
-    if claim is None:
-        return  # No claim, proceed
-
-    # Check if claim has expired (don't purge, just check)
-    if claim.lease_until_utc <= utc_now():
-        return  # Claim expired, proceed
-
-    if claim_token is None:
-        raise LoopClaimedError(
-            loop_id=loop_id,
-            owner=claim.owner,
-            lease_until=format_utc_datetime(claim.lease_until_utc),
-        )
-
-    if claim.claim_token != claim_token:
-        raise ClaimNotFoundError(loop_id)
+_validate_claim_for_update = validate_claim_for_update
 
 
 @typingx.validate_io()
@@ -124,8 +90,8 @@ def claim_loop(
             break
         except sqlite3.IntegrityError:
             # Already claimed - get existing claim info
-            existing = repo.read_claim(loop_id=loop_id, conn=conn)
-            if existing and existing.lease_until_utc > now:
+            existing = read_active_claim(loop_id=loop_id, conn=conn)
+            if existing is not None:
                 raise LoopClaimedError(
                     loop_id=loop_id,
                     owner=existing.owner,
@@ -333,16 +299,10 @@ def get_claim_status(
     # Purge expired claims first
     repo.purge_expired_claims(conn=conn)
 
-    claim = repo.read_claim(loop_id=loop_id, conn=conn)
+    claim = read_active_claim(loop_id=loop_id, conn=conn)
     if claim is None:
         return None
-    # Don't expose the token in GET response
-    return {
-        "loop_id": claim.loop_id,
-        "owner": claim.owner,
-        "leased_at_utc": format_utc_datetime(claim.leased_at_utc),
-        "lease_until_utc": format_utc_datetime(claim.lease_until_utc),
-    }
+    return claim_to_dict(claim)
 
 
 @typingx.validate_io()
@@ -366,13 +326,4 @@ def list_active_claims(
     repo.purge_expired_claims(conn=conn)
 
     claims = repo.list_active_claims(owner=owner, limit=limit, conn=conn)
-    # Don't expose tokens in list response
-    return [
-        {
-            "loop_id": claim.loop_id,
-            "owner": claim.owner,
-            "leased_at_utc": format_utc_datetime(claim.leased_at_utc),
-            "lease_until_utc": format_utc_datetime(claim.lease_until_utc),
-        }
-        for claim in claims
-    ]
+    return [claim_to_dict(claim) for claim in claims]

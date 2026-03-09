@@ -26,15 +26,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .. import db
 from ..constants import DEFAULT_LOOP_LIST_LIMIT
 from ..loops import service as loop_service
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -63,29 +57,18 @@ def loop_view_create(
     Raises:
         ToolError: If name already exists or query is invalid
     """
-    settings = get_settings()
     payload = {"name": name, "query": query, "description": description}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.view.create",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.create_loop_view(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.view.create",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.create_loop_view(
             name=name,
             query=query,
             description=description,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_view_list() -> list[dict[str, Any]]:
@@ -102,6 +85,9 @@ def loop_view_list() -> list[dict[str, Any]]:
         - description: Optional description
         - created_at_utc: Creation timestamp
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.list_loop_views(conn=conn)
@@ -122,6 +108,9 @@ def loop_view_get(view_id: int) -> dict[str, Any]:
     Raises:
         ToolError: If no view exists with the given ID
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.get_loop_view(view_id=view_id, conn=conn)
@@ -152,30 +141,19 @@ def loop_view_update(
     Raises:
         ToolError: If view not found, name conflicts, or query is invalid
     """
-    settings = get_settings()
     payload = {"view_id": view_id, "name": name, "query": query, "description": description}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.view.update",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.update_loop_view(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.view.update",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.update_loop_view(
             view_id=view_id,
             name=name,
             query=query,
             description=description,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_view_delete(
@@ -197,25 +175,13 @@ def loop_view_delete(
     Raises:
         ToolError: If view not found
     """
-    settings = get_settings()
     payload = {"view_id": view_id}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.view.delete",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        loop_service.delete_loop_view(view_id=view_id, conn=conn)
-        result = {"deleted": True}
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+    return run_idempotent_tool_mutation(
+        tool_name="loop.view.delete",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: _delete_view(view_id=view_id, conn=conn),
+    )
 
 
 def loop_view_apply(
@@ -233,6 +199,9 @@ def loop_view_apply(
     Returns:
         Dict with view info, query, limit, cursor, next_cursor (or None), and items
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.apply_loop_view_page(
@@ -241,6 +210,12 @@ def loop_view_apply(
             cursor=cursor,
             conn=conn,
         )
+
+
+def _delete_view(*, view_id: int, conn: Any) -> dict[str, Any]:
+    """Delete a saved view and normalize the tool response."""
+    loop_service.delete_loop_view(view_id=view_id, conn=conn)
+    return {"deleted": True}
 
 
 def register_loop_view_tools(mcp: "FastMCP") -> None:

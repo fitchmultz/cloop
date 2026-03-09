@@ -23,8 +23,9 @@ import sqlite3
 from typing import TYPE_CHECKING, Any
 
 from . import repo
-from .errors import ClaimNotFoundError, LoopClaimedError
+from .claim_state import validate_claim_for_update
 from .models import LoopRecord, LoopStatus, format_utc_datetime, utc_now
+from .serialization import enrich_loop_records_batch, loop_record_to_dict
 
 if TYPE_CHECKING:
     pass
@@ -172,45 +173,7 @@ def _record_to_dict(
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
     """Convert LoopRecord to dict for API response."""
-    return {
-        "id": record.id,
-        "raw_text": record.raw_text,
-        "title": record.title,
-        "summary": record.summary,
-        "definition_of_done": record.definition_of_done,
-        "next_action": record.next_action,
-        "status": record.status.value,
-        "captured_at_utc": format_utc_datetime(record.captured_at_utc),
-        "captured_tz_offset_min": record.captured_tz_offset_min,
-        "due_at_utc": format_utc_datetime(record.due_at_utc) if record.due_at_utc else None,
-        "snooze_until_utc": (
-            format_utc_datetime(record.snooze_until_utc) if record.snooze_until_utc else None
-        ),
-        "time_minutes": record.time_minutes,
-        "activation_energy": record.activation_energy,
-        "urgency": record.urgency,
-        "importance": record.importance,
-        "project_id": record.project_id,
-        "blocked_reason": record.blocked_reason,
-        "completion_note": record.completion_note,
-        "project": project,
-        "tags": tags or [],
-        "user_locks": list(record.user_locks),
-        "provenance": dict(record.provenance),
-        "enrichment_state": record.enrichment_state.value,
-        "recurrence_rrule": record.recurrence_rrule,
-        "recurrence_tz": record.recurrence_tz,
-        "next_due_at_utc": (
-            format_utc_datetime(record.next_due_at_utc) if record.next_due_at_utc else None
-        ),
-        "recurrence_enabled": record.recurrence_enabled,
-        "parent_loop_id": record.parent_loop_id,
-        "created_at_utc": format_utc_datetime(record.created_at_utc),
-        "updated_at_utc": format_utc_datetime(record.updated_at_utc),
-        "closed_at_utc": (
-            format_utc_datetime(record.closed_at_utc) if record.closed_at_utc else None
-        ),
-    }
+    return loop_record_to_dict(record, project=project, tags=tags)
 
 
 def _enrich_records_batch(
@@ -222,25 +185,7 @@ def _enrich_records_batch(
     This avoids the N+1 query problem by fetching all projects and tags
     in just 2 queries total, regardless of the number of records.
     """
-    if not records:
-        return []
-
-    # Collect all project IDs and loop IDs
-    project_ids = {r.project_id for r in records if r.project_id is not None}
-    loop_ids = [r.id for r in records]
-
-    # Batch fetch all projects and tags in just 2 queries
-    projects_map = repo.read_project_names_batch(project_ids=project_ids, conn=conn)
-    tags_map = repo.list_loop_tags_batch(loop_ids=loop_ids, conn=conn)
-
-    # Build the response dicts
-    payloads: list[dict[str, Any]] = []
-    for record in records:
-        project = projects_map.get(record.project_id) if record.project_id else None
-        tags = tags_map.get(record.id, [])
-        payloads.append(_record_to_dict(record, project=project, tags=tags))
-
-    return payloads
+    return enrich_loop_records_batch(records, conn=conn)
 
 
 def _validate_claim_for_update(
@@ -262,20 +207,4 @@ def _validate_claim_for_update(
         LoopClaimedError: If loop is claimed by someone else
         ClaimNotFoundError: If loop is claimed but no/invalid token provided
     """
-    claim = repo.read_claim(loop_id=loop_id, conn=conn)
-    if claim is None:
-        return  # No claim, proceed
-
-    # Check if claim has expired (don't purge, just check)
-    if claim.lease_until_utc <= utc_now():
-        return  # Claim expired, proceed
-
-    if claim_token is None:
-        raise LoopClaimedError(
-            loop_id=loop_id,
-            owner=claim.owner,
-            lease_until=format_utc_datetime(claim.lease_until_utc),
-        )
-
-    if claim.claim_token != claim_token:
-        raise ClaimNotFoundError(loop_id)
+    validate_claim_for_update(loop_id=loop_id, claim_token=claim_token, conn=conn)

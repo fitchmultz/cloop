@@ -53,6 +53,8 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Frontend cache behavior**: root HTML injects a version query onto `init.js`, and `/static` serves JS/CSS with `Cache-Control: no-cache`; browser UI verification should still prefer a fresh tab/profile if a session appears to hold stale ES module state.
 - **Comments UX**: comment threads are lazy-loaded on expand; collapsed loop cards should show a neutral `Comments` label until opened, not a loading placeholder.
 - **Idempotent mutations**: shared prepare/replay/finalize flow now lives in `src/cloop/idempotency_flow.py`; MCP tools should layer on `src/cloop/mcp_tools/_idempotency.py` instead of reimplementing claim/replay logic.
+- **Mutation helpers**: loop HTTP routes should use `src/cloop/routes/loops/_common.py::run_idempotent_loop_route`, and MCP mutations should use `src/cloop/mcp_tools/_mutation.py::run_idempotent_tool_mutation` to avoid hand-rolled replay/finalize code.
+- **Loop serialization + claim state**: canonical loop payload shaping lives in `src/cloop/loops/serialization.py`; active-claim expiry/serialization rules live in `src/cloop/loops/claim_state.py`.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
 - **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
 - **Keyboard shortcut UX**: loop-card actions keep keyboard shortcuts via `aria-keyshortcuts` and button tooltips; avoid visible single-letter suffix badges inside action labels.

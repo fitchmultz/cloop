@@ -28,7 +28,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .. import db
 from ..loops import service as loop_service
 from ..loops.errors import ValidationError
 from ..loops.models import (
@@ -37,12 +36,7 @@ from ..loops.models import (
     validate_iso8601_timestamp,
     validate_tz_offset,
 )
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -87,7 +81,6 @@ def loop_create(
     validate_iso8601_timestamp(captured_at, "captured_at")
     validate_tz_offset(client_tz_offset_min, "client_tz_offset_min")
 
-    settings = get_settings()
     loop_status = LoopStatus(status)
 
     # Resolve recurrence RRULE from schedule phrase or direct rrule
@@ -110,19 +103,11 @@ def loop_create(
         "timezone": timezone,
     }
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.create",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        record = loop_service.capture_loop(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.create",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.capture_loop(
             raw_text=raw_text,
             captured_at_iso=captured_at,
             client_tz_offset_min=client_tz_offset_min,
@@ -130,9 +115,8 @@ def loop_create(
             conn=conn,
             recurrence_rrule=recurrence_rrule,
             recurrence_tz=timezone,
-        )
-        finalize_tool_idempotency(state=idempotency, response=record, conn=conn)
-    return record
+        ),
+    )
 
 
 def loop_update(
@@ -171,27 +155,18 @@ def loop_update(
     if "snooze_until_utc" in fields and fields["snooze_until_utc"] is not None:
         validate_iso8601_timestamp(fields["snooze_until_utc"], "snooze_until_utc")
 
-    settings = get_settings()
-
     payload = {"loop_id": loop_id, "fields": fields, "claim_token": claim_token}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.update",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
+    return run_idempotent_tool_mutation(
+        tool_name="loop.update",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.update_loop(
+            loop_id=loop_id,
+            fields=fields,
+            claim_token=claim_token,
             conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.update_loop(
-            loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_close(
@@ -219,34 +194,24 @@ def loop_close(
     Raises:
         ToolError: If loop not found, status is not terminal, or claim mismatch.
     """
-    settings = get_settings()
     loop_status = LoopStatus(status)
     if not is_terminal_status(loop_status):
         raise ValidationError("status", "must be completed or dropped")
 
     payload = {"loop_id": loop_id, "status": status, "note": note, "claim_token": claim_token}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.close",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.transition_status(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.close",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.transition_status(
             loop_id=loop_id,
             to_status=loop_status,
             note=note,
             claim_token=claim_token,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_get(loop_id: int) -> dict[str, Any]:
@@ -261,6 +226,9 @@ def loop_get(loop_id: int) -> dict[str, Any]:
     Raises:
         LoopNotFoundError: If no loop exists with the given ID.
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.get_loop(loop_id=loop_id, conn=conn)
@@ -299,7 +267,6 @@ def loop_transition(
         TransitionError: If the status transition is not allowed.
         ValueError: If status is not a valid LoopStatus value.
     """
-    settings = get_settings()
     loop_status = LoopStatus(status)
 
     # Validate that status is non-terminal (use loop.close for terminal statuses)
@@ -308,27 +275,18 @@ def loop_transition(
 
     payload = {"loop_id": loop_id, "status": status, "note": note, "claim_token": claim_token}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.transition",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.transition_status(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.transition",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.transition_status(
             loop_id=loop_id,
             to_status=loop_status,
             note=note,
             claim_token=claim_token,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def register_loop_core_tools(mcp: "FastMCP") -> None:

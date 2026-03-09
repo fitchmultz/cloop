@@ -7,7 +7,8 @@ Purpose:
 Responsibilities:
     - Define common FastAPI dependencies (SettingsDep)
     - Define idempotency key header parameter
-    - Provide helper for idempotency conflict HTTP exceptions
+    - Provide helpers for idempotent mutation routes
+    - Standardize common loop route error payloads and response conversion
 
 Non-scope:
     - Does not contain endpoint implementations
@@ -15,10 +16,19 @@ Non-scope:
     - Does not interact with database directly
 """
 
+from collections.abc import Callable
 from typing import Annotated, Any, Mapping, Sequence
 
 from fastapi import Depends, Header, HTTPException
+from fastapi.responses import JSONResponse
 
+from ... import db
+from ...idempotency_flow import (
+    finalize_idempotent_response,
+    prepare_http_idempotency,
+    replay_http_response,
+)
+from ...loops.errors import LoopClaimedError
 from ...schemas.loops import BulkResultItem, LoopCommentResponse, LoopResponse
 from ...settings import Settings, get_settings
 
@@ -40,6 +50,64 @@ def _idempotency_conflict(detail: str) -> HTTPException:
     return HTTPException(
         status_code=409,
         detail={"message": "idempotency_key_conflict", "detail": detail},
+    )
+
+
+def run_idempotent_loop_route(
+    *,
+    settings: Settings,
+    method: str,
+    path: str,
+    idempotency_key: str | None,
+    payload: Mapping[str, Any],
+    execute: Callable[[Any], Any],
+    response_status: int = 200,
+) -> JSONResponse | Any:
+    """Run a mutation route with shared connection and idempotency handling."""
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method=method,
+            path=path,
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
+        response_body = execute(conn)
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=response_status,
+            response_body=response_body,
+            conn=conn,
+        )
+        return response_body
+
+
+def loop_claimed_http_exception(exc: LoopClaimedError) -> HTTPException:
+    """Build the standard HTTP 409 payload for an active loop claim."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "loop_claimed",
+            "message": str(exc),
+            "owner": exc.owner,
+            "lease_until": exc.lease_until,
+        },
+    )
+
+
+def invalid_claim_token_http_exception() -> HTTPException:
+    """Build the standard HTTP 403 payload for a missing or stale claim token."""
+    return HTTPException(
+        status_code=403,
+        detail={
+            "code": "invalid_claim_token",
+            "message": "Invalid or expired claim token",
+        },
     )
 
 

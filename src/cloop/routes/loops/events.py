@@ -25,17 +25,12 @@ import json
 import sqlite3
 import time
 from collections.abc import Iterator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ... import db
-from ...idempotency_flow import (
-    finalize_idempotent_response,
-    prepare_http_idempotency,
-    replay_http_response,
-)
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
 from ...schemas.loops import (
@@ -45,7 +40,13 @@ from ...schemas.loops import (
     LoopUndoResponse,
 )
 from ...sse import format_sse_comment, format_sse_event
-from ._common import IdempotencyKeyHeader, SettingsDep
+from ._common import (
+    IdempotencyKeyHeader,
+    SettingsDep,
+    invalid_claim_token_http_exception,
+    loop_claimed_http_exception,
+    run_idempotent_loop_route,
+)
 
 router = APIRouter()
 
@@ -104,64 +105,44 @@ def loop_undo_endpoint(
 
     payload = {"loop_id": loop_id}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="POST",
             path=f"/loops/{loop_id}/undo",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
+            execute=lambda conn: _undo_response(loop_id=loop_id, conn=conn),
         )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
+    except UndoNotPossibleError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "undo_not_possible",
+                "reason": exc.reason,
+                "message": exc.message,
+            },
+        ) from None
+    except LoopNotFoundError:
+        raise HTTPException(status_code=404, detail="Loop not found") from None
+    except LoopClaimedError as exc:
+        raise loop_claimed_http_exception(exc) from None
+    except ClaimNotFoundError:
+        raise invalid_claim_token_http_exception() from None
 
-        try:
-            result = loop_service.undo_last_event(loop_id=loop_id, conn=conn)
-        except UndoNotPossibleError as exc:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "undo_not_possible",
-                    "reason": exc.reason,
-                    "message": exc.message,
-                },
-            ) from None
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
-        except LoopClaimedError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "loop_claimed",
-                    "message": str(exc),
-                    "owner": exc.owner,
-                    "lease_until": exc.lease_until,
-                },
-            ) from None
-        except ClaimNotFoundError:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "code": "invalid_claim_token",
-                    "message": "Invalid or expired claim token",
-                },
-            ) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return LoopUndoResponse(**result)
 
-        response = LoopUndoResponse(
-            loop=LoopResponse(**result["loop"]),
-            undone_event_id=result["undone_event_id"],
-            undone_event_type=result["undone_event_type"],
-        ).model_dump()
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=response,
-            conn=conn,
-        )
 
-    return LoopUndoResponse(**response)
+def _undo_response(*, loop_id: int, conn: Any) -> dict[str, object]:
+    """Execute undo once and normalize the route response body."""
+    result = loop_service.undo_last_event(loop_id=loop_id, conn=conn)
+    return LoopUndoResponse(
+        loop=LoopResponse(**result["loop"]),
+        undone_event_id=result["undone_event_id"],
+        undone_event_type=result["undone_event_type"],
+    ).model_dump()
 
 
 @router.get("/events/stream")

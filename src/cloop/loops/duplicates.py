@@ -26,6 +26,7 @@ from typing import Any, Mapping
 from .. import typingx
 from ..settings import Settings, get_settings
 from . import repo
+from .claim_state import read_active_claim
 from .errors import LoopNotFoundError, SuggestionNotFoundError, ValidationError
 from .models import (
     LoopEventType,
@@ -35,6 +36,7 @@ from .models import (
     is_terminal_status,
     utc_now,
 )
+from .serialization import loop_record_to_dict
 
 
 def _record_to_dict(
@@ -43,42 +45,7 @@ def _record_to_dict(
     project: str | None = None,
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
-    return {
-        "id": record.id,
-        "raw_text": record.raw_text,
-        "title": record.title,
-        "summary": record.summary,
-        "definition_of_done": record.definition_of_done,
-        "next_action": record.next_action,
-        "status": record.status.value,
-        "captured_at_utc": format_utc_datetime(record.captured_at_utc),
-        "captured_tz_offset_min": record.captured_tz_offset_min,
-        "due_at_utc": format_utc_datetime(record.due_at_utc) if record.due_at_utc else None,
-        "snooze_until_utc": (
-            format_utc_datetime(record.snooze_until_utc) if record.snooze_until_utc else None
-        ),
-        "time_minutes": record.time_minutes,
-        "activation_energy": record.activation_energy,
-        "urgency": record.urgency,
-        "importance": record.importance,
-        "project_id": record.project_id,
-        "blocked_reason": record.blocked_reason,
-        "completion_note": record.completion_note,
-        "project": project,
-        "tags": tags or [],
-        "user_locks": list(record.user_locks),
-        "provenance": dict(record.provenance),
-        "enrichment_state": record.enrichment_state.value,
-        "recurrence_rrule": record.recurrence_rrule,
-        "recurrence_tz": record.recurrence_tz,
-        "next_due_at_utc": (
-            format_utc_datetime(record.next_due_at_utc) if record.next_due_at_utc else None
-        ),
-        "parent_loop_id": record.parent_loop_id,
-        "closed_at_utc": format_utc_datetime(record.closed_at_utc)
-        if record.closed_at_utc
-        else None,
-    }
+    return loop_record_to_dict(record, project=project, tags=tags)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,8 +188,8 @@ def merge_loops(
     )
 
     # Check for claim conflicts
-    surviving_claim = repo.read_claim(loop_id=surviving_loop_id, conn=conn)
-    duplicate_claim = repo.read_claim(loop_id=duplicate_loop_id, conn=conn)
+    surviving_claim = read_active_claim(loop_id=surviving_loop_id, conn=conn)
+    duplicate_claim = read_active_claim(loop_id=duplicate_loop_id, conn=conn)
     if surviving_claim and duplicate_claim and surviving_claim.owner != duplicate_claim.owner:
         raise MergeConflictError(
             loop_id=duplicate_loop_id,

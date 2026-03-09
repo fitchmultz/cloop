@@ -20,15 +20,11 @@ Endpoints:
 - POST /{loop_id}/merge: Merge this loop into another
 """
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from ... import db
-from ...idempotency_flow import (
-    finalize_idempotent_response,
-    prepare_http_idempotency,
-    replay_http_response,
-)
 from ...loops import service as loop_service
 from ...loops.errors import LoopNotFoundError, MergeConflictError, ValidationError
 from ...schemas.loops import (
@@ -38,7 +34,7 @@ from ...schemas.loops import (
     MergeRequest,
     MergeResultResponse,
 )
-from ._common import IdempotencyKeyHeader, SettingsDep
+from ._common import IdempotencyKeyHeader, SettingsDep, run_idempotent_loop_route
 
 router = APIRouter()
 
@@ -57,6 +53,8 @@ def list_duplicate_candidates(
     Returns loops with similarity score >= CLOOP_DUPLICATE_SIMILARITY_THRESHOLD
     (default 0.95). Only non-terminal loops (not completed/dropped) are included.
     """
+
+    from ... import db
 
     with db.core_connection(settings) as conn:
         try:
@@ -99,6 +97,8 @@ def get_merge_preview(
     Use this to show users a side-by-side comparison before confirming merge.
     loop_id is the duplicate that will be closed, target_id is the surviving loop.
     """
+
+    from ... import db
 
     with db.core_connection(settings) as conn:
         try:
@@ -148,52 +148,59 @@ def merge_into_loop(
         "field_overrides": request.field_overrides,
     }
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="POST",
             path=f"/loops/{loop_id}/merge",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
-
-        try:
-            result = loop_service.merge_loops(
-                surviving_loop_id=request.target_loop_id,
-                duplicate_loop_id=loop_id,
+            execute=lambda conn: _merge_response(
+                loop_id=loop_id,
+                target_loop_id=request.target_loop_id,
                 field_overrides=request.field_overrides or {},
                 conn=conn,
                 settings=settings,
-            )
-        except LoopNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=f"Loop not found: {exc.loop_id}") from None
-        except ValidationError as exc:
-            raise HTTPException(status_code=400, detail={"message": exc.message}) from None
-        except MergeConflictError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "merge_conflict",
-                    "message": str(exc),
-                    "reason": exc.reason,
-                },
-            ) from None
-
-        response = MergeResultResponse(
-            surviving_loop_id=result.surviving_loop.id,
-            closed_loop_id=result.closed_loop_id,
-            merged_tags=result.merged_tags,
-            fields_updated=result.fields_updated,
-        ).model_dump()
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=response,
-            conn=conn,
+            ),
         )
+    except LoopNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Loop not found: {exc.loop_id}") from None
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+    except MergeConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "merge_conflict",
+                "message": str(exc),
+                "reason": exc.reason,
+            },
+        ) from None
 
-    return MergeResultResponse(**response)
+    if isinstance(result, JSONResponse):
+        return result
+    return MergeResultResponse(**result)
+
+
+def _merge_response(
+    *,
+    loop_id: int,
+    target_loop_id: int,
+    field_overrides: dict[str, str | None],
+    conn: Any,
+    settings: Any,
+) -> dict[str, object]:
+    """Execute a merge and normalize the route response body."""
+    result = loop_service.merge_loops(
+        surviving_loop_id=target_loop_id,
+        duplicate_loop_id=loop_id,
+        field_overrides=field_overrides,
+        conn=conn,
+        settings=settings,
+    )
+    return MergeResultResponse(
+        surviving_loop_id=result.surviving_loop.id,
+        closed_loop_id=result.closed_loop_id,
+        merged_tags=result.merged_tags,
+        fields_updated=result.fields_updated,
+    ).model_dump()

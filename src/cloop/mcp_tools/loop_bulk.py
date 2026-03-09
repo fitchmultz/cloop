@@ -27,16 +27,10 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from .. import db
 from ..constants import BULK_OPERATION_MAX_ITEMS
 from ..loops import service as loop_service
 from ..loops.models import validate_iso8601_timestamp
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -72,29 +66,17 @@ def loop_bulk_update(
             f"Bulk update exceeds maximum items limit: {len(updates)} > {BULK_OPERATION_MAX_ITEMS}"
         )
 
-    settings = get_settings()
-
     payload = {"updates": updates, "transactional": transactional}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.bulk_update",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.bulk_update_loops(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.bulk_update",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.bulk_update_loops(
             updates=updates,
             transactional=transactional,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_bulk_close(
@@ -128,29 +110,17 @@ def loop_bulk_close(
             f"Bulk close exceeds maximum items limit: {len(items)} > {BULK_OPERATION_MAX_ITEMS}"
         )
 
-    settings = get_settings()
-
     payload = {"items": items, "transactional": transactional}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.bulk_close",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.bulk_close_loops(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.bulk_close",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.bulk_close_loops(
             items=items,
             transactional=transactional,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_bulk_snooze(
@@ -183,33 +153,21 @@ def loop_bulk_snooze(
             f"Bulk snooze exceeds maximum items limit: {len(items)} > {BULK_OPERATION_MAX_ITEMS}"
         )
 
-    settings = get_settings()
-
     for item in items:
         if "snooze_until_utc" in item and item["snooze_until_utc"] is not None:
             validate_iso8601_timestamp(item["snooze_until_utc"], "snooze_until_utc")
 
     payload = {"items": items, "transactional": transactional}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.bulk_snooze",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.bulk_snooze_loops(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.bulk_snooze",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.bulk_snooze_loops(
             items=items,
             transactional=transactional,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def register_loop_bulk_tools(mcp: "FastMCP") -> None:

@@ -28,12 +28,6 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from ... import db
-from ...idempotency_flow import (
-    finalize_idempotent_response,
-    prepare_http_idempotency,
-    replay_http_response,
-)
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
 from ...schemas.loops import (
@@ -43,7 +37,12 @@ from ...schemas.loops import (
     LoopReleaseClaimRequest,
     LoopRenewClaimRequest,
 )
-from ._common import IdempotencyKeyHeader, SettingsDep
+from ._common import (
+    IdempotencyKeyHeader,
+    SettingsDep,
+    loop_claimed_http_exception,
+    run_idempotent_loop_route,
+)
 
 router = APIRouter()
 
@@ -62,45 +61,26 @@ def claim_loop_endpoint(
     """
     payload = {"loop_id": loop_id, "owner": request.owner, "ttl_seconds": request.ttl_seconds}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="POST",
             path=f"/loops/{loop_id}/claim",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
-
-        try:
-            result = loop_service.claim_loop(
+            execute=lambda conn: loop_service.claim_loop(
                 loop_id=loop_id,
                 owner=request.owner,
                 ttl_seconds=request.ttl_seconds,
                 conn=conn,
                 settings=settings,
-            )
-        except LoopClaimedError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "loop_claimed",
-                    "message": str(exc),
-                    "owner": exc.owner,
-                    "lease_until": exc.lease_until,
-                },
-            ) from None
-
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=result,
-            conn=conn,
+            ),
         )
+    except LoopClaimedError as exc:
+        raise loop_claimed_http_exception(exc) from None
 
+    if isinstance(result, JSONResponse):
+        return result
     return LoopClaimResponse(**result)
 
 
@@ -118,43 +98,32 @@ def renew_claim_endpoint(
         "ttl_seconds": request.ttl_seconds,
     }
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="POST",
             path=f"/loops/{loop_id}/renew",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
-
-        try:
-            result = loop_service.renew_claim(
+            execute=lambda conn: loop_service.renew_claim(
                 loop_id=loop_id,
                 claim_token=request.claim_token,
                 ttl_seconds=request.ttl_seconds,
                 conn=conn,
                 settings=settings,
-            )
-        except ClaimNotFoundError:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "code": "claim_not_found",
-                    "message": f"No valid claim for loop {loop_id}",
-                },
-            ) from None
-
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=result,
-            conn=conn,
+            ),
         )
+    except ClaimNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "claim_not_found",
+                "message": f"No valid claim for loop {loop_id}",
+            },
+        ) from None
 
+    if isinstance(result, JSONResponse):
+        return result
     return LoopClaimResponse(**result)
 
 
@@ -168,41 +137,27 @@ def release_claim_endpoint(
     """Release a claim on a loop."""
     payload = {"loop_id": loop_id, "claim_token": request.claim_token}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
             method="DELETE",
             path=f"/loops/{loop_id}/claim",
             idempotency_key=idempotency_key,
             payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
-
-        try:
-            loop_service.release_claim(
+            execute=lambda conn: _release_claim_response(
                 loop_id=loop_id,
                 claim_token=request.claim_token,
                 conn=conn,
-            )
-        except ClaimNotFoundError:
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "code": "claim_not_found",
-                    "message": f"No valid claim for loop {loop_id}",
-                },
-            ) from None
-
-        result = {"ok": True, "loop_id": loop_id}
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=result,
-            conn=conn,
+            ),
         )
+    except ClaimNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "claim_not_found",
+                "message": f"No valid claim for loop {loop_id}",
+            },
+        ) from None
 
     return result
 
@@ -213,6 +168,8 @@ def get_claim_status_endpoint(
     settings: SettingsDep,
 ) -> LoopClaimStatusResponse | None:
     """Get the current claim status for a loop."""
+    from ... import db
+
     with db.core_connection(settings) as conn:
         claim = loop_service.get_claim_status(loop_id=loop_id, conn=conn)
     if claim is None:
@@ -233,26 +190,21 @@ def force_release_claim_endpoint(
     """
     payload = {"loop_id": loop_id}
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_http_idempotency(
-            method="DELETE",
-            path=f"/loops/{loop_id}/claim/force",
-            idempotency_key=idempotency_key,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_http_response(idempotency)
-        if replay is not None:
-            return replay
+    return run_idempotent_loop_route(
+        settings=settings,
+        method="DELETE",
+        path=f"/loops/{loop_id}/claim/force",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: {
+            "ok": True,
+            "released": loop_service.force_release_claim(loop_id=loop_id, conn=conn),
+            "loop_id": loop_id,
+        },
+    )
 
-        released = loop_service.force_release_claim(loop_id=loop_id, conn=conn)
-        result = {"ok": True, "released": released, "loop_id": loop_id}
-        finalize_idempotent_response(
-            state=idempotency,
-            response_status=200,
-            response_body=result,
-            conn=conn,
-        )
 
-    return result
+def _release_claim_response(*, loop_id: int, claim_token: str, conn: Any) -> dict[str, Any]:
+    """Release a claim and normalize the route response body."""
+    loop_service.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
+    return {"ok": True, "loop_id": loop_id}

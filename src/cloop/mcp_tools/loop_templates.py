@@ -26,15 +26,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .. import db
 from ..loops import repo as loop_repo
 from ..loops import service as loop_service
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -57,6 +51,9 @@ def loop_template_list() -> list[dict[str, Any]]:
         - is_system: True for built-in templates, False for user-created
         - created_at_utc: When the template was created
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_repo.list_loop_templates(conn=conn)
@@ -75,6 +72,9 @@ def loop_template_get(template_id: int) -> dict[str, Any] | None:
         Template dict with id, name, description, raw_text_pattern,
         defaults_json, is_system, and created_at_utc, or None if not found.
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_repo.get_loop_template(template_id=template_id, conn=conn)
@@ -110,36 +110,25 @@ def loop_template_create(
     Raises:
         ToolError: If name is already in use or validation fails.
     """
-    settings = get_settings()
     payload = {
         "name": name,
         "description": description,
         "raw_text_pattern": raw_text_pattern,
         "defaults": defaults,
     }
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.template.create",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        template = loop_repo.create_loop_template(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.template.create",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_repo.create_loop_template(
             name=name,
             description=description,
             raw_text_pattern=raw_text_pattern,
             defaults_json=defaults or {},
             is_system=False,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=template, conn=conn)
-    return template
+        ),
+    )
 
 
 def loop_template_delete(
@@ -162,25 +151,15 @@ def loop_template_delete(
     Raises:
         ToolError: If the template is a system template (cannot be deleted).
     """
-    settings = get_settings()
     payload = {"template_id": template_id}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.template.delete",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        deleted = loop_repo.delete_loop_template(template_id=template_id, conn=conn)
-        result = {"deleted": deleted}
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+    return run_idempotent_tool_mutation(
+        tool_name="loop.template.delete",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: {
+            "deleted": loop_repo.delete_loop_template(template_id=template_id, conn=conn)
+        },
+    )
 
 
 def loop_template_from_loop(
@@ -206,28 +185,17 @@ def loop_template_from_loop(
     Raises:
         ToolError: If the source loop is not found or name is already in use.
     """
-    settings = get_settings()
     payload = {"loop_id": loop_id, "name": name}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.template.from_loop",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        template = loop_service.create_template_from_loop(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.template.from_loop",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.create_template_from_loop(
             loop_id=loop_id,
             template_name=name,
             conn=conn,
-        )
-        finalize_tool_idempotency(state=idempotency, response=template, conn=conn)
-    return template
+        ),
+    )
 
 
 def project_list() -> list[dict[str, Any]]:
@@ -242,6 +210,9 @@ def project_list() -> list[dict[str, Any]]:
         - name: Project name
         - created_at_utc: When the project was created
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_repo.list_projects(conn=conn)

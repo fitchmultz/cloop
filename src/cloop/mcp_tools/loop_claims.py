@@ -28,14 +28,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .. import db
 from ..loops import service as loop_service
-from ..settings import get_settings
-from ._idempotency import (
-    finalize_tool_idempotency,
-    prepare_tool_idempotency,
-    replay_tool_response,
-)
+from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -58,31 +52,19 @@ def loop_claim(
     Returns:
         Dict with claim details including claim_token
     """
-    settings = get_settings()
-
     payload = {"loop_id": loop_id, "owner": owner, "ttl_seconds": ttl_seconds}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.claim",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.claim_loop(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.claim",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.claim_loop(
             loop_id=loop_id,
             owner=owner,
             ttl_seconds=ttl_seconds,
             conn=conn,
             settings=settings,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_renew_claim(
@@ -102,35 +84,23 @@ def loop_renew_claim(
     Returns:
         Dict with updated claim details
     """
-    settings = get_settings()
-
     payload = {
         "loop_id": loop_id,
         "claim_token": claim_token,
         "ttl_seconds": ttl_seconds,
     }
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.renew_claim",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        result = loop_service.renew_claim(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.renew_claim",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: loop_service.renew_claim(
             loop_id=loop_id,
             claim_token=claim_token,
             ttl_seconds=ttl_seconds,
             conn=conn,
             settings=settings,
-        )
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_release_claim(
@@ -148,30 +118,17 @@ def loop_release_claim(
     Returns:
         Dict with ok status
     """
-    settings = get_settings()
-
     payload = {"loop_id": loop_id, "claim_token": claim_token}
-
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.release_claim",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
-
-        loop_service.release_claim(
+    return run_idempotent_tool_mutation(
+        tool_name="loop.release_claim",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: _release_claim(
             loop_id=loop_id,
             claim_token=claim_token,
             conn=conn,
-        )
-        result = {"ok": True}
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+        ),
+    )
 
 
 def loop_get_claim(loop_id: int) -> dict[str, Any] | None:
@@ -183,6 +140,9 @@ def loop_get_claim(loop_id: int) -> dict[str, Any] | None:
     Returns:
         Dict with claim info (without token) or None if not claimed
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.get_claim_status(loop_id=loop_id, conn=conn)
@@ -201,6 +161,9 @@ def loop_list_claims(
     Returns:
         List of claim dicts (without tokens) ordered by lease_until ascending
     """
+    from .. import db
+    from ..settings import get_settings
+
     settings = get_settings()
     with db.core_connection(settings) as conn:
         return loop_service.list_active_claims(owner=owner, limit=limit, conn=conn)
@@ -219,26 +182,22 @@ def loop_force_release_claim(
     Returns:
         Dict with ok and released status
     """
-    settings = get_settings()
-
     payload = {"loop_id": loop_id}
+    return run_idempotent_tool_mutation(
+        tool_name="loop.force_release_claim",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: {
+            "ok": True,
+            "released": loop_service.force_release_claim(loop_id=loop_id, conn=conn),
+        },
+    )
 
-    with db.core_connection(settings) as conn:
-        idempotency = prepare_tool_idempotency(
-            tool_name="loop.force_release_claim",
-            request_id=request_id,
-            payload=payload,
-            settings=settings,
-            conn=conn,
-        )
-        replay = replay_tool_response(idempotency)
-        if replay is not None:
-            return replay
 
-        released = loop_service.force_release_claim(loop_id=loop_id, conn=conn)
-        result = {"ok": True, "released": released}
-        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
-    return result
+def _release_claim(*, loop_id: int, claim_token: str, conn: Any) -> dict[str, Any]:
+    """Release a claim and normalize the tool response body."""
+    loop_service.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
+    return {"ok": True}
 
 
 def register_loop_claim_tools(mcp: "FastMCP") -> None:
