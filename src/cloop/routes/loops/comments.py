@@ -25,11 +25,12 @@ Endpoints:
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
+from ... import db
 from ...loops import service as loop_service
-from ...loops.errors import LoopNotFoundError, ValidationError
+from ...loops.errors import CommentNotFoundError, LoopNotFoundError, ValidationError
 from ...schemas.loops import (
     LoopCommentCreateRequest,
     LoopCommentListResponse,
@@ -40,6 +41,8 @@ from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
     build_loop_comment_response,
+    map_not_found_to_404,
+    map_validation_to_400,
     run_idempotent_loop_route,
 )
 
@@ -78,21 +81,23 @@ def create_comment_endpoint(
             idempotency_key=idempotency_key,
             payload=payload,
             response_status=201,
-            execute=lambda conn: LoopCommentResponse(
-                **loop_service.create_loop_comment(
-                    loop_id=loop_id,
-                    author=request.author,
-                    body_md=request.body_md,
-                    parent_id=request.parent_id,
-                    conn=conn,
-                ),
-                replies=[],
+            execute=lambda conn: build_loop_comment_response(
+                {
+                    **loop_service.create_loop_comment(
+                        loop_id=loop_id,
+                        author=request.author,
+                        body_md=request.body_md,
+                        parent_id=request.parent_id,
+                        conn=conn,
+                    ),
+                    "replies": [],
+                }
             ).model_dump(),
         )
-    except LoopNotFoundError:
-        raise HTTPException(status_code=404, detail="Loop not found") from None
+    except LoopNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="loop") from None
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+        raise map_validation_to_400(exc) from None
 
     if isinstance(result, JSONResponse):
         return result
@@ -114,8 +119,6 @@ def list_comments_endpoint(
     Returns comments as a nested tree structure where replies are nested under their parent.
     Comments are ordered by creation time within each thread level.
     """
-    from ... import db
-
     with db.core_connection(settings) as conn:
         try:
             result = loop_service.list_loop_comments(
@@ -123,8 +126,8 @@ def list_comments_endpoint(
                 include_deleted=include_deleted,
                 conn=conn,
             )
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None
 
     return LoopCommentListResponse(
         loop_id=result["loop_id"],
@@ -158,17 +161,21 @@ def update_comment_endpoint(
             path=f"/loops/{loop_id}/comments/{comment_id}",
             idempotency_key=idempotency_key,
             payload=payload,
-            execute=lambda conn: LoopCommentResponse(
-                **loop_service.update_loop_comment(
-                    comment_id=comment_id,
-                    body_md=request.body_md,
-                    conn=conn,
-                ),
-                replies=[],
+            execute=lambda conn: build_loop_comment_response(
+                {
+                    **loop_service.update_loop_comment(
+                        comment_id=comment_id,
+                        body_md=request.body_md,
+                        conn=conn,
+                    ),
+                    "replies": [],
+                }
             ).model_dump(),
         )
-    except RuntimeError:
-        raise HTTPException(status_code=404, detail="Comment not found or deleted") from None
+    except CommentNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="comment") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
 
     if isinstance(result, JSONResponse):
         return result
@@ -208,5 +215,8 @@ def _delete_comment_response(*, comment_id: int, conn: Any) -> dict[str, Any]:
     """Delete a comment and normalize the route response body."""
     deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Comment not found")
+        raise map_not_found_to_404(
+            resource_type="comment",
+            message=f"Comment not found: {comment_id}",
+        )
     return {"ok": True, "deleted": True, "comment_id": comment_id}

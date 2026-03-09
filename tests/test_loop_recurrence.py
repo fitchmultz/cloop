@@ -602,6 +602,19 @@ class TestLoopDependencies:
 
         assert set(blocking_ids) == {loop_b["id"], loop_c["id"]}
 
+    def test_missing_dependency_loop_returns_structured_404(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+    ) -> None:
+        """Dependency list should return structured 404 for missing loops."""
+        client = make_test_client()
+
+        response = client.get("/loops/99999/dependencies")
+
+        assert response.status_code == 404
+        body = response.json()
+        assert body["error"]["type"] == "not_found"
+        assert "99999" in body["error"]["message"]
+
     def test_dependency_persists_after_reopen(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
     ) -> None:

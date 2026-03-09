@@ -28,13 +28,15 @@ from ...idempotency_flow import (
     prepare_http_idempotency,
     replay_http_response,
 )
-from ...loops.errors import LoopClaimedError
+from ...loops.errors import LoopClaimedError, NotFoundError, ValidationError
 from ...schemas.loops import (
     BulkResultItem,
+    DependencyInfo,
     LoopCommentResponse,
     LoopResponse,
     LoopTemplateResponse,
     LoopViewResponse,
+    LoopWithDependenciesResponse,
     TimerStatusResponse,
     TimeSessionResponse,
     WebhookDeliveryResponse,
@@ -122,6 +124,67 @@ def invalid_claim_token_http_exception() -> HTTPException:
     )
 
 
+def map_not_found_to_404(
+    exc: NotFoundError | None = None,
+    *,
+    resource_type: str,
+    message: str | None = None,
+) -> HTTPException:
+    """Build the standard HTTP 404 payload for a missing domain resource."""
+    resolved_message = message or (
+        exc.message if exc is not None else f"{resource_type.capitalize()} not found"
+    )
+    return HTTPException(
+        status_code=404,
+        detail={
+            "code": f"{resource_type}_not_found",
+            "message": resolved_message,
+        },
+    )
+
+
+def map_validation_to_400(exc: ValidationError) -> HTTPException:
+    """Build the standard HTTP 400 payload for domain validation failures."""
+    return HTTPException(
+        status_code=400,
+        detail={
+            "code": "validation_error",
+            "message": exc.message,
+            "field": exc.field,
+            "reason": exc.reason,
+        },
+    )
+
+
+def build_loop_response(loop: Mapping[str, Any]) -> LoopResponse:
+    """Convert a loop payload into the route response model."""
+    return LoopResponse(**loop)
+
+
+def build_loop_responses(loops: Sequence[Mapping[str, Any]]) -> list[LoopResponse]:
+    """Convert multiple loop payloads into route response models."""
+    return [build_loop_response(loop) for loop in loops]
+
+
+def build_dependency_info_response(dep: Mapping[str, Any]) -> DependencyInfo:
+    """Convert a dependency payload into the route response model."""
+    return DependencyInfo(**dep)
+
+
+def build_dependency_info_responses(
+    deps: Sequence[Mapping[str, Any]],
+) -> list[DependencyInfo]:
+    """Convert multiple dependency payloads into route response models."""
+    return [build_dependency_info_response(dep) for dep in deps]
+
+
+def build_loop_with_dependencies_response(
+    result: Mapping[str, Any],
+) -> LoopWithDependenciesResponse:
+    """Convert a loop-with-dependencies payload into the route response model."""
+    return LoopWithDependenciesResponse(**result)
+
+
 def build_loop_comment_response(comment: Mapping[str, Any]) -> LoopCommentResponse:
     """Convert a nested loop comment payload into the route response model."""
     replies = [build_loop_comment_response(reply) for reply in comment.get("replies", [])]
@@ -147,7 +210,7 @@ def build_bulk_result_items(results: Sequence[Mapping[str, Any]]) -> list[BulkRe
             index=result["index"],
             loop_id=result["loop_id"],
             ok=result["ok"],
-            loop=LoopResponse(**result["loop"]) if result.get("loop") else None,
+            loop=build_loop_response(result["loop"]) if result.get("loop") else None,
             error=result.get("error"),
         )
         for result in results
@@ -161,7 +224,7 @@ def build_query_bulk_preview_response(result: Mapping[str, Any]) -> dict[str, An
         "dry_run": True,
         "matched_count": result["matched_count"],
         "limited": result.get("limited", False),
-        "targets": [LoopResponse(**item) for item in result.get("targets", [])],
+        "targets": build_loop_responses(result.get("targets", [])),
     }
 
 

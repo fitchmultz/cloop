@@ -20,7 +20,7 @@ Non-scope:
 from __future__ import annotations
 
 import sqlite3
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from .. import typingx
 from ..webhooks.service import queue_deliveries
@@ -30,6 +30,13 @@ from .models import LoopEventType
 
 if TYPE_CHECKING:
     from .models import TimerStatus, TimeSession
+
+
+class TimeSessionListResult(TypedDict):
+    """Paginated time-session results with total row count."""
+
+    sessions: list["TimeSession"]
+    total_count: int
 
 
 class TimerError(Exception):
@@ -225,7 +232,7 @@ def list_time_sessions(
     limit: int = 50,
     offset: int = 0,
     conn: sqlite3.Connection,
-) -> list["TimeSession"]:
+) -> TimeSessionListResult:
     """List time sessions for a loop.
 
     Args:

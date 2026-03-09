@@ -28,20 +28,33 @@ Endpoints:
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from ... import db
 from ...loops import service as loop_service
+from ...loops.errors import ValidationError
 from ...schemas.loops import (
-    LoopResponse,
     LoopViewApplyResponse,
     LoopViewCreateRequest,
     LoopViewResponse,
     LoopViewUpdateRequest,
 )
-from ._common import SettingsDep, build_loop_view_response
+from ._common import (
+    SettingsDep,
+    build_loop_responses,
+    build_loop_view_response,
+    map_not_found_to_404,
+    map_validation_to_400,
+)
 
 router = APIRouter()
+
+
+def _raise_view_http_exception(exc: ValidationError) -> None:
+    """Map saved-view validation failures to stable HTTP responses."""
+    if exc.field == "view_id" and "not found" in exc.reason.lower():
+        raise map_not_found_to_404(resource_type="view", message=exc.reason) from None
+    raise map_validation_to_400(exc) from None
 
 
 @router.post("/views", response_model=LoopViewResponse)
@@ -51,12 +64,15 @@ def loop_view_create_endpoint(
 ) -> LoopViewResponse:
     """Create a new saved view."""
     with db.core_connection(settings) as conn:
-        view = loop_service.create_loop_view(
-            name=request.name,
-            query=request.query,
-            description=request.description,
-            conn=conn,
-        )
+        try:
+            view = loop_service.create_loop_view(
+                name=request.name,
+                query=request.query,
+                description=request.description,
+                conn=conn,
+            )
+        except ValidationError as exc:
+            _raise_view_http_exception(exc)
     return build_loop_view_response(view)
 
 
@@ -75,7 +91,10 @@ def loop_view_get_endpoint(
 ) -> LoopViewResponse:
     """Get a saved view by ID."""
     with db.core_connection(settings) as conn:
-        view = loop_service.get_loop_view(view_id=view_id, conn=conn)
+        try:
+            view = loop_service.get_loop_view(view_id=view_id, conn=conn)
+        except ValidationError as exc:
+            _raise_view_http_exception(exc)
     return build_loop_view_response(view)
 
 
@@ -88,16 +107,19 @@ def loop_view_update_endpoint(
     """Update a saved view."""
     fields = request.model_dump(exclude_unset=True)
     if not fields:
-        raise HTTPException(status_code=400, detail="no_fields_to_update")
+        raise map_validation_to_400(ValidationError("fields", "no fields provided")) from None
 
     with db.core_connection(settings) as conn:
-        view = loop_service.update_loop_view(
-            view_id=view_id,
-            name=fields.get("name"),
-            query=fields.get("query"),
-            description=fields.get("description"),
-            conn=conn,
-        )
+        try:
+            view = loop_service.update_loop_view(
+                view_id=view_id,
+                name=fields.get("name"),
+                query=fields.get("query"),
+                description=fields.get("description"),
+                conn=conn,
+            )
+        except ValidationError as exc:
+            _raise_view_http_exception(exc)
     return build_loop_view_response(view)
 
 
@@ -108,7 +130,10 @@ def loop_view_delete_endpoint(
 ) -> dict[str, bool]:
     """Delete a saved view."""
     with db.core_connection(settings) as conn:
-        loop_service.delete_loop_view(view_id=view_id, conn=conn)
+        try:
+            loop_service.delete_loop_view(view_id=view_id, conn=conn)
+        except ValidationError as exc:
+            _raise_view_http_exception(exc)
     return {"deleted": True}
 
 
@@ -121,17 +146,20 @@ def loop_view_apply_endpoint(
 ) -> LoopViewApplyResponse:
     """Apply a saved view and return matching loops."""
     with db.core_connection(settings) as conn:
-        result = loop_service.apply_loop_view(
-            view_id=view_id,
-            limit=limit,
-            offset=offset,
-            conn=conn,
-        )
+        try:
+            result = loop_service.apply_loop_view(
+                view_id=view_id,
+                limit=limit,
+                offset=offset,
+                conn=conn,
+            )
+        except ValidationError as exc:
+            _raise_view_http_exception(exc)
     view = result["view"]
     return LoopViewApplyResponse(
         view=build_loop_view_response(view),
         query=result["query"],
         limit=result["limit"],
         offset=result["offset"],
-        items=[LoopResponse(**item) for item in result["items"]],
+        items=build_loop_responses(result["items"]),
     )

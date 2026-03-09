@@ -97,7 +97,6 @@ def create_loop_comment(
         parent_id=parent_id,
         conn=conn,
     )
-    conn.commit()
 
     # Record event for audit trail
     event_payload = {
@@ -111,7 +110,6 @@ def create_loop_comment(
         payload=event_payload,
         conn=conn,
     )
-    conn.commit()
     queue_deliveries(
         event_id=event_id,
         event_type=LoopEventType.COMMENT_ADDED.value,
@@ -211,12 +209,11 @@ def update_loop_comment(
         Updated comment dict
 
     Raises:
-        RuntimeError: If comment not found or deleted
+        CommentNotFoundError: If comment not found or deleted
     """
     from .repo import update_comment
 
     comment = update_comment(comment_id=comment_id, body_md=body_md, conn=conn)
-    conn.commit()
 
     # Record event
     event_payload = {"comment_id": comment.id}
@@ -226,7 +223,6 @@ def update_loop_comment(
         payload=event_payload,
         conn=conn,
     )
-    conn.commit()
     queue_deliveries(
         event_id=event_id,
         event_type=LoopEventType.COMMENT_UPDATED.value,
@@ -270,7 +266,6 @@ def delete_loop_comment(
             payload=event_payload,
             conn=conn,
         )
-        conn.commit()
         queue_deliveries(
             event_id=event_id,
             event_type=LoopEventType.COMMENT_DELETED.value,

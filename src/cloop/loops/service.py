@@ -892,6 +892,10 @@ def get_loop_dependencies(
     Returns:
         List of dependency loop dicts with id, title, status
     """
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
     dep_ids = repo.list_dependencies(loop_id=loop_id, conn=conn)
     if not dep_ids:
         return []
@@ -925,6 +929,10 @@ def get_loop_blocking(
     Returns:
         List of dependent loop dicts with id, title, status
     """
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if loop is None:
+        raise LoopNotFoundError(loop_id)
+
     dependent_ids = repo.list_dependents(loop_id=loop_id, conn=conn)
     if not dependent_ids:
         return []

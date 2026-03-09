@@ -123,18 +123,19 @@ def sessions_command(args: Namespace, settings: Settings) -> int:
 
     try:
         with db.core_connection(settings) as conn:
-            sessions = list_time_sessions(
+            result = list_time_sessions(
                 loop_id=loop_id,
                 limit=limit,
                 offset=0,
                 conn=conn,
             )
+            sessions = result["sessions"]
 
             if not sessions:
                 print(f"No time sessions for loop {loop_id}")
                 return 0
 
-            print(f"Time sessions for loop {loop_id}:")
+            print(f"Time sessions for loop {loop_id} ({result['total_count']} total):")
             print("-" * 60)
 
             for s in sessions:

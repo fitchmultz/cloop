@@ -423,6 +423,21 @@ def test_view_duplicate_name_rejected(
     assert resp.status_code == 400
 
 
+def test_view_get_missing_view_returns_structured_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Missing saved views should return a structured 404 payload."""
+    client = make_test_client()
+
+    response = client.get("/loops/views/99999")
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["error"]["type"] == "http_error"
+    assert body["error"]["details"]["code"] == "view_not_found"
+    assert "99999" in body["error"]["message"]
+
+
 # =============================================================================
 # Cross-surface parity tests
 # =============================================================================

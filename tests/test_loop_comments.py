@@ -25,6 +25,11 @@ from pathlib import Path
 
 import pytest
 
+from cloop import db
+from cloop.loops import repo as loop_repo
+from cloop.loops import service as loop_service
+from cloop.settings import get_settings
+
 # =============================================================================
 # Comment Tests
 # =============================================================================
@@ -460,3 +465,68 @@ def test_comment_delete_idempotency_replay(
     response2 = client.delete(f"/loops/{loop['id']}/comments/{comment['id']}", headers=headers)
     assert response2.status_code == 200
     assert response2.json()["deleted"] is True
+
+
+def test_comment_update_missing_comment_returns_structured_404(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Missing comment updates should return a structured 404 payload."""
+    client = make_test_client()
+
+    loop = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Loop for missing comment update",
+            "captured_at": "2026-02-15T12:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    ).json()
+
+    response = client.patch(
+        f"/loops/{loop['id']}/comments/99999",
+        json={"body_md": "Updated text"},
+    )
+
+    assert response.status_code == 404
+    body = response.json()
+    assert body["error"]["type"] == "http_error"
+    assert body["error"]["details"]["code"] == "comment_not_found"
+    assert "99999" in body["error"]["message"]
+
+
+def test_comment_create_rolls_back_when_webhook_queue_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Comment creation should roll back fully if webhook queueing fails."""
+    client = make_test_client()
+
+    loop = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Loop for rollback test",
+            "captured_at": "2026-02-15T12:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    ).json()
+
+    def fail_queue_deliveries(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("webhook_queue_failed")
+
+    monkeypatch.setattr("cloop.loops.comments.queue_deliveries", fail_queue_deliveries)
+
+    settings = get_settings()
+    with pytest.raises(RuntimeError, match="webhook_queue_failed"):
+        with db.core_connection(settings) as conn:
+            loop_service.create_loop_comment(
+                loop_id=loop["id"],
+                author="Alice",
+                body_md="should rollback",
+                conn=conn,
+            )
+
+    with db.core_connection(settings) as conn:
+        comments = loop_service.list_loop_comments(loop_id=loop["id"], conn=conn)
+        events = loop_repo.list_loop_events(loop_id=loop["id"], conn=conn)
+
+    assert comments["total_count"] == 0
+    assert not any(event["event_type"] == "comment_added" for event in events)

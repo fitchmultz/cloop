@@ -65,6 +65,14 @@ class NoteNotFoundError(NotFoundError):
         self.note_id = note_id
 
 
+class CommentNotFoundError(NotFoundError):
+    """Raised when a comment with the specified ID does not exist."""
+
+    def __init__(self, comment_id: int) -> None:
+        super().__init__(f"Comment not found: {comment_id}", detail=f"comment_id={comment_id}")
+        self.comment_id = comment_id
+
+
 class MemoryNotFoundError(NotFoundError):
     """Raised when a memory entry with the specified ID does not exist."""
 

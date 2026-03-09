@@ -30,7 +30,11 @@ from ...loops.service import (
     remove_loop_dependency,
 )
 from ...schemas.loops import DependencyAddRequest, DependencyInfo, LoopWithDependenciesResponse
-from ._common import SettingsDep
+from ._common import (
+    SettingsDep,
+    build_dependency_info_responses,
+    build_loop_with_dependencies_response,
+)
 
 router = APIRouter()
 
@@ -48,7 +52,7 @@ def add_dependency_endpoint(
             depends_on_loop_id=request.depends_on_loop_id,
             conn=conn,
         )
-    return LoopWithDependenciesResponse(**result)
+    return build_loop_with_dependencies_response(result)
 
 
 @router.delete(
@@ -66,7 +70,7 @@ async def remove_dependency_endpoint(
             depends_on_loop_id=depends_on_id,
             conn=conn,
         )
-    return LoopWithDependenciesResponse(**result)
+    return build_loop_with_dependencies_response(result)
 
 
 @router.get("/{loop_id}/dependencies", response_model=list[DependencyInfo])
@@ -77,7 +81,7 @@ async def list_dependencies_endpoint(
     """List all dependencies (blockers) for a loop."""
     with db.core_connection(settings) as conn:
         deps = get_loop_dependencies(loop_id=loop_id, conn=conn)
-    return [DependencyInfo(**dep) for dep in deps]
+    return build_dependency_info_responses(deps)
 
 
 @router.get("/{loop_id}/blocking", response_model=list[DependencyInfo])
@@ -88,4 +92,4 @@ async def list_blocking_endpoint(
     """List all loops that depend on this loop (dependents)."""
     with db.core_connection(settings) as conn:
         blocking = get_loop_blocking(loop_id=loop_id, conn=conn)
-    return [DependencyInfo(**blk) for blk in blocking]
+    return build_dependency_info_responses(blocking)

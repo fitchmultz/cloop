@@ -25,7 +25,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Mapping
 
 from ..typingx import escape_like_pattern
-from .errors import LoopCreateError, LoopImportError, LoopNotFoundError, ValidationError
+from .errors import (
+    CommentNotFoundError,
+    LoopCreateError,
+    LoopImportError,
+    LoopNotFoundError,
+    ValidationError,
+)
 from .models import (
     EnrichmentState,
     LoopClaim,
@@ -2598,7 +2604,7 @@ def update_comment(
         Updated LoopComment
 
     Raises:
-        RuntimeError: If comment not found or deleted
+        CommentNotFoundError: If comment not found or deleted
     """
     cursor = conn.execute(
         """
@@ -2609,7 +2615,7 @@ def update_comment(
         (body_md, comment_id),
     )
     if cursor.rowcount == 0:
-        raise RuntimeError("comment_not_found_or_deleted")
+        raise CommentNotFoundError(comment_id)
 
     row = conn.execute("SELECT * FROM loop_comments WHERE id = ?", (comment_id,)).fetchone()
     if row is None:
@@ -2640,7 +2646,6 @@ def soft_delete_comment(
         """,
         (comment_id,),
     )
-    conn.commit()
     return cursor.rowcount > 0
 
 
