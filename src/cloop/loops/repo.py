@@ -2213,6 +2213,23 @@ def list_time_sessions(
     return [_row_to_time_session(row) for row in rows]
 
 
+def count_time_sessions(
+    *,
+    loop_id: int,
+    conn: sqlite3.Connection,
+) -> int:
+    """Count all time sessions for a loop."""
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM time_sessions
+        WHERE loop_id = ?
+        """,
+        (loop_id,),
+    ).fetchone()
+    return int(row["count"]) if row else 0
+
+
 def get_total_tracked_time(
     *,
     loop_id: int,

@@ -35,6 +35,11 @@ from ...schemas.loops import (
     LoopResponse,
     LoopTemplateResponse,
     LoopViewResponse,
+    TimerStatusResponse,
+    TimeSessionResponse,
+    WebhookDeliveryResponse,
+    WebhookSubscriptionCreateResponse,
+    WebhookSubscriptionResponse,
 )
 from ...settings import Settings, get_settings
 
@@ -185,4 +190,56 @@ def build_loop_template_response(template: Mapping[str, Any]) -> LoopTemplateRes
         is_system=bool(template["is_system"]),
         created_at=template["created_at"],
         updated_at=template["updated_at"],
+    )
+
+
+def build_timer_session_response(session: Any) -> TimeSessionResponse:
+    """Convert a time-session model into the route response model."""
+    return TimeSessionResponse.from_session(session)
+
+
+def build_timer_status_response(status: Any) -> TimerStatusResponse:
+    """Convert a timer-status model into the route response model."""
+    return TimerStatusResponse.from_status(status)
+
+
+def build_webhook_subscription_response(subscription: Any) -> WebhookSubscriptionResponse:
+    """Convert a webhook subscription model into the route response model."""
+    return WebhookSubscriptionResponse(
+        id=subscription.id,
+        url=subscription.url,
+        event_types=subscription.event_types,
+        active=subscription.active,
+        description=subscription.description,
+        created_at_utc=subscription.created_at,
+        updated_at_utc=subscription.updated_at,
+    )
+
+
+def build_webhook_subscription_create_response(
+    subscription: Any,
+    *,
+    secret: str,
+) -> WebhookSubscriptionCreateResponse:
+    """Convert a created webhook subscription into the create response model."""
+    return WebhookSubscriptionCreateResponse(
+        **build_webhook_subscription_response(subscription).model_dump(),
+        secret=secret,
+    )
+
+
+def build_webhook_delivery_response(delivery: Any) -> WebhookDeliveryResponse:
+    """Convert a webhook delivery model into the route response model."""
+    return WebhookDeliveryResponse(
+        id=delivery.id,
+        subscription_id=delivery.subscription_id,
+        event_id=delivery.event_id,
+        event_type=delivery.event_type,
+        status=delivery.status.value,
+        http_status=delivery.http_status,
+        error_message=delivery.error_message,
+        attempt_count=delivery.attempt_count,
+        next_retry_at=delivery.next_retry_at,
+        created_at_utc=delivery.created_at,
+        updated_at_utc=delivery.updated_at,
     )

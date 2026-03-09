@@ -35,7 +35,12 @@ from ...schemas.loops import (
     WebhookSubscriptionUpdate,
 )
 from ...webhooks import repo as webhooks_repo
-from ._common import SettingsDep
+from ._common import (
+    SettingsDep,
+    build_webhook_delivery_response,
+    build_webhook_subscription_create_response,
+    build_webhook_subscription_response,
+)
 
 router = APIRouter()
 
@@ -68,16 +73,7 @@ def create_webhook_subscription(
             description=request.description,
             conn=conn,
         )
-    return WebhookSubscriptionCreateResponse(
-        id=subscription.id,
-        url=subscription.url,
-        event_types=subscription.event_types,
-        active=subscription.active,
-        description=subscription.description,
-        created_at_utc=subscription.created_at,
-        updated_at_utc=subscription.updated_at,
-        secret=secret,
-    )
+    return build_webhook_subscription_create_response(subscription, secret=secret)
 
 
 @router.get("/webhooks/subscriptions", response_model=List[WebhookSubscriptionResponse])
@@ -85,18 +81,7 @@ def list_webhook_subscriptions(settings: SettingsDep) -> List[WebhookSubscriptio
     """List all webhook subscriptions."""
     with db.core_connection(settings) as conn:
         subscriptions = webhooks_repo.list_subscriptions(conn=conn)
-    return [
-        WebhookSubscriptionResponse(
-            id=sub.id,
-            url=sub.url,
-            event_types=sub.event_types,
-            active=sub.active,
-            description=sub.description,
-            created_at_utc=sub.created_at,
-            updated_at_utc=sub.updated_at,
-        )
-        for sub in subscriptions
-    ]
+    return [build_webhook_subscription_response(subscription) for subscription in subscriptions]
 
 
 @router.patch(
@@ -124,15 +109,7 @@ def update_webhook_subscription(
         if subscription is None:
             raise HTTPException(status_code=404, detail="subscription_not_found")
 
-    return WebhookSubscriptionResponse(
-        id=subscription.id,
-        url=subscription.url,
-        event_types=subscription.event_types,
-        active=subscription.active,
-        description=subscription.description,
-        created_at_utc=subscription.created_at,
-        updated_at_utc=subscription.updated_at,
-    )
+    return build_webhook_subscription_response(subscription)
 
 
 @router.delete("/webhooks/subscriptions/{subscription_id}")
@@ -176,19 +153,4 @@ def list_webhook_deliveries(
             limit=limit,
         )
 
-    return [
-        WebhookDeliveryResponse(
-            id=d.id,
-            subscription_id=d.subscription_id,
-            event_id=d.event_id,
-            event_type=d.event_type,
-            status=d.status.value,
-            http_status=d.http_status,
-            error_message=d.error_message,
-            attempt_count=d.attempt_count,
-            next_retry_at=d.next_retry_at,
-            created_at_utc=d.created_at,
-            updated_at_utc=d.updated_at,
-        )
-        for d in deliveries
-    ]
+    return [build_webhook_delivery_response(delivery) for delivery in deliveries]

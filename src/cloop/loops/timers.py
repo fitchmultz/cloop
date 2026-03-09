@@ -235,7 +235,7 @@ def list_time_sessions(
         conn: Database connection
 
     Returns:
-        List of TimeSession objects
+        Dict with paginated sessions and the total session count
 
     Raises:
         LoopNotFoundError: If loop doesn't exist
@@ -244,9 +244,11 @@ def list_time_sessions(
     if loop is None:
         raise LoopNotFoundError(loop_id)
 
-    return repo.list_time_sessions(
+    sessions = repo.list_time_sessions(
         loop_id=loop_id,
         limit=limit,
         offset=offset,
         conn=conn,
     )
+    total_count = repo.count_time_sessions(loop_id=loop_id, conn=conn)
+    return {"sessions": sessions, "total_count": total_count}

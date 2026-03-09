@@ -171,6 +171,36 @@ def test_session_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_t
     assert len(data["sessions"]) >= 2
 
 
+def test_session_history_total_count_respects_pagination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Session list total_count should reflect all sessions, not just the page size."""
+    client = make_test_client()
+
+    capture = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "pagination history test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = capture.json()["id"]
+
+    import time
+
+    for _ in range(3):
+        client.post(f"/loops/{loop_id}/timer/start")
+        time.sleep(1)
+        client.post(f"/loops/{loop_id}/timer/stop")
+
+    sessions = client.get(f"/loops/{loop_id}/sessions?limit=1&offset=1")
+    assert sessions.status_code == 200
+    data = sessions.json()
+    assert len(data["sessions"]) == 1
+    assert data["total_count"] == 3
+
+
 def test_timer_status_with_estimate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:

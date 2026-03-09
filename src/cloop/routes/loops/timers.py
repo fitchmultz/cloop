@@ -38,7 +38,11 @@ from ...schemas.loops import (
     TimeSessionListResponse,
     TimeSessionResponse,
 )
-from ._common import SettingsDep
+from ._common import (
+    SettingsDep,
+    build_timer_session_response,
+    build_timer_status_response,
+)
 
 router = APIRouter()
 
@@ -59,7 +63,7 @@ async def start_timer_endpoint(
     with db.core_connection(settings) as conn:
         try:
             session = start_timer(loop_id=loop_id, conn=conn)
-            return TimeSessionResponse.from_session(session)
+            return build_timer_session_response(session)
         except ActiveTimerExistsError as e:
             raise HTTPException(
                 status_code=409,
@@ -89,7 +93,7 @@ async def stop_timer_endpoint(
         try:
             notes = request.notes if request else None
             session = stop_timer(loop_id=loop_id, notes=notes, conn=conn)
-            return TimeSessionResponse.from_session(session)
+            return build_timer_session_response(session)
         except NoActiveTimerError as e:
             raise HTTPException(
                 status_code=400,
@@ -118,7 +122,7 @@ async def get_timer_status_endpoint(
     with db.core_connection(settings) as conn:
         try:
             status = get_timer_status(loop_id=loop_id, conn=conn)
-            return TimerStatusResponse.from_status(status)
+            return build_timer_status_response(status)
         except LoopNotFoundError:
             raise HTTPException(status_code=404, detail="Loop not found") from None
 
@@ -138,19 +142,17 @@ async def list_sessions_endpoint(
     """List time sessions for a loop."""
     with db.core_connection(settings) as conn:
         try:
-            sessions = list_time_sessions(
+            result = list_time_sessions(
                 loop_id=loop_id,
                 limit=limit,
                 offset=offset,
                 conn=conn,
             )
-            # Get total count
-            total_count = len(sessions)  # Simplified; could add count query
 
             return TimeSessionListResponse(
                 loop_id=loop_id,
-                sessions=[TimeSessionResponse.from_session(s) for s in sessions],
-                total_count=total_count,
+                sessions=[build_timer_session_response(session) for session in result["sessions"]],
+                total_count=result["total_count"],
             )
         except LoopNotFoundError:
             raise HTTPException(status_code=404, detail="Loop not found") from None
