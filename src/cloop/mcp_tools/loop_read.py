@@ -29,88 +29,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from mcp.server.fastmcp.exceptions import ToolError
-
 from .. import db
 from ..constants import DEFAULT_LOOP_LIST_LIMIT
-from ..idempotency import (
-    build_mcp_scope,
-    canonical_request_hash,
-    expiry_timestamp,
-    normalize_idempotency_key,
-)
 from ..loops import enrichment as loop_enrichment
 from ..loops import service as loop_service
 from ..loops.models import LoopStatus, validate_iso8601_timestamp
 from ..settings import get_settings
+from ._idempotency import (
+    finalize_tool_idempotency,
+    prepare_tool_idempotency,
+    replay_tool_response,
+)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
-
-
-def _handle_mcp_idempotency(
-    *,
-    tool_name: str,
-    request_id: str | None,
-    payload: dict[str, Any],
-    settings: Any,
-) -> dict[str, Any] | None:
-    """Handle idempotency for MCP tool calls."""
-    from ..idempotency import IdempotencyConflictError
-
-    if request_id is None:
-        return None
-
-    try:
-        key = normalize_idempotency_key(request_id, settings.idempotency_max_key_length)
-    except ValueError as e:
-        raise ToolError(str(e)) from None
-
-    scope = build_mcp_scope(tool_name)
-    request_hash = canonical_request_hash(payload)
-    expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-    with db.core_connection(settings) as conn:
-        try:
-            claim = db.claim_or_replay_idempotency(
-                scope=scope,
-                idempotency_key=key,
-                request_hash=request_hash,
-                expires_at=expires_at,
-                conn=conn,
-            )
-        except IdempotencyConflictError as e:
-            raise ToolError(f"Idempotency conflict: {e}") from None
-
-        if not claim["is_new"] and claim["replay"]:
-            return claim["replay"]["response_body"]
-
-        return None
-
-
-def _finalize_mcp_idempotency(
-    *,
-    tool_name: str,
-    request_id: str | None,
-    payload: dict[str, Any],
-    response: dict[str, Any],
-    settings: Any,
-) -> None:
-    """Store response for idempotent MCP tool call."""
-    if request_id is None:
-        return
-
-    key = normalize_idempotency_key(request_id, settings.idempotency_max_key_length)
-    scope = build_mcp_scope(tool_name)
-
-    with db.core_connection(settings) as conn:
-        db.finalize_idempotency_response(
-            scope=scope,
-            idempotency_key=key,
-            response_status=200,
-            response_body=response,
-            conn=conn,
-        )
 
 
 def loop_list(
@@ -198,29 +130,24 @@ def loop_snooze(
 
     payload = {"loop_id": loop_id, "snooze_until_utc": snooze_until_utc}
 
-    replay = _handle_mcp_idempotency(
-        tool_name="loop.snooze",
-        request_id=request_id,
-        payload=payload,
-        settings=settings,
-    )
-    if replay is not None:
-        return replay
-
     with db.core_connection(settings) as conn:
+        idempotency = prepare_tool_idempotency(
+            tool_name="loop.snooze",
+            request_id=request_id,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_tool_response(idempotency)
+        if replay is not None:
+            return replay
+
         result = loop_service.update_loop(
             loop_id=loop_id,
             fields={"snooze_until_utc": snooze_until_utc},
             conn=conn,
         )
-
-    _finalize_mcp_idempotency(
-        tool_name="loop.snooze",
-        request_id=request_id,
-        payload=payload,
-        response=result,
-        settings=settings,
-    )
+        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
     return result
 
 
@@ -247,26 +174,21 @@ def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
 
     payload = {"loop_id": loop_id}
 
-    replay = _handle_mcp_idempotency(
-        tool_name="loop.enrich",
-        request_id=request_id,
-        payload=payload,
-        settings=settings,
-    )
-    if replay is not None:
-        return replay
-
     with db.core_connection(settings) as conn:
+        idempotency = prepare_tool_idempotency(
+            tool_name="loop.enrich",
+            request_id=request_id,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_tool_response(idempotency)
+        if replay is not None:
+            return replay
+
         loop_service.request_enrichment(loop_id=loop_id, conn=conn)
         result = loop_enrichment.enrich_loop(loop_id=loop_id, conn=conn, settings=settings)
-
-    _finalize_mcp_idempotency(
-        tool_name="loop.enrich",
-        request_id=request_id,
-        payload=payload,
-        response=result,
-        settings=settings,
-    )
+        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
     return result
 
 
@@ -320,28 +242,23 @@ def loop_undo(
     settings = get_settings()
     payload = {"loop_id": loop_id}
 
-    replay = _handle_mcp_idempotency(
-        tool_name="loop.undo",
-        request_id=request_id,
-        payload=payload,
-        settings=settings,
-    )
-    if replay is not None:
-        return replay
-
     with db.core_connection(settings) as conn:
+        idempotency = prepare_tool_idempotency(
+            tool_name="loop.undo",
+            request_id=request_id,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_tool_response(idempotency)
+        if replay is not None:
+            return replay
+
         result = loop_service.undo_last_event(
             loop_id=loop_id,
             conn=conn,
         )
-
-    _finalize_mcp_idempotency(
-        tool_name="loop.undo",
-        request_id=request_id,
-        payload=payload,
-        response=result,
-        settings=settings,
-    )
+        finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
     return result
 
 

@@ -31,12 +31,10 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ... import db
-from ...idempotency import (
-    IdempotencyConflictError,
-    build_http_scope,
-    canonical_request_hash,
-    expiry_timestamp,
-    normalize_idempotency_key,
+from ...idempotency_flow import (
+    finalize_idempotent_response,
+    prepare_http_idempotency,
+    replay_http_response,
 )
 from ...loops import service as loop_service
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
@@ -47,7 +45,7 @@ from ...schemas.loops import (
     LoopUndoResponse,
 )
 from ...sse import format_sse_comment, format_sse_event
-from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
+from ._common import IdempotencyKeyHeader, SettingsDep
 
 router = APIRouter()
 
@@ -104,124 +102,64 @@ def loop_undo_endpoint(
     """
     from ...loops.errors import LoopNotFoundError
 
-    if idempotency_key is not None:
+    payload = {"loop_id": loop_id}
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path=f"/loops/{loop_id}/undo",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
+            result = loop_service.undo_last_event(loop_id=loop_id, conn=conn)
+        except UndoNotPossibleError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "undo_not_possible",
+                    "reason": exc.reason,
+                    "message": exc.message,
+                },
+            ) from None
+        except LoopNotFoundError:
+            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopClaimedError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "loop_claimed",
+                    "message": str(exc),
+                    "owner": exc.owner,
+                    "lease_until": exc.lease_until,
+                },
+            ) from None
+        except ClaimNotFoundError:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "invalid_claim_token",
+                    "message": "Invalid or expired claim token",
+                },
+            ) from None
 
-        scope = build_http_scope("POST", f"/loops/{loop_id}/undo")
-        payload = {"loop_id": loop_id}
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                result = loop_service.undo_last_event(
-                    loop_id=loop_id,
-                    conn=conn,
-                )
-            except UndoNotPossibleError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "undo_not_possible",
-                        "reason": e.reason,
-                        "message": e.message,
-                    },
-                ) from None
-            except LoopNotFoundError:
-                raise HTTPException(status_code=404, detail="Loop not found") from None
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
-
-            response = LoopUndoResponse(
-                loop=LoopResponse(**result["loop"]),
-                undone_event_id=result["undone_event_id"],
-                undone_event_type=result["undone_event_type"],
-            ).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
-                conn=conn,
-            )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                result = loop_service.undo_last_event(
-                    loop_id=loop_id,
-                    conn=conn,
-                )
-            except UndoNotPossibleError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "undo_not_possible",
-                        "reason": e.reason,
-                        "message": e.message,
-                    },
-                ) from None
-            except LoopNotFoundError:
-                raise HTTPException(status_code=404, detail="Loop not found") from None
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
         response = LoopUndoResponse(
             loop=LoopResponse(**result["loop"]),
             undone_event_id=result["undone_event_id"],
             undone_event_type=result["undone_event_type"],
         ).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopUndoResponse(**response)
 

@@ -28,7 +28,6 @@ from ...loops import service as loop_service
 from ...schemas.loops import (
     BulkCloseRequest,
     BulkCloseResponse,
-    BulkResultItem,
     BulkSnoozeRequest,
     BulkSnoozeResponse,
     BulkUpdateRequest,
@@ -42,7 +41,7 @@ from ...schemas.loops import (
     QueryBulkUpdateRequest,
     QueryBulkUpdateResponse,
 )
-from ._common import SettingsDep
+from ._common import SettingsDep, build_bulk_result_items
 
 router = APIRouter()
 
@@ -70,21 +69,10 @@ def bulk_update_endpoint(
         )
 
     # Convert results to response models
-    results = []
-    for r in result["results"]:
-        result_item = BulkResultItem(
-            index=r["index"],
-            loop_id=r["loop_id"],
-            ok=r["ok"],
-            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
-            error=r.get("error"),
-        )
-        results.append(result_item)
-
     return BulkUpdateResponse(
         ok=result["ok"],
         transactional=result["transactional"],
-        results=results,
+        results=build_bulk_result_items(result["results"]),
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
@@ -115,21 +103,10 @@ def bulk_close_endpoint(
         )
 
     # Convert results to response models
-    results = []
-    for r in result["results"]:
-        result_item = BulkResultItem(
-            index=r["index"],
-            loop_id=r["loop_id"],
-            ok=r["ok"],
-            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
-            error=r.get("error"),
-        )
-        results.append(result_item)
-
     return BulkCloseResponse(
         ok=result["ok"],
         transactional=result["transactional"],
-        results=results,
+        results=build_bulk_result_items(result["results"]),
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
@@ -158,21 +135,10 @@ def bulk_snooze_endpoint(
         )
 
     # Convert results to response models
-    results = []
-    for r in result["results"]:
-        result_item = BulkResultItem(
-            index=r["index"],
-            loop_id=r["loop_id"],
-            ok=r["ok"],
-            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
-            error=r.get("error"),
-        )
-        results.append(result_item)
-
     return BulkSnoozeResponse(
         ok=result["ok"],
         transactional=result["transactional"],
-        results=results,
+        results=build_bulk_result_items(result["results"]),
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
@@ -203,17 +169,6 @@ def query_bulk_update_endpoint(
             targets=[LoopResponse(**t) for t in result.get("targets", [])],
         )
 
-    results = [
-        BulkResultItem(
-            index=r["index"],
-            loop_id=r["loop_id"],
-            ok=r["ok"],
-            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
-            error=r.get("error"),
-        )
-        for r in result.get("results", [])
-    ]
-
     return QueryBulkUpdateResponse(
         query=result["query"],
         dry_run=result["dry_run"],
@@ -221,7 +176,7 @@ def query_bulk_update_endpoint(
         transactional=result["transactional"],
         matched_count=result["matched_count"],
         limited=result.get("limited", False),
-        results=results,
+        results=build_bulk_result_items(result.get("results", [])),
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
@@ -253,17 +208,6 @@ def query_bulk_close_endpoint(
             targets=[LoopResponse(**t) for t in result.get("targets", [])],
         )
 
-    results = [
-        BulkResultItem(
-            index=r["index"],
-            loop_id=r["loop_id"],
-            ok=r["ok"],
-            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
-            error=r.get("error"),
-        )
-        for r in result.get("results", [])
-    ]
-
     return QueryBulkCloseResponse(
         query=result["query"],
         dry_run=result["dry_run"],
@@ -271,7 +215,7 @@ def query_bulk_close_endpoint(
         transactional=result["transactional"],
         matched_count=result["matched_count"],
         limited=result.get("limited", False),
-        results=results,
+        results=build_bulk_result_items(result.get("results", [])),
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
@@ -302,17 +246,6 @@ def query_bulk_snooze_endpoint(
             targets=[LoopResponse(**t) for t in result.get("targets", [])],
         )
 
-    results = [
-        BulkResultItem(
-            index=r["index"],
-            loop_id=r["loop_id"],
-            ok=r["ok"],
-            loop=LoopResponse(**r["loop"]) if r.get("loop") else None,
-            error=r.get("error"),
-        )
-        for r in result.get("results", [])
-    ]
-
     return QueryBulkSnoozeResponse(
         query=result["query"],
         dry_run=result["dry_run"],
@@ -320,7 +253,7 @@ def query_bulk_snooze_endpoint(
         transactional=result["transactional"],
         matched_count=result["matched_count"],
         limited=result.get("limited", False),
-        results=results,
+        results=build_bulk_result_items(result.get("results", [])),
         succeeded=result["succeeded"],
         failed=result["failed"],
     )

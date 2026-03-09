@@ -18,16 +18,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from .base import add_command_parser
+
 
 def add_ingest_parser(subparsers: Any) -> None:
     """Add 'ingest' command parser."""
-    from argparse import RawDescriptionHelpFormatter
-
-    ingest_parser = subparsers.add_parser(
+    ingest_parser = add_command_parser(
+        subparsers,
         "ingest",
-        help="Ingest documents",
+        help_text="Ingest documents",
         description="Ingest documents into the knowledge base",
-        epilog="""
+        examples="""
 Examples:
   # Ingest a single file
   cloop ingest /path/to/document.md
@@ -44,7 +45,6 @@ Examples:
   # Ingest multiple paths
   cloop ingest doc1.md doc2.md ~/notes
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     ingest_parser.add_argument("paths", nargs="+", help="Files or directories to ingest")
     ingest_parser.add_argument(
@@ -67,13 +67,12 @@ Examples:
 
 def add_ask_parser(subparsers: Any) -> None:
     """Add 'ask' command parser."""
-    from argparse import RawDescriptionHelpFormatter
-
-    ask_parser = subparsers.add_parser(
+    ask_parser = add_command_parser(
+        subparsers,
         "ask",
-        help="Query the knowledge base",
+        help_text="Query the knowledge base",
         description="Query the knowledge base using semantic search",
-        epilog="""
+        examples="""
 Examples:
   # Basic question
   cloop ask "What is the deployment process?"
@@ -87,7 +86,6 @@ Examples:
   # Restrict by path substring
   cloop ask "meeting notes" --scope "2026-02"
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     ask_parser.add_argument("question", help="Question text")
     ask_parser.add_argument("--k", type=int, default=5, help="Top-k chunks to retrieve")

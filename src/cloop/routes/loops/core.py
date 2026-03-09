@@ -47,12 +47,10 @@ from fastapi.responses import JSONResponse
 
 from ... import db
 from ...constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
-from ...idempotency import (
-    IdempotencyConflictError,
-    build_http_scope,
-    canonical_request_hash,
-    expiry_timestamp,
-    normalize_idempotency_key,
+from ...idempotency_flow import (
+    finalize_idempotent_response,
+    prepare_http_idempotency,
+    replay_http_response,
 )
 from ...loops import repo as loop_repo
 from ...loops import service as loop_service
@@ -101,7 +99,7 @@ from ...schemas.loops import (
     TrendPointResponse,
 )
 from ...settings import Settings
-from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
+from ._common import IdempotencyKeyHeader, SettingsDep
 
 if TYPE_CHECKING:
     from ...loops.metrics import LoopMetrics
@@ -253,102 +251,54 @@ def loop_capture_endpoint(
     if request.blocked_reason:
         capture_fields["blocked_reason"] = request.blocked_reason
 
-    if idempotency_key is not None:
-        try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
+    payload = request.model_dump()
 
-        scope = build_http_scope("POST", "/loops/capture")
-        payload = request.model_dump()
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path="/loops/capture",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
 
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
+        record = loop_service.capture_loop(
+            raw_text=raw_text,
+            captured_at_iso=request.captured_at,
+            client_tz_offset_min=request.client_tz_offset_min,
+            status=status,
+            conn=conn,
+            recurrence_rrule=recurrence_rrule,
+            recurrence_tz=request.timezone,
+            capture_fields=capture_fields if capture_fields else None,
+        )
+
+        # Apply template defaults, skipping fields already in capture_fields
+        if template_defaults:
+            update_fields = extract_update_fields_from_template(template_defaults)
+            if capture_fields:
+                update_fields = {k: v for k, v in update_fields.items() if k not in capture_fields}
+            if update_fields:
+                record = loop_service.update_loop(
+                    loop_id=record["id"],
+                    fields=update_fields,
                     conn=conn,
                 )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
 
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
+        if settings.autopilot_enabled:
+            record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
 
-            record = loop_service.capture_loop(
-                raw_text=raw_text,
-                captured_at_iso=request.captured_at,
-                client_tz_offset_min=request.client_tz_offset_min,
-                status=status,
-                conn=conn,
-                recurrence_rrule=recurrence_rrule,
-                recurrence_tz=request.timezone,
-                capture_fields=capture_fields if capture_fields else None,
-            )
-
-            # Apply template defaults, skipping fields already in capture_fields
-            if template_defaults:
-                update_fields = extract_update_fields_from_template(template_defaults)
-                if capture_fields:
-                    update_fields = {
-                        k: v for k, v in update_fields.items() if k not in capture_fields
-                    }
-                if update_fields:
-                    record = loop_service.update_loop(
-                        loop_id=record["id"],
-                        fields=update_fields,
-                        conn=conn,
-                    )
-
-            if settings.autopilot_enabled:
-                record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
-
-            response = LoopResponse(**record).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
-                conn=conn,
-            )
-    else:
-        with db.core_connection(settings) as conn:
-            record = loop_service.capture_loop(
-                raw_text=raw_text,
-                captured_at_iso=request.captured_at,
-                client_tz_offset_min=request.client_tz_offset_min,
-                status=status,
-                conn=conn,
-                recurrence_rrule=recurrence_rrule,
-                recurrence_tz=request.timezone,
-                capture_fields=capture_fields if capture_fields else None,
-            )
-
-            # Apply template defaults, skipping fields already in capture_fields
-            if template_defaults:
-                update_fields = extract_update_fields_from_template(template_defaults)
-                if capture_fields:
-                    update_fields = {
-                        k: v for k, v in update_fields.items() if k not in capture_fields
-                    }
-                if update_fields:
-                    record = loop_service.update_loop(
-                        loop_id=record["id"],
-                        fields=update_fields,
-                        conn=conn,
-                    )
-
-            if settings.autopilot_enabled:
-                record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
         response = LoopResponse(**record).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     if settings.autopilot_enabled:
         background_tasks.add_task(
@@ -469,67 +419,44 @@ def loop_import_endpoint(
 
     options = ImportOptions(dry_run=dry_run, conflict_policy=policy)
 
-    if idempotency_key is not None:
-        try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("POST", "/loops/import")
-        payload = {
-            "loops": [loop.model_dump() for loop in request.loops],
-            "dry_run": dry_run,
-            "conflict_policy": conflict_policy,
-        }
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                result = loop_service.import_loops(loops=request.loops, conn=conn, options=options)
-            except loop_service.ValidationError as e:
-                raise HTTPException(status_code=400, detail=str(e)) from None
-
-            response = LoopImportResponse(
-                imported=result.imported,
-                skipped=result.skipped,
-                updated=result.updated,
-                conflicts_detected=result.conflicts_detected,
-                dry_run=result.dry_run,
-                preview=result.preview.model_dump() if result.preview else None,
-            ).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
-                conn=conn,
-            )
-            return LoopImportResponse(**response)
+    payload = {
+        "loops": [loop.model_dump() for loop in request.loops],
+        "dry_run": dry_run,
+        "conflict_policy": conflict_policy,
+    }
 
     with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path="/loops/import",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
             result = loop_service.import_loops(loops=request.loops, conn=conn, options=options)
-        except loop_service.ValidationError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
+        except loop_service.ValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+        response = LoopImportResponse(
+            imported=result.imported,
+            skipped=result.skipped,
+            updated=result.updated,
+            conflicts_detected=result.conflicts_detected,
+            dry_run=result.dry_run,
+            preview=result.preview.model_dump() if result.preview else None,
+        ).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopImportResponse(
         imported=result.imported,
@@ -761,91 +688,51 @@ def loop_update_endpoint(
     if not fields:
         raise HTTPException(status_code=400, detail="no_fields_to_update")
 
-    if idempotency_key is not None:
+    payload = {"loop_id": loop_id, "fields": fields}
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="PATCH",
+            path=f"/loops/{loop_id}",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("PATCH", f"/loops/{loop_id}")
-        payload = {"loop_id": loop_id, "fields": fields}
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                record = loop_service.update_loop(
-                    loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
-                )
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
-            response = LoopResponse(**record).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
-                conn=conn,
+            record = loop_service.update_loop(
+                loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
             )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                record = loop_service.update_loop(
-                    loop_id=loop_id, fields=fields, claim_token=claim_token, conn=conn
-                )
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
+        except LoopClaimedError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "loop_claimed",
+                    "message": str(exc),
+                    "owner": exc.owner,
+                    "lease_until": exc.lease_until,
+                },
+            ) from None
+        except ClaimNotFoundError:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "invalid_claim_token",
+                    "message": "Invalid or expired claim token",
+                },
+            ) from None
+
         response = LoopResponse(**record).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopResponse(**response)
 
@@ -860,104 +747,60 @@ def loop_close_endpoint(
     if not is_terminal_status(request.status):
         raise HTTPException(status_code=400, detail="status must be completed or dropped")
 
-    if idempotency_key is not None:
+    payload = {
+        "loop_id": loop_id,
+        "status": request.status.value,
+        "note": request.note,
+        "claim_token": request.claim_token,
+    }
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path=f"/loops/{loop_id}/close",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("POST", f"/loops/{loop_id}/close")
-        payload = {
-            "loop_id": loop_id,
-            "status": request.status.value,
-            "note": request.note,
-            "claim_token": request.claim_token,
-        }
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                record = loop_service.transition_status(
-                    loop_id=loop_id,
-                    to_status=request.status,
-                    conn=conn,
-                    note=request.note,
-                    claim_token=request.claim_token,
-                )
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
-            response = LoopResponse(**record).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
+            record = loop_service.transition_status(
+                loop_id=loop_id,
+                to_status=request.status,
                 conn=conn,
+                note=request.note,
+                claim_token=request.claim_token,
             )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                record = loop_service.transition_status(
-                    loop_id=loop_id,
-                    to_status=request.status,
-                    conn=conn,
-                    note=request.note,
-                    claim_token=request.claim_token,
-                )
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
+        except LoopClaimedError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "loop_claimed",
+                    "message": str(exc),
+                    "owner": exc.owner,
+                    "lease_until": exc.lease_until,
+                },
+            ) from None
+        except ClaimNotFoundError:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "invalid_claim_token",
+                    "message": "Invalid or expired claim token",
+                },
+            ) from None
+
         response = LoopResponse(**record).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopResponse(**response)
 
@@ -969,104 +812,60 @@ def loop_status_endpoint(
     settings: SettingsDep,
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopResponse | JSONResponse:
-    if idempotency_key is not None:
+    payload = {
+        "loop_id": loop_id,
+        "status": request.status.value,
+        "note": request.note,
+        "claim_token": request.claim_token,
+    }
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path=f"/loops/{loop_id}/status",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("POST", f"/loops/{loop_id}/status")
-        payload = {
-            "loop_id": loop_id,
-            "status": request.status.value,
-            "note": request.note,
-            "claim_token": request.claim_token,
-        }
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                record = loop_service.transition_status(
-                    loop_id=loop_id,
-                    to_status=request.status,
-                    conn=conn,
-                    note=request.note,
-                    claim_token=request.claim_token,
-                )
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
-            response = LoopResponse(**record).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
+            record = loop_service.transition_status(
+                loop_id=loop_id,
+                to_status=request.status,
                 conn=conn,
+                note=request.note,
+                claim_token=request.claim_token,
             )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                record = loop_service.transition_status(
-                    loop_id=loop_id,
-                    to_status=request.status,
-                    conn=conn,
-                    note=request.note,
-                    claim_token=request.claim_token,
-                )
-            except LoopClaimedError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "loop_claimed",
-                        "message": str(e),
-                        "owner": e.owner,
-                        "lease_until": e.lease_until,
-                    },
-                ) from None
-            except ClaimNotFoundError:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "code": "invalid_claim_token",
-                        "message": "Invalid or expired claim token",
-                    },
-                ) from None
+        except LoopClaimedError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "loop_claimed",
+                    "message": str(exc),
+                    "owner": exc.owner,
+                    "lease_until": exc.lease_until,
+                },
+            ) from None
+        except ClaimNotFoundError:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "invalid_claim_token",
+                    "message": "Invalid or expired claim token",
+                },
+            ) from None
+
         response = LoopResponse(**record).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopResponse(**response)
 
@@ -1078,49 +877,29 @@ def loop_enrich_endpoint(
     settings: SettingsDep,
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopResponse | JSONResponse:
-    if idempotency_key is not None:
-        try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
+    payload = {"loop_id": loop_id}
 
-        scope = build_http_scope("POST", f"/loops/{loop_id}/enrich")
-        payload = {"loop_id": loop_id}
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path=f"/loops/{loop_id}/enrich",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
 
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            record = loop_service.request_enrichment(loop_id=loop_id, conn=conn)
-            response = LoopResponse(**record).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
-                conn=conn,
-            )
-    else:
-        with db.core_connection(settings) as conn:
-            record = loop_service.request_enrichment(loop_id=loop_id, conn=conn)
+        record = loop_service.request_enrichment(loop_id=loop_id, conn=conn)
         response = LoopResponse(**record).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     background_tasks.add_task(
         _safe_enrich_loop,

@@ -52,6 +52,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Autopilot + embeddings config**: if `CLOOP_AUTOPILOT_ENABLED=true` and `CLOOP_EMBED_MODEL` points to an unconfigured provider (e.g., `ollama/...` without `CLOOP_OLLAMA_API_BASE`), enrichment now logs a single skip warning (no traceback) and still completes organizer suggestions.
 - **Frontend cache behavior**: root HTML injects a version query onto `init.js`, and `/static` serves JS/CSS with `Cache-Control: no-cache`; browser UI verification should still prefer a fresh tab/profile if a session appears to hold stale ES module state.
 - **Comments UX**: comment threads are lazy-loaded on expand; collapsed loop cards should show a neutral `Comments` label until opened, not a loading placeholder.
+- **Idempotent mutations**: shared prepare/replay/finalize flow now lives in `src/cloop/idempotency_flow.py`; MCP tools should layer on `src/cloop/mcp_tools/_idempotency.py` instead of reimplementing claim/replay logic.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
 - **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
 - **Keyboard shortcut UX**: loop-card actions keep keyboard shortcuts via `aria-keyshortcuts` and button tooltips; avoid visible single-letter suffix badges inside action labels.

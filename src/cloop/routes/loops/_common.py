@@ -15,13 +15,14 @@ Non-scope:
     - Does not interact with database directly
 """
 
-from typing import Annotated
+from typing import Annotated, Any, Mapping, Sequence
 
 from fastapi import Depends, Header, HTTPException
 
+from ...schemas.loops import BulkResultItem, LoopCommentResponse, LoopResponse
 from ...settings import Settings, get_settings
 
-SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 IdempotencyKeyHeader = Header(
     default=None,
     alias="Idempotency-Key",
@@ -40,3 +41,35 @@ def _idempotency_conflict(detail: str) -> HTTPException:
         status_code=409,
         detail={"message": "idempotency_key_conflict", "detail": detail},
     )
+
+
+def build_loop_comment_response(comment: Mapping[str, Any]) -> LoopCommentResponse:
+    """Convert a nested loop comment payload into the route response model."""
+    replies = [build_loop_comment_response(reply) for reply in comment.get("replies", [])]
+    return LoopCommentResponse(
+        id=comment["id"],
+        loop_id=comment["loop_id"],
+        parent_id=comment.get("parent_id"),
+        author=comment["author"],
+        body_md=comment["body_md"],
+        created_at_utc=comment["created_at_utc"],
+        updated_at_utc=comment["updated_at_utc"],
+        deleted_at_utc=comment.get("deleted_at_utc"),
+        is_deleted=comment["is_deleted"],
+        is_reply=comment["is_reply"],
+        replies=replies,
+    )
+
+
+def build_bulk_result_items(results: Sequence[Mapping[str, Any]]) -> list[BulkResultItem]:
+    """Convert service bulk-operation results into response envelopes."""
+    return [
+        BulkResultItem(
+            index=result["index"],
+            loop_id=result["loop_id"],
+            ok=result["ok"],
+            loop=LoopResponse(**result["loop"]) if result.get("loop") else None,
+            error=result.get("error"),
+        )
+        for result in results
+    ]

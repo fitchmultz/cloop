@@ -29,12 +29,10 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from ... import db
-from ...idempotency import (
-    IdempotencyConflictError,
-    build_http_scope,
-    canonical_request_hash,
-    expiry_timestamp,
-    normalize_idempotency_key,
+from ...idempotency_flow import (
+    finalize_idempotent_response,
+    prepare_http_idempotency,
+    replay_http_response,
 )
 from ...loops import service as loop_service
 from ...loops.errors import LoopNotFoundError, ValidationError
@@ -44,7 +42,11 @@ from ...schemas.loops import (
     LoopCommentResponse,
     LoopCommentUpdateRequest,
 )
-from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
+from ._common import (
+    IdempotencyKeyHeader,
+    SettingsDep,
+    build_loop_comment_response,
+)
 
 router = APIRouter()
 
@@ -66,77 +68,46 @@ def create_comment_endpoint(
     Comments support threading via parent_id. Set parent_id to create a reply.
     The body_md field supports markdown formatting.
     """
-    if idempotency_key is not None:
+    payload = {
+        "loop_id": loop_id,
+        "author": request.author,
+        "body_md": request.body_md,
+        "parent_id": request.parent_id,
+    }
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path=f"/loops/{loop_id}/comments",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("POST", f"/loops/{loop_id}/comments")
-        payload = {
-            "loop_id": loop_id,
-            "author": request.author,
-            "body_md": request.body_md,
-            "parent_id": request.parent_id,
-        }
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                comment = loop_service.create_loop_comment(
-                    loop_id=loop_id,
-                    author=request.author,
-                    body_md=request.body_md,
-                    parent_id=request.parent_id,
-                    conn=conn,
-                )
-            except LoopNotFoundError:
-                raise HTTPException(status_code=404, detail="Loop not found") from None
-            except ValidationError as e:
-                raise HTTPException(status_code=400, detail={"message": e.message}) from None
-
-            response = LoopCommentResponse(**comment, replies=[]).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=201,
-                response_body=response,
+            comment = loop_service.create_loop_comment(
+                loop_id=loop_id,
+                author=request.author,
+                body_md=request.body_md,
+                parent_id=request.parent_id,
                 conn=conn,
             )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                comment = loop_service.create_loop_comment(
-                    loop_id=loop_id,
-                    author=request.author,
-                    body_md=request.body_md,
-                    parent_id=request.parent_id,
-                    conn=conn,
-                )
-            except LoopNotFoundError:
-                raise HTTPException(status_code=404, detail="Loop not found") from None
-            except ValidationError as e:
-                raise HTTPException(status_code=400, detail={"message": e.message}) from None
+        except LoopNotFoundError:
+            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+
         response = LoopCommentResponse(**comment, replies=[]).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=201,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopCommentResponse(**response)
 
@@ -166,25 +137,9 @@ def list_comments_endpoint(
         except LoopNotFoundError:
             raise HTTPException(status_code=404, detail="Loop not found") from None
 
-    def convert_comment(c: dict[str, Any]) -> LoopCommentResponse:
-        replies = [convert_comment(r) for r in c.get("replies", [])]
-        return LoopCommentResponse(
-            id=c["id"],
-            loop_id=c["loop_id"],
-            parent_id=c.get("parent_id"),
-            author=c["author"],
-            body_md=c["body_md"],
-            created_at_utc=c["created_at_utc"],
-            updated_at_utc=c["updated_at_utc"],
-            deleted_at_utc=c.get("deleted_at_utc"),
-            is_deleted=c["is_deleted"],
-            is_reply=c["is_reply"],
-            replies=replies,
-        )
-
     return LoopCommentListResponse(
         loop_id=result["loop_id"],
-        comments=[convert_comment(c) for c in result["comments"]],
+        comments=[build_loop_comment_response(comment) for comment in result["comments"]],
         total_count=result["total_count"],
     )
 
@@ -205,68 +160,37 @@ def update_comment_endpoint(
 
     Only the body_md field can be updated. Author and parent_id are immutable.
     """
-    if idempotency_key is not None:
+    payload = {"comment_id": comment_id, "body_md": request.body_md}
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="PATCH",
+            path=f"/loops/{loop_id}/comments/{comment_id}",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("PATCH", f"/loops/{loop_id}/comments/{comment_id}")
-        payload = {"comment_id": comment_id, "body_md": request.body_md}
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                comment = loop_service.update_loop_comment(
-                    comment_id=comment_id,
-                    body_md=request.body_md,
-                    conn=conn,
-                )
-            except RuntimeError:
-                raise HTTPException(
-                    status_code=404, detail="Comment not found or deleted"
-                ) from None
-
-            response = LoopCommentResponse(**comment, replies=[]).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
+            comment = loop_service.update_loop_comment(
+                comment_id=comment_id,
+                body_md=request.body_md,
                 conn=conn,
             )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                comment = loop_service.update_loop_comment(
-                    comment_id=comment_id,
-                    body_md=request.body_md,
-                    conn=conn,
-                )
-            except RuntimeError:
-                raise HTTPException(
-                    status_code=404, detail="Comment not found or deleted"
-                ) from None
+        except RuntimeError:
+            raise HTTPException(status_code=404, detail="Comment not found or deleted") from None
+
         response = LoopCommentResponse(**comment, replies=[]).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return LoopCommentResponse(**response)
 
@@ -287,53 +211,31 @@ def delete_comment_endpoint(
     The comment is marked as deleted but retained for audit trail.
     Deleted comments show is_deleted=true and body_md is replaced with [deleted].
     """
-    if idempotency_key is not None:
-        try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
+    payload = {"comment_id": comment_id}
 
-        scope = build_http_scope("DELETE", f"/loops/{loop_id}/comments/{comment_id}")
-        payload = {"comment_id": comment_id}
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="DELETE",
+            path=f"/loops/{loop_id}/comments/{comment_id}",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
 
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
+        deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Comment not found")
 
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
-            if not deleted:
-                raise HTTPException(status_code=404, detail="Comment not found")
-
-            result = {"ok": True, "deleted": True, "comment_id": comment_id}
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=result,
-                conn=conn,
-            )
-    else:
-        with db.core_connection(settings) as conn:
-            deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
-            if not deleted:
-                raise HTTPException(status_code=404, detail="Comment not found")
         result = {"ok": True, "deleted": True, "comment_id": comment_id}
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=result,
+            conn=conn,
+        )
 
     return result

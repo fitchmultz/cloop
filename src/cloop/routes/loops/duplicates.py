@@ -24,12 +24,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from ... import db
-from ...idempotency import (
-    IdempotencyConflictError,
-    build_http_scope,
-    canonical_request_hash,
-    expiry_timestamp,
-    normalize_idempotency_key,
+from ...idempotency_flow import (
+    finalize_idempotent_response,
+    prepare_http_idempotency,
+    replay_http_response,
 )
 from ...loops import service as loop_service
 from ...loops.errors import LoopNotFoundError, MergeConflictError, ValidationError
@@ -40,7 +38,7 @@ from ...schemas.loops import (
     MergeRequest,
     MergeResultResponse,
 )
-from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
+from ._common import IdempotencyKeyHeader, SettingsDep
 
 router = APIRouter()
 
@@ -144,107 +142,58 @@ def merge_into_loop(
     This operation is irreversible. Use GET /loops/{id}/merge-preview/{target} first.
     """
 
-    if idempotency_key is not None:
+    payload = {
+        "loop_id": loop_id,
+        "target_loop_id": request.target_loop_id,
+        "field_overrides": request.field_overrides,
+    }
+
+    with db.core_connection(settings) as conn:
+        idempotency = prepare_http_idempotency(
+            method="POST",
+            path=f"/loops/{loop_id}/merge",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            settings=settings,
+            conn=conn,
+        )
+        replay = replay_http_response(idempotency)
+        if replay is not None:
+            return replay
+
         try:
-            key = normalize_idempotency_key(idempotency_key, settings.idempotency_max_key_length)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e)) from None
-
-        scope = build_http_scope("POST", f"/loops/{loop_id}/merge")
-        payload = {
-            "loop_id": loop_id,
-            "target_loop_id": request.target_loop_id,
-            "field_overrides": request.field_overrides,
-        }
-        request_hash = canonical_request_hash(payload)
-        expires_at = expiry_timestamp(settings.idempotency_ttl_seconds)
-
-        with db.core_connection(settings) as conn:
-            try:
-                claim = db.claim_or_replay_idempotency(
-                    scope=scope,
-                    idempotency_key=key,
-                    request_hash=request_hash,
-                    expires_at=expires_at,
-                    conn=conn,
-                )
-            except IdempotencyConflictError as e:
-                raise _idempotency_conflict(str(e)) from None
-
-            if not claim["is_new"] and claim["replay"]:
-                replay = claim["replay"]
-                return JSONResponse(
-                    content=replay["response_body"],
-                    status_code=replay["status_code"],
-                )
-
-            try:
-                result = loop_service.merge_loops(
-                    surviving_loop_id=request.target_loop_id,
-                    duplicate_loop_id=loop_id,
-                    field_overrides=request.field_overrides or {},
-                    conn=conn,
-                    settings=settings,
-                )
-            except LoopNotFoundError as e:
-                raise HTTPException(
-                    status_code=404, detail=f"Loop not found: {e.loop_id}"
-                ) from None
-            except ValidationError as e:
-                raise HTTPException(status_code=400, detail={"message": e.message}) from None
-            except MergeConflictError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "merge_conflict",
-                        "message": str(e),
-                        "reason": e.reason,
-                    },
-                ) from None
-
-            response = MergeResultResponse(
-                surviving_loop_id=result.surviving_loop.id,
-                closed_loop_id=result.closed_loop_id,
-                merged_tags=result.merged_tags,
-                fields_updated=result.fields_updated,
-            ).model_dump()
-            db.finalize_idempotency_response(
-                scope=scope,
-                idempotency_key=key,
-                response_status=200,
-                response_body=response,
+            result = loop_service.merge_loops(
+                surviving_loop_id=request.target_loop_id,
+                duplicate_loop_id=loop_id,
+                field_overrides=request.field_overrides or {},
                 conn=conn,
+                settings=settings,
             )
-    else:
-        with db.core_connection(settings) as conn:
-            try:
-                result = loop_service.merge_loops(
-                    surviving_loop_id=request.target_loop_id,
-                    duplicate_loop_id=loop_id,
-                    field_overrides=request.field_overrides or {},
-                    conn=conn,
-                    settings=settings,
-                )
-            except LoopNotFoundError as e:
-                raise HTTPException(
-                    status_code=404, detail=f"Loop not found: {e.loop_id}"
-                ) from None
-            except ValidationError as e:
-                raise HTTPException(status_code=400, detail={"message": e.message}) from None
-            except MergeConflictError as e:
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "code": "merge_conflict",
-                        "message": str(e),
-                        "reason": e.reason,
-                    },
-                ) from None
+        except LoopNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"Loop not found: {exc.loop_id}") from None
+        except ValidationError as exc:
+            raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+        except MergeConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "merge_conflict",
+                    "message": str(exc),
+                    "reason": exc.reason,
+                },
+            ) from None
+
         response = MergeResultResponse(
             surviving_loop_id=result.surviving_loop.id,
             closed_loop_id=result.closed_loop_id,
             merged_tags=result.merged_tags,
             fields_updated=result.fields_updated,
         ).model_dump()
+        finalize_idempotent_response(
+            state=idempotency,
+            response_status=200,
+            response_body=response,
+            conn=conn,
+        )
 
     return MergeResultResponse(**response)

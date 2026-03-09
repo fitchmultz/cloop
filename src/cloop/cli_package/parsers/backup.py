@@ -19,11 +19,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .base import add_command_parser
+
 
 def add_backup_parser(subparsers: Any) -> None:
     """Add 'backup' command and subcommand parsers."""
-    from argparse import RawDescriptionHelpFormatter
-
     backup_parser = subparsers.add_parser(
         "backup",
         help="Backup and restore commands",
@@ -32,11 +32,12 @@ def add_backup_parser(subparsers: Any) -> None:
     backup_subparsers = backup_parser.add_subparsers(dest="backup_command", required=True)
 
     # cloop backup create
-    backup_create_parser = backup_subparsers.add_parser(
+    backup_create_parser = add_command_parser(
+        backup_subparsers,
         "create",
-        help="Create a new backup",
+        help_text="Create a new backup",
         description="Create a timestamped backup of all Cloop data",
-        epilog="""
+        examples="""
 Examples:
   # Create backup with default name
   cloop backup create
@@ -47,7 +48,6 @@ Examples:
   # Create in specific directory
   cloop backup create --output ~/backups --name weekly
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     backup_create_parser.add_argument(
         "--output",
@@ -64,11 +64,12 @@ Examples:
     )
 
     # cloop backup restore
-    backup_restore_parser = backup_subparsers.add_parser(
+    backup_restore_parser = add_command_parser(
+        backup_subparsers,
         "restore",
-        help="Restore from a backup",
+        help_text="Restore from a backup",
         description="Restore databases from a backup archive",
-        epilog="""
+        examples="""
 Examples:
   # Dry run to preview restore
   cloop backup restore backup.cloop.zip --dry-run
@@ -79,7 +80,6 @@ Examples:
   # Normal restore
   cloop backup restore /path/to/backup.cloop.zip
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     backup_restore_parser.add_argument(
         "backup_path",
@@ -98,11 +98,12 @@ Examples:
     )
 
     # cloop backup list
-    backup_list_parser = backup_subparsers.add_parser(
+    backup_list_parser = add_command_parser(
+        backup_subparsers,
         "list",
-        help="List available backups",
+        help_text="List available backups",
         description="List backups in the backup directory",
-        epilog="""
+        examples="""
 Examples:
   # List all backups
   cloop backup list
@@ -110,7 +111,6 @@ Examples:
   # List with custom limit
   cloop backup list --limit 50
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     backup_list_parser.add_argument(
         "--limit",
@@ -121,16 +121,16 @@ Examples:
     )
 
     # cloop backup verify
-    backup_verify_parser = backup_subparsers.add_parser(
+    backup_verify_parser = add_command_parser(
+        backup_subparsers,
         "verify",
-        help="Verify backup integrity",
+        help_text="Verify backup integrity",
         description="Validate backup archive without restoring",
-        epilog="""
+        examples="""
 Examples:
   # Verify a backup file
   cloop backup verify /path/to/backup.cloop.zip
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     backup_verify_parser.add_argument(
         "backup_path",
@@ -139,11 +139,12 @@ Examples:
     )
 
     # cloop backup rotate
-    backup_rotate_parser = backup_subparsers.add_parser(
+    backup_rotate_parser = add_command_parser(
+        backup_subparsers,
         "rotate",
-        help="Rotate old backups",
+        help_text="Rotate old backups",
         description="Delete oldest backups exceeding backup_keep_count",
-        epilog="""
+        examples="""
 Examples:
   # Preview rotation (dry run)
   cloop backup rotate --dry-run
@@ -151,7 +152,6 @@ Examples:
   # Execute rotation
   cloop backup rotate
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     backup_rotate_parser.add_argument(
         "--dry-run",

@@ -18,13 +18,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import add_format_option
+from .base import add_command_parser, add_format_option
 
 
 def add_template_parser(subparsers: Any) -> None:
     """Add 'template' command and subcommand parsers."""
-    from argparse import RawDescriptionHelpFormatter
-
     template_parser = subparsers.add_parser(
         "template",
         help="Manage loop templates",
@@ -32,11 +30,12 @@ def add_template_parser(subparsers: Any) -> None:
     template_sub = template_parser.add_subparsers(dest="template_command", required=True)
 
     # template list
-    list_parser = template_sub.add_parser(
+    list_parser = add_command_parser(
+        template_sub,
         "list",
-        help="List all templates",
+        help_text="List all templates",
         description="List all loop templates",
-        epilog="""
+        examples="""
 Examples:
   # List templates as JSON
   cloop template list
@@ -44,16 +43,16 @@ Examples:
   # List templates in table format
   cloop template list --format table
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     add_format_option(list_parser)
 
     # template show
-    show_parser = template_sub.add_parser(
+    show_parser = add_command_parser(
+        template_sub,
         "show",
-        help="Show template details",
+        help_text="Show template details",
         description="Show detailed information about a template",
-        epilog="""
+        examples="""
 Examples:
   # Show template by name
   cloop template show "Weekly report"
@@ -61,17 +60,17 @@ Examples:
   # Show template by ID
   cloop template show 123
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     show_parser.add_argument("name_or_id", help="Template name or ID")
     add_format_option(show_parser)
 
     # template create
-    create_parser = template_sub.add_parser(
+    create_parser = add_command_parser(
+        template_sub,
         "create",
-        help="Create a template",
+        help_text="Create a template",
         description="Create a reusable loop template with default values",
-        epilog="""
+        examples="""
 Examples:
   # Basic template
   cloop template create "Weekly report" --pattern "Weekly report for"
@@ -82,7 +81,6 @@ Examples:
   # Template with time estimate
   cloop template create "Code review" --pattern "Review PR" --time 30 --actionable
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     create_parser.add_argument("name", help="Template name")
     create_parser.add_argument("--description", "-d", help="Template description")
@@ -93,11 +91,12 @@ Examples:
     add_format_option(create_parser)
 
     # template delete
-    delete_parser = template_sub.add_parser(
+    delete_parser = add_command_parser(
+        template_sub,
         "delete",
-        help="Delete a template",
+        help_text="Delete a template",
         description="Delete a template by name or ID",
-        epilog="""
+        examples="""
 Examples:
   # Delete template by name
   cloop template delete "Old template"
@@ -105,21 +104,20 @@ Examples:
   # Delete template by ID
   cloop template delete 123
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     delete_parser.add_argument("name_or_id", help="Template name or ID")
 
     # template from-loop
-    from_loop_parser = template_sub.add_parser(
+    from_loop_parser = add_command_parser(
+        template_sub,
         "from-loop",
-        help="Create template from loop",
+        help_text="Create template from loop",
         description="Create a new template based on an existing loop",
-        epilog="""
+        examples="""
 Examples:
   # Create template from loop
   cloop template from-loop 123 "My template"
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     from_loop_parser.add_argument("loop_id", type=int, help="Loop ID")
     from_loop_parser.add_argument("name", help="Template name")

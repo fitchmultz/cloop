@@ -18,16 +18,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from .base import add_command_parser
+
 
 def add_timer_parser(loop_subparsers: Any) -> None:
     """Add timer subcommand parsers."""
-    from argparse import RawDescriptionHelpFormatter
-
-    timer_parser = loop_subparsers.add_parser(
+    timer_parser = add_command_parser(
+        loop_subparsers,
         "timer",
-        help="Start/stop timer for a loop",
+        help_text="Start/stop timer for a loop",
         description="Track time spent working on a loop",
-        epilog="""
+        examples="""
 Examples:
   # Start timer
   cloop loop timer start 1
@@ -38,28 +39,28 @@ Examples:
   # Stop timer with notes
   cloop loop timer stop 1 --notes "Completed analysis"
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     timer_subparsers = timer_parser.add_subparsers(dest="timer_action", required=True)
 
-    timer_start_parser = timer_subparsers.add_parser(
+    timer_start_parser = add_command_parser(
+        timer_subparsers,
         "start",
-        help="Start timer",
+        help_text="Start timer",
         description="Start a timer for time tracking on a loop",
-        epilog="""
+        examples="""
 Examples:
   # Start timer for loop
   cloop loop timer start 123
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     timer_start_parser.add_argument("id", type=int, help="Loop ID")
 
-    timer_stop_parser = timer_subparsers.add_parser(
+    timer_stop_parser = add_command_parser(
+        timer_subparsers,
         "stop",
-        help="Stop timer",
+        help_text="Stop timer",
         description="Stop the active timer for a loop",
-        epilog="""
+        examples="""
 Examples:
   # Stop timer
   cloop loop timer stop 123
@@ -67,34 +68,32 @@ Examples:
   # Stop timer with notes
   cloop loop timer stop 123 --notes "Completed analysis"
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     timer_stop_parser.add_argument("id", type=int, help="Loop ID")
     timer_stop_parser.add_argument("--notes", help="Optional notes for this session")
 
-    timer_status_parser = timer_subparsers.add_parser(
+    timer_status_parser = add_command_parser(
+        timer_subparsers,
         "status",
-        help="Get timer status",
+        help_text="Get timer status",
         description="Check the current timer status for a loop",
-        epilog="""
+        examples="""
 Examples:
   # Check timer status
   cloop loop timer status 123
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     timer_status_parser.add_argument("id", type=int, help="Loop ID")
 
 
 def add_sessions_parser(loop_subparsers: Any) -> None:
     """Add sessions subcommand parser."""
-    from argparse import RawDescriptionHelpFormatter
-
-    sessions_parser = loop_subparsers.add_parser(
+    sessions_parser = add_command_parser(
+        loop_subparsers,
         "sessions",
-        help="List time sessions for a loop",
+        help_text="List time sessions for a loop",
         description="List all time tracking sessions for a loop",
-        epilog="""
+        examples="""
 Examples:
   # List sessions for loop
   cloop loop sessions 123
@@ -102,7 +101,6 @@ Examples:
   # List with custom limit
   cloop loop sessions 123 --limit 50
         """,
-        formatter_class=RawDescriptionHelpFormatter,
     )
     sessions_parser.add_argument("id", type=int, help="Loop ID")
     sessions_parser.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
