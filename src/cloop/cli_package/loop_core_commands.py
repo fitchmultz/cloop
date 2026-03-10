@@ -24,7 +24,14 @@ from datetime import datetime, timedelta
 from typing import Any, Dict
 
 from .. import db
-from ..loops import repo, service
+from ..loops import service
+from ..loops.capture_orchestration import (
+    CaptureFieldInputs,
+    CaptureOrchestrationInput,
+    CaptureStatusFlags,
+    CaptureTemplateRef,
+    orchestrate_capture,
+)
 from ..loops.errors import (
     ClaimNotFoundError,
     DependencyCycleError,
@@ -37,12 +44,10 @@ from ..loops.errors import (
 from ..loops.models import (
     LoopStatus,
     format_utc_datetime,
-    resolve_status_from_flags,
     utc_now,
     validate_iso8601_timestamp,
 )
 from ..loops.service import (
-    capture_loop,
     get_loop,
     list_loops,
     list_loops_by_statuses,
@@ -92,107 +97,49 @@ def capture_command(args: Namespace, settings: Settings) -> int:
         offset = local_now.utcoffset()
         tz_offset_min = int(offset.total_seconds() / 60) if offset else 0
 
-    status = resolve_status_from_flags(
-        scheduled=args.scheduled,
-        blocked=args.blocked,
-        actionable=args.actionable,
+    template_ref = CaptureTemplateRef()
+    if getattr(args, "template", None):
+        try:
+            template_ref = CaptureTemplateRef(template_id=int(args.template))
+        except ValueError:
+            template_ref = CaptureTemplateRef(template_name=args.template)
+
+    input_data = CaptureOrchestrationInput(
+        raw_text=args.text,
+        captured_at_iso=captured_at,
+        client_tz_offset_min=tz_offset_min,
+        status_flags=CaptureStatusFlags(
+            actionable=args.actionable,
+            blocked=args.blocked,
+            scheduled=args.scheduled,
+        ),
+        schedule=getattr(args, "schedule", None),
+        rrule=getattr(args, "rrule", None),
+        timezone=getattr(args, "timezone", None),
+        template_ref=template_ref,
+        field_inputs=CaptureFieldInputs(
+            activation_energy=getattr(args, "activation_energy", None),
+            due_at_utc=getattr(args, "due", None),
+            next_action=getattr(args, "next_action", None),
+            project=getattr(args, "project", None),
+            tags=getattr(args, "tags", None),
+            time_minutes=getattr(args, "time_minutes", None),
+        ),
     )
 
-    # Resolve recurrence RRULE from schedule phrase or direct rrule
-    recurrence_rrule: str | None = None
-    if getattr(args, "schedule", None):
-        from ..loops.recurrence import parse_recurrence_schedule
-
-        try:
-            parsed = parse_recurrence_schedule(args.schedule)
-            recurrence_rrule = parsed.rrule
-        except ValueError as e:
-            logger.error("Invalid schedule: %s", e)
-            print(f"error: invalid schedule: {e}", file=sys.stderr)
-            return 1
-    elif getattr(args, "rrule", None):
-        recurrence_rrule = args.rrule
-
-    # If template specified, fetch and apply
-    template_defaults: dict[str, Any] = {}
-    raw_text = args.text
-    if getattr(args, "template", None):
-        from ..loops.templates import (
-            apply_template_to_capture,
-            extract_update_fields_from_template,
-        )
-
+    try:
         with db.core_connection(settings) as conn:
-            try:
-                template_id = int(args.template)
-                template = repo.get_loop_template(template_id=template_id, conn=conn)
-            except ValueError:
-                template = repo.get_loop_template_by_name(name=args.template, conn=conn)
-
-        if not template:
-            logger.error("Template not found: %s", args.template)
-            print(f"Template not found: {args.template}", file=sys.stderr)
+            record = orchestrate_capture(
+                input_data=input_data,
+                settings=settings,
+                conn=conn,
+            ).loop
+    except ValidationError as exc:
+        logger.error("Capture validation failed: %s", exc)
+        print(f"error: {exc.message}", file=sys.stderr)
+        if exc.field in {"template_id", "template_name"}:
             return 2
-
-        applied = apply_template_to_capture(
-            template=template,
-            raw_text_override=args.text,
-            now_utc=utc_now(),
-            tz_offset_min=tz_offset_min,
-        )
-        raw_text = applied["raw_text"]
-        template_defaults = applied
-
-        # Merge status flags from template if not explicitly set
-        if not args.actionable and not args.scheduled and not args.blocked:
-            status = resolve_status_from_flags(
-                scheduled=applied.get("scheduled", False),
-                blocked=applied.get("blocked", False),
-                actionable=applied.get("actionable", False),
-            )
-
-    # Build capture fields from CLI args
-    capture_fields: dict[str, Any] = {}
-    if getattr(args, "due", None):
-        capture_fields["due_at_utc"] = args.due
-    if getattr(args, "next_action", None):
-        capture_fields["next_action"] = args.next_action
-    if getattr(args, "time_minutes", None):
-        capture_fields["time_minutes"] = args.time_minutes
-    if getattr(args, "activation_energy", None) is not None:
-        capture_fields["activation_energy"] = args.activation_energy
-    if getattr(args, "project", None):
-        capture_fields["project"] = args.project
-    if getattr(args, "tags", None):
-        capture_fields["tags"] = args.tags
-
-    with db.core_connection(settings) as conn:
-        record = capture_loop(
-            raw_text=raw_text,
-            captured_at_iso=captured_at,
-            client_tz_offset_min=tz_offset_min,
-            status=status,
-            conn=conn,
-            recurrence_rrule=recurrence_rrule,
-            recurrence_tz=getattr(args, "timezone", None),
-            capture_fields=capture_fields if capture_fields else None,
-        )
-
-        # Apply template defaults, skipping fields already set via capture
-        if template_defaults:
-            update_fields = extract_update_fields_from_template(template_defaults)
-            # Filter out fields already provided via CLI capture flags
-            if capture_fields:
-                update_fields = {k: v for k, v in update_fields.items() if k not in capture_fields}
-            if update_fields:
-                record = update_loop(
-                    loop_id=record["id"],
-                    fields=update_fields,
-                    conn=conn,
-                )
-
-        if settings.autopilot_enabled:
-            record = request_enrichment(loop_id=record["id"], conn=conn)
+        return 1
 
     print(json.dumps(record, indent=2))
     return 0

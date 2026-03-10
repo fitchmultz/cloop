@@ -49,16 +49,20 @@ from ... import db
 from ...constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from ...loops import repo as loop_repo
 from ...loops import service as loop_service
+from ...loops.capture_orchestration import (
+    CaptureFieldInputs,
+    CaptureOrchestrationInput,
+    CaptureStatusFlags,
+    CaptureTemplateRef,
+    orchestrate_capture,
+)
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
 from ...loops.metrics import compute_loop_metrics, get_operation_metrics
 from ...loops.models import (
     LoopStatus,
     is_terminal_status,
     parse_utc_datetime,
-    resolve_status_from_flags,
-    utc_now,
 )
-from ...loops.templates import extract_update_fields_from_template
 from ...loops.utils import normalize_tag
 from ...schemas.export_import import ConflictPolicy, ExportFilters, ImportOptions
 from ...schemas.loops import (
@@ -150,46 +154,6 @@ def _safe_enrich_loop(*, loop_id: int, settings: "Settings") -> None:
         )
 
 
-def _capture_response(
-    *,
-    request: LoopCaptureRequest,
-    raw_text: str,
-    status: LoopStatus,
-    recurrence_rrule: str | None,
-    template_defaults: dict[str, Any] | None,
-    capture_fields: dict[str, Any],
-    settings: Settings,
-    conn: Any,
-) -> dict[str, Any]:
-    """Execute capture plus follow-up defaults and normalize the response body."""
-    record = loop_service.capture_loop(
-        raw_text=raw_text,
-        captured_at_iso=request.captured_at,
-        client_tz_offset_min=request.client_tz_offset_min,
-        status=status,
-        conn=conn,
-        recurrence_rrule=recurrence_rrule,
-        recurrence_tz=request.timezone,
-        capture_fields=capture_fields if capture_fields else None,
-    )
-
-    if template_defaults:
-        update_fields = extract_update_fields_from_template(template_defaults)
-        if capture_fields:
-            update_fields = {k: v for k, v in update_fields.items() if k not in capture_fields}
-        if update_fields:
-            record = loop_service.update_loop(
-                loop_id=record["id"],
-                fields=update_fields,
-                conn=conn,
-            )
-
-    if settings.autopilot_enabled:
-        record = loop_service.request_enrichment(loop_id=record["id"], conn=conn)
-
-    return LoopResponse(**record).model_dump()
-
-
 def _import_response(
     *,
     request: LoopImportRequest,
@@ -239,76 +203,33 @@ def loop_capture_endpoint(
     settings: SettingsDep,
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopResponse | JSONResponse:
-    # Resolve status from flags initially
-    status = resolve_status_from_flags(
-        scheduled=request.scheduled,
-        blocked=request.blocked,
-        actionable=request.actionable,
-    )
-
-    # Resolve recurrence RRULE from schedule phrase or direct rrule
-    recurrence_rrule: str | None = None
-    if request.schedule:
-        from ...loops.recurrence import parse_recurrence_schedule
-
-        try:
-            parsed = parse_recurrence_schedule(request.schedule)
-            recurrence_rrule = parsed.rrule
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid schedule: {e}") from None
-    elif request.rrule:
-        recurrence_rrule = request.rrule
-
-    # Apply template if specified
-    raw_text = request.raw_text
-    template_defaults: dict[str, Any] = {}
-
-    if request.template_id or request.template_name:
-        from ...loops.repo import get_loop_template, get_loop_template_by_name
-        from ...loops.templates import apply_template_to_capture
-
-        with db.core_connection(settings) as conn:
-            if request.template_id:
-                template = get_loop_template(template_id=request.template_id, conn=conn)
-            else:
-                template = get_loop_template_by_name(name=request.template_name or "", conn=conn)
-
-        if template:
-            applied = apply_template_to_capture(
-                template=template,
-                raw_text_override=request.raw_text,
-                now_utc=utc_now(),
-                tz_offset_min=request.client_tz_offset_min,
-            )
-            raw_text = applied["raw_text"]
-            template_defaults = applied
-
-            # Merge status flags from template if not explicitly set in request
-            if not request.actionable and not request.scheduled and not request.blocked:
-                status = resolve_status_from_flags(
-                    scheduled=applied.get("scheduled", False),
-                    blocked=applied.get("blocked", False),
-                    actionable=applied.get("actionable", False),
-                )
-
-    # Build capture fields from request (rich capture metadata)
-    capture_fields: dict[str, Any] = {}
-    if request.due_at_utc:
-        capture_fields["due_at_utc"] = request.due_at_utc
-    if request.next_action:
-        capture_fields["next_action"] = request.next_action
-    if request.time_minutes:
-        capture_fields["time_minutes"] = request.time_minutes
-    if request.activation_energy is not None:
-        capture_fields["activation_energy"] = request.activation_energy
-    if request.project:
-        capture_fields["project"] = request.project
-    if request.tags:
-        capture_fields["tags"] = request.tags
-    if request.blocked_reason:
-        capture_fields["blocked_reason"] = request.blocked_reason
-
     payload = request.model_dump()
+    input_data = CaptureOrchestrationInput(
+        raw_text=request.raw_text,
+        captured_at_iso=request.captured_at,
+        client_tz_offset_min=request.client_tz_offset_min,
+        status_flags=CaptureStatusFlags(
+            actionable=request.actionable,
+            blocked=request.blocked,
+            scheduled=request.scheduled,
+        ),
+        schedule=request.schedule,
+        rrule=request.rrule,
+        timezone=request.timezone,
+        template_ref=CaptureTemplateRef(
+            template_id=request.template_id,
+            template_name=request.template_name,
+        ),
+        field_inputs=CaptureFieldInputs(
+            activation_energy=request.activation_energy,
+            blocked_reason=request.blocked_reason,
+            due_at_utc=request.due_at_utc,
+            next_action=request.next_action,
+            project=request.project,
+            tags=request.tags,
+            time_minutes=request.time_minutes,
+        ),
+    )
 
     result = run_idempotent_loop_route(
         settings=settings,
@@ -316,15 +237,12 @@ def loop_capture_endpoint(
         path="/loops/capture",
         idempotency_key=idempotency_key,
         payload=payload,
-        execute=lambda conn: _capture_response(
-            request=request,
-            raw_text=raw_text,
-            status=status,
-            recurrence_rrule=recurrence_rrule,
-            template_defaults=template_defaults,
-            capture_fields=capture_fields,
-            settings=settings,
-            conn=conn,
+        execute=lambda conn: (
+            orchestrate_capture(
+                input_data=input_data,
+                settings=settings,
+                conn=conn,
+            ).loop
         ),
     )
     if isinstance(result, JSONResponse):

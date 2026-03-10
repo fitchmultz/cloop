@@ -986,6 +986,26 @@ def test_capture_with_natural_language_schedule(
     assert "FREQ=WEEKLY" in data["recurrence_rrule"]
 
 
+def test_capture_with_missing_template_returns_validation_error(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """Test that capture rejects unknown template references instead of ignoring them."""
+    response = test_client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Template-backed task",
+            "captured_at": "2026-02-15T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "template_name": "missing-template",
+        },
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["type"] == "validation_error"
+    assert "template not found" in data["error"]["message"].lower()
+
+
 def test_bulk_snooze_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     """Test bulk snooze endpoint used by UI bulk actions."""
     # Create two loops

@@ -431,7 +431,8 @@ def test_capture_command_with_autopilot(
         return mock_enrichment
 
     monkeypatch.setattr(
-        "cloop.cli_package.loop_core_commands.request_enrichment", mock_request_enrichment
+        "cloop.loops.capture_orchestration.service.request_enrichment",
+        mock_request_enrichment,
     )
 
     parser = cli.build_parser()
@@ -443,6 +444,22 @@ def test_capture_command_with_autopilot(
     output = _get_last_json(capsys)
     # With autopilot, it returns the enriched record
     assert output == mock_enrichment
+
+
+def test_capture_command_missing_template_returns_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test capture command rejects missing templates with a dedicated exit code."""
+    settings = _make_settings(tmp_path, monkeypatch)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["capture", "Test", "--template", "missing-template"])
+
+    exit_code = cli._capture_command(args, settings)
+
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert "template not found" in captured.err.lower()
 
 
 def test_inbox_command_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:

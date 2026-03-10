@@ -29,6 +29,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..loops import service as loop_service
+from ..loops.capture_orchestration import (
+    CaptureFieldInputs,
+    CaptureOrchestrationInput,
+    CaptureStatusFlags,
+    orchestrate_capture,
+)
 from ..loops.errors import ValidationError
 from ..loops.models import (
     LoopStatus,
@@ -80,18 +86,7 @@ def loop_create(
     """
     validate_iso8601_timestamp(captured_at, "captured_at")
     validate_tz_offset(client_tz_offset_min, "client_tz_offset_min")
-
     loop_status = LoopStatus(status)
-
-    # Resolve recurrence RRULE from schedule phrase or direct rrule
-    recurrence_rrule: str | None = None
-    if schedule:
-        from ..loops.recurrence import parse_recurrence_schedule
-
-        parsed = parse_recurrence_schedule(schedule)
-        recurrence_rrule = parsed.rrule
-    elif rrule:
-        recurrence_rrule = rrule
 
     payload = {
         "raw_text": raw_text,
@@ -107,14 +102,25 @@ def loop_create(
         tool_name="loop.create",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.capture_loop(
-            raw_text=raw_text,
-            captured_at_iso=captured_at,
-            client_tz_offset_min=client_tz_offset_min,
-            status=loop_status,
-            conn=conn,
-            recurrence_rrule=recurrence_rrule,
-            recurrence_tz=timezone,
+        execute=lambda conn, settings: (
+            orchestrate_capture(
+                input_data=CaptureOrchestrationInput(
+                    raw_text=raw_text,
+                    captured_at_iso=captured_at,
+                    client_tz_offset_min=client_tz_offset_min,
+                    status_flags=CaptureStatusFlags(
+                        actionable=loop_status is LoopStatus.ACTIONABLE,
+                        blocked=loop_status is LoopStatus.BLOCKED,
+                        scheduled=loop_status is LoopStatus.SCHEDULED,
+                    ),
+                    schedule=schedule,
+                    rrule=rrule,
+                    timezone=timezone,
+                    field_inputs=CaptureFieldInputs(),
+                ),
+                settings=settings,
+                conn=conn,
+            ).loop
         ),
     )
 
