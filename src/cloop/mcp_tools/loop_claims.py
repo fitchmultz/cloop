@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from ..loops import service as loop_service
+from ..loops import claims as loop_claims
 from ._mutation import run_idempotent_tool_mutation
 
 if TYPE_CHECKING:
@@ -57,7 +57,7 @@ def loop_claim(
         tool_name="loop.claim",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.claim_loop(
+        execute=lambda conn, settings: loop_claims.claim_loop(
             loop_id=loop_id,
             owner=owner,
             ttl_seconds=ttl_seconds,
@@ -93,7 +93,7 @@ def loop_renew_claim(
         tool_name="loop.renew_claim",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.renew_claim(
+        execute=lambda conn, settings: loop_claims.renew_claim(
             loop_id=loop_id,
             claim_token=claim_token,
             ttl_seconds=ttl_seconds,
@@ -145,7 +145,7 @@ def loop_get_claim(loop_id: int) -> dict[str, Any] | None:
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.get_claim_status(loop_id=loop_id, conn=conn)
+        return loop_claims.get_claim_status(loop_id=loop_id, conn=conn)
 
 
 def loop_list_claims(
@@ -166,7 +166,7 @@ def loop_list_claims(
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.list_active_claims(owner=owner, limit=limit, conn=conn)
+        return loop_claims.list_active_claims(owner=owner, limit=limit, conn=conn)
 
 
 def loop_force_release_claim(
@@ -189,14 +189,14 @@ def loop_force_release_claim(
         payload=payload,
         execute=lambda conn, settings: {
             "ok": True,
-            "released": loop_service.force_release_claim(loop_id=loop_id, conn=conn),
+            "released": loop_claims.force_release_claim(loop_id=loop_id, conn=conn),
         },
     )
 
 
 def _release_claim(*, loop_id: int, claim_token: str, conn: Any) -> dict[str, Any]:
     """Release a claim and normalize the tool response body."""
-    loop_service.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
+    loop_claims.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
     return {"ok": True}
 
 

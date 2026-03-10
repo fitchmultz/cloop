@@ -25,10 +25,10 @@ Endpoints:
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
-from ...loops import service as loop_service
+from ...loops import claims as loop_claims
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError
 from ...schemas.loops import (
     LoopClaimRequest,
@@ -40,6 +40,7 @@ from ...schemas.loops import (
 from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
+    claim_not_found_http_exception,
     loop_claimed_http_exception,
     run_idempotent_loop_route,
 )
@@ -68,7 +69,7 @@ def claim_loop_endpoint(
             path=f"/loops/{loop_id}/claim",
             idempotency_key=idempotency_key,
             payload=payload,
-            execute=lambda conn: loop_service.claim_loop(
+            execute=lambda conn: loop_claims.claim_loop(
                 loop_id=loop_id,
                 owner=request.owner,
                 ttl_seconds=request.ttl_seconds,
@@ -105,7 +106,7 @@ def renew_claim_endpoint(
             path=f"/loops/{loop_id}/renew",
             idempotency_key=idempotency_key,
             payload=payload,
-            execute=lambda conn: loop_service.renew_claim(
+            execute=lambda conn: loop_claims.renew_claim(
                 loop_id=loop_id,
                 claim_token=request.claim_token,
                 ttl_seconds=request.ttl_seconds,
@@ -114,13 +115,7 @@ def renew_claim_endpoint(
             ),
         )
     except ClaimNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "claim_not_found",
-                "message": f"No valid claim for loop {loop_id}",
-            },
-        ) from None
+        raise claim_not_found_http_exception(loop_id=loop_id) from None
 
     if isinstance(result, JSONResponse):
         return result
@@ -151,13 +146,7 @@ def release_claim_endpoint(
             ),
         )
     except ClaimNotFoundError:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "claim_not_found",
-                "message": f"No valid claim for loop {loop_id}",
-            },
-        ) from None
+        raise claim_not_found_http_exception(loop_id=loop_id) from None
 
     return result
 
@@ -171,7 +160,7 @@ def get_claim_status_endpoint(
     from ... import db
 
     with db.core_connection(settings) as conn:
-        claim = loop_service.get_claim_status(loop_id=loop_id, conn=conn)
+        claim = loop_claims.get_claim_status(loop_id=loop_id, conn=conn)
     if claim is None:
         return None
     return LoopClaimStatusResponse(**claim)
@@ -198,7 +187,7 @@ def force_release_claim_endpoint(
         payload=payload,
         execute=lambda conn: {
             "ok": True,
-            "released": loop_service.force_release_claim(loop_id=loop_id, conn=conn),
+            "released": loop_claims.force_release_claim(loop_id=loop_id, conn=conn),
             "loop_id": loop_id,
         },
     )
@@ -206,5 +195,5 @@ def force_release_claim_endpoint(
 
 def _release_claim_response(*, loop_id: int, claim_token: str, conn: Any) -> dict[str, Any]:
     """Release a claim and normalize the route response body."""
-    loop_service.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
+    loop_claims.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
     return {"ok": True, "loop_id": loop_id}

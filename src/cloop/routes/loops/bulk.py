@@ -24,7 +24,7 @@ Endpoints:
 from fastapi import APIRouter
 
 from ... import db
-from ...loops import service as loop_service
+from ...loops import bulk as loop_bulk
 from ...schemas.loops import (
     BulkCloseRequest,
     BulkCloseResponse,
@@ -94,7 +94,7 @@ def bulk_update_endpoint(
 ) -> BulkUpdateResponse:
     """Bulk update multiple loops."""
     with db.core_connection(settings) as conn:
-        result = loop_service.bulk_update_loops(
+        result = loop_bulk.bulk_update_loops(
             updates=_serialize_bulk_update_request(request),
             transactional=request.transactional,
             conn=conn,
@@ -116,7 +116,7 @@ def bulk_close_endpoint(
 ) -> BulkCloseResponse:
     """Bulk close multiple loops (completed or dropped)."""
     with db.core_connection(settings) as conn:
-        result = loop_service.bulk_close_loops(
+        result = loop_bulk.bulk_close_loops(
             items=_serialize_bulk_close_request(request),
             transactional=request.transactional,
             conn=conn,
@@ -138,7 +138,7 @@ def bulk_snooze_endpoint(
 ) -> BulkSnoozeResponse:
     """Bulk snooze multiple loops."""
     with db.core_connection(settings) as conn:
-        result = loop_service.bulk_snooze_loops(
+        result = loop_bulk.bulk_snooze_loops(
             items=_serialize_bulk_snooze_request(request),
             transactional=request.transactional,
             conn=conn,
@@ -160,7 +160,7 @@ def query_bulk_update_endpoint(
 ) -> QueryBulkUpdateResponse | QueryBulkPreviewResponse:
     """Bulk update loops matching DSL query."""
     with db.core_connection(settings) as conn:
-        result = loop_service.query_bulk_update_loops(
+        result = loop_bulk.query_bulk_update_loops(
             query=request.query,
             fields=request.fields.model_dump(exclude_unset=True),
             transactional=request.transactional,
@@ -192,7 +192,7 @@ def query_bulk_close_endpoint(
 ) -> QueryBulkCloseResponse | QueryBulkPreviewResponse:
     """Bulk close loops matching DSL query."""
     with db.core_connection(settings) as conn:
-        result = loop_service.query_bulk_close_loops(
+        result = loop_bulk.query_bulk_close_loops(
             query=request.query,
             status=request.status.value,
             note=request.note,
@@ -225,7 +225,7 @@ def query_bulk_snooze_endpoint(
 ) -> QueryBulkSnoozeResponse | QueryBulkPreviewResponse:
     """Bulk snooze loops matching DSL query."""
     with db.core_connection(settings) as conn:
-        result = loop_service.query_bulk_snooze_loops(
+        result = loop_bulk.query_bulk_snooze_loops(
             query=request.query,
             snooze_until_utc=request.snooze_until_utc,
             transactional=request.transactional,

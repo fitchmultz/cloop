@@ -124,6 +124,28 @@ def invalid_claim_token_http_exception() -> HTTPException:
     )
 
 
+def claim_not_found_http_exception(*, loop_id: int) -> HTTPException:
+    """Build the standard HTTP 404 payload for a missing or expired claim."""
+    return HTTPException(
+        status_code=404,
+        detail={
+            "code": "claim_not_found",
+            "message": f"No valid claim for loop {loop_id}",
+        },
+    )
+
+
+def no_fields_to_update_http_exception() -> HTTPException:
+    """Build the standard HTTP 400 payload for empty PATCH-like mutations."""
+    return HTTPException(
+        status_code=400,
+        detail={
+            "code": "validation_error",
+            "message": "no_fields_to_update",
+        },
+    )
+
+
 def map_not_found_to_404(
     exc: NotFoundError | None = None,
     *,

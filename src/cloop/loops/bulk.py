@@ -30,6 +30,7 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from typing import Any, Mapping
 
 from .. import typingx
@@ -52,8 +53,130 @@ from .service_helpers import (
     _apply_loop_update,
     _apply_status_transition,
     _enrich_record,
-    _record_to_dict,
+    _enrich_records_batch,
 )
+
+BulkItemValidator = Callable[[Mapping[str, Any]], str | None]
+BulkItemExecutor = Callable[[Mapping[str, Any]], dict[str, Any]]
+
+
+class _Rollback(Exception):
+    """Sentinel exception used to rollback transactional bulk operations."""
+
+
+def _validation_result(*, index: int, loop_id: Any, message: str) -> dict[str, Any]:
+    """Build a standard validation-failure result for bulk items."""
+    return {
+        "index": index,
+        "loop_id": loop_id,
+        "ok": False,
+        "error": {
+            "code": "validation_error",
+            "message": message,
+        },
+    }
+
+
+def _loop_result(*, index: int, loop_id: int, loop: dict[str, Any]) -> dict[str, Any]:
+    """Build a standard success result for bulk items."""
+    return {
+        "index": index,
+        "loop_id": loop_id,
+        "ok": True,
+        "loop": loop,
+    }
+
+
+def _error_result(*, index: int, loop_id: int, exc: Exception) -> dict[str, Any]:
+    """Build a standard failure result for bulk items."""
+    return {
+        "index": index,
+        "loop_id": loop_id,
+        "ok": False,
+        "error": {"code": _classify_error(exc), "message": str(exc)},
+    }
+
+
+def _run_bulk_operation(
+    *,
+    items: list[Mapping[str, Any]],
+    transactional: bool,
+    conn: sqlite3.Connection,
+    validate_item: BulkItemValidator | None,
+    execute_item: BulkItemExecutor,
+) -> dict[str, Any]:
+    """Run a shared bulk item pipeline for transactional and best-effort modes."""
+    results: list[dict[str, Any]] = []
+
+    def _process_item(index: int, item: Mapping[str, Any]) -> None:
+        loop_id = item.get("loop_id")
+        if not isinstance(loop_id, int):
+            results.append(
+                _validation_result(
+                    index=index,
+                    loop_id=loop_id,
+                    message="loop_id must be an integer",
+                )
+            )
+            return
+
+        try:
+            if validate_item is not None:
+                validation_message = validate_item(item)
+                if validation_message is not None:
+                    results.append(
+                        _validation_result(
+                            index=index,
+                            loop_id=loop_id,
+                            message=validation_message,
+                        )
+                    )
+                    return
+            results.append(_loop_result(index=index, loop_id=loop_id, loop=execute_item(item)))
+        except Exception as exc:
+            results.append(_error_result(index=index, loop_id=loop_id, exc=exc))
+
+    if transactional:
+        try:
+            with conn:
+                for index, item in enumerate(items):
+                    _process_item(index, item)
+                if any(not result["ok"] for result in results):
+                    raise _Rollback()
+        except _Rollback:
+            rolled_back_results = _rollback_transaction_results(results)
+            return {
+                "ok": False,
+                "transactional": True,
+                "results": rolled_back_results,
+                "succeeded": 0,
+                "failed": len(items),
+            }
+    else:
+        for index, item in enumerate(items):
+            with conn:
+                _process_item(index, item)
+
+    failed = sum(1 for result in results if not result["ok"])
+    return {
+        "ok": failed == 0,
+        "transactional": transactional,
+        "results": results,
+        "succeeded": len(results) - failed,
+        "failed": failed,
+    }
+
+
+def _preview_query_targets(
+    *,
+    loop_ids: list[int],
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Build dry-run preview payloads using the canonical loop serializer."""
+    records = [
+        record for loop_id in loop_ids if (record := repo.read_loop(loop_id=loop_id, conn=conn))
+    ]
+    return _enrich_records_batch(records, conn=conn)
 
 
 @typingx.validate_io()
@@ -74,9 +197,6 @@ def bulk_update_loops(
         Dict with ok, transactional, results (per-item), succeeded, failed
     """
 
-    class _Rollback(Exception):
-        pass
-
     def _update_single(
         loop_id: int, fields: Mapping[str, Any], claim_token: str | None = None
     ) -> dict[str, Any]:
@@ -88,118 +208,17 @@ def bulk_update_loops(
         )
         return _enrich_record(record=updated, conn=conn)
 
-    results: list[dict[str, Any]] = []
-    succeeded = 0
-    failed = 0
-
-    if transactional:
-        try:
-            with conn:
-                for idx, item in enumerate(updates):
-                    loop_id = item.get("loop_id")
-                    fields = item.get("fields", {})
-
-                    if not isinstance(loop_id, int):
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {
-                                    "code": "validation_error",
-                                    "message": "loop_id must be an integer",
-                                },
-                            }
-                        )
-                        failed += 1
-                        continue
-
-                    try:
-                        claim_token = item.get("claim_token")
-                        record = _update_single(loop_id, fields, claim_token)
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": True,
-                                "loop": record,
-                            }
-                        )
-                        succeeded += 1
-                    except Exception as exc:
-                        error_code = _classify_error(exc)
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {"code": error_code, "message": str(exc)},
-                            }
-                        )
-                        failed += 1
-
-                if failed > 0:
-                    raise _Rollback()
-        except _Rollback:
-            return {
-                "ok": False,
-                "transactional": True,
-                "results": _rollback_transaction_results(results),
-                "succeeded": 0,
-                "failed": len(updates),
-            }
-    else:
-        for idx, item in enumerate(updates):
-            loop_id = item.get("loop_id")
-            fields = item.get("fields", {})
-
-            if not isinstance(loop_id, int):
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {
-                            "code": "validation_error",
-                            "message": "loop_id must be an integer",
-                        },
-                    }
-                )
-                failed += 1
-                continue
-
-            try:
-                with conn:
-                    claim_token = item.get("claim_token")
-                    record = _update_single(loop_id, fields, claim_token)
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": True,
-                        "loop": record,
-                    }
-                )
-                succeeded += 1
-            except Exception as exc:
-                error_code = _classify_error(exc)
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {"code": error_code, "message": str(exc)},
-                    }
-                )
-                failed += 1
-
-    return {
-        "ok": failed == 0,
-        "transactional": transactional,
-        "results": results,
-        "succeeded": succeeded,
-        "failed": failed,
-    }
+    return _run_bulk_operation(
+        items=updates,
+        transactional=transactional,
+        conn=conn,
+        validate_item=None,
+        execute_item=lambda item: _update_single(
+            item["loop_id"],
+            item.get("fields", {}),
+            item.get("claim_token"),
+        ),
+    )
 
 
 @typingx.validate_io()
@@ -220,9 +239,6 @@ def bulk_close_loops(
         Dict with ok, transactional, results (per-item), succeeded, failed
     """
 
-    class _Rollback(Exception):
-        pass
-
     def _close_single(
         loop_id: int, to_status: LoopStatus, note: str | None, claim_token: str | None = None
     ) -> dict[str, Any]:
@@ -235,126 +251,24 @@ def bulk_close_loops(
         )
         return _enrich_record(record=updated, conn=conn)
 
-    results: list[dict[str, Any]] = []
-    succeeded = 0
-    failed = 0
+    def _validate_close(item: Mapping[str, Any]) -> str | None:
+        status = LoopStatus(item.get("status", "completed"))
+        if not is_terminal_status(status):
+            return "must be completed or dropped"
+        return None
 
-    if transactional:
-        try:
-            with conn:
-                for idx, item in enumerate(items):
-                    loop_id = item.get("loop_id")
-                    status_str = item.get("status", "completed")
-                    note = item.get("note")
-
-                    if not isinstance(loop_id, int):
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {
-                                    "code": "validation_error",
-                                    "message": "loop_id must be an integer",
-                                },
-                            }
-                        )
-                        failed += 1
-                        continue
-
-                    try:
-                        loop_status = LoopStatus(status_str)
-                        if not is_terminal_status(loop_status):
-                            raise ValidationError("status", "must be completed or dropped")
-                        claim_token = item.get("claim_token")
-                        record = _close_single(loop_id, loop_status, note, claim_token)
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": True,
-                                "loop": record,
-                            }
-                        )
-                        succeeded += 1
-                    except Exception as exc:
-                        error_code = _classify_error(exc)
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {"code": error_code, "message": str(exc)},
-                            }
-                        )
-                        failed += 1
-
-                if failed > 0:
-                    raise _Rollback()
-        except _Rollback:
-            return {
-                "ok": False,
-                "transactional": True,
-                "results": _rollback_transaction_results(results),
-                "succeeded": 0,
-                "failed": len(items),
-            }
-    else:
-        for idx, item in enumerate(items):
-            loop_id = item.get("loop_id")
-            status_str = item.get("status", "completed")
-            note = item.get("note")
-
-            if not isinstance(loop_id, int):
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {
-                            "code": "validation_error",
-                            "message": "loop_id must be an integer",
-                        },
-                    }
-                )
-                failed += 1
-                continue
-
-            try:
-                with conn:
-                    loop_status = LoopStatus(status_str)
-                    if not is_terminal_status(loop_status):
-                        raise ValidationError("status", "must be completed or dropped")
-                    claim_token = item.get("claim_token")
-                    record = _close_single(loop_id, loop_status, note, claim_token)
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": True,
-                        "loop": record,
-                    }
-                )
-                succeeded += 1
-            except Exception as exc:
-                error_code = _classify_error(exc)
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {"code": error_code, "message": str(exc)},
-                    }
-                )
-                failed += 1
-
-    return {
-        "ok": failed == 0,
-        "transactional": transactional,
-        "results": results,
-        "succeeded": succeeded,
-        "failed": failed,
-    }
+    return _run_bulk_operation(
+        items=items,
+        transactional=transactional,
+        conn=conn,
+        validate_item=_validate_close,
+        execute_item=lambda item: _close_single(
+            item["loop_id"],
+            LoopStatus(item.get("status", "completed")),
+            item.get("note"),
+            item.get("claim_token"),
+        ),
+    )
 
 
 def create_template_from_loop(
@@ -434,9 +348,6 @@ def bulk_snooze_loops(
         Dict with ok, transactional, results (per-item), succeeded, failed
     """
 
-    class _Rollback(Exception):
-        pass
-
     def _snooze_single(
         loop_id: int, snooze_until_utc: str, claim_token: str | None = None
     ) -> dict[str, Any]:
@@ -448,148 +359,19 @@ def bulk_snooze_loops(
         )
         return _enrich_record(record=updated, conn=conn)
 
-    results: list[dict[str, Any]] = []
-    succeeded = 0
-    failed = 0
-
-    if transactional:
-        try:
-            with conn:
-                for idx, item in enumerate(items):
-                    loop_id = item.get("loop_id")
-                    snooze_until_utc = item.get("snooze_until_utc")
-
-                    if not isinstance(loop_id, int):
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {
-                                    "code": "validation_error",
-                                    "message": "loop_id must be an integer",
-                                },
-                            }
-                        )
-                        failed += 1
-                        continue
-
-                    if not snooze_until_utc:
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {
-                                    "code": "validation_error",
-                                    "message": "snooze_until_utc is required",
-                                },
-                            }
-                        )
-                        failed += 1
-                        continue
-
-                    try:
-                        claim_token = item.get("claim_token")
-                        record = _snooze_single(loop_id, snooze_until_utc, claim_token)
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": True,
-                                "loop": record,
-                            }
-                        )
-                        succeeded += 1
-                    except Exception as exc:
-                        error_code = _classify_error(exc)
-                        results.append(
-                            {
-                                "index": idx,
-                                "loop_id": loop_id,
-                                "ok": False,
-                                "error": {"code": error_code, "message": str(exc)},
-                            }
-                        )
-                        failed += 1
-
-                if failed > 0:
-                    raise _Rollback()
-        except _Rollback:
-            return {
-                "ok": False,
-                "transactional": True,
-                "results": _rollback_transaction_results(results),
-                "succeeded": 0,
-                "failed": len(items),
-            }
-    else:
-        for idx, item in enumerate(items):
-            loop_id = item.get("loop_id")
-            snooze_until_utc = item.get("snooze_until_utc")
-
-            if not isinstance(loop_id, int):
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {
-                            "code": "validation_error",
-                            "message": "loop_id must be an integer",
-                        },
-                    }
-                )
-                failed += 1
-                continue
-
-            if not snooze_until_utc:
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {
-                            "code": "validation_error",
-                            "message": "snooze_until_utc is required",
-                        },
-                    }
-                )
-                failed += 1
-                continue
-
-            try:
-                with conn:
-                    claim_token = item.get("claim_token")
-                    record = _snooze_single(loop_id, snooze_until_utc, claim_token)
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": True,
-                        "loop": record,
-                    }
-                )
-                succeeded += 1
-            except Exception as exc:
-                error_code = _classify_error(exc)
-                results.append(
-                    {
-                        "index": idx,
-                        "loop_id": loop_id,
-                        "ok": False,
-                        "error": {"code": error_code, "message": str(exc)},
-                    }
-                )
-                failed += 1
-
-    return {
-        "ok": failed == 0,
-        "transactional": transactional,
-        "results": results,
-        "succeeded": succeeded,
-        "failed": failed,
-    }
+    return _run_bulk_operation(
+        items=items,
+        transactional=transactional,
+        conn=conn,
+        validate_item=lambda item: (
+            None if item.get("snooze_until_utc") else "snooze_until_utc is required"
+        ),
+        execute_item=lambda item: _snooze_single(
+            item["loop_id"],
+            item["snooze_until_utc"],
+            item.get("claim_token"),
+        ),
+    )
 
 
 def _classify_error(exc: Exception) -> str:
@@ -716,13 +498,6 @@ def query_bulk_update_loops(
     loop_ids = _resolve_loop_ids_by_query(query=query, limit=limit, conn=conn)
 
     if dry_run:
-        targets = []
-        for lid in loop_ids:
-            record = repo.read_loop(loop_id=lid, conn=conn)
-            if record:
-                project = repo.read_project_name(project_id=record.project_id, conn=conn)
-                tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-                targets.append(_record_to_dict(record, project=project, tags=tags))
         return {
             "query": query,
             "dry_run": True,
@@ -732,7 +507,7 @@ def query_bulk_update_loops(
             "results": [],
             "succeeded": 0,
             "failed": 0,
-            "targets": targets,
+            "targets": _preview_query_targets(loop_ids=loop_ids, conn=conn),
             "limited": len(loop_ids) >= limit,
         }
 
@@ -773,13 +548,6 @@ def query_bulk_close_loops(
     loop_ids = _resolve_loop_ids_by_query(query=query, limit=limit, conn=conn)
 
     if dry_run:
-        targets = []
-        for lid in loop_ids:
-            record = repo.read_loop(loop_id=lid, conn=conn)
-            if record:
-                project = repo.read_project_name(project_id=record.project_id, conn=conn)
-                tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-                targets.append(_record_to_dict(record, project=project, tags=tags))
         return {
             "query": query,
             "dry_run": True,
@@ -789,7 +557,7 @@ def query_bulk_close_loops(
             "results": [],
             "succeeded": 0,
             "failed": 0,
-            "targets": targets,
+            "targets": _preview_query_targets(loop_ids=loop_ids, conn=conn),
             "limited": len(loop_ids) >= limit,
         }
 
@@ -832,13 +600,6 @@ def query_bulk_snooze_loops(
     loop_ids = _resolve_loop_ids_by_query(query=query, limit=limit, conn=conn)
 
     if dry_run:
-        targets = []
-        for lid in loop_ids:
-            record = repo.read_loop(loop_id=lid, conn=conn)
-            if record:
-                project = repo.read_project_name(project_id=record.project_id, conn=conn)
-                tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-                targets.append(_record_to_dict(record, project=project, tags=tags))
         return {
             "query": query,
             "dry_run": True,
@@ -848,7 +609,7 @@ def query_bulk_snooze_loops(
             "results": [],
             "succeeded": 0,
             "failed": 0,
-            "targets": targets,
+            "targets": _preview_query_targets(loop_ids=loop_ids, conn=conn),
             "limited": len(loop_ids) >= limit,
         }
 

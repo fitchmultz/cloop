@@ -17,14 +17,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
-import sys
 from argparse import Namespace
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
-from .. import db
-from ..loops import service
+from ..loops import service as loop_service
 from ..loops.capture_orchestration import (
     CaptureFieldInputs,
     CaptureOrchestrationInput,
@@ -47,19 +44,9 @@ from ..loops.models import (
     utc_now,
     validate_iso8601_timestamp,
 )
-from ..loops.service import (
-    get_loop,
-    list_loops,
-    list_loops_by_statuses,
-    list_loops_by_tag,
-    next_loops,
-    request_enrichment,
-    transition_status,
-    update_loop,
-)
 from ..loops.utils import normalize_tags
 from ..settings import Settings
-from .output import emit_output
+from ._runtime import cli_error, error_handler, fail_cli, run_cli_action, run_cli_db_action
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +56,55 @@ _OPEN_STATUSES = [
     LoopStatus.BLOCKED,
     LoopStatus.SCHEDULED,
 ]
+
+
+def _emit_json(result: Any) -> None:
+    """Emit JSON output with the legacy indentation used by loop CLI commands."""
+    print(json.dumps(result, indent=2))
+
+
+def _loop_not_found_handler(*, loop_id: int) -> list:
+    return [
+        error_handler(
+            LoopNotFoundError,
+            lambda _exc: cli_error(f"loop {loop_id} not found", exit_code=2),
+        )
+    ]
+
+
+def _claim_error_handlers(*, loop_id: int) -> list:
+    return [
+        *_loop_not_found_handler(loop_id=loop_id),
+        error_handler(
+            LoopClaimedError,
+            lambda exc: cli_error(str(exc)),
+        ),
+        error_handler(
+            ClaimNotFoundError,
+            lambda _exc: cli_error("invalid or expired claim token"),
+        ),
+    ]
+
+
+def _transition_error_handlers(*, loop_id: int) -> list:
+    return [
+        *_claim_error_handlers(loop_id=loop_id),
+        error_handler(
+            TransitionError,
+            lambda exc: cli_error(str(exc), exit_code=2),
+        ),
+        error_handler(
+            DependencyNotMetError,
+            lambda exc: cli_error(
+                f"{exc.message} (open dependencies: {exc.open_dependencies})",
+                exit_code=2,
+            ),
+        ),
+        error_handler(
+            DependencyCycleError,
+            lambda exc: cli_error(exc.message, exit_code=2),
+        ),
+    ]
 
 
 def parse_list_status_filter(raw_status: str | None) -> list[LoopStatus] | None:
@@ -127,99 +163,104 @@ def capture_command(args: Namespace, settings: Settings) -> int:
         ),
     )
 
-    try:
-        with db.core_connection(settings) as conn:
-            record = orchestrate_capture(
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: (
+            orchestrate_capture(
                 input_data=input_data,
                 settings=settings,
                 conn=conn,
             ).loop
-    except ValidationError as exc:
-        logger.error("Capture validation failed: %s", exc)
-        print(f"error: {exc.message}", file=sys.stderr)
-        if exc.field in {"template_id", "template_name"}:
-            return 2
-        return 1
-
-    print(json.dumps(record, indent=2))
-    return 0
+        ),
+        render=_emit_json,
+        error_handlers=[
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(
+                    exc.message,
+                    exit_code=2 if exc.field in {"template_id", "template_name"} else 1,
+                ),
+            )
+        ],
+    )
 
 
 def inbox_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop inbox' command."""
-    with db.core_connection(settings) as conn:
-        records = list_loops(
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.list_loops(
             status=LoopStatus.INBOX,
             limit=args.limit,
             offset=0,
             conn=conn,
-        )
-    print(json.dumps(records, indent=2))
-    return 0
+        ),
+        render=_emit_json,
+    )
 
 
 def next_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop next' command."""
-    with db.core_connection(settings) as conn:
-        payload = next_loops(limit=args.limit, conn=conn)
-    print(json.dumps(payload, indent=2))
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.next_loops(limit=args.limit, conn=conn),
+        render=_emit_json,
+    )
 
 
 def loop_get_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop get' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            record = get_loop(loop_id=args.id, conn=conn)
-        emit_output(record, args.format)
-        return 0
-    except LoopNotFoundError:
-        logger.error("Loop %s not found", args.id)
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.get_loop(loop_id=args.id, conn=conn),
+        output_format=args.format,
+        error_handlers=_loop_not_found_handler(loop_id=args.id),
+    )
 
 
 def loop_list_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop list' command."""
     try:
         statuses = parse_list_status_filter(args.status)
-    except ValueError as error:
-        logger.error("Invalid status filter: %s", error)
-        print(f"error: {error}", file=sys.stderr)
-        return 1
+    except ValueError as exc:
+        message = str(exc)
+        return run_cli_action(action=lambda: fail_cli(message))
 
-    with db.core_connection(settings) as conn:
+    def _list(conn: Any) -> list[dict[str, Any]]:
         if args.tag:
-            records = list_loops_by_tag(
+            return loop_service.list_loops_by_tag(
                 tag=args.tag,
                 statuses=statuses,
                 limit=args.limit,
                 offset=args.offset,
                 conn=conn,
             )
-        elif statuses is None:
-            records = list_loops(
+        if statuses is None:
+            return loop_service.list_loops(
                 status=None,
                 limit=args.limit,
                 offset=args.offset,
                 conn=conn,
             )
-        elif len(statuses) == 1:
-            records = list_loops(
+        if len(statuses) == 1:
+            return loop_service.list_loops(
                 status=statuses[0],
                 limit=args.limit,
                 offset=args.offset,
                 conn=conn,
             )
-        else:
-            records = list_loops_by_statuses(
-                statuses=statuses,
-                limit=args.limit,
-                offset=args.offset,
-                conn=conn,
-            )
-    emit_output(records, args.format)
-    return 0
+        return loop_service.list_loops_by_statuses(
+            statuses=statuses,
+            limit=args.limit,
+            offset=args.offset,
+            conn=conn,
+        )
+
+    return run_cli_db_action(
+        settings=settings,
+        action=_list,
+        output_format=args.format,
+    )
 
 
 def loop_search_command(args: Namespace, settings: Settings) -> int:
@@ -227,38 +268,36 @@ def loop_search_command(args: Namespace, settings: Settings) -> int:
     positional_query = args.query
     flag_query = args.query_flag
     if positional_query and flag_query:
-        logger.error("Both positional and flag query provided")
-        print("error: provide either positional query or --query, not both", file=sys.stderr)
-        return 1
+        return run_cli_action(
+            action=lambda: fail_cli("provide either positional query or --query, not both")
+        )
     query = flag_query or positional_query
     if not query:
-        logger.error("No query provided")
-        print("error: missing query (use positional value or --query)", file=sys.stderr)
-        return 1
+        return run_cli_action(
+            action=lambda: fail_cli("missing query (use positional value or --query)")
+        )
 
-    try:
-        with db.core_connection(settings) as conn:
-            records = service.search_loops_by_query(
-                query=query,
-                limit=args.limit,
-                offset=args.offset,
-                conn=conn,
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.search_loops_by_query(
+            query=query,
+            limit=args.limit,
+            offset=args.offset,
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(str(exc)),
             )
-        emit_output(records, args.format)
-        return 0
-    except ValidationError as e:
-        logger.error("Validation error in search: %s", e)
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except sqlite3.Error as e:
-        logger.error("Database error in search: %s", e)
-        print(f"error: database error - {e}", file=sys.stderr)
-        return 1
+        ],
+    )
 
 
 def loop_update_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop update' command."""
-    fields: Dict[str, Any] = {}
+    fields: dict[str, Any] = {}
     if args.title is not None:
         fields["title"] = args.title
     if args.summary is not None:
@@ -285,33 +324,26 @@ def loop_update_command(args: Namespace, settings: Settings) -> int:
         fields["tags"] = normalize_tags(args.tags.split(",")) if args.tags else []
 
     if not fields:
-        logger.error("No fields to update")
-        print("error: no fields to update", file=sys.stderr)
-        return 1
+        return run_cli_action(action=lambda: fail_cli("no fields to update"))
 
     claim_token = getattr(args, "claim_token", None)
-
-    try:
-        with db.core_connection(settings) as conn:
-            record = update_loop(loop_id=args.id, fields=fields, claim_token=claim_token, conn=conn)
-        emit_output(record, args.format)
-        return 0
-    except LoopNotFoundError:
-        logger.error("Loop %s not found", args.id)
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
-    except LoopClaimedError as e:
-        logger.error("Loop claimed: %s", e)
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except ClaimNotFoundError:
-        logger.error("Invalid or expired claim token")
-        print("error: invalid or expired claim token", file=sys.stderr)
-        return 1
-    except ValidationError as e:
-        logger.error("Validation error: %s", e)
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.update_loop(
+            loop_id=args.id,
+            fields=fields,
+            claim_token=claim_token,
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            *_claim_error_handlers(loop_id=args.id),
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(str(exc)),
+            ),
+        ],
+    )
 
 
 def loop_status_command(args: Namespace, settings: Settings) -> int:
@@ -319,47 +351,22 @@ def loop_status_command(args: Namespace, settings: Settings) -> int:
     try:
         to_status = LoopStatus(args.status)
     except ValueError:
-        logger.error("Invalid status: %s", args.status)
-        print(f"error: invalid status '{args.status}'", file=sys.stderr)
-        return 1
+        return run_cli_action(action=lambda: fail_cli(f"invalid status '{args.status}'"))
 
     claim_token = getattr(args, "claim_token", None)
 
-    try:
-        with db.core_connection(settings) as conn:
-            record = transition_status(
-                loop_id=args.id,
-                to_status=to_status,
-                conn=conn,
-                note=args.note,
-                claim_token=claim_token,
-            )
-        emit_output(record, args.format)
-        return 0
-    except LoopNotFoundError:
-        logger.error("Loop %s not found", args.id)
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
-    except LoopClaimedError as e:
-        logger.error("Loop claimed: %s", e)
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except ClaimNotFoundError:
-        logger.error("Invalid or expired claim token")
-        print("error: invalid or expired claim token", file=sys.stderr)
-        return 1
-    except TransitionError as e:
-        logger.error("Invalid transition: %s -> %s", e.from_status, e.to_status)
-        print(f"error: {e}", file=sys.stderr)
-        return 2
-    except DependencyNotMetError as e:
-        logger.error("Dependencies not met for loop %s: %s", args.id, e.open_dependencies)
-        print(f"error: {e.message} (open dependencies: {e.open_dependencies})", file=sys.stderr)
-        return 2
-    except DependencyCycleError as e:
-        logger.error("Dependency cycle: %s", e)
-        print(f"error: {e.message}", file=sys.stderr)
-        return 2
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.transition_status(
+            loop_id=args.id,
+            to_status=to_status,
+            conn=conn,
+            note=args.note,
+            claim_token=claim_token,
+        ),
+        output_format=args.format,
+        error_handlers=_transition_error_handlers(loop_id=args.id),
+    )
 
 
 def loop_close_command(args: Namespace, settings: Settings) -> int:
@@ -368,46 +375,34 @@ def loop_close_command(args: Namespace, settings: Settings) -> int:
 
     claim_token = getattr(args, "claim_token", None)
 
-    try:
-        with db.core_connection(settings) as conn:
-            record = transition_status(
-                loop_id=args.id,
-                to_status=to_status,
-                conn=conn,
-                note=args.note,
-                claim_token=claim_token,
-            )
-        emit_output(record, args.format)
-        return 0
-    except LoopNotFoundError:
-        logger.error("Loop %s not found", args.id)
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
-    except LoopClaimedError as e:
-        logger.error("Loop claimed: %s", e)
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except ClaimNotFoundError:
-        logger.error("Invalid or expired claim token")
-        print("error: invalid or expired claim token", file=sys.stderr)
-        return 1
-    except TransitionError as e:
-        logger.error("Invalid transition: %s", e)
-        print(f"error: {e}", file=sys.stderr)
-        return 2
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.transition_status(
+            loop_id=args.id,
+            to_status=to_status,
+            conn=conn,
+            note=args.note,
+            claim_token=claim_token,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            *_claim_error_handlers(loop_id=args.id),
+            error_handler(
+                TransitionError,
+                lambda exc: cli_error(str(exc), exit_code=2),
+            ),
+        ],
+    )
 
 
 def loop_enrich_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop enrich' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            record = request_enrichment(loop_id=args.id, conn=conn)
-        emit_output(record, args.format)
-        return 0
-    except LoopNotFoundError:
-        logger.error("Loop %s not found", args.id)
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.request_enrichment(loop_id=args.id, conn=conn),
+        output_format=args.format,
+        error_handlers=_loop_not_found_handler(loop_id=args.id),
+    )
 
 
 def parse_snooze_duration(duration: str) -> str | None:
@@ -432,20 +427,15 @@ def loop_snooze_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop snooze' command."""
     snooze_until = parse_snooze_duration(args.duration)
     if snooze_until is None:
-        logger.error("Invalid duration: %s", args.duration)
-        print(f"error: invalid duration '{args.duration}'", file=sys.stderr)
-        return 1
+        return run_cli_action(action=lambda: fail_cli(f"invalid duration '{args.duration}'"))
 
-    try:
-        with db.core_connection(settings) as conn:
-            record = update_loop(
-                loop_id=args.id,
-                fields={"snooze_until_utc": snooze_until},
-                conn=conn,
-            )
-        emit_output(record, args.format)
-        return 0
-    except LoopNotFoundError:
-        logger.error("Loop %s not found", args.id)
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_service.update_loop(
+            loop_id=args.id,
+            fields={"snooze_until_utc": snooze_until},
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=_loop_not_found_handler(loop_id=args.id),
+    )

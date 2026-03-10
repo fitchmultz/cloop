@@ -102,8 +102,10 @@ from ...settings import Settings
 from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
+    build_loop_response,
     invalid_claim_token_http_exception,
     loop_claimed_http_exception,
+    no_fields_to_update_http_exception,
     run_idempotent_loop_route,
 )
 
@@ -608,7 +610,7 @@ def loop_update_endpoint(
     fields = request.model_dump(exclude_unset=True)
     claim_token = fields.pop("claim_token", None)  # Extract claim_token if present
     if not fields:
-        raise HTTPException(status_code=400, detail="no_fields_to_update")
+        raise no_fields_to_update_http_exception() from None
 
     payload = {"loop_id": loop_id, "fields": fields}
 
@@ -619,8 +621,8 @@ def loop_update_endpoint(
             path=f"/loops/{loop_id}",
             idempotency_key=idempotency_key,
             payload=payload,
-            execute=lambda conn: LoopResponse(
-                **loop_service.update_loop(
+            execute=lambda conn: build_loop_response(
+                loop_service.update_loop(
                     loop_id=loop_id,
                     fields=fields,
                     claim_token=claim_token,
@@ -646,7 +648,13 @@ def loop_close_endpoint(
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopResponse | JSONResponse:
     if not is_terminal_status(request.status):
-        raise HTTPException(status_code=400, detail="status must be completed or dropped")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "validation_error",
+                "message": "status must be completed or dropped",
+            },
+        ) from None
 
     payload = {
         "loop_id": loop_id,
@@ -662,8 +670,8 @@ def loop_close_endpoint(
             path=f"/loops/{loop_id}/close",
             idempotency_key=idempotency_key,
             payload=payload,
-            execute=lambda conn: LoopResponse(
-                **loop_service.transition_status(
+            execute=lambda conn: build_loop_response(
+                loop_service.transition_status(
                     loop_id=loop_id,
                     to_status=request.status,
                     conn=conn,
@@ -703,8 +711,8 @@ def loop_status_endpoint(
             path=f"/loops/{loop_id}/status",
             idempotency_key=idempotency_key,
             payload=payload,
-            execute=lambda conn: LoopResponse(
-                **loop_service.transition_status(
+            execute=lambda conn: build_loop_response(
+                loop_service.transition_status(
                     loop_id=loop_id,
                     to_status=request.status,
                     conn=conn,

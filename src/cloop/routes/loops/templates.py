@@ -22,7 +22,7 @@ Endpoints:
 - POST /{loop_id}/save-as-template: Create template from an existing loop
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from ... import db
@@ -45,6 +45,9 @@ from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
     build_loop_template_response,
+    map_not_found_to_404,
+    map_validation_to_400,
+    no_fields_to_update_http_exception,
     run_idempotent_loop_route,
 )
 
@@ -69,7 +72,7 @@ def get_template_endpoint(template_id: int, settings: SettingsDep) -> LoopTempla
         template = get_loop_template(template_id=template_id, conn=conn)
 
     if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise map_not_found_to_404(resource_type="template") from None
 
     return build_loop_template_response(template)
 
@@ -101,7 +104,7 @@ def create_template_endpoint(
             ).model_dump(),
         )
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+        raise map_validation_to_400(exc) from None
 
     if isinstance(result, JSONResponse):
         return result
@@ -118,7 +121,7 @@ def update_template_endpoint(
     """Update a loop template. System templates cannot be modified."""
     fields = request.model_dump(exclude_unset=True)
     if not fields:
-        raise HTTPException(status_code=400, detail="no_fields_to_update")
+        raise no_fields_to_update_http_exception() from None
 
     try:
         result = run_idempotent_loop_route(
@@ -139,7 +142,7 @@ def update_template_endpoint(
             ).model_dump(),
         )
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+        raise map_validation_to_400(exc) from None
 
     if isinstance(result, JSONResponse):
         return result
@@ -165,7 +168,7 @@ def delete_template_endpoint(
             },
         )
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+        raise map_validation_to_400(exc) from None
 
 
 @router.post("/{loop_id}/save-as-template", response_model=LoopTemplateResponse, status_code=201)
@@ -193,9 +196,9 @@ def save_as_template_endpoint(
             ).model_dump(),
         )
     except LoopNotFoundError:
-        raise HTTPException(status_code=404, detail="Loop not found") from None
+        raise map_not_found_to_404(resource_type="loop") from None
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
+        raise map_validation_to_400(exc) from None
 
     if isinstance(result, JSONResponse):
         return result

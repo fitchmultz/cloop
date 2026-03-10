@@ -25,6 +25,7 @@ Entrypoints:
 import json
 import logging
 import sqlite3
+from collections.abc import Callable
 from typing import Any, Dict, List, Protocol
 
 from . import db
@@ -51,32 +52,6 @@ def _require_fields(payload: Dict[str, Any], *fields: str) -> None:
     missing = [field for field in fields if payload.get(field) is None]
     if missing:
         raise ValidationError("fields", f"missing required: {', '.join(missing)}")
-
-
-def _loop_to_dict(loop: Any) -> Dict[str, Any]:
-    """Convert LoopRecord to dict for JSON response.
-
-    Handles both LoopRecord objects and dicts (already enriched records).
-    """
-    if isinstance(loop, dict):
-        return loop
-
-    return {
-        "id": loop.id,
-        "raw_text": loop.raw_text,
-        "status": loop.status.value if hasattr(loop.status, "value") else loop.status,
-        "created_at_utc": format_utc_datetime(loop.created_at_utc) if loop.created_at_utc else None,
-        "updated_at_utc": format_utc_datetime(loop.updated_at_utc) if loop.updated_at_utc else None,
-        "title": loop.title,
-        "summary": loop.summary,
-        "next_action": loop.next_action,
-        "due_at_utc": format_utc_datetime(loop.due_at_utc) if loop.due_at_utc else None,
-        "snooze_until_utc": format_utc_datetime(loop.snooze_until_utc)
-        if loop.snooze_until_utc
-        else None,
-        "time_minutes": loop.time_minutes,
-        "tags": list(loop.tags) if hasattr(loop, "tags") and loop.tags else [],
-    }
 
 
 # ============================================================================
@@ -169,6 +144,20 @@ def _handle_tool_error(operation: str, exc: Exception) -> None:
     raise ValidationError(operation, f"unexpected error during {operation}: {exc}") from exc
 
 
+def _run_loop_db_action(
+    operation: str,
+    action: Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
+    """Run a loop-domain DB action with shared connection/error handling."""
+    settings = get_settings()
+    try:
+        with db.core_connection(settings) as conn:
+            return action(conn=conn, settings=settings)
+    except Exception as exc:
+        _handle_tool_error(operation, exc)
+    raise AssertionError("unreachable")
+
+
 def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
     """Create a new loop."""
     from .loops import service as loop_service
@@ -189,22 +178,16 @@ def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
     except ValueError as e:
         raise ValidationError("status", f"invalid status: {status_str}") from e
 
-    settings = get_settings()
-    try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.capture_loop(
-                raw_text=raw_text,
-                captured_at_iso=captured_at,
-                client_tz_offset_min=tz_offset,
-                status=status,
-                conn=conn,
-            )
-    except ValidationError, LoopNotFoundError:
-        raise
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_create", e)
+    result = _run_loop_db_action(
+        "loop_create",
+        lambda conn, settings: loop_service.capture_loop(
+            raw_text=raw_text,
+            captured_at_iso=captured_at,
+            client_tz_offset_min=tz_offset,
+            status=status,
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_create", "loop": result}
 
@@ -221,22 +204,19 @@ def execute_loop_update(**kwargs: Any) -> Dict[str, Any]:
     if not fields:
         raise ValidationError("fields", "at least one field required")
 
-    settings = get_settings()
     try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.update_loop(
+        result = _run_loop_db_action(
+            "loop_update",
+            lambda conn, settings: loop_service.update_loop(
                 loop_id=int(loop_id),
                 fields=fields,
                 conn=conn,
-            )
+            ),
+        )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
     except ValidationError, TransitionError:
         raise
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_update", e)
 
     return {"action": "loop_update", "loop": result}
 
@@ -260,15 +240,16 @@ def execute_loop_close(**kwargs: Any) -> Dict[str, Any]:
     if status not in (LoopStatus.COMPLETED, LoopStatus.DROPPED):
         raise ValidationError("status", "must be 'completed' or 'dropped'")
 
-    settings = get_settings()
     try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.transition_status(
+        result = _run_loop_db_action(
+            "loop_close",
+            lambda conn, settings: loop_service.transition_status(
                 loop_id=int(loop_id),
                 to_status=status,
                 note=note,
                 conn=conn,
-            )
+            ),
+        )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
     except TransitionError as e:
@@ -277,10 +258,6 @@ def execute_loop_close(**kwargs: Any) -> Dict[str, Any]:
         ) from e
     except (ValidationError, ValueError) as e:
         raise ValidationError("fields", str(e)) from e
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_close", e)
 
     return {"action": "loop_close", "loop": result}
 
@@ -300,21 +277,15 @@ def execute_loop_list(**kwargs: Any) -> Dict[str, Any]:
         except ValueError as e:
             raise ValidationError("status", f"invalid status: {status_str}") from e
 
-    settings = get_settings()
-    try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.list_loops_page(
-                status=status,
-                limit=min(limit, 100),  # Cap at 100
-                cursor=cursor,
-                conn=conn,
-            )
-    except ValidationError, LoopNotFoundError:
-        raise
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_list", e)
+    result = _run_loop_db_action(
+        "loop_list",
+        lambda conn, settings: loop_service.list_loops_page(
+            status=status,
+            limit=min(limit, 100),  # Cap at 100
+            cursor=cursor,
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_list", **result}
 
@@ -327,21 +298,15 @@ def execute_loop_search(**kwargs: Any) -> Dict[str, Any]:
     limit = kwargs.get("limit", 50)
     cursor = kwargs.get("cursor")
 
-    settings = get_settings()
-    try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.search_loops_by_query_page(
-                query=query,
-                limit=min(limit, 100),
-                cursor=cursor,
-                conn=conn,
-            )
-    except ValidationError, LoopNotFoundError:
-        raise
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_search", e)
+    result = _run_loop_db_action(
+        "loop_search",
+        lambda conn, settings: loop_service.search_loops_by_query_page(
+            query=query,
+            limit=min(limit, 100),
+            cursor=cursor,
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_search", **result}
 
@@ -352,20 +317,14 @@ def execute_loop_next(**kwargs: Any) -> Dict[str, Any]:
 
     limit = kwargs.get("limit", 5)
 
-    settings = get_settings()
-    try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.next_loops(
-                limit=min(limit, 20),  # Cap at 20
-                conn=conn,
-                settings=settings,
-            )
-    except ValidationError, LoopNotFoundError:
-        raise
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_next", e)
+    result = _run_loop_db_action(
+        "loop_next",
+        lambda conn, settings: loop_service.next_loops(
+            limit=min(limit, 20),  # Cap at 20
+            conn=conn,
+            settings=settings,
+        ),
+    )
 
     # Result is already a dict with bucket names
     return {"action": "loop_next", **result}
@@ -392,15 +351,16 @@ def execute_loop_transition(**kwargs: Any) -> Dict[str, Any]:
     if is_terminal_status(status):
         raise ValidationError("status", "use loop_close for terminal statuses")
 
-    settings = get_settings()
     try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.transition_status(
+        result = _run_loop_db_action(
+            "loop_transition",
+            lambda conn, settings: loop_service.transition_status(
                 loop_id=int(loop_id),
                 to_status=status,
                 note=note,
                 conn=conn,
-            )
+            ),
+        )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
     except TransitionError as e:
@@ -409,10 +369,6 @@ def execute_loop_transition(**kwargs: Any) -> Dict[str, Any]:
         ) from e
     except ValidationError:
         raise
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_transition", e)
 
     return {"action": "loop_transition", "loop": result}
 
@@ -429,22 +385,19 @@ def execute_loop_snooze(**kwargs: Any) -> Dict[str, Any]:
     if not snooze_until:
         raise ValidationError("snooze_until_utc", "required for loop_snooze")
 
-    settings = get_settings()
     try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.update_loop(
+        result = _run_loop_db_action(
+            "loop_snooze",
+            lambda conn, settings: loop_service.update_loop(
                 loop_id=int(loop_id),
                 fields={"snooze_until_utc": snooze_until},
                 conn=conn,
-            )
+            ),
+        )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
     except (ValidationError, ValueError) as e:
         raise ValidationError("fields", str(e)) from e
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_snooze", e)
 
     return {"action": "loop_snooze", "loop": result}
 
@@ -458,23 +411,22 @@ def execute_loop_enrich(**kwargs: Any) -> Dict[str, Any]:
     if loop_id is None:
         raise ValidationError("loop_id", "required for loop_enrich")
 
-    settings = get_settings()
     try:
-        with db.core_connection(settings) as conn:
-            loop_service.request_enrichment(loop_id=int(loop_id), conn=conn)
-            result = loop_enrichment.enrich_loop(
-                loop_id=int(loop_id),
-                conn=conn,
-                settings=settings,
-            )
+        result = _run_loop_db_action(
+            "loop_enrich",
+            lambda conn, settings: (
+                loop_service.request_enrichment(loop_id=int(loop_id), conn=conn),
+                loop_enrichment.enrich_loop(
+                    loop_id=int(loop_id),
+                    conn=conn,
+                    settings=settings,
+                ),
+            )[1],
+        )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
     except (ValidationError, ValueError) as e:
         raise ValidationError("fields", str(e)) from e
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_enrich", e)
 
     return {"action": "loop_enrich", "loop": result}
 
@@ -487,18 +439,15 @@ def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:
     if loop_id is None:
         raise ValidationError("loop_id", "required for loop_get")
 
-    settings = get_settings()
     try:
-        with db.core_connection(settings) as conn:
-            result = loop_service.get_loop(loop_id=int(loop_id), conn=conn)
+        result = _run_loop_db_action(
+            "loop_get",
+            lambda conn, settings: loop_service.get_loop(loop_id=int(loop_id), conn=conn),
+        )
     except LoopNotFoundError as e:
         raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
     except (ValidationError, ValueError) as e:
         raise ValidationError("fields", str(e)) from e
-    except sqlite3.Error as e:
-        raise ValidationError("database", f"Database error: {e}") from e
-    except Exception as e:
-        _handle_tool_error("loop_get", e)
 
     return {"action": "loop_get", "loop": result}
 

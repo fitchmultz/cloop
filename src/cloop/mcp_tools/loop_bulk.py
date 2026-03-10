@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 from mcp.server.fastmcp.exceptions import ToolError
 
 from ..constants import BULK_OPERATION_MAX_ITEMS
-from ..loops import service as loop_service
+from ..loops import bulk as loop_bulk
 from ..loops.models import validate_iso8601_timestamp
 from ._mutation import run_idempotent_tool_mutation
 
@@ -71,7 +71,7 @@ def loop_bulk_update(
         tool_name="loop.bulk_update",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.bulk_update_loops(
+        execute=lambda conn, settings: loop_bulk.bulk_update_loops(
             updates=updates,
             transactional=transactional,
             conn=conn,
@@ -115,7 +115,7 @@ def loop_bulk_close(
         tool_name="loop.bulk_close",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.bulk_close_loops(
+        execute=lambda conn, settings: loop_bulk.bulk_close_loops(
             items=items,
             transactional=transactional,
             conn=conn,
@@ -162,7 +162,7 @@ def loop_bulk_snooze(
         tool_name="loop.bulk_snooze",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.bulk_snooze_loops(
+        execute=lambda conn, settings: loop_bulk.bulk_snooze_loops(
             items=items,
             transactional=transactional,
             conn=conn,

@@ -24,7 +24,7 @@ Endpoints:
 import secrets
 from typing import Annotated, List
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from ... import db
 from ...schemas.loops import (
@@ -40,6 +40,8 @@ from ._common import (
     build_webhook_delivery_response,
     build_webhook_subscription_create_response,
     build_webhook_subscription_response,
+    map_not_found_to_404,
+    no_fields_to_update_http_exception,
 )
 
 router = APIRouter()
@@ -95,7 +97,7 @@ def update_webhook_subscription(
     """Update a webhook subscription."""
     fields = request.model_dump(exclude_unset=True)
     if not fields:
-        raise HTTPException(status_code=400, detail="no_fields_to_update")
+        raise no_fields_to_update_http_exception() from None
 
     with db.core_connection(settings) as conn:
         subscription = webhooks_repo.update_subscription(
@@ -107,7 +109,7 @@ def update_webhook_subscription(
             conn=conn,
         )
         if subscription is None:
-            raise HTTPException(status_code=404, detail="subscription_not_found")
+            raise map_not_found_to_404(resource_type="subscription") from None
 
     return build_webhook_subscription_response(subscription)
 
@@ -124,7 +126,7 @@ def delete_webhook_subscription(
             conn=conn,
         )
         if not deleted:
-            raise HTTPException(status_code=404, detail="subscription_not_found")
+            raise map_not_found_to_404(resource_type="subscription") from None
     return {"deleted": True}
 
 
@@ -145,7 +147,7 @@ def list_webhook_deliveries(
             conn=conn,
         )
         if subscription is None:
-            raise HTTPException(status_code=404, detail="subscription_not_found")
+            raise map_not_found_to_404(resource_type="subscription") from None
 
         deliveries = webhooks_repo.list_deliveries_for_subscription(
             subscription_id=subscription_id,

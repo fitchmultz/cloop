@@ -17,15 +17,8 @@ from __future__ import annotations
 
 from argparse import Namespace
 
+from ..loops import claims as loop_claims
 from ..loops.errors import ClaimNotFoundError, LoopClaimedError, LoopNotFoundError
-from ..loops.service import (
-    claim_loop,
-    force_release_claim,
-    get_claim_status,
-    list_active_claims,
-    release_claim,
-    renew_claim,
-)
 from ..settings import Settings
 from ._runtime import cli_error, error_handler, run_cli_db_action
 
@@ -34,7 +27,7 @@ def loop_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop claim' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: claim_loop(
+        action=lambda conn: loop_claims.claim_loop(
             loop_id=args.id,
             owner=args.owner,
             ttl_seconds=args.ttl,
@@ -59,7 +52,7 @@ def loop_renew_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop renew' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: renew_claim(
+        action=lambda conn: loop_claims.renew_claim(
             loop_id=args.id,
             claim_token=args.token,
             ttl_seconds=args.ttl,
@@ -81,7 +74,7 @@ def loop_release_claim_command(args: Namespace, settings: Settings) -> int:
     return run_cli_db_action(
         settings=settings,
         action=lambda conn: (
-            release_claim(
+            loop_claims.release_claim(
                 loop_id=args.id,
                 claim_token=args.token,
                 conn=conn,
@@ -103,7 +96,8 @@ def loop_get_claim_command(args: Namespace, settings: Settings) -> int:
     return run_cli_db_action(
         settings=settings,
         action=lambda conn: (
-            get_claim_status(loop_id=args.id, conn=conn) or {"loop_id": args.id, "claimed": False}
+            loop_claims.get_claim_status(loop_id=args.id, conn=conn)
+            or {"loop_id": args.id, "claimed": False}
         ),
         output_format=args.format,
     )
@@ -113,7 +107,7 @@ def loop_list_claims_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop claims' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: list_active_claims(
+        action=lambda conn: loop_claims.list_active_claims(
             owner=args.owner,
             limit=args.limit,
             conn=conn,
@@ -128,7 +122,7 @@ def loop_force_release_claim_command(args: Namespace, settings: Settings) -> int
         settings=settings,
         action=lambda conn: {
             "ok": True,
-            "released": force_release_claim(loop_id=args.id, conn=conn),
+            "released": loop_claims.force_release_claim(loop_id=args.id, conn=conn),
             "loop_id": args.id,
         },
         output_format=args.format,

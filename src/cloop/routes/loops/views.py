@@ -45,6 +45,7 @@ from ._common import (
     build_loop_view_response,
     map_not_found_to_404,
     map_validation_to_400,
+    no_fields_to_update_http_exception,
 )
 
 router = APIRouter()
@@ -107,7 +108,7 @@ def loop_view_update_endpoint(
     """Update a saved view."""
     fields = request.model_dump(exclude_unset=True)
     if not fields:
-        raise map_validation_to_400(ValidationError("fields", "no fields provided")) from None
+        raise no_fields_to_update_http_exception() from None
 
     with db.core_connection(settings) as conn:
         try:

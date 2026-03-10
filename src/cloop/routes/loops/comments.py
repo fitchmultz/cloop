@@ -29,7 +29,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from ... import db
-from ...loops import service as loop_service
+from ...loops import comments as loop_comments
 from ...loops.errors import CommentNotFoundError, LoopNotFoundError, ValidationError
 from ...schemas.loops import (
     LoopCommentCreateRequest,
@@ -83,7 +83,7 @@ def create_comment_endpoint(
             response_status=201,
             execute=lambda conn: build_loop_comment_response(
                 {
-                    **loop_service.create_loop_comment(
+                    **loop_comments.create_loop_comment(
                         loop_id=loop_id,
                         author=request.author,
                         body_md=request.body_md,
@@ -121,7 +121,7 @@ def list_comments_endpoint(
     """
     with db.core_connection(settings) as conn:
         try:
-            result = loop_service.list_loop_comments(
+            result = loop_comments.list_loop_comments(
                 loop_id=loop_id,
                 include_deleted=include_deleted,
                 conn=conn,
@@ -163,7 +163,7 @@ def update_comment_endpoint(
             payload=payload,
             execute=lambda conn: build_loop_comment_response(
                 {
-                    **loop_service.update_loop_comment(
+                    **loop_comments.update_loop_comment(
                         comment_id=comment_id,
                         body_md=request.body_md,
                         conn=conn,
@@ -213,7 +213,7 @@ def delete_comment_endpoint(
 
 def _delete_comment_response(*, comment_id: int, conn: Any) -> dict[str, Any]:
     """Delete a comment and normalize the route response body."""
-    deleted = loop_service.delete_loop_comment(comment_id=comment_id, conn=conn)
+    deleted = loop_comments.delete_loop_comment(comment_id=comment_id, conn=conn)
     if not deleted:
         raise map_not_found_to_404(
             resource_type="comment",
