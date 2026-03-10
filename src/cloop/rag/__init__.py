@@ -1,16 +1,29 @@
-"""
-RAG (Retrieval-Augmented Generation) operations.
+"""RAG (Retrieval-Augmented Generation) operations.
 
-This package provides document ingestion, chunking, embedding, and retrieval
-capabilities for the Cloop knowledge base.
+Purpose:
+    Provide the shared ingestion, retrieval, and question-answering building
+    blocks for the local knowledge base.
+
+Responsibilities:
+    - Ingest and purge knowledge-base documents
+    - Chunk content and store embeddings
+    - Retrieve semantically similar chunks
+    - Expose shared ask orchestration helpers
+
+Non-scope:
+    - HTTP request/response handling
+    - CLI output formatting
+    - SSE streaming transport
 
 Public API:
-- ingest_paths: Ingest documents into the RAG database
-- retrieve_similar_chunks: Search for similar document chunks
-- fetch_all_chunks: Get all chunks from the database
-- load_document: Load a document from filesystem
-- chunk_text: Split text into chunks
-- purge_documents: Remove documents from the database
+    - ingest_paths: Ingest documents into the RAG database
+    - retrieve_similar_chunks: Search for similar document chunks
+    - answer_question: Run the non-streaming shared RAG ask flow
+    - prepare_ask_context: Build shared retrieval/prompt context
+    - fetch_all_chunks: Get all chunks from the database
+    - load_document: Load a document from filesystem
+    - chunk_text: Split text into chunks
+    - purge_documents: Remove documents from the database
 """
 
 import json
@@ -24,6 +37,17 @@ import numpy as np
 from ..db import VectorBackend, get_vector_backend, rag_connection
 from ..embeddings import embed_texts
 from ..settings import EmbedStorageMode, Settings, get_settings
+from .ask_orchestration import (
+    NO_KNOWLEDGE_MESSAGE,
+    AskAnswer,
+    PreparedAskContext,
+    answer_prepared_question,
+    answer_question,
+    build_ask_messages,
+    format_sources,
+    prepare_ask_context,
+    sanitize_chunk,
+)
 from .chunking import chunk_text
 from .documents import (
     SUPPORTED_INGEST_MODES,
@@ -257,6 +281,15 @@ def ingest_paths(
 
 __all__ = [
     "ingest_paths",
+    "answer_question",
+    "answer_prepared_question",
+    "prepare_ask_context",
+    "sanitize_chunk",
+    "format_sources",
+    "build_ask_messages",
+    "NO_KNOWLEDGE_MESSAGE",
+    "PreparedAskContext",
+    "AskAnswer",
     "load_document",
     "chunk_text",
     "purge_documents",

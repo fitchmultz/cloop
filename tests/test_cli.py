@@ -38,6 +38,17 @@ def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
 
+def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock non-streaming RAG answer generation for CLI tests."""
+
+    def fake_chat_completion(
+        messages: List[dict[str, Any]], *, settings: Settings
+    ) -> tuple[str, dict[str, Any]]:
+        return "mock-response", {"model": settings.llm_model, "latency_ms": 12.5}
+
+    monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)
+
+
 def _get_last_json(capsys: Any) -> Any:
     """Get the last JSON object from captured stdout.
 
@@ -259,9 +270,10 @@ def test_ask_command_no_knowledge(
 def test_ask_command_with_results(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:
-    """Test ask command with ingested documents."""
+    """Test ask command returns an answer plus sanitized supporting sources."""
     settings = _make_settings(tmp_path, monkeypatch)
     _mock_embeddings(monkeypatch)
+    _mock_rag_answer(monkeypatch)
 
     doc = tmp_path / "doc.txt"
     doc.write_text("FastAPI is a modern web framework", encoding="utf-8")
@@ -276,9 +288,12 @@ def test_ask_command_with_results(
 
     assert exit_code == 0
     output = _get_last_json(capsys)
-    assert "question" in output
+    assert output["answer"] == "mock-response"
+    assert output["model"] == "mock-llm"
     assert "chunks" in output
+    assert "sources" in output
     assert len(output["chunks"]) > 0
+    assert len(output["sources"]) > 0
     # Verify embedding_blob is stripped
     for chunk in output["chunks"]:
         assert "embedding_blob" not in chunk
@@ -714,6 +729,7 @@ def test_ask_with_scope_filter(
     """Test ask command with scope filter."""
     settings = _make_settings(tmp_path, monkeypatch)
     _mock_embeddings(monkeypatch)
+    _mock_rag_answer(monkeypatch)
 
     doc_a = tmp_path / "alpha.txt"
     doc_b = tmp_path / "beta.txt"

@@ -60,6 +60,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Comment mutations**: `src/cloop/loops/comments.py` commits exactly once after the full comment write + loop event insert + webhook queue succeeds; do not reintroduce intermediate commits in that flow.
 - **Bulk mutations**: `src/cloop/loops/bulk.py` should delegate single-item update/close/snooze behavior to the shared mutation helpers in `src/cloop/loops/service_helpers.py`; do not fork those business rules back into bulk-specific copies.
 - **Capture orchestration**: shared capture/template/recurrence/enrichment setup lives in `src/cloop/loops/capture_orchestration.py`; HTTP, CLI, and MCP capture entrypoints should delegate there instead of maintaining parallel capture flows.
+- **RAG ask orchestration**: shared retrieval + prompt + answer shaping now lives in `src/cloop/rag/ask_orchestration.py`; keep HTTP `/ask` and CLI `ask` aligned through that service layer instead of forking behavior by transport.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
 - **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
 - **Keyboard shortcut UX**: loop-card actions keep keyboard shortcuts via `aria-keyshortcuts` and button tooltips; avoid visible single-letter suffix badges inside action labels.

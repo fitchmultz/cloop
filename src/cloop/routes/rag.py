@@ -24,11 +24,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from .. import db
-from ..llm import chat_completion, estimate_tokens, stream_completion
+from ..llm import stream_completion
 from ..loops.errors import CloopError
 from ..rag import (
+    NO_KNOWLEDGE_MESSAGE,
+    answer_prepared_question,
     ingest_paths,
-    retrieve_similar_chunks,
+    prepare_ask_context,
 )
 from ..schemas.chat import _InteractionMetadata
 from ..schemas.rag import AskResponse, IngestMode, IngestRequest, IngestResponse
@@ -38,28 +40,6 @@ from ..sse import format_sse_event
 router = APIRouter(tags=["rag"])
 
 SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
-
-
-def _sanitize_chunk(chunk: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove embedding blob from chunk for API response."""
-    sanitized = dict(chunk)
-    sanitized.pop("embedding_blob", None)
-    return sanitized
-
-
-def _format_sources(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Format chunks as source references."""
-    sources: List[Dict[str, Any]] = []
-    for chunk in chunks:
-        sources.append(
-            {
-                "id": chunk.get("id"),
-                "document_path": chunk.get("document_path"),
-                "chunk_index": chunk.get("chunk_index"),
-                "score": chunk.get("score"),
-            }
-        )
-    return sources
 
 
 def _interaction_context(settings: Settings) -> Dict[str, str]:
@@ -115,53 +95,42 @@ def ask_endpoint(
         raise HTTPException(status_code=400, detail="k must be positive")
 
     context_snapshot = _interaction_context(settings)
+    stream_enabled = stream if stream is not None else settings.stream_default
     try:
-        chunks = retrieve_similar_chunks(q, top_k=top_k, scope=scope, settings=settings)
+        prepared = prepare_ask_context(
+            question=q,
+            top_k=top_k,
+            scope=scope,
+            settings=settings,
+        )
     except (RuntimeError, CloopError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    stream_enabled = stream if stream is not None else settings.stream_default
-    if not chunks:
+
+    if not prepared.has_knowledge:
         if stream_enabled:
 
             def empty_stream() -> Iterator[str]:
                 yield format_sse_event(
                     "done",
                     {
-                        "answer": "No knowledge available. Ingest documents first.",
+                        "answer": NO_KNOWLEDGE_MESSAGE,
                         "model": settings.llm_model,
                         "chunks": [],
                     },
                 )
 
             return StreamingResponse(empty_stream(), media_type="text/event-stream")
-        return AskResponse(answer="No knowledge available. Ingest documents first.", chunks=[])
-
-    context = "\n\n".join(
-        f"[{idx}] {chunk['content']}" for idx, chunk in enumerate(chunks, start=1)
-    )
-    messages = [
-        {
-            "role": "system",
-            "content": "Use the provided context to answer. If unsure, say you do not know.",
-        },
-        {
-            "role": "user",
-            "content": f"Question: {q}\n\nContext:\n{context}",
-        },
-    ]
-    token_estimate = estimate_tokens(messages)
+        return AskResponse(answer=NO_KNOWLEDGE_MESSAGE, chunks=[])
 
     if stream_enabled:
         request_payload = {"q": q, "k": top_k, "stream": True}
         if scope:
             request_payload["scope"] = scope
-        sanitized_chunks = [_sanitize_chunk(chunk) for chunk in chunks]
-        sources = _format_sources(sanitized_chunks)
 
         def event_stream() -> Iterator[str]:
             start = time.monotonic()
             tokens: List[str] = []
-            for token in stream_completion(messages, settings=settings):
+            for token in stream_completion(prepared.messages, settings=settings):
                 if not token:
                     continue
                 tokens.append(token)
@@ -175,7 +144,7 @@ def ask_endpoint(
             response_payload = {
                 "answer": final_answer,
                 "metadata": metadata,
-                "sources": sources,
+                "sources": prepared.sources,
                 "context": context_snapshot,
             }
             db.record_interaction(
@@ -184,8 +153,8 @@ def ask_endpoint(
                 response_payload=response_payload,
                 model=metadata["model"],
                 latency_ms=metadata["latency_ms"],
-                token_estimate=token_estimate,
-                selected_chunks=sanitized_chunks,
+                token_estimate=prepared.token_estimate,
+                selected_chunks=prepared.chunks,
                 tool_calls=[],
                 settings=settings,
             )
@@ -194,16 +163,14 @@ def ask_endpoint(
                 {
                     "answer": final_answer,
                     "model": metadata["model"],
-                    "chunks": sanitized_chunks,
-                    "sources": sources,
+                    "chunks": prepared.chunks,
+                    "sources": prepared.sources,
                 },
             )
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
-    content, metadata = chat_completion(messages, settings=settings)
-    sanitized_chunks = [_sanitize_chunk(chunk) for chunk in chunks]
-    sources = _format_sources(sanitized_chunks)
+    answer = answer_prepared_question(prepared=prepared, settings=settings)
 
     db.record_interaction(
         endpoint="/ask",
@@ -213,21 +180,21 @@ def ask_endpoint(
             if value is not None
         },
         response_payload={
-            "answer": content,
-            "sources": sources,
+            "answer": answer.answer,
+            "sources": answer.sources,
             "context": context_snapshot,
         },
-        model=metadata.get("model"),
-        latency_ms=metadata.get("latency_ms"),
-        token_estimate=token_estimate,
-        selected_chunks=sanitized_chunks,
+        model=answer.model,
+        latency_ms=answer.latency_ms,
+        token_estimate=answer.token_estimate,
+        selected_chunks=answer.chunks,
         tool_calls=[],
         settings=settings,
     )
 
     return AskResponse(
-        answer=content,
-        chunks=sanitized_chunks,
-        model=metadata.get("model"),
-        sources=sources,
+        answer=answer.answer,
+        chunks=answer.chunks,
+        model=answer.model,
+        sources=answer.sources,
     )

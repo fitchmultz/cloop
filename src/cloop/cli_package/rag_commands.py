@@ -19,9 +19,8 @@ from __future__ import annotations
 import json
 import sys
 from argparse import Namespace
-from typing import Any, Dict
 
-from ..rag import ingest_paths, retrieve_similar_chunks
+from ..rag import NO_KNOWLEDGE_MESSAGE, answer_question, ingest_paths
 from ..settings import Settings
 
 
@@ -40,21 +39,24 @@ def ingest_command(args: Namespace, settings: Settings) -> int:
 
 def ask_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop ask' command."""
-    chunks = retrieve_similar_chunks(
-        args.question,
+    answer = answer_question(
+        question=args.question,
         top_k=args.k,
         scope=args.scope,
         settings=settings,
     )
-    if not chunks:
-        print("No knowledge available. Ingest documents first.", file=sys.stderr)
+    if answer.answer == NO_KNOWLEDGE_MESSAGE:
+        print(NO_KNOWLEDGE_MESSAGE, file=sys.stderr)
         return 1
-    cleaned = [dict(chunk) for chunk in chunks]
-    for chunk in cleaned:
-        chunk.pop("embedding_blob", None)
-    payload: Dict[str, Any] = {
-        "question": args.question,
-        "chunks": cleaned,
-    }
-    print(json.dumps(payload, indent=2))
+    print(
+        json.dumps(
+            {
+                "answer": answer.answer,
+                "chunks": answer.chunks,
+                "model": answer.model,
+                "sources": answer.sources,
+            },
+            indent=2,
+        )
+    )
     return 0

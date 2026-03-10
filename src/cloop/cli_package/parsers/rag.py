@@ -71,7 +71,7 @@ def add_ask_parser(subparsers: Any) -> None:
         subparsers,
         "ask",
         help_text="Query the knowledge base",
-        description="Query the knowledge base using semantic search",
+        description="Ask a question against the knowledge base and generate an answer",
         examples="""
 Examples:
   # Basic question
