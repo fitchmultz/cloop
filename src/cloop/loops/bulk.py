@@ -320,14 +320,15 @@ def create_template_from_loop(
     elif loop.status == LoopStatus.BLOCKED:
         defaults["blocked"] = True
 
-    return create_loop_template(
-        name=template_name,
-        description=f"Created from loop #{loop_id}",
-        raw_text_pattern=loop.raw_text,
-        defaults_json=defaults,
-        is_system=False,
-        conn=conn,
-    )
+    with conn:
+        return create_loop_template(
+            name=template_name,
+            description=f"Created from loop #{loop_id}",
+            raw_text_pattern=loop.raw_text,
+            defaults_json=defaults,
+            is_system=False,
+            conn=conn,
+        )
 
 
 @typingx.validate_io()

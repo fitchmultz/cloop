@@ -116,7 +116,7 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
 
     Target: ~500-1000 tokens to avoid context bloat.
     """
-    from ..loops.service import next_loops, search_loops_by_query
+    from ..loops.read_service import next_loops, search_loops_by_query
 
     lines = ["## Current Loop Context"]
 

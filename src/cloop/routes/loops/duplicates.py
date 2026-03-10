@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
-from ...loops import service as loop_service
+from ...loops import duplicates as loop_duplicates
 from ...loops.errors import LoopNotFoundError, MergeConflictError, ValidationError
 from ...schemas.loops import (
     DuplicateCandidateResponse,
@@ -58,7 +58,7 @@ def list_duplicate_candidates(
 
     with db.core_connection(settings) as conn:
         try:
-            candidates = loop_service.find_duplicate_candidates_for_loop(
+            candidates = loop_duplicates.find_duplicate_candidates_for_loop(
                 loop_id=loop_id,
                 conn=conn,
                 settings=settings,
@@ -102,7 +102,7 @@ def get_merge_preview(
 
     with db.core_connection(settings) as conn:
         try:
-            preview = loop_service.preview_merge(
+            preview = loop_duplicates.preview_merge(
                 surviving_loop_id=target_id,
                 duplicate_loop_id=loop_id,
                 conn=conn,
@@ -191,7 +191,7 @@ def _merge_response(
     settings: Any,
 ) -> dict[str, object]:
     """Execute a merge and normalize the route response body."""
-    result = loop_service.merge_loops(
+    result = loop_duplicates.merge_loops(
         surviving_loop_id=target_loop_id,
         duplicate_loop_id=loop_id,
         field_overrides=field_overrides,

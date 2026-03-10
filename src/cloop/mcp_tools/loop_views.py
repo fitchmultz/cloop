@@ -27,13 +27,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..constants import DEFAULT_LOOP_LIST_LIMIT
-from ..loops import service as loop_service
+from ..loops import views as loop_views
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_view_create(
     name: str,
     query: str,
@@ -62,7 +64,7 @@ def loop_view_create(
         tool_name="loop.view.create",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.create_loop_view(
+        execute=lambda conn, settings: loop_views.create_loop_view(
             name=name,
             query=query,
             description=description,
@@ -71,6 +73,7 @@ def loop_view_create(
     )
 
 
+@with_mcp_error_handling
 def loop_view_list() -> list[dict[str, Any]]:
     """List all saved views.
 
@@ -90,9 +93,10 @@ def loop_view_list() -> list[dict[str, Any]]:
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.list_loop_views(conn=conn)
+        return loop_views.list_loop_views(conn=conn)
 
 
+@with_mcp_error_handling
 def loop_view_get(view_id: int) -> dict[str, Any]:
     """Get a saved view by its ID.
 
@@ -113,9 +117,10 @@ def loop_view_get(view_id: int) -> dict[str, Any]:
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.get_loop_view(view_id=view_id, conn=conn)
+        return loop_views.get_loop_view(view_id=view_id, conn=conn)
 
 
+@with_mcp_error_handling
 def loop_view_update(
     view_id: int,
     name: str | None = None,
@@ -146,7 +151,7 @@ def loop_view_update(
         tool_name="loop.view.update",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.update_loop_view(
+        execute=lambda conn, settings: loop_views.update_loop_view(
             view_id=view_id,
             name=name,
             query=query,
@@ -156,6 +161,7 @@ def loop_view_update(
     )
 
 
+@with_mcp_error_handling
 def loop_view_delete(
     view_id: int,
     request_id: str | None = None,
@@ -184,6 +190,7 @@ def loop_view_delete(
     )
 
 
+@with_mcp_error_handling
 def loop_view_apply(
     view_id: int,
     limit: int = DEFAULT_LOOP_LIST_LIMIT,
@@ -204,7 +211,7 @@ def loop_view_apply(
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.apply_loop_view_page(
+        return loop_views.apply_loop_view_page(
             view_id=view_id,
             limit=limit,
             cursor=cursor,
@@ -214,17 +221,17 @@ def loop_view_apply(
 
 def _delete_view(*, view_id: int, conn: Any) -> dict[str, Any]:
     """Delete a saved view and normalize the tool response."""
-    loop_service.delete_loop_view(view_id=view_id, conn=conn)
+    loop_views.delete_loop_view(view_id=view_id, conn=conn)
     return {"deleted": True}
 
 
 def register_loop_view_tools(mcp: "FastMCP") -> None:
     """Register loop view tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.view.create")(with_db_init(with_mcp_error_handling(loop_view_create)))
-    mcp.tool(name="loop.view.list")(with_db_init(with_mcp_error_handling(loop_view_list)))
-    mcp.tool(name="loop.view.get")(with_db_init(with_mcp_error_handling(loop_view_get)))
-    mcp.tool(name="loop.view.update")(with_db_init(with_mcp_error_handling(loop_view_update)))
-    mcp.tool(name="loop.view.delete")(with_db_init(with_mcp_error_handling(loop_view_delete)))
-    mcp.tool(name="loop.view.apply")(with_db_init(with_mcp_error_handling(loop_view_apply)))
+    mcp.tool(name="loop.view.create")(with_db_init(loop_view_create))
+    mcp.tool(name="loop.view.list")(with_db_init(loop_view_list))
+    mcp.tool(name="loop.view.get")(with_db_init(loop_view_get))
+    mcp.tool(name="loop.view.update")(with_db_init(loop_view_update))
+    mcp.tool(name="loop.view.delete")(with_db_init(loop_view_delete))
+    mcp.tool(name="loop.view.apply")(with_db_init(loop_view_apply))

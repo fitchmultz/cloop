@@ -224,7 +224,7 @@ def _gather_enrichment_context(
     try:
         # Fetch workload snapshot (top 3 actionable)
         # Import here to avoid circular imports
-        from .service import next_loops
+        from .read_service import next_loops
 
         workload = next_loops(limit=3, conn=conn, settings=settings)
         # Flatten buckets into single list, take top 3

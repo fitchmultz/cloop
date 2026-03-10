@@ -167,7 +167,7 @@ class TestDatabaseGenericError:
         def mock_get_loop(*args, **kwargs):
             raise sqlite3.DatabaseError("database disk image is malformed")
 
-        monkeypatch.setattr("cloop.loops.service.get_loop", mock_get_loop)
+        monkeypatch.setattr("cloop.loops.read_service.get_loop", mock_get_loop)
 
         response = client.get(f"/loops/{loop_id}")
         assert response.status_code == 500

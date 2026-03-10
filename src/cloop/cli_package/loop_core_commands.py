@@ -21,6 +21,7 @@ from argparse import Namespace
 from datetime import datetime, timedelta
 from typing import Any
 
+from ..loops import read_service as loop_read_service
 from ..loops import service as loop_service
 from ..loops.capture_orchestration import (
     CaptureFieldInputs,
@@ -189,7 +190,7 @@ def inbox_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop inbox' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_service.list_loops(
+        action=lambda conn: loop_read_service.list_loops(
             status=LoopStatus.INBOX,
             limit=args.limit,
             offset=0,
@@ -203,7 +204,7 @@ def next_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop next' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_service.next_loops(limit=args.limit, conn=conn),
+        action=lambda conn: loop_read_service.next_loops(limit=args.limit, conn=conn),
         render=_emit_json,
     )
 
@@ -212,7 +213,7 @@ def loop_get_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop get' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_service.get_loop(loop_id=args.id, conn=conn),
+        action=lambda conn: loop_read_service.get_loop(loop_id=args.id, conn=conn),
         output_format=args.format,
         error_handlers=_loop_not_found_handler(loop_id=args.id),
     )
@@ -228,7 +229,7 @@ def loop_list_command(args: Namespace, settings: Settings) -> int:
 
     def _list(conn: Any) -> list[dict[str, Any]]:
         if args.tag:
-            return loop_service.list_loops_by_tag(
+            return loop_read_service.list_loops_by_tag(
                 tag=args.tag,
                 statuses=statuses,
                 limit=args.limit,
@@ -236,20 +237,20 @@ def loop_list_command(args: Namespace, settings: Settings) -> int:
                 conn=conn,
             )
         if statuses is None:
-            return loop_service.list_loops(
+            return loop_read_service.list_loops(
                 status=None,
                 limit=args.limit,
                 offset=args.offset,
                 conn=conn,
             )
         if len(statuses) == 1:
-            return loop_service.list_loops(
+            return loop_read_service.list_loops(
                 status=statuses[0],
                 limit=args.limit,
                 offset=args.offset,
                 conn=conn,
             )
-        return loop_service.list_loops_by_statuses(
+        return loop_read_service.list_loops_by_statuses(
             statuses=statuses,
             limit=args.limit,
             offset=args.offset,
@@ -279,7 +280,7 @@ def loop_search_command(args: Namespace, settings: Settings) -> int:
 
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_service.search_loops_by_query(
+        action=lambda conn: loop_read_service.search_loops_by_query(
             query=query,
             limit=args.limit,
             offset=args.offset,

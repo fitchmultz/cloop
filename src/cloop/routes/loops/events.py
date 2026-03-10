@@ -31,7 +31,7 @@ from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ... import db
-from ...loops import service as loop_service
+from ...loops import events as loop_events
 from ...loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
 from ...schemas.loops import (
     LoopEventListResponse,
@@ -67,7 +67,7 @@ def loop_events_endpoint(
 
     with db.core_connection(settings) as conn:
         try:
-            events = loop_service.get_loop_events(
+            events = loop_events.get_loop_events(
                 loop_id=loop_id,
                 limit=limit + 1,  # Fetch one extra to detect has_more
                 before_id=before_id,
@@ -137,7 +137,7 @@ def loop_undo_endpoint(
 
 def _undo_response(*, loop_id: int, conn: Any) -> dict[str, object]:
     """Execute undo once and normalize the route response body."""
-    result = loop_service.undo_last_event(loop_id=loop_id, conn=conn)
+    result = loop_events.undo_last_event(loop_id=loop_id, conn=conn)
     return LoopUndoResponse(
         loop=LoopResponse(**result["loop"]),
         undone_event_id=result["undone_event_id"],

@@ -20,7 +20,7 @@ from datetime import timedelta
 from re import match as re_match
 from typing import Any, Callable
 
-from ..loops import service as loop_service
+from ..loops import bulk as loop_bulk
 from ..loops.models import format_utc_datetime, utc_now, validate_iso8601_timestamp
 from ..settings import Settings
 from ._runtime import cli_error, error_handler, fail_cli, run_cli_action, run_cli_db_action
@@ -159,7 +159,7 @@ def loop_bulk_update_command(args: Any, settings: Settings) -> int:
     return _execute_bulk_operation(
         args=args,
         settings=settings,
-        preview_operation=lambda conn: loop_service.query_bulk_update_loops(
+        preview_operation=lambda conn: loop_bulk.query_bulk_update_loops(
             query=args.query,
             fields=fields,
             transactional=args.transactional,
@@ -167,7 +167,7 @@ def loop_bulk_update_command(args: Any, settings: Settings) -> int:
             limit=args.limit,
             conn=conn,
         ),
-        apply_operation=lambda conn: loop_service.query_bulk_update_loops(
+        apply_operation=lambda conn: loop_bulk.query_bulk_update_loops(
             query=args.query,
             fields=fields,
             transactional=args.transactional,
@@ -186,7 +186,7 @@ def loop_bulk_close_command(args: Any, settings: Settings) -> int:
     return _execute_bulk_operation(
         args=args,
         settings=settings,
-        preview_operation=lambda conn: loop_service.query_bulk_close_loops(
+        preview_operation=lambda conn: loop_bulk.query_bulk_close_loops(
             query=args.query,
             status=status,
             note=args.note,
@@ -195,7 +195,7 @@ def loop_bulk_close_command(args: Any, settings: Settings) -> int:
             limit=args.limit,
             conn=conn,
         ),
-        apply_operation=lambda conn: loop_service.query_bulk_close_loops(
+        apply_operation=lambda conn: loop_bulk.query_bulk_close_loops(
             query=args.query,
             status=status,
             note=args.note,
@@ -220,7 +220,7 @@ def loop_bulk_snooze_command(args: Any, settings: Settings) -> int:
     return _execute_bulk_operation(
         args=args,
         settings=settings,
-        preview_operation=lambda conn: loop_service.query_bulk_snooze_loops(
+        preview_operation=lambda conn: loop_bulk.query_bulk_snooze_loops(
             query=args.query,
             snooze_until_utc=snooze_until,
             transactional=args.transactional,
@@ -228,7 +228,7 @@ def loop_bulk_snooze_command(args: Any, settings: Settings) -> int:
             limit=args.limit,
             conn=conn,
         ),
-        apply_operation=lambda conn: loop_service.query_bulk_snooze_loops(
+        apply_operation=lambda conn: loop_bulk.query_bulk_snooze_loops(
             query=args.query,
             snooze_until_utc=snooze_until,
             transactional=args.transactional,

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from ..loops import read_service
 from ..loops import service as loop_service
 from ..loops.capture_orchestration import (
     CaptureFieldInputs,
@@ -43,11 +44,13 @@ from ..loops.models import (
     validate_tz_offset,
 )
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_create(
     raw_text: str,
     captured_at: str,
@@ -125,6 +128,7 @@ def loop_create(
     )
 
 
+@with_mcp_error_handling
 def loop_update(
     loop_id: int,
     fields: dict[str, Any],
@@ -175,6 +179,7 @@ def loop_update(
     )
 
 
+@with_mcp_error_handling
 def loop_close(
     loop_id: int,
     status: str = "completed",
@@ -220,6 +225,7 @@ def loop_close(
     )
 
 
+@with_mcp_error_handling
 def loop_get(loop_id: int) -> dict[str, Any]:
     """Retrieve a single loop by its ID.
 
@@ -237,9 +243,10 @@ def loop_get(loop_id: int) -> dict[str, Any]:
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.get_loop(loop_id=loop_id, conn=conn)
+        return read_service.get_loop(loop_id=loop_id, conn=conn)
 
 
+@with_mcp_error_handling
 def loop_transition(
     loop_id: int,
     status: str,
@@ -297,10 +304,10 @@ def loop_transition(
 
 def register_loop_core_tools(mcp: "FastMCP") -> None:
     """Register core loop mutation tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.create")(with_db_init(with_mcp_error_handling(loop_create)))
-    mcp.tool(name="loop.update")(with_db_init(with_mcp_error_handling(loop_update)))
-    mcp.tool(name="loop.close")(with_db_init(with_mcp_error_handling(loop_close)))
-    mcp.tool(name="loop.get")(with_db_init(with_mcp_error_handling(loop_get)))
-    mcp.tool(name="loop.transition")(with_db_init(with_mcp_error_handling(loop_transition)))
+    mcp.tool(name="loop.create")(with_db_init(loop_create))
+    mcp.tool(name="loop.update")(with_db_init(loop_update))
+    mcp.tool(name="loop.close")(with_db_init(loop_close))
+    mcp.tool(name="loop.get")(with_db_init(loop_get))
+    mcp.tool(name="loop.transition")(with_db_init(loop_transition))

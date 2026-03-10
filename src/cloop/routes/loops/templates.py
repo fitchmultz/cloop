@@ -26,15 +26,9 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from ... import db
+from ...loops import template_management
 from ...loops.errors import LoopNotFoundError, ValidationError
-from ...loops.repo import (
-    create_loop_template,
-    delete_loop_template,
-    get_loop_template,
-    list_loop_templates,
-    update_loop_template,
-)
-from ...loops.service import create_template_from_loop
+from ...loops.repo import get_loop_template, list_loop_templates
 from ...schemas.loops import (
     LoopTemplateCreateRequest,
     LoopTemplateListResponse,
@@ -93,7 +87,7 @@ def create_template_endpoint(
             payload=request.model_dump(),
             response_status=201,
             execute=lambda conn: build_loop_template_response(
-                create_loop_template(
+                template_management.create_loop_template(
                     name=request.name,
                     description=request.description,
                     raw_text_pattern=request.raw_text_pattern,
@@ -131,7 +125,7 @@ def update_template_endpoint(
             idempotency_key=idempotency_key,
             payload={"template_id": template_id, "fields": fields},
             execute=lambda conn: build_loop_template_response(
-                update_loop_template(
+                template_management.update_loop_template(
                     template_id=template_id,
                     name=fields.get("name"),
                     description=fields.get("description"),
@@ -164,7 +158,10 @@ def delete_template_endpoint(
             idempotency_key=idempotency_key,
             payload={"template_id": template_id},
             execute=lambda conn: {
-                "deleted": delete_loop_template(template_id=template_id, conn=conn)
+                "deleted": template_management.delete_loop_template(
+                    template_id=template_id,
+                    conn=conn,
+                )
             },
         )
     except ValidationError as exc:
@@ -188,7 +185,7 @@ def save_as_template_endpoint(
             payload={"loop_id": loop_id, **request.model_dump()},
             response_status=201,
             execute=lambda conn: build_loop_template_response(
-                create_template_from_loop(
+                template_management.create_template_from_loop(
                     loop_id=loop_id,
                     template_name=request.name,
                     conn=conn,

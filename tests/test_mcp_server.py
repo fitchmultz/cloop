@@ -18,26 +18,32 @@ from conftest import _now_iso
 from mcp.server.fastmcp.exceptions import ToolError
 
 from cloop import db
-from cloop.mcp_server import (
+from cloop.mcp_tools._runtime import to_tool_error
+from cloop.mcp_tools.loop_bulk import loop_bulk_close, loop_bulk_snooze, loop_bulk_update
+from cloop.mcp_tools.loop_claims import (
     loop_claim,
-    loop_close,
-    loop_create,
-    loop_enrich,
     loop_force_release_claim,
-    loop_get,
     loop_get_claim,
-    loop_list,
     loop_list_claims,
-    loop_next,
     loop_release_claim,
     loop_renew_claim,
+)
+from cloop.mcp_tools.loop_core import (
+    loop_close,
+    loop_create,
+    loop_get,
+    loop_transition,
+    loop_update,
+)
+from cloop.mcp_tools.loop_read import (
+    loop_enrich,
+    loop_list,
+    loop_next,
     loop_search,
     loop_snooze,
     loop_tags,
-    loop_transition,
-    loop_update,
-    project_list,
 )
+from cloop.mcp_tools.loop_templates import project_list
 from cloop.settings import get_settings
 
 
@@ -1067,10 +1073,9 @@ def test_loop_update_valid_timestamps(tmp_path: Path, monkeypatch: pytest.Monkey
 def test_to_tool_error_not_found_error() -> None:
     """Test _to_tool_error correctly maps LoopNotFoundError."""
     from cloop.loops.errors import LoopNotFoundError
-    from cloop.mcp_server import _to_tool_error
 
     exc = LoopNotFoundError(loop_id=123)
-    result = _to_tool_error(exc)
+    result = to_tool_error(exc)
 
     assert isinstance(result, ToolError)
     assert "Loop not found" in str(result)
@@ -1079,10 +1084,9 @@ def test_to_tool_error_not_found_error() -> None:
 def test_to_tool_error_validation_error() -> None:
     """Test _to_tool_error correctly maps ValidationError."""
     from cloop.loops.errors import ValidationError
-    from cloop.mcp_server import _to_tool_error
 
     exc = ValidationError("status", "must be completed or dropped")
-    result = _to_tool_error(exc)
+    result = to_tool_error(exc)
 
     assert isinstance(result, ToolError)
     assert "Invalid status" in str(result)
@@ -1091,10 +1095,9 @@ def test_to_tool_error_validation_error() -> None:
 def test_to_tool_error_transition_error() -> None:
     """Test _to_tool_error correctly maps TransitionError."""
     from cloop.loops.errors import TransitionError
-    from cloop.mcp_server import _to_tool_error
 
     exc = TransitionError("inbox", "completed")
-    result = _to_tool_error(exc)
+    result = to_tool_error(exc)
 
     assert isinstance(result, ToolError)
     assert "Invalid status transition" in str(result)
@@ -1104,10 +1107,8 @@ def test_to_tool_error_transition_error() -> None:
 
 def test_to_tool_error_unknown_exception() -> None:
     """Test _to_tool_error handles unknown exceptions gracefully."""
-    from cloop.mcp_server import _to_tool_error
-
     exc = RuntimeError("Something unexpected happened")
-    result = _to_tool_error(exc)
+    result = to_tool_error(exc)
 
     assert isinstance(result, ToolError)
     assert "Something unexpected happened" in str(result)
@@ -1380,7 +1381,7 @@ def test_loop_enrich_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
     mock_response = {"id": loop_id, "status": "inbox", "title": "Enriched"}
 
     with patch(
-        "cloop.mcp_server.loop_enrichment.enrich_loop",
+        "cloop.mcp_tools.loop_read.loop_enrichment.enrich_loop",
         return_value=mock_response,
     ) as enrich_mock:
         result1 = loop_enrich(loop_id=loop_id, request_id="mcp-enrich-key")
@@ -1406,7 +1407,7 @@ def test_loop_enrich_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.Mo
     )
 
     mock_response = {"id": created1["id"], "status": "inbox", "title": "Enriched"}
-    with patch("cloop.mcp_server.loop_enrichment.enrich_loop", return_value=mock_response):
+    with patch("cloop.mcp_tools.loop_read.loop_enrichment.enrich_loop", return_value=mock_response):
         loop_enrich(loop_id=created1["id"], request_id="mcp-enrich-conflict-key")
         with pytest.raises(ToolError, match="Idempotency conflict"):
             loop_enrich(loop_id=created2["id"], request_id="mcp-enrich-conflict-key")
@@ -1718,8 +1719,6 @@ def test_loop_bulk_update_mixed_results(tmp_path: Path, monkeypatch: pytest.Monk
     """Bulk update with mixed valid/invalid returns mixed results."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    from cloop.mcp_server import loop_bulk_update
-
     valid1 = loop_create(
         raw_text="Valid 1",
         captured_at=_now_iso(),
@@ -1761,8 +1760,6 @@ def test_loop_bulk_update_transactional_rollback(
     """Bulk update transactional mode rolls back all on single invalid."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    from cloop.mcp_server import loop_bulk_update
-
     valid = loop_create(
         raw_text="Valid",
         captured_at=_now_iso(),
@@ -1797,8 +1794,6 @@ def test_loop_bulk_update_transactional_rollback(
 def test_loop_bulk_close_mixed_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Bulk close with mixed valid/invalid returns mixed results."""
     _setup_test_db(tmp_path, monkeypatch)
-
-    from cloop.mcp_server import loop_bulk_close
 
     valid1 = loop_create(
         raw_text="Valid 1",
@@ -1841,8 +1836,6 @@ def test_loop_bulk_close_transactional_rollback(
     """Bulk close transactional mode rolls back all on single invalid."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    from cloop.mcp_server import loop_bulk_close
-
     valid = loop_create(
         raw_text="Valid",
         captured_at=_now_iso(),
@@ -1874,8 +1867,6 @@ def test_loop_bulk_close_transactional_rollback(
 def test_loop_bulk_snooze_mixed_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Bulk snooze with mixed valid/invalid returns mixed results."""
     _setup_test_db(tmp_path, monkeypatch)
-
-    from cloop.mcp_server import loop_bulk_snooze
 
     valid1 = loop_create(
         raw_text="Valid 1",
@@ -1918,8 +1909,6 @@ def test_loop_bulk_snooze_transactional_rollback(
     """Bulk snooze transactional mode rolls back all on single invalid."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    from cloop.mcp_server import loop_bulk_snooze
-
     valid = loop_create(
         raw_text="Valid",
         captured_at=_now_iso(),
@@ -1955,8 +1944,6 @@ def test_loop_bulk_update_idempotency_replay(
     """Same request_id + same args for bulk_update replays."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    from cloop.mcp_server import loop_bulk_update
-
     valid = loop_create(
         raw_text="Test",
         captured_at=_now_iso(),
@@ -1984,8 +1971,6 @@ def test_loop_bulk_update_idempotency_conflict(
     """Same request_id + different bulk_update args raises ToolError."""
     _setup_test_db(tmp_path, monkeypatch)
 
-    from cloop.mcp_server import loop_bulk_update
-
     valid = loop_create(
         raw_text="Test",
         captured_at=_now_iso(),
@@ -2011,8 +1996,6 @@ def test_loop_bulk_close_idempotency_replay(
 ) -> None:
     """Same request_id + same args for bulk_close replays."""
     _setup_test_db(tmp_path, monkeypatch)
-
-    from cloop.mcp_server import loop_bulk_close
 
     valid = loop_create(
         raw_text="Test",
@@ -2040,8 +2023,6 @@ def test_loop_bulk_snooze_idempotency_replay(
 ) -> None:
     """Same request_id + same args for bulk_snooze replays."""
     _setup_test_db(tmp_path, monkeypatch)
-
-    from cloop.mcp_server import loop_bulk_snooze
 
     valid = loop_create(
         raw_text="Test",
@@ -2071,7 +2052,6 @@ def test_loop_bulk_update_exceeds_limit(tmp_path: Path, monkeypatch: pytest.Monk
     from mcp.server.fastmcp.exceptions import ToolError
 
     from cloop.constants import BULK_OPERATION_MAX_ITEMS
-    from cloop.mcp_server import loop_bulk_update
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     from cloop.settings import get_settings
@@ -2098,7 +2078,6 @@ def test_loop_bulk_close_exceeds_limit(tmp_path: Path, monkeypatch: pytest.Monke
     from mcp.server.fastmcp.exceptions import ToolError
 
     from cloop.constants import BULK_OPERATION_MAX_ITEMS
-    from cloop.mcp_server import loop_bulk_close
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     from cloop.settings import get_settings
@@ -2122,7 +2101,6 @@ def test_loop_bulk_snooze_exceeds_limit(tmp_path: Path, monkeypatch: pytest.Monk
     from mcp.server.fastmcp.exceptions import ToolError
 
     from cloop.constants import BULK_OPERATION_MAX_ITEMS
-    from cloop.mcp_server import loop_bulk_snooze
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     from cloop.settings import get_settings

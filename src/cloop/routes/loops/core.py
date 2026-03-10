@@ -47,6 +47,9 @@ from fastapi.responses import JSONResponse
 
 from ... import db
 from ...constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
+from ...loops import claims as loop_claims
+from ...loops import duplicates as loop_duplicates
+from ...loops import read_service as loop_read_service
 from ...loops import repo as loop_repo
 from ...loops import service as loop_service
 from ...loops.capture_orchestration import (
@@ -56,7 +59,7 @@ from ...loops.capture_orchestration import (
     CaptureTemplateRef,
     orchestrate_capture,
 )
-from ...loops.errors import ClaimNotFoundError, LoopClaimedError
+from ...loops.errors import ClaimNotFoundError, LoopClaimedError, ValidationError
 from ...loops.metrics import compute_loop_metrics, get_operation_metrics
 from ...loops.models import (
     LoopStatus,
@@ -280,7 +283,7 @@ def loop_list_endpoint(
                 LoopStatus.SCHEDULED,
             ]
             if tag_value:
-                loops = loop_service.list_loops_by_tag(
+                loops = loop_read_service.list_loops_by_tag(
                     tag=tag_value,
                     statuses=statuses,
                     limit=limit,
@@ -288,7 +291,7 @@ def loop_list_endpoint(
                     conn=conn,
                 )
             else:
-                loops = loop_service.list_loops_by_statuses(
+                loops = loop_read_service.list_loops_by_statuses(
                     statuses=statuses,
                     limit=limit,
                     offset=offset,
@@ -298,7 +301,7 @@ def loop_list_endpoint(
             resolved_status = None if status is None or status == "all" else status
             if tag_value:
                 statuses = [resolved_status] if resolved_status else None
-                loops = loop_service.list_loops_by_tag(
+                loops = loop_read_service.list_loops_by_tag(
                     tag=tag_value,
                     statuses=statuses,
                     limit=limit,
@@ -306,7 +309,7 @@ def loop_list_endpoint(
                     conn=conn,
                 )
             else:
-                loops = loop_service.list_loops(
+                loops = loop_read_service.list_loops(
                     status=resolved_status, limit=limit, offset=offset, conn=conn
                 )
     return [LoopResponse(**loop_item) for loop_item in loops]
@@ -315,7 +318,7 @@ def loop_list_endpoint(
 @router.get("/tags", response_model=List[str])
 def loop_tags_endpoint(settings: SettingsDep) -> List[str]:
     with db.core_connection(settings) as conn:
-        return loop_service.list_tags(conn=conn)
+        return loop_read_service.list_tags(conn=conn)
 
 
 @router.get("/export", response_model=LoopExportResponse)
@@ -384,7 +387,7 @@ def loop_import_endpoint(
             payload=payload,
             execute=lambda conn: _import_response(request=request, options=options, conn=conn),
         )
-    except loop_service.ValidationError as exc:
+    except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
 
     if isinstance(result, JSONResponse):
@@ -398,7 +401,10 @@ def loop_next_endpoint(
     limit: Annotated[int, Query(ge=1, le=20)] = DEFAULT_LOOP_NEXT_LIMIT,
 ) -> LoopNextResponse:
     with db.core_connection(settings) as conn:
-        result: dict[str, list[dict[str, Any]]] = loop_service.next_loops(limit=limit, conn=conn)
+        result: dict[str, list[dict[str, Any]]] = loop_read_service.next_loops(
+            limit=limit,
+            conn=conn,
+        )
     return LoopNextResponse(
         due_soon=[LoopResponse(**item) for item in result["due_soon"]],
         quick_wins=[LoopResponse(**item) for item in result["quick_wins"]],
@@ -469,7 +475,7 @@ def loop_search_endpoint(
     This is the canonical query endpoint used by API, CLI, MCP, and UI.
     """
     with db.core_connection(settings) as conn:
-        items = loop_service.search_loops_by_query(
+        items = loop_read_service.search_loops_by_query(
             query=request.query,
             limit=request.limit,
             offset=request.offset,
@@ -491,7 +497,7 @@ def list_claims_endpoint(
 ) -> List[LoopClaimStatusResponse]:
     """List all active claims."""
     with db.core_connection(settings) as conn:
-        claims = loop_service.list_active_claims(owner=owner, limit=limit, conn=conn)
+        claims = loop_claims.list_active_claims(owner=owner, limit=limit, conn=conn)
     return [LoopClaimStatusResponse(**claim) for claim in claims]
 
 
@@ -596,7 +602,7 @@ def loop_get_endpoint(
     settings: SettingsDep,
 ) -> LoopResponse:
     with db.core_connection(settings) as conn:
-        record = loop_service.get_loop(loop_id=loop_id, conn=conn)
+        record = loop_read_service.get_loop(loop_id=loop_id, conn=conn)
     return LoopResponse(**record)
 
 
@@ -774,7 +780,7 @@ def get_loop_suggestions(
 ) -> SuggestionListResponse:
     """List suggestions for a specific loop."""
     with db.core_connection(settings) as conn:
-        suggestions = loop_service.list_loop_suggestions(
+        suggestions = loop_duplicates.list_loop_suggestions(
             loop_id=loop_id,
             pending_only=pending_only,
             limit=50,
@@ -798,7 +804,7 @@ def apply_suggestion_endpoint(
 
     with db.core_connection(settings) as conn:
         try:
-            result = loop_service.apply_suggestion(
+            result = loop_duplicates.apply_suggestion(
                 suggestion_id=suggestion_id,
                 fields=request.fields,
                 conn=conn,
@@ -823,7 +829,7 @@ def reject_suggestion_endpoint(
 
     with db.core_connection(settings) as conn:
         try:
-            result = loop_service.reject_suggestion(suggestion_id=suggestion_id, conn=conn)
+            result = loop_duplicates.reject_suggestion(suggestion_id=suggestion_id, conn=conn)
         except SuggestionNotFoundError:
             raise HTTPException(status_code=404, detail="Suggestion not found") from None
         except CloopValidationError as e:
@@ -839,7 +845,7 @@ def list_pending_suggestions_endpoint(
 ) -> SuggestionListResponse:
     """List all suggestions awaiting resolution across all loops."""
     with db.core_connection(settings) as conn:
-        suggestions = loop_service.list_loop_suggestions(
+        suggestions = loop_duplicates.list_loop_suggestions(
             pending_only=True,
             limit=limit,
             conn=conn,

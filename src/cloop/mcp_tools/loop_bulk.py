@@ -31,11 +31,13 @@ from ..constants import BULK_OPERATION_MAX_ITEMS
 from ..loops import bulk as loop_bulk
 from ..loops.models import validate_iso8601_timestamp
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_bulk_update(
     updates: list[dict[str, Any]],
     transactional: bool = False,
@@ -79,6 +81,7 @@ def loop_bulk_update(
     )
 
 
+@with_mcp_error_handling
 def loop_bulk_close(
     items: list[dict[str, Any]],
     transactional: bool = False,
@@ -123,6 +126,7 @@ def loop_bulk_close(
     )
 
 
+@with_mcp_error_handling
 def loop_bulk_snooze(
     items: list[dict[str, Any]],
     transactional: bool = False,
@@ -172,8 +176,8 @@ def loop_bulk_snooze(
 
 def register_loop_bulk_tools(mcp: "FastMCP") -> None:
     """Register loop bulk operation tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.bulk_update")(with_db_init(with_mcp_error_handling(loop_bulk_update)))
-    mcp.tool(name="loop.bulk_close")(with_db_init(with_mcp_error_handling(loop_bulk_close)))
-    mcp.tool(name="loop.bulk_snooze")(with_db_init(with_mcp_error_handling(loop_bulk_snooze)))
+    mcp.tool(name="loop.bulk_update")(with_db_init(loop_bulk_update))
+    mcp.tool(name="loop.bulk_close")(with_db_init(loop_bulk_close))
+    mcp.tool(name="loop.bulk_snooze")(with_db_init(loop_bulk_snooze))

@@ -31,7 +31,7 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from ... import db
-from ...loops import service as loop_service
+from ...loops import views as loop_views
 from ...loops.errors import ValidationError
 from ...schemas.loops import (
     LoopViewApplyResponse,
@@ -66,7 +66,7 @@ def loop_view_create_endpoint(
     """Create a new saved view."""
     with db.core_connection(settings) as conn:
         try:
-            view = loop_service.create_loop_view(
+            view = loop_views.create_loop_view(
                 name=request.name,
                 query=request.query,
                 description=request.description,
@@ -81,7 +81,7 @@ def loop_view_create_endpoint(
 def loop_view_list_endpoint(settings: SettingsDep) -> list[LoopViewResponse]:
     """List all saved views."""
     with db.core_connection(settings) as conn:
-        views = loop_service.list_loop_views(conn=conn)
+        views = loop_views.list_loop_views(conn=conn)
     return [build_loop_view_response(view) for view in views]
 
 
@@ -93,7 +93,7 @@ def loop_view_get_endpoint(
     """Get a saved view by ID."""
     with db.core_connection(settings) as conn:
         try:
-            view = loop_service.get_loop_view(view_id=view_id, conn=conn)
+            view = loop_views.get_loop_view(view_id=view_id, conn=conn)
         except ValidationError as exc:
             _raise_view_http_exception(exc)
     return build_loop_view_response(view)
@@ -112,7 +112,7 @@ def loop_view_update_endpoint(
 
     with db.core_connection(settings) as conn:
         try:
-            view = loop_service.update_loop_view(
+            view = loop_views.update_loop_view(
                 view_id=view_id,
                 name=fields.get("name"),
                 query=fields.get("query"),
@@ -132,7 +132,7 @@ def loop_view_delete_endpoint(
     """Delete a saved view."""
     with db.core_connection(settings) as conn:
         try:
-            loop_service.delete_loop_view(view_id=view_id, conn=conn)
+            loop_views.delete_loop_view(view_id=view_id, conn=conn)
         except ValidationError as exc:
             _raise_view_http_exception(exc)
     return {"deleted": True}
@@ -148,7 +148,7 @@ def loop_view_apply_endpoint(
     """Apply a saved view and return matching loops."""
     with db.core_connection(settings) as conn:
         try:
-            result = loop_service.apply_loop_view(
+            result = loop_views.apply_loop_view(
                 view_id=view_id,
                 limit=limit,
                 offset=offset,

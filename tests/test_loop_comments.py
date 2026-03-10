@@ -26,8 +26,8 @@ from pathlib import Path
 import pytest
 
 from cloop import db
+from cloop.loops import comments as loop_comments
 from cloop.loops import repo as loop_repo
-from cloop.loops import service as loop_service
 from cloop.settings import get_settings
 
 # =============================================================================
@@ -517,7 +517,7 @@ def test_comment_create_rolls_back_when_webhook_queue_fails(
     settings = get_settings()
     with pytest.raises(RuntimeError, match="webhook_queue_failed"):
         with db.core_connection(settings) as conn:
-            loop_service.create_loop_comment(
+            loop_comments.create_loop_comment(
                 loop_id=loop["id"],
                 author="Alice",
                 body_md="should rollback",
@@ -525,7 +525,7 @@ def test_comment_create_rolls_back_when_webhook_queue_fails(
             )
 
     with db.core_connection(settings) as conn:
-        comments = loop_service.list_loop_comments(loop_id=loop["id"], conn=conn)
+        comments = loop_comments.list_loop_comments(loop_id=loop["id"], conn=conn)
         events = loop_repo.list_loop_events(loop_id=loop["id"], conn=conn)
 
     assert comments["total_count"] == 0

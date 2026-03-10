@@ -456,23 +456,24 @@ def apply_suggestion(
         update_fields["project_id"] = project_id
         applied_fields.append("project")
 
-    # Handle tags separately (needs tag table)
-    if "tags" in apply_set and parsed.get("tags"):
-        repo.replace_loop_tags(loop_id=loop_id, tag_names=parsed["tags"], conn=conn)
-        applied_fields.append("tags")
+    with conn:
+        # Handle tags separately (needs tag table)
+        if "tags" in apply_set and parsed.get("tags"):
+            repo.replace_loop_tags(loop_id=loop_id, tag_names=parsed["tags"], conn=conn)
+            applied_fields.append("tags")
 
-    # Update loop
-    if update_fields:
-        repo.update_loop_fields(loop_id=loop_id, fields=update_fields, conn=conn)
+        # Update loop
+        if update_fields:
+            repo.update_loop_fields(loop_id=loop_id, fields=update_fields, conn=conn)
 
-    # Mark suggestion resolved
-    resolution = "applied" if len(applied_fields) == len(apply_set) else "partial"
-    repo.resolve_loop_suggestion(
-        suggestion_id=suggestion_id,
-        resolution=resolution,
-        applied_fields=applied_fields,
-        conn=conn,
-    )
+        # Mark suggestion resolved
+        resolution = "applied" if len(applied_fields) == len(apply_set) else "partial"
+        repo.resolve_loop_suggestion(
+            suggestion_id=suggestion_id,
+            resolution=resolution,
+            applied_fields=applied_fields,
+            conn=conn,
+        )
 
     # Return updated loop
     updated_loop = repo.read_loop(loop_id=loop_id, conn=conn)
@@ -519,11 +520,12 @@ def reject_suggestion(
             "suggestion", f"Suggestion already resolved: {suggestion['resolution']}"
         )
 
-    repo.resolve_loop_suggestion(
-        suggestion_id=suggestion_id,
-        resolution="rejected",
-        conn=conn,
-    )
+    with conn:
+        repo.resolve_loop_suggestion(
+            suggestion_id=suggestion_id,
+            resolution="rejected",
+            conn=conn,
+        )
 
     return {
         "suggestion_id": suggestion_id,

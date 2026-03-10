@@ -27,13 +27,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..loops import repo as loop_repo
-from ..loops import service as loop_service
+from ..loops import template_management
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_template_list() -> list[dict[str, Any]]:
     """List all loop templates.
 
@@ -59,6 +61,7 @@ def loop_template_list() -> list[dict[str, Any]]:
         return loop_repo.list_loop_templates(conn=conn)
 
 
+@with_mcp_error_handling
 def loop_template_get(template_id: int) -> dict[str, Any] | None:
     """Get a template by its ID.
 
@@ -80,6 +83,7 @@ def loop_template_get(template_id: int) -> dict[str, Any] | None:
         return loop_repo.get_loop_template(template_id=template_id, conn=conn)
 
 
+@with_mcp_error_handling
 def loop_template_create(
     name: str,
     description: str | None = None,
@@ -120,7 +124,7 @@ def loop_template_create(
         tool_name="loop.template.create",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_repo.create_loop_template(
+        execute=lambda conn, settings: template_management.create_loop_template(
             name=name,
             description=description,
             raw_text_pattern=raw_text_pattern,
@@ -131,6 +135,7 @@ def loop_template_create(
     )
 
 
+@with_mcp_error_handling
 def loop_template_delete(
     template_id: int,
     request_id: str | None = None,
@@ -157,11 +162,15 @@ def loop_template_delete(
         request_id=request_id,
         payload=payload,
         execute=lambda conn, settings: {
-            "deleted": loop_repo.delete_loop_template(template_id=template_id, conn=conn)
+            "deleted": template_management.delete_loop_template(
+                template_id=template_id,
+                conn=conn,
+            )
         },
     )
 
 
+@with_mcp_error_handling
 def loop_template_from_loop(
     loop_id: int,
     name: str,
@@ -190,7 +199,7 @@ def loop_template_from_loop(
         tool_name="loop.template.from_loop",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.create_template_from_loop(
+        execute=lambda conn, settings: template_management.create_template_from_loop(
             loop_id=loop_id,
             template_name=name,
             conn=conn,
@@ -198,6 +207,7 @@ def loop_template_from_loop(
     )
 
 
+@with_mcp_error_handling
 def project_list() -> list[dict[str, Any]]:
     """List all projects.
 
@@ -220,17 +230,11 @@ def project_list() -> list[dict[str, Any]]:
 
 def register_loop_template_tools(mcp: "FastMCP") -> None:
     """Register loop template tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.template.list")(with_db_init(with_mcp_error_handling(loop_template_list)))
-    mcp.tool(name="loop.template.get")(with_db_init(with_mcp_error_handling(loop_template_get)))
-    mcp.tool(name="loop.template.create")(
-        with_db_init(with_mcp_error_handling(loop_template_create))
-    )
-    mcp.tool(name="loop.template.delete")(
-        with_db_init(with_mcp_error_handling(loop_template_delete))
-    )
-    mcp.tool(name="loop.template.from_loop")(
-        with_db_init(with_mcp_error_handling(loop_template_from_loop))
-    )
-    mcp.tool(name="project.list")(with_db_init(with_mcp_error_handling(project_list)))
+    mcp.tool(name="loop.template.list")(with_db_init(loop_template_list))
+    mcp.tool(name="loop.template.get")(with_db_init(loop_template_get))
+    mcp.tool(name="loop.template.create")(with_db_init(loop_template_create))
+    mcp.tool(name="loop.template.delete")(with_db_init(loop_template_delete))
+    mcp.tool(name="loop.template.from_loop")(with_db_init(loop_template_from_loop))
+    mcp.tool(name="project.list")(with_db_init(project_list))

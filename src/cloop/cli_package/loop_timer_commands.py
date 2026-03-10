@@ -21,7 +21,7 @@ from typing import Any
 
 from ..loops.errors import LoopNotFoundError, ValidationError
 from ..loops.models import format_utc_datetime
-from ..loops.service import (
+from ..loops.timers import (
     ActiveTimerExistsError,
     NoActiveTimerError,
     get_timer_status,

@@ -19,7 +19,7 @@ from argparse import Namespace
 from typing import Any
 
 from ..loops.errors import ValidationError
-from ..loops.service import (
+from ..loops.views import (
     apply_loop_view,
     create_loop_view,
     delete_loop_view,

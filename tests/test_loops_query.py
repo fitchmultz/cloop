@@ -41,11 +41,11 @@ from conftest import _now_iso
 from hypothesis import given
 from hypothesis import strategies as st
 
-from cloop import cli
+from cloop.cli_package.main import main as cli_main
 from cloop.loops.errors import ValidationError
 from cloop.loops.query import LoopQuery, _tokenize, parse_loop_query
-from cloop.mcp_server import loop_search as mcp_loop_search
-from cloop.mcp_server import loop_view_apply as mcp_loop_view_apply
+from cloop.mcp_tools.loop_read import loop_search as mcp_loop_search
+from cloop.mcp_tools.loop_views import loop_view_apply as mcp_loop_view_apply
 
 
 def _parse_last_json(capsys: Any) -> Any:
@@ -534,7 +534,7 @@ def test_cross_surface_parity_search(
         api_ids = [item["id"] for item in api_resp.json()["items"]]
 
         capsys.readouterr()
-        exit_code = cli.main(["loop", "search", "--query", query])
+        exit_code = cli_main(["loop", "search", "--query", query])
         assert exit_code == 0
         cli_items = _parse_last_json(capsys)
         cli_ids = [item["id"] for item in cli_items]
@@ -599,7 +599,7 @@ def test_cross_surface_saved_view_apply_parity(
     api_ids = [item["id"] for item in api_payload["items"]]
 
     capsys.readouterr()
-    exit_code = cli.main(["loop", "view", "apply", str(view_id), "--limit", "10", "--offset", "0"])
+    exit_code = cli_main(["loop", "view", "apply", str(view_id), "--limit", "10", "--offset", "0"])
     assert exit_code == 0
     cli_payload = _parse_last_json(capsys)
     cli_ids = [item["id"] for item in cli_payload["items"]]
@@ -621,7 +621,7 @@ def test_loop_search_cli_invalid_query_returns_exit_code_one(
     """CLI loop search should return exit code 1 for invalid DSL."""
     make_test_client()
     capsys.readouterr()
-    exit_code = cli.main(["loop", "search", "--query", "status:not-a-real-status"])
+    exit_code = cli_main(["loop", "search", "--query", "status:not-a-real-status"])
     assert exit_code == 1
     captured = capsys.readouterr()
     assert "invalid status" in captured.err

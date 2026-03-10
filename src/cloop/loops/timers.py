@@ -97,27 +97,28 @@ def start_timer(
     if active is not None:
         raise ActiveTimerExistsError(loop_id, active)
 
-    # Create new session
-    session = repo.create_time_session(
-        loop_id=loop_id,
-        started_at=utc_now(),
-        conn=conn,
-    )
+    with conn:
+        # Create new session
+        session = repo.create_time_session(
+            loop_id=loop_id,
+            started_at=utc_now(),
+            conn=conn,
+        )
 
-    # Record event
-    event_payload = {"session_id": session.id}
-    event_id = repo.insert_loop_event(
-        loop_id=loop_id,
-        event_type=LoopEventType.TIMER_STARTED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    queue_deliveries(
-        event_id=event_id,
-        event_type=LoopEventType.TIMER_STARTED.value,
-        payload=event_payload,
-        conn=conn,
-    )
+        # Record event
+        event_payload = {"session_id": session.id}
+        event_id = repo.insert_loop_event(
+            loop_id=loop_id,
+            event_type=LoopEventType.TIMER_STARTED.value,
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.TIMER_STARTED.value,
+            payload=event_payload,
+            conn=conn,
+        )
 
     return session
 
@@ -159,32 +160,33 @@ def stop_timer(
     now = utc_now()
     duration_seconds = int((now - active.started_at_utc).total_seconds())
 
-    # Stop the session
-    session = repo.stop_time_session(
-        session_id=active.id,
-        ended_at=now,
-        duration_seconds=duration_seconds,
-        notes=notes,
-        conn=conn,
-    )
+    with conn:
+        # Stop the session
+        session = repo.stop_time_session(
+            session_id=active.id,
+            ended_at=now,
+            duration_seconds=duration_seconds,
+            notes=notes,
+            conn=conn,
+        )
 
-    # Record event
-    event_payload = {
-        "session_id": session.id,
-        "duration_seconds": duration_seconds,
-    }
-    event_id = repo.insert_loop_event(
-        loop_id=loop_id,
-        event_type=LoopEventType.TIMER_STOPPED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    queue_deliveries(
-        event_id=event_id,
-        event_type=LoopEventType.TIMER_STOPPED.value,
-        payload=event_payload,
-        conn=conn,
-    )
+        # Record event
+        event_payload = {
+            "session_id": session.id,
+            "duration_seconds": duration_seconds,
+        }
+        event_id = repo.insert_loop_event(
+            loop_id=loop_id,
+            event_type=LoopEventType.TIMER_STOPPED.value,
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.TIMER_STOPPED.value,
+            payload=event_payload,
+            conn=conn,
+        )
 
     return session
 

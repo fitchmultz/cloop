@@ -788,7 +788,6 @@ def resolve_loop_suggestion(
             suggestion_id,
         ),
     )
-    conn.commit()
     return cursor.rowcount == 1
 
 
@@ -846,7 +845,6 @@ def answer_loop_clarification(
         """,
         (answer, format_utc_datetime(utc_now()), clarification_id),
     )
-    conn.commit()
     return cursor.rowcount == 1
 
 
@@ -1265,7 +1263,6 @@ def create_loop_view(
             (normalized_name, query, description),
         )
         view_id = cursor.lastrowid
-        conn.commit()
     except sqlite3.IntegrityError:
         raise ValidationError("name", f"view '{normalized_name}' already exists") from None
 
@@ -1368,7 +1365,6 @@ def update_loop_view(
             """,
             params,
         )
-        conn.commit()
     except sqlite3.IntegrityError:
         raise ValidationError("name", f"view '{updates.get('name', '')}' already exists") from None
 
@@ -1387,7 +1383,6 @@ def delete_loop_view(*, view_id: int, conn: sqlite3.Connection) -> bool:
         True if deleted, False if not found
     """
     cursor = conn.execute("DELETE FROM loop_views WHERE id = ?", (view_id,))
-    conn.commit()
     return cursor.rowcount > 0
 
 
@@ -1568,7 +1563,6 @@ def claim_loop(
             format_utc_datetime(lease_until),
         ),
     )
-    conn.commit()
     logger.info(
         "Loop claimed: loop_id=%s owner=%s lease_until=%s",
         loop_id,
@@ -1644,7 +1638,6 @@ def renew_claim(
         """,
         (format_utc_datetime(new_lease_until), loop_id, claim_token, now_str),
     )
-    conn.commit()
     if cursor.rowcount == 0:
         return None
     logger.info(
@@ -1678,7 +1671,6 @@ def release_claim(
         """,
         (loop_id, claim_token),
     )
-    conn.commit()
     released = cursor.rowcount > 0
     if released:
         logger.info("Claim released: loop_id=%s", loop_id)
@@ -1703,7 +1695,6 @@ def release_claim_by_loop_id(
         "DELETE FROM loop_claims WHERE loop_id = ?",
         (loop_id,),
     )
-    conn.commit()
     return cursor.rowcount > 0
 
 
@@ -1724,7 +1715,6 @@ def purge_expired_claims(
         "DELETE FROM loop_claims WHERE lease_until <= ?",
         (now_str,),
     )
-    conn.commit()
     purged_count = cursor.rowcount
     if purged_count > 0:
         logger.info("Purged expired claims: count=%s", purged_count)
@@ -1812,7 +1802,6 @@ def add_dependency(
         """,
         (loop_id, depends_on_loop_id),
     )
-    conn.commit()
     if cursor.lastrowid is None:
         raise RuntimeError("add_dependency_failed")
     return int(cursor.lastrowid)
@@ -1841,7 +1830,6 @@ def remove_dependency(
         """,
         (loop_id, depends_on_loop_id),
     )
-    conn.commit()
     return cursor.rowcount > 0
 
 
@@ -2111,7 +2099,6 @@ def create_time_session(
     session_id = cursor.lastrowid
     if session_id is None:
         raise RuntimeError("time_session_create_failed")
-    conn.commit()
 
     row = conn.execute("SELECT * FROM time_sessions WHERE id = ?", (session_id,)).fetchone()
     if row is None:
@@ -2181,7 +2168,6 @@ def stop_time_session(
     )
     if cursor.rowcount == 0:
         raise ValueError(f"No active session found with id={session_id}")
-    conn.commit()
 
     row = conn.execute("SELECT * FROM time_sessions WHERE id = ?", (session_id,)).fetchone()
     if row is None:
@@ -2276,7 +2262,6 @@ def delete_time_session(
         True if deleted, False if not found
     """
     cursor = conn.execute("DELETE FROM time_sessions WHERE id = ?", (session_id,))
-    conn.commit()
     return cursor.rowcount > 0
 
 
@@ -2330,7 +2315,6 @@ def create_loop_template(
             ),
         )
         template_id = cursor.lastrowid
-        conn.commit()
     except sqlite3.IntegrityError:
         raise ValidationError("name", f"template '{normalized_name}' already exists") from None
 
@@ -2437,7 +2421,6 @@ def update_loop_template(
             f"UPDATE loop_templates SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             params,
         )
-        conn.commit()
     except sqlite3.IntegrityError:
         raise ValidationError(
             "name", f"template '{updates.get('name', '')}' already exists"
@@ -2467,7 +2450,6 @@ def delete_loop_template(*, template_id: int, conn: sqlite3.Connection) -> bool:
         raise ValidationError("template_id", "system templates cannot be deleted")
 
     cursor = conn.execute("DELETE FROM loop_templates WHERE id = ?", (template_id,))
-    conn.commit()
     return cursor.rowcount > 0
 
 

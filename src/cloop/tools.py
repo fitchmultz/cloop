@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Protocol
 
 from . import db
 from .constants import MEMORY_CONTENT_MAX, MEMORY_KEY_MAX, NOTE_BODY_MAX, TITLE_MAX
+from .loops import read_service
 from .loops.errors import (
     CloopError,
     LoopNotFoundError,
@@ -158,6 +159,70 @@ def _run_loop_db_action(
     raise AssertionError("unreachable")
 
 
+def _require_loop_id(kwargs: dict[str, Any], *, operation: str) -> int:
+    """Extract and validate a loop_id from tool kwargs."""
+    loop_id = kwargs.get("loop_id")
+    if loop_id is None:
+        raise ValidationError("loop_id", f"required for {operation}")
+    return int(loop_id)
+
+
+def _parse_loop_status(
+    raw_status: str | None,
+    *,
+    field: str = "status",
+    required_for: str | None = None,
+) -> LoopStatus:
+    """Parse a LoopStatus value with stable tool-facing validation errors."""
+    if not raw_status:
+        if required_for is None:
+            raise ValidationError(field, "status is required")
+        raise ValidationError(field, f"required for {required_for}")
+    try:
+        return LoopStatus(raw_status)
+    except ValueError as exc:
+        raise ValidationError(field, f"invalid status: {raw_status}") from exc
+
+
+def _map_loop_tool_errors(
+    *,
+    loop_id: int | None = None,
+    wrap_field: str | None = None,
+) -> Callable[[Exception], None]:
+    """Build the shared domain-to-tool error mapping for loop executors."""
+
+    def _mapper(exc: Exception) -> None:
+        if isinstance(exc, LoopNotFoundError):
+            resolved_loop_id = loop_id if loop_id is not None else exc.loop_id
+            raise ValidationError("loop_id", f"Loop not found: {resolved_loop_id}") from exc
+        if isinstance(exc, TransitionError):
+            raise ValidationError(
+                "status", f"Invalid transition: {exc.from_status} -> {exc.to_status}"
+            ) from exc
+        if isinstance(exc, ValidationError):
+            if wrap_field is None:
+                raise
+            raise ValidationError(wrap_field, str(exc)) from exc
+        raise exc
+
+    return _mapper
+
+
+def _execute_loop_action(
+    *,
+    operation: str,
+    action: Callable[..., dict[str, Any]],
+    loop_id: int | None = None,
+    wrap_field: str | None = None,
+) -> dict[str, Any]:
+    """Run a loop-domain action with shared DB access and domain error mapping."""
+    try:
+        return _run_loop_db_action(operation, action)
+    except Exception as exc:  # noqa: BLE001
+        _map_loop_tool_errors(loop_id=loop_id, wrap_field=wrap_field)(exc)
+        raise AssertionError("unreachable") from exc
+
+
 def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
     """Create a new loop."""
     from .loops import service as loop_service
@@ -171,16 +236,11 @@ def execute_loop_create(**kwargs: Any) -> Dict[str, Any]:
         captured_at = format_utc_datetime(utc_now())
 
     tz_offset = kwargs.get("client_tz_offset_min", 0)
-    status_str = kwargs.get("status", "inbox")
+    status = _parse_loop_status(kwargs.get("status", "inbox"))
 
-    try:
-        status = LoopStatus(status_str)
-    except ValueError as e:
-        raise ValidationError("status", f"invalid status: {status_str}") from e
-
-    result = _run_loop_db_action(
-        "loop_create",
-        lambda conn, settings: loop_service.capture_loop(
+    result = _execute_loop_action(
+        operation="loop_create",
+        action=lambda conn, settings: loop_service.capture_loop(
             raw_text=raw_text,
             captured_at_iso=captured_at,
             client_tz_offset_min=tz_offset,
@@ -196,27 +256,21 @@ def execute_loop_update(**kwargs: Any) -> Dict[str, Any]:
     """Update fields on an existing loop."""
     from .loops import service as loop_service
 
-    loop_id = kwargs.get("loop_id")
-    if loop_id is None:
-        raise ValidationError("loop_id", "required for loop_update")
+    loop_id = _require_loop_id(kwargs, operation="loop_update")
 
     fields = kwargs.get("fields", {})
     if not fields:
         raise ValidationError("fields", "at least one field required")
 
-    try:
-        result = _run_loop_db_action(
-            "loop_update",
-            lambda conn, settings: loop_service.update_loop(
-                loop_id=int(loop_id),
-                fields=fields,
-                conn=conn,
-            ),
-        )
-    except LoopNotFoundError as e:
-        raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except ValidationError, TransitionError:
-        raise
+    result = _execute_loop_action(
+        operation="loop_update",
+        loop_id=loop_id,
+        action=lambda conn, settings: loop_service.update_loop(
+            loop_id=loop_id,
+            fields=fields,
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_update", "loop": result}
 
@@ -225,61 +279,39 @@ def execute_loop_close(**kwargs: Any) -> Dict[str, Any]:
     """Close a loop as completed or dropped."""
     from .loops import service as loop_service
 
-    loop_id = kwargs.get("loop_id")
-    if loop_id is None:
-        raise ValidationError("loop_id", "required for loop_close")
-
-    status_str = kwargs.get("status", "completed")
+    loop_id = _require_loop_id(kwargs, operation="loop_close")
     note = kwargs.get("note")
-
-    try:
-        status = LoopStatus(status_str)
-    except ValueError as e:
-        raise ValidationError("status", f"invalid status: {status_str}") from e
+    status = _parse_loop_status(kwargs.get("status", "completed"))
 
     if status not in (LoopStatus.COMPLETED, LoopStatus.DROPPED):
         raise ValidationError("status", "must be 'completed' or 'dropped'")
 
-    try:
-        result = _run_loop_db_action(
-            "loop_close",
-            lambda conn, settings: loop_service.transition_status(
-                loop_id=int(loop_id),
-                to_status=status,
-                note=note,
-                conn=conn,
-            ),
-        )
-    except LoopNotFoundError as e:
-        raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except TransitionError as e:
-        raise ValidationError(
-            "status", f"Invalid transition: {e.from_status} -> {e.to_status}"
-        ) from e
-    except (ValidationError, ValueError) as e:
-        raise ValidationError("fields", str(e)) from e
+    result = _execute_loop_action(
+        operation="loop_close",
+        loop_id=loop_id,
+        wrap_field="fields",
+        action=lambda conn, settings: loop_service.transition_status(
+            loop_id=loop_id,
+            to_status=status,
+            note=note,
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_close", "loop": result}
 
 
 def execute_loop_list(**kwargs: Any) -> Dict[str, Any]:
     """List loops with optional status filter."""
-    from .loops import service as loop_service
-
     status_str = kwargs.get("status")
     limit = kwargs.get("limit", 50)
     cursor = kwargs.get("cursor")
 
-    status = None
-    if status_str:
-        try:
-            status = LoopStatus(status_str)
-        except ValueError as e:
-            raise ValidationError("status", f"invalid status: {status_str}") from e
+    status = _parse_loop_status(status_str) if status_str else None
 
-    result = _run_loop_db_action(
-        "loop_list",
-        lambda conn, settings: loop_service.list_loops_page(
+    result = _execute_loop_action(
+        operation="loop_list",
+        action=lambda conn, settings: read_service.list_loops_page(
             status=status,
             limit=min(limit, 100),  # Cap at 100
             cursor=cursor,
@@ -292,15 +324,13 @@ def execute_loop_list(**kwargs: Any) -> Dict[str, Any]:
 
 def execute_loop_search(**kwargs: Any) -> Dict[str, Any]:
     """Search loops using DSL query."""
-    from .loops import service as loop_service
-
     query = kwargs.get("query", "")
     limit = kwargs.get("limit", 50)
     cursor = kwargs.get("cursor")
 
-    result = _run_loop_db_action(
-        "loop_search",
-        lambda conn, settings: loop_service.search_loops_by_query_page(
+    result = _execute_loop_action(
+        operation="loop_search",
+        action=lambda conn, settings: read_service.search_loops_by_query_page(
             query=query,
             limit=min(limit, 100),
             cursor=cursor,
@@ -313,13 +343,11 @@ def execute_loop_search(**kwargs: Any) -> Dict[str, Any]:
 
 def execute_loop_next(**kwargs: Any) -> Dict[str, Any]:
     """Get prioritized next action loops."""
-    from .loops import service as loop_service
-
     limit = kwargs.get("limit", 5)
 
-    result = _run_loop_db_action(
-        "loop_next",
-        lambda conn, settings: loop_service.next_loops(
+    result = _execute_loop_action(
+        operation="loop_next",
+        action=lambda conn, settings: read_service.next_loops(
             limit=min(limit, 20),  # Cap at 20
             conn=conn,
             settings=settings,
@@ -334,41 +362,23 @@ def execute_loop_transition(**kwargs: Any) -> Dict[str, Any]:
     """Transition loop to a non-terminal status."""
     from .loops import service as loop_service
 
-    loop_id = kwargs.get("loop_id")
-    if loop_id is None:
-        raise ValidationError("loop_id", "required for loop_transition")
-
-    status_str = kwargs.get("status")
-    if not status_str:
-        raise ValidationError("status", "required for loop_transition")
+    loop_id = _require_loop_id(kwargs, operation="loop_transition")
     note = kwargs.get("note")
-
-    try:
-        status = LoopStatus(status_str)
-    except ValueError as e:
-        raise ValidationError("status", f"invalid status: {status_str}") from e
+    status = _parse_loop_status(kwargs.get("status"), required_for="loop_transition")
 
     if is_terminal_status(status):
         raise ValidationError("status", "use loop_close for terminal statuses")
 
-    try:
-        result = _run_loop_db_action(
-            "loop_transition",
-            lambda conn, settings: loop_service.transition_status(
-                loop_id=int(loop_id),
-                to_status=status,
-                note=note,
-                conn=conn,
-            ),
-        )
-    except LoopNotFoundError as e:
-        raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except TransitionError as e:
-        raise ValidationError(
-            "status", f"Invalid transition: {e.from_status} -> {e.to_status}"
-        ) from e
-    except ValidationError:
-        raise
+    result = _execute_loop_action(
+        operation="loop_transition",
+        loop_id=loop_id,
+        action=lambda conn, settings: loop_service.transition_status(
+            loop_id=loop_id,
+            to_status=status,
+            note=note,
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_transition", "loop": result}
 
@@ -377,27 +387,22 @@ def execute_loop_snooze(**kwargs: Any) -> Dict[str, Any]:
     """Snooze a loop until a future time."""
     from .loops import service as loop_service
 
-    loop_id = kwargs.get("loop_id")
-    if loop_id is None:
-        raise ValidationError("loop_id", "required for loop_snooze")
+    loop_id = _require_loop_id(kwargs, operation="loop_snooze")
 
     snooze_until = kwargs.get("snooze_until_utc")
     if not snooze_until:
         raise ValidationError("snooze_until_utc", "required for loop_snooze")
 
-    try:
-        result = _run_loop_db_action(
-            "loop_snooze",
-            lambda conn, settings: loop_service.update_loop(
-                loop_id=int(loop_id),
-                fields={"snooze_until_utc": snooze_until},
-                conn=conn,
-            ),
-        )
-    except LoopNotFoundError as e:
-        raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except (ValidationError, ValueError) as e:
-        raise ValidationError("fields", str(e)) from e
+    result = _execute_loop_action(
+        operation="loop_snooze",
+        loop_id=loop_id,
+        wrap_field="fields",
+        action=lambda conn, settings: loop_service.update_loop(
+            loop_id=loop_id,
+            fields={"snooze_until_utc": snooze_until},
+            conn=conn,
+        ),
+    )
 
     return {"action": "loop_snooze", "loop": result}
 
@@ -407,47 +412,34 @@ def execute_loop_enrich(**kwargs: Any) -> Dict[str, Any]:
     from .loops import enrichment as loop_enrichment
     from .loops import service as loop_service
 
-    loop_id = kwargs.get("loop_id")
-    if loop_id is None:
-        raise ValidationError("loop_id", "required for loop_enrich")
+    loop_id = _require_loop_id(kwargs, operation="loop_enrich")
 
-    try:
-        result = _run_loop_db_action(
-            "loop_enrich",
-            lambda conn, settings: (
-                loop_service.request_enrichment(loop_id=int(loop_id), conn=conn),
-                loop_enrichment.enrich_loop(
-                    loop_id=int(loop_id),
-                    conn=conn,
-                    settings=settings,
-                ),
-            )[1],
-        )
-    except LoopNotFoundError as e:
-        raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except (ValidationError, ValueError) as e:
-        raise ValidationError("fields", str(e)) from e
+    result = _execute_loop_action(
+        operation="loop_enrich",
+        loop_id=loop_id,
+        wrap_field="fields",
+        action=lambda conn, settings: (
+            loop_service.request_enrichment(loop_id=loop_id, conn=conn),
+            loop_enrichment.enrich_loop(
+                loop_id=loop_id,
+                conn=conn,
+                settings=settings,
+            ),
+        )[1],
+    )
 
     return {"action": "loop_enrich", "loop": result}
 
 
 def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:
     """Get a single loop by ID."""
-    from .loops import service as loop_service
-
-    loop_id = kwargs.get("loop_id")
-    if loop_id is None:
-        raise ValidationError("loop_id", "required for loop_get")
-
-    try:
-        result = _run_loop_db_action(
-            "loop_get",
-            lambda conn, settings: loop_service.get_loop(loop_id=int(loop_id), conn=conn),
-        )
-    except LoopNotFoundError as e:
-        raise ValidationError("loop_id", f"Loop not found: {loop_id}") from e
-    except (ValidationError, ValueError) as e:
-        raise ValidationError("fields", str(e)) from e
+    loop_id = _require_loop_id(kwargs, operation="loop_get")
+    result = _execute_loop_action(
+        operation="loop_get",
+        loop_id=loop_id,
+        wrap_field="fields",
+        action=lambda conn, settings: read_service.get_loop(loop_id=loop_id, conn=conn),
+    )
 
     return {"action": "loop_get", "loop": result}
 

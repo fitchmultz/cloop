@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from .. import db
+from ..loops import duplicates as loop_duplicates
+from ..loops import events as loop_events
+from ..loops import read_service as loop_read_service
 from ..loops import repo, service
 from ..loops.errors import (
     LoopNotFoundError,
@@ -97,7 +100,7 @@ def loop_events_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop events' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: service.get_loop_events(
+        action=lambda conn: loop_events.get_loop_events(
             loop_id=args.id,
             limit=args.limit,
             before_id=args.before,
@@ -126,7 +129,7 @@ def loop_undo_command(args: Namespace, settings: Settings) -> int:
                 "undone_event_type": result["undone_event_type"],
             }
         )(
-            service.undo_last_event(
+            loop_events.undo_last_event(
                 loop_id=args.id,
                 conn=conn,
             )
@@ -234,7 +237,7 @@ def tags_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop tags' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: service.list_tags(conn=conn),
+        action=lambda conn: loop_read_service.list_tags(conn=conn),
         output_format=args.format,
     )
 
@@ -365,7 +368,7 @@ def suggestion_list_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion list' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: service.list_loop_suggestions(
+        action=lambda conn: loop_duplicates.list_loop_suggestions(
             loop_id=args.loop_id,
             pending_only=args.pending,
             limit=args.limit,
@@ -397,7 +400,7 @@ def suggestion_apply_command(args: Namespace, settings: Settings) -> int:
     fields = args.fields.split(",") if args.fields else None
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: service.apply_suggestion(
+        action=lambda conn: loop_duplicates.apply_suggestion(
             suggestion_id=args.id,
             fields=fields,
             conn=conn,
@@ -418,7 +421,7 @@ def suggestion_reject_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion reject' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: service.reject_suggestion(suggestion_id=args.id, conn=conn),
+        action=lambda conn: loop_duplicates.reject_suggestion(suggestion_id=args.id, conn=conn),
         output_format=args.format,
         error_handlers=[
             error_handler(

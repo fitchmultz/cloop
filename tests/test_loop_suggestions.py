@@ -16,6 +16,7 @@ Invariants:
 import pytest
 
 from cloop import db
+from cloop.loops import duplicates as loop_duplicates
 from cloop.loops import repo, service
 from cloop.loops.enrichment import LoopSuggestion
 from cloop.loops.errors import SuggestionNotFoundError, ValidationError
@@ -149,7 +150,7 @@ def test_service_list_loop_suggestions(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    suggestions = service.list_loop_suggestions(
+    suggestions = loop_duplicates.list_loop_suggestions(
         loop_id=test_loop["id"],
         pending_only=True,
         conn=fresh_db,
@@ -174,7 +175,7 @@ def test_apply_suggestion_partial(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    result = service.apply_suggestion(
+    result = loop_duplicates.apply_suggestion(
         suggestion_id=suggestion_id,
         fields=["title"],  # Only apply title
         conn=fresh_db,
@@ -210,7 +211,7 @@ def test_apply_suggestion_all_fields(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    result = service.apply_suggestion(
+    result = loop_duplicates.apply_suggestion(
         suggestion_id=suggestion_id,
         fields=None,  # Apply all above threshold
         conn=fresh_db,
@@ -232,7 +233,7 @@ def test_reject_suggestion(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    result = service.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+    result = loop_duplicates.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
     assert result["resolution"] == "rejected"
 
     # Verify loop was NOT updated
@@ -251,11 +252,11 @@ def test_cannot_resolve_twice(fresh_db, test_loop):
     )
 
     # First rejection should work
-    service.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+    loop_duplicates.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
 
     # Second apply should fail
     with pytest.raises(ValidationError, match="already resolved"):
-        service.apply_suggestion(
+        loop_duplicates.apply_suggestion(
             suggestion_id=suggestion_id,
             conn=fresh_db,
             settings=get_settings(),
@@ -265,7 +266,7 @@ def test_cannot_resolve_twice(fresh_db, test_loop):
 def test_apply_suggestion_not_found(fresh_db):
     """Test applying a non-existent suggestion."""
     with pytest.raises(SuggestionNotFoundError):
-        service.apply_suggestion(
+        loop_duplicates.apply_suggestion(
             suggestion_id=99999,
             conn=fresh_db,
             settings=get_settings(),
@@ -285,7 +286,7 @@ def test_suggestion_with_project(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    result = service.apply_suggestion(
+    result = loop_duplicates.apply_suggestion(
         suggestion_id=suggestion_id,
         conn=fresh_db,
         settings=get_settings(),

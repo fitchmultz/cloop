@@ -5,14 +5,46 @@ import os
 import sqlite3
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, List
 
 import numpy as np
 import pytest
 
-from cloop import cli, db
+from cloop import db
+from cloop.cli_package.loop_core_commands import (
+    capture_command,
+    inbox_command,
+    loop_enrich_command,
+    loop_get_command,
+    loop_search_command,
+    loop_snooze_command,
+    loop_status_command,
+    loop_update_command,
+    next_command,
+)
+from cloop.cli_package.loop_misc_commands import import_command
+from cloop.cli_package.main import build_parser, main
+from cloop.cli_package.rag_commands import ask_command, ingest_command
 from cloop.loops.models import LoopStatus, resolve_status_from_flags
 from cloop.settings import Settings, get_settings
+
+cli = SimpleNamespace(
+    build_parser=build_parser,
+    main=main,
+    _ask_command=ask_command,
+    _capture_command=capture_command,
+    _import_command=import_command,
+    _inbox_command=inbox_command,
+    _ingest_command=ingest_command,
+    _loop_enrich_command=loop_enrich_command,
+    _loop_get_command=loop_get_command,
+    _loop_search_command=loop_search_command,
+    _loop_snooze_command=loop_snooze_command,
+    _loop_status_command=loop_status_command,
+    _loop_update_command=loop_update_command,
+    _next_command=next_command,
+)
 
 
 def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:

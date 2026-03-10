@@ -23,6 +23,7 @@ import pytest
 from conftest import _now_iso
 
 from cloop import db
+from cloop.loops import read_service, repo
 from cloop.loops.models import LoopStatus
 from cloop.loops.prioritization import bucketize
 from cloop.settings import get_settings
@@ -457,7 +458,6 @@ def test_priority_weights_from_settings(
     """Verify that next_loops uses priority weights from settings."""
     import sqlite3
 
-    from cloop.loops import repo, service
     from cloop.loops.models import LoopStatus
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
@@ -497,7 +497,7 @@ def test_priority_weights_from_settings(
     assert settings.priority_weight_activation_penalty == 0.2
 
     # Call next_loops with custom settings - should not raise
-    result = service.next_loops(limit=10, conn=conn, settings=settings)
+    result = read_service.next_loops(limit=10, conn=conn, settings=settings)
 
     # Should have buckets
     assert "due_soon" in result
@@ -804,7 +804,7 @@ def test_next_loops_excludes_blocked_by_dependency(
     import sqlite3
 
     from cloop import db
-    from cloop.loops import repo, service
+    from cloop.loops import repo
     from cloop.loops.models import LoopStatus
     from cloop.settings import get_settings
 
@@ -852,7 +852,7 @@ def test_next_loops_excludes_blocked_by_dependency(
     )
 
     # Call next_loops
-    result = service.next_loops(limit=10, conn=conn, settings=settings)
+    result = read_service.next_loops(limit=10, conn=conn, settings=settings)
 
     # Blocked loop should not appear
     all_titles = []

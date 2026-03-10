@@ -90,33 +90,33 @@ def create_loop_comment(
                 "parent_id", "Parent comment not found or belongs to different loop"
             )
 
-    comment = create_comment(
-        loop_id=loop_id,
-        author=author,
-        body_md=body_md,
-        parent_id=parent_id,
-        conn=conn,
-    )
+    with conn:
+        comment = create_comment(
+            loop_id=loop_id,
+            author=author,
+            body_md=body_md,
+            parent_id=parent_id,
+            conn=conn,
+        )
 
-    # Record event for audit trail
-    event_payload = {
-        "comment_id": comment.id,
-        "author": author,
-        "parent_id": parent_id,
-    }
-    event_id = repo.insert_loop_event(
-        loop_id=loop_id,
-        event_type=LoopEventType.COMMENT_ADDED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    queue_deliveries(
-        event_id=event_id,
-        event_type=LoopEventType.COMMENT_ADDED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    conn.commit()
+        # Record event for audit trail
+        event_payload = {
+            "comment_id": comment.id,
+            "author": author,
+            "parent_id": parent_id,
+        }
+        event_id = repo.insert_loop_event(
+            loop_id=loop_id,
+            event_type=LoopEventType.COMMENT_ADDED.value,
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.COMMENT_ADDED.value,
+            payload=event_payload,
+            conn=conn,
+        )
 
     return _comment_to_dict(comment)
 
@@ -213,23 +213,23 @@ def update_loop_comment(
     """
     from .repo import update_comment
 
-    comment = update_comment(comment_id=comment_id, body_md=body_md, conn=conn)
+    with conn:
+        comment = update_comment(comment_id=comment_id, body_md=body_md, conn=conn)
 
-    # Record event
-    event_payload = {"comment_id": comment.id}
-    event_id = repo.insert_loop_event(
-        loop_id=comment.loop_id,
-        event_type=LoopEventType.COMMENT_UPDATED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    queue_deliveries(
-        event_id=event_id,
-        event_type=LoopEventType.COMMENT_UPDATED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    conn.commit()
+        # Record event
+        event_payload = {"comment_id": comment.id}
+        event_id = repo.insert_loop_event(
+            loop_id=comment.loop_id,
+            event_type=LoopEventType.COMMENT_UPDATED.value,
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.COMMENT_UPDATED.value,
+            payload=event_payload,
+            conn=conn,
+        )
 
     return _comment_to_dict(comment)
 
@@ -255,23 +255,23 @@ def delete_loop_comment(
     if comment is None:
         return False
 
-    deleted = soft_delete_comment(comment_id=comment_id, conn=conn)
+    with conn:
+        deleted = soft_delete_comment(comment_id=comment_id, conn=conn)
 
-    if deleted:
-        # Record event
-        event_payload = {"comment_id": comment.id}
-        event_id = repo.insert_loop_event(
-            loop_id=comment.loop_id,
-            event_type=LoopEventType.COMMENT_DELETED.value,
-            payload=event_payload,
-            conn=conn,
-        )
-        queue_deliveries(
-            event_id=event_id,
-            event_type=LoopEventType.COMMENT_DELETED.value,
-            payload=event_payload,
-            conn=conn,
-        )
-        conn.commit()
+        if deleted:
+            # Record event
+            event_payload = {"comment_id": comment.id}
+            event_id = repo.insert_loop_event(
+                loop_id=comment.loop_id,
+                event_type=LoopEventType.COMMENT_DELETED.value,
+                payload=event_payload,
+                conn=conn,
+            )
+            queue_deliveries(
+                event_id=event_id,
+                event_type=LoopEventType.COMMENT_DELETED.value,
+                payload=event_payload,
+                conn=conn,
+            )
 
     return deleted

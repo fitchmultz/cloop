@@ -70,59 +70,60 @@ def claim_loop(
     if record is None:
         raise LoopNotFoundError(loop_id)
 
-    # Purge expired claims first
-    repo.purge_expired_claims(conn=conn)
-
     now = utc_now()
     lease_until = now + timedelta(seconds=ttl)
 
-    # Retry loop handles race condition where claim expires between purge and insert
-    # Max 3 attempts to prevent theoretical infinite retry on pathological timing
-    for attempt in range(3):
-        try:
-            claim = repo.claim_loop(
-                loop_id=loop_id,
-                owner=owner,
-                lease_until=lease_until,
-                conn=conn,
-                token_bytes=settings.claim_token_bytes,
-            )
-            break
-        except sqlite3.IntegrityError:
-            # Already claimed - get existing claim info
-            existing = read_active_claim(loop_id=loop_id, conn=conn)
-            if existing is not None:
-                raise LoopClaimedError(
-                    loop_id=loop_id,
-                    owner=existing.owner,
-                    lease_until=format_utc_datetime(existing.lease_until_utc),
-                ) from None
-            # Race condition: claim expired between purge and insert
-            if attempt < 2:  # Only purge and retry if not last attempt
-                repo.purge_expired_claims(conn=conn)
-            else:
-                # Final attempt also failed - should be extremely rare
-                raise RuntimeError(
-                    f"Failed to acquire claim on loop {loop_id} after 3 attempts"
-                ) from None
+    with conn:
+        # Purge expired claims first
+        repo.purge_expired_claims(conn=conn)
 
-    # Record claim event
-    event_payload = {
-        "owner": owner,
-        "lease_until": format_utc_datetime(lease_until),
-    }
-    event_id = repo.insert_loop_event(
-        loop_id=loop_id,
-        event_type=LoopEventType.CLAIM.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    queue_deliveries(
-        event_id=event_id,
-        event_type=LoopEventType.CLAIM.value,
-        payload=event_payload,
-        conn=conn,
-    )
+        # Retry loop handles race condition where claim expires between purge and insert
+        # Max 3 attempts to prevent theoretical infinite retry on pathological timing
+        for attempt in range(3):
+            try:
+                claim = repo.claim_loop(
+                    loop_id=loop_id,
+                    owner=owner,
+                    lease_until=lease_until,
+                    conn=conn,
+                    token_bytes=settings.claim_token_bytes,
+                )
+                break
+            except sqlite3.IntegrityError:
+                # Already claimed - get existing claim info
+                existing = read_active_claim(loop_id=loop_id, conn=conn)
+                if existing is not None:
+                    raise LoopClaimedError(
+                        loop_id=loop_id,
+                        owner=existing.owner,
+                        lease_until=format_utc_datetime(existing.lease_until_utc),
+                    ) from None
+                # Race condition: claim expired between purge and insert
+                if attempt < 2:  # Only purge and retry if not last attempt
+                    repo.purge_expired_claims(conn=conn)
+                else:
+                    # Final attempt also failed - should be extremely rare
+                    raise RuntimeError(
+                        f"Failed to acquire claim on loop {loop_id} after 3 attempts"
+                    ) from None
+
+        # Record claim event
+        event_payload = {
+            "owner": owner,
+            "lease_until": format_utc_datetime(lease_until),
+        }
+        event_id = repo.insert_loop_event(
+            loop_id=loop_id,
+            event_type=LoopEventType.CLAIM.value,
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.CLAIM.value,
+            payload=event_payload,
+            conn=conn,
+        )
 
     logger.info(
         "Loop claimed successfully: loop_id=%s owner=%s ttl=%s lease_until=%s",
@@ -172,12 +173,13 @@ def renew_claim(
     now = utc_now()
     new_lease_until = now + timedelta(seconds=ttl)
 
-    claim = repo.renew_claim(
-        loop_id=loop_id,
-        claim_token=claim_token,
-        new_lease_until=new_lease_until,
-        conn=conn,
-    )
+    with conn:
+        claim = repo.renew_claim(
+            loop_id=loop_id,
+            claim_token=claim_token,
+            new_lease_until=new_lease_until,
+            conn=conn,
+        )
     if claim is None:
         raise ClaimNotFoundError(loop_id)
 
@@ -216,23 +218,24 @@ def release_claim(
     Raises:
         ClaimNotFoundError: If token doesn't match any active claim
     """
-    released = repo.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
-    if not released:
-        raise ClaimNotFoundError(loop_id)
+    with conn:
+        released = repo.release_claim(loop_id=loop_id, claim_token=claim_token, conn=conn)
+        if not released:
+            raise ClaimNotFoundError(loop_id)
 
-    event_payload = {"release_type": "explicit"}
-    event_id = repo.insert_loop_event(
-        loop_id=loop_id,
-        event_type=LoopEventType.CLAIM_RELEASED.value,
-        payload=event_payload,
-        conn=conn,
-    )
-    queue_deliveries(
-        event_id=event_id,
-        event_type=LoopEventType.CLAIM_RELEASED.value,
-        payload=event_payload,
-        conn=conn,
-    )
+        event_payload = {"release_type": "explicit"}
+        event_id = repo.insert_loop_event(
+            loop_id=loop_id,
+            event_type=LoopEventType.CLAIM_RELEASED.value,
+            payload=event_payload,
+            conn=conn,
+        )
+        queue_deliveries(
+            event_id=event_id,
+            event_type=LoopEventType.CLAIM_RELEASED.value,
+            payload=event_payload,
+            conn=conn,
+        )
 
     logger.info("Claim released successfully: loop_id=%s", loop_id)
 
@@ -254,30 +257,31 @@ def force_release_claim(
     Returns:
         True if a claim was released, False if no claim existed
     """
-    claim = repo.read_claim(loop_id=loop_id, conn=conn)
-    released = repo.release_claim_by_loop_id(loop_id=loop_id, conn=conn)
-    if released and claim:
-        logger.info(
-            "Claim force-released: loop_id=%s original_owner=%s",
-            loop_id,
-            claim.owner,
-        )
-        event_payload = {
-            "release_type": "forced",
-            "original_owner": claim.owner,
-        }
-        event_id = repo.insert_loop_event(
-            loop_id=loop_id,
-            event_type=LoopEventType.CLAIM_RELEASED.value,
-            payload=event_payload,
-            conn=conn,
-        )
-        queue_deliveries(
-            event_id=event_id,
-            event_type=LoopEventType.CLAIM_RELEASED.value,
-            payload=event_payload,
-            conn=conn,
-        )
+    with conn:
+        claim = repo.read_claim(loop_id=loop_id, conn=conn)
+        released = repo.release_claim_by_loop_id(loop_id=loop_id, conn=conn)
+        if released and claim:
+            logger.info(
+                "Claim force-released: loop_id=%s original_owner=%s",
+                loop_id,
+                claim.owner,
+            )
+            event_payload = {
+                "release_type": "forced",
+                "original_owner": claim.owner,
+            }
+            event_id = repo.insert_loop_event(
+                loop_id=loop_id,
+                event_type=LoopEventType.CLAIM_RELEASED.value,
+                payload=event_payload,
+                conn=conn,
+            )
+            queue_deliveries(
+                event_id=event_id,
+                event_type=LoopEventType.CLAIM_RELEASED.value,
+                payload=event_payload,
+                conn=conn,
+            )
     return released
 
 
@@ -296,10 +300,9 @@ def get_claim_status(
     Returns:
         Dict with claim info (without token) or None if not claimed
     """
-    # Purge expired claims first
-    repo.purge_expired_claims(conn=conn)
-
-    claim = read_active_claim(loop_id=loop_id, conn=conn)
+    with conn:
+        repo.purge_expired_claims(conn=conn)
+        claim = read_active_claim(loop_id=loop_id, conn=conn)
     if claim is None:
         return None
     return claim_to_dict(claim)
@@ -322,8 +325,7 @@ def list_active_claims(
     Returns:
         List of claim dicts (without tokens) ordered by lease_until ascending
     """
-    # Purge expired claims first
-    repo.purge_expired_claims(conn=conn)
-
-    claims = repo.list_active_claims(owner=owner, limit=limit, conn=conn)
+    with conn:
+        repo.purge_expired_claims(conn=conn)
+        claims = repo.list_active_claims(owner=owner, limit=limit, conn=conn)
     return [claim_to_dict(claim) for claim in claims]

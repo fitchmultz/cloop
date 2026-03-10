@@ -7,12 +7,13 @@ Responsibilities:
     - Core CRUD operations (capture, get, update, list, search)
     - Status transitions and state machine enforcement
     - Orchestration between repo layer and external services
-    - Re-export of domain module functions for backwards compatibility
 
 Non-scope:
     - Direct database access (see repo.py)
     - HTTP request/response handling (see routes/loops.py)
-    - Domain-specific operations (see claims.py, timers.py, etc.)
+    - Read/query retrieval and prioritization concerns
+    - Saved-view and template management concerns
+    - Domain-specific operations handled by focused loop modules
 """
 
 from __future__ import annotations
@@ -31,73 +32,24 @@ from ..schemas.export_import import (
     ImportPreview,
     ImportResult,
 )
-from ..settings import Settings, get_settings
 from ..webhooks.service import queue_deliveries
 from . import repo
-from .bulk import (
-    _classify_error,
-    _rollback_transaction_results,
-    bulk_close_loops,
-    bulk_snooze_loops,
-    bulk_update_loops,
-    create_template_from_loop,
-    query_bulk_close_loops,
-    query_bulk_snooze_loops,
-    query_bulk_update_loops,
-)
-from .claims import (
-    claim_loop,
-    force_release_claim,
-    get_claim_status,
-    list_active_claims,
-    release_claim,
-    renew_claim,
-)
-from .comments import (
-    create_loop_comment,
-    delete_loop_comment,
-    get_loop_comment,
-    list_loop_comments,
-    update_loop_comment,
-)
-from .duplicates import (
-    MergePreview,
-    MergeResult,
-    apply_suggestion,
-    find_duplicate_candidates_for_loop,
-    list_loop_suggestions,
-    merge_loops,
-    preview_merge,
-    reject_suggestion,
-)
 from .errors import (
     DependencyCycleError,
     LoopNotFoundError,
     ValidationError,
 )
-from .events import (
-    get_loop_events,
-    undo_last_event,
-)
 from .metrics import record_capture
 from .models import (
     EnrichmentState,
     LoopEventType,
-    LoopRecord,
     LoopStatus,
     format_utc_datetime,
     parse_client_datetime,
     parse_utc_datetime,
     utc_now,
 )
-from .pagination import (
-    build_next_cursor,
-    prepare_cursor_state,
-)
-from .prioritization import PriorityWeights, bucketize, compute_priority_score
 from .service_helpers import (
-    _ALLOWED_TRANSITIONS,
-    _LOCKABLE_FIELDS,
     _apply_loop_update,
     _apply_status_transition,
     _enrich_record,
@@ -105,16 +57,7 @@ from .service_helpers import (
     _handle_recurrence_on_completion,
     _record_to_dict,
 )
-from .timers import (
-    ActiveTimerExistsError,
-    NoActiveTimerError,
-    TimerError,
-    get_timer_status,
-    list_time_sessions,
-    start_timer,
-    stop_timer,
-)
-from .utils import normalize_tag, normalize_tags
+from .utils import normalize_tags
 
 if TYPE_CHECKING:
     pass
@@ -126,11 +69,6 @@ logger = logging.getLogger(__name__)
 __all__ = [
     # Core CRUD
     "capture_loop",
-    "get_loop",
-    "list_loops",
-    "list_loops_by_statuses",
-    "list_loops_by_tag",
-    "list_tags",
     "export_loops",
     "import_loops",
     "update_loop",
@@ -143,66 +81,6 @@ __all__ = [
     "get_loop_with_dependencies",
     # Enrichment/Search
     "request_enrichment",
-    "search_loops",
-    "next_loops",
-    "search_loops_by_query",
-    # Views
-    "create_loop_view",
-    "list_loop_views",
-    "get_loop_view",
-    "update_loop_view",
-    "delete_loop_view",
-    "apply_loop_view",
-    # Pagination
-    "list_loops_page",
-    "search_loops_by_query_page",
-    "apply_loop_view_page",
-    # Claims (re-exported)
-    "claim_loop",
-    "renew_claim",
-    "release_claim",
-    "force_release_claim",
-    "get_claim_status",
-    "list_active_claims",
-    # Timers (re-exported)
-    "start_timer",
-    "stop_timer",
-    "get_timer_status",
-    "list_time_sessions",
-    "TimerError",
-    "ActiveTimerExistsError",
-    "NoActiveTimerError",
-    # Events (re-exported)
-    "get_loop_events",
-    "undo_last_event",
-    # Comments (re-exported)
-    "create_loop_comment",
-    "list_loop_comments",
-    "get_loop_comment",
-    "update_loop_comment",
-    "delete_loop_comment",
-    # Duplicates (re-exported)
-    "preview_merge",
-    "merge_loops",
-    "find_duplicate_candidates_for_loop",
-    "list_loop_suggestions",
-    "apply_suggestion",
-    "reject_suggestion",
-    "MergePreview",
-    "MergeResult",
-    # Bulk (re-exported)
-    "bulk_update_loops",
-    "bulk_close_loops",
-    "bulk_snooze_loops",
-    "create_template_from_loop",
-    "query_bulk_update_loops",
-    "query_bulk_close_loops",
-    "query_bulk_snooze_loops",
-    "_classify_error",
-    "_rollback_transaction_results",
-    # Constants
-    "_ALLOWED_TRANSITIONS",
-    "_LOCKABLE_FIELDS",
     # Internal helpers (for use by other modules)
     "_handle_recurrence_on_completion",
     "_record_to_dict",
@@ -318,72 +196,6 @@ def capture_loop(
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
     return _record_to_dict(record, project=project, tags=tags)
-
-
-@typingx.validate_io()
-def get_loop(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
-    record = repo.read_loop(loop_id=loop_id, conn=conn)
-    if record is None:
-        raise LoopNotFoundError(loop_id)
-    project = repo.read_project_name(project_id=record.project_id, conn=conn)
-    tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-    return _record_to_dict(record, project=project, tags=tags)
-
-
-@typingx.validate_io()
-def list_loops(
-    *,
-    status: LoopStatus | None,
-    limit: int,
-    offset: int,
-    conn: sqlite3.Connection,
-) -> list[dict[str, Any]]:
-    records = repo.list_loops(status=status, limit=limit, offset=offset, conn=conn)
-    return _enrich_records_batch(records, conn=conn)
-
-
-@typingx.validate_io()
-def list_loops_by_statuses(
-    *,
-    statuses: list[LoopStatus],
-    limit: int,
-    offset: int,
-    conn: sqlite3.Connection,
-) -> list[dict[str, Any]]:
-    records = repo.list_loops_by_statuses(
-        statuses=statuses,
-        limit=limit,
-        offset=offset,
-        conn=conn,
-    )
-    return _enrich_records_batch(records, conn=conn)
-
-
-@typingx.validate_io()
-def list_loops_by_tag(
-    *,
-    tag: str,
-    statuses: list[LoopStatus] | None,
-    limit: int,
-    offset: int,
-    conn: sqlite3.Connection,
-) -> list[dict[str, Any]]:
-    normalized = normalize_tag(tag)
-    if not normalized:
-        return []
-    records = repo.list_loops_by_tag(
-        tag=normalized,
-        statuses=statuses,
-        limit=limit,
-        offset=offset,
-        conn=conn,
-    )
-    return _enrich_records_batch(records, conn=conn)
-
-
-@typingx.validate_io()
-def list_tags(*, conn: sqlite3.Connection) -> list[str]:
-    return repo.list_tags(conn=conn)
 
 
 @typingx.validate_io()
@@ -682,25 +494,26 @@ def add_loop_dependency(
     ):
         raise DependencyCycleError(loop_id, depends_on_loop_id)
 
-    # Add the dependency
-    try:
-        repo.add_dependency(
-            loop_id=loop_id,
-            depends_on_loop_id=depends_on_loop_id,
-            conn=conn,
-        )
-    except sqlite3.IntegrityError:
-        # Already exists, that's fine
-        pass
-
-    # If loop is actionable and dependency is open, auto-transition to blocked
-    if loop.status == LoopStatus.ACTIONABLE:
-        if dep_loop.status not in (LoopStatus.COMPLETED, LoopStatus.DROPPED):
-            repo.update_loop_fields(
+    with conn:
+        # Add the dependency
+        try:
+            repo.add_dependency(
                 loop_id=loop_id,
-                fields={"status": LoopStatus.BLOCKED.value},
+                depends_on_loop_id=depends_on_loop_id,
                 conn=conn,
             )
+        except sqlite3.IntegrityError:
+            # Already exists, that's fine
+            pass
+
+        # If loop is actionable and dependency is open, auto-transition to blocked
+        if loop.status == LoopStatus.ACTIONABLE:
+            if dep_loop.status not in (LoopStatus.COMPLETED, LoopStatus.DROPPED):
+                repo.update_loop_fields(
+                    loop_id=loop_id,
+                    fields={"status": LoopStatus.BLOCKED.value},
+                    conn=conn,
+                )
 
     return get_loop_with_dependencies(loop_id=loop_id, conn=conn)
 
@@ -722,11 +535,12 @@ def remove_loop_dependency(
     Returns:
         Updated loop dict with dependencies list
     """
-    repo.remove_dependency(
-        loop_id=loop_id,
-        depends_on_loop_id=depends_on_loop_id,
-        conn=conn,
-    )
+    with conn:
+        repo.remove_dependency(
+            loop_id=loop_id,
+            depends_on_loop_id=depends_on_loop_id,
+            conn=conn,
+        )
     return get_loop_with_dependencies(loop_id=loop_id, conn=conn)
 
 
@@ -859,431 +673,3 @@ def request_enrichment(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, A
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
     return _record_to_dict(updated, project=project, tags=tags)
-
-
-@typingx.validate_io()
-def search_loops(
-    *,
-    query: str,
-    limit: int,
-    offset: int,
-    conn: sqlite3.Connection,
-) -> list[dict[str, Any]]:
-    records = repo.search_loops(query=query, limit=limit, offset=offset, conn=conn)
-    return _enrich_records_batch(records, conn=conn)
-
-
-@typingx.validate_io()
-def next_loops(
-    *,
-    limit: int,
-    conn: sqlite3.Connection,
-    settings: Settings | None = None,
-) -> dict[str, list[dict[str, Any]]]:
-    settings = settings or get_settings()
-    now = utc_now()
-    candidates = repo.list_next_loop_candidates(
-        limit=settings.next_candidates_limit,
-        now_utc=now,
-        conn=conn,
-    )
-    # Batch check dependencies for all candidates (O(1) query vs O(N))
-    candidate_ids = [record.id for record in candidates]
-    blocked_ids = repo.has_open_dependencies_batch(loop_ids=candidate_ids, conn=conn)
-    actionable_records: list[LoopRecord] = [
-        record for record in candidates if record.id not in blocked_ids
-    ]
-
-    weights = PriorityWeights(
-        due_weight=settings.priority_weight_due,
-        urgency_weight=settings.priority_weight_urgency,
-        importance_weight=settings.priority_weight_importance,
-        time_penalty=settings.priority_weight_time_penalty,
-        activation_penalty=settings.priority_weight_activation_penalty,
-        blocked_penalty=settings.priority_weight_blocked_penalty,
-    )
-
-    scored = [
-        (
-            record,
-            compute_priority_score(
-                _record_to_dict(record),
-                now_utc=now,
-                w=weights,
-                settings=settings,
-            ),
-        )
-        for record in actionable_records
-    ]
-
-    # Bucketize and collect all items with (bucket_label, record, score)
-    scored_with_buckets: list[tuple[str, LoopRecord, float]] = []
-    for record, score in scored:
-        label = bucketize(_record_to_dict(record), now_utc=now, settings=settings)
-        if label in {"due_soon", "quick_wins", "high_leverage", "standard"}:
-            scored_with_buckets.append((label, record, score))
-
-    # Sort all items globally by score (descending)
-    scored_with_buckets.sort(key=lambda x: x[2], reverse=True)
-
-    # Take only top N items globally
-    top_items = scored_with_buckets[:limit]
-
-    # Collect loop IDs and project IDs for batch enrichment
-    all_loop_ids: list[int] = []
-    all_project_ids: set[int] = set()
-    for _label, record, _score in top_items:
-        all_loop_ids.append(record.id)
-        if record.project_id is not None:
-            all_project_ids.add(record.project_id)
-
-    # Batch fetch all projects and tags
-    projects_map = repo.read_project_names_batch(project_ids=all_project_ids, conn=conn)
-    tags_map = repo.list_loop_tags_batch(loop_ids=all_loop_ids, conn=conn)
-
-    # Reconstruct buckets from top items only
-    response: dict[str, list[dict[str, Any]]] = {
-        "due_soon": [],
-        "quick_wins": [],
-        "high_leverage": [],
-        "standard": [],
-    }
-    for label, record, _score in top_items:
-        project = projects_map.get(record.project_id) if record.project_id else None
-        tags = tags_map.get(record.id, [])
-        response[label].append(_record_to_dict(record, project=project, tags=tags))
-
-    return response
-
-
-@typingx.validate_io()
-def search_loops_by_query(
-    *,
-    query: str,
-    limit: int,
-    offset: int,
-    conn: sqlite3.Connection,
-) -> list[dict[str, Any]]:
-    """Search loops using the DSL query language.
-
-    This is the canonical query path used by API, CLI, MCP, and UI.
-    Results are enriched with project names and tags.
-
-    Args:
-        query: DSL query string (e.g., 'status:inbox tag:work due:today')
-        limit: Maximum number of results
-        offset: Pagination offset
-        conn: Database connection
-
-    Returns:
-        List of enriched loop dicts
-    """
-    records = repo.search_loops_by_query(
-        query=query,
-        limit=limit,
-        offset=offset,
-        conn=conn,
-    )
-    return _enrich_records_batch(records, conn=conn)
-
-
-@typingx.validate_io()
-def create_loop_view(
-    *,
-    name: str,
-    query: str,
-    description: str | None,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """Create a new saved view.
-
-    Args:
-        name: Unique view name
-        query: DSL query string
-        description: Optional description
-        conn: Database connection
-
-    Returns:
-        Created view record
-
-    Raises:
-        ValidationError: If name already exists or query is invalid
-    """
-    return repo.create_loop_view(
-        name=name,
-        query=query,
-        description=description,
-        conn=conn,
-    )
-
-
-@typingx.validate_io()
-def list_loop_views(*, conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """List all saved views.
-
-    Args:
-        conn: Database connection
-
-    Returns:
-        List of view records, ordered by name
-    """
-    return repo.list_loop_views(conn=conn)
-
-
-@typingx.validate_io()
-def get_loop_view(*, view_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Get a saved view by ID.
-
-    Args:
-        view_id: View ID
-        conn: Database connection
-
-    Returns:
-        View record
-
-    Raises:
-        ValidationError: If view not found
-    """
-    view = repo.get_loop_view(view_id=view_id, conn=conn)
-    if view is None:
-        raise ValidationError("view_id", f"view {view_id} not found")
-    return view
-
-
-@typingx.validate_io()
-def update_loop_view(
-    *,
-    view_id: int,
-    name: str | None = None,
-    query: str | None = None,
-    description: str | None = None,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """Update a saved view.
-
-    Args:
-        view_id: View ID
-        name: New name (optional)
-        query: New query string (optional)
-        description: New description (optional)
-        conn: Database connection
-
-    Returns:
-        Updated view record
-
-    Raises:
-        ValidationError: If view not found, name conflict, or query invalid
-    """
-    return repo.update_loop_view(
-        view_id=view_id,
-        name=name,
-        query=query,
-        description=description,
-        conn=conn,
-    )
-
-
-@typingx.validate_io()
-def delete_loop_view(*, view_id: int, conn: sqlite3.Connection) -> bool:
-    """Delete a saved view.
-
-    Args:
-        view_id: View ID
-        conn: Database connection
-
-    Returns:
-        True if deleted
-
-    Raises:
-        ValidationError: If view not found
-    """
-    deleted = repo.delete_loop_view(view_id=view_id, conn=conn)
-    if not deleted:
-        raise ValidationError("view_id", f"view {view_id} not found")
-    return True
-
-
-@typingx.validate_io()
-def apply_loop_view(
-    *,
-    view_id: int,
-    limit: int,
-    offset: int,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """Apply a saved view and return matching loops.
-
-    Args:
-        view_id: View ID
-        limit: Maximum number of results
-        offset: Pagination offset
-        conn: Database connection
-
-    Returns:
-        Dict with view info and matching loops
-
-    Raises:
-        ValidationError: If view not found or query invalid
-    """
-    view = repo.get_loop_view(view_id=view_id, conn=conn)
-    if view is None:
-        raise ValidationError("view_id", f"view {view_id} not found")
-
-    loops = search_loops_by_query(
-        query=view["query"],
-        limit=limit,
-        offset=offset,
-        conn=conn,
-    )
-
-    return {
-        "view": view,
-        "query": view["query"],
-        "limit": limit,
-        "offset": offset,
-        "items": loops,
-    }
-
-
-@typingx.validate_io()
-def list_loops_page(
-    *,
-    status: LoopStatus | None,
-    limit: int,
-    cursor: str | None,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """List loops with cursor-based pagination.
-
-    Args:
-        status: Optional status filter
-        limit: Maximum number of results
-        cursor: Optional cursor token for continuation
-        conn: Database connection
-
-    Returns:
-        Dict with items, next_cursor (or None), and limit
-    """
-    state = prepare_cursor_state(
-        fingerprint_payload_dict={"tool": "loop.list", "status": status.value if status else None},
-        cursor=cursor,
-    )
-
-    records = repo.list_loops_cursor(
-        status=status,
-        limit=limit,
-        snapshot_utc=state.snapshot_utc,
-        cursor_anchor=state.cursor_anchor,
-        conn=conn,
-    )
-
-    next_cursor = build_next_cursor(
-        records=records,
-        limit=limit,
-        snapshot_utc=state.snapshot_utc,
-        fingerprint=state.fingerprint,
-    )
-    items = _enrich_records_batch(records[:limit], conn=conn)
-
-    return {"items": items, "next_cursor": next_cursor, "limit": limit}
-
-
-@typingx.validate_io()
-def search_loops_by_query_page(
-    *,
-    query: str,
-    limit: int,
-    cursor: str | None,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """Search loops with cursor-based pagination.
-
-    Args:
-        query: DSL query string
-        limit: Maximum number of results
-        cursor: Optional cursor token for continuation
-        conn: Database connection
-
-    Returns:
-        Dict with items, next_cursor (or None), and limit
-    """
-    state = prepare_cursor_state(
-        fingerprint_payload_dict={"tool": "loop.search", "query": query},
-        cursor=cursor,
-    )
-
-    records = repo.search_loops_by_query_cursor(
-        query=query,
-        limit=limit,
-        snapshot_utc=state.snapshot_utc,
-        cursor_anchor=state.cursor_anchor,
-        conn=conn,
-    )
-
-    next_cursor = build_next_cursor(
-        records=records,
-        limit=limit,
-        snapshot_utc=state.snapshot_utc,
-        fingerprint=state.fingerprint,
-    )
-    items = _enrich_records_batch(records[:limit], conn=conn)
-
-    return {"items": items, "next_cursor": next_cursor, "limit": limit}
-
-
-@typingx.validate_io()
-def apply_loop_view_page(
-    *,
-    view_id: int,
-    limit: int,
-    cursor: str | None,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """Apply a saved view with cursor-based pagination.
-
-    Args:
-        view_id: View ID
-        limit: Maximum number of results
-        cursor: Optional cursor token for continuation
-        conn: Database connection
-
-    Returns:
-        Dict with view info, query, limit, cursor, next_cursor, and items
-
-    Raises:
-        ValidationError: If view not found or query invalid
-    """
-    view = repo.get_loop_view(view_id=view_id, conn=conn)
-    if view is None:
-        raise ValidationError("view_id", f"view {view_id} not found")
-
-    query = view["query"]
-    state = prepare_cursor_state(
-        fingerprint_payload_dict={"tool": "loop.view.apply", "view_id": view_id, "query": query},
-        cursor=cursor,
-    )
-
-    records = repo.search_loops_by_query_cursor(
-        query=query,
-        limit=limit,
-        snapshot_utc=state.snapshot_utc,
-        cursor_anchor=state.cursor_anchor,
-        conn=conn,
-    )
-
-    next_cursor = build_next_cursor(
-        records=records,
-        limit=limit,
-        snapshot_utc=state.snapshot_utc,
-        fingerprint=state.fingerprint,
-    )
-    items = _enrich_records_batch(records[:limit], conn=conn)
-
-    return {
-        "view": view,
-        "query": query,
-        "limit": limit,
-        "cursor": cursor,
-        "next_cursor": next_cursor,
-        "items": items,
-    }

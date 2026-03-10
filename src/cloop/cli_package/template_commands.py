@@ -20,9 +20,8 @@ import json
 from argparse import Namespace
 from typing import Any
 
-from ..loops import repo
+from ..loops import repo, template_management
 from ..loops.errors import LoopNotFoundError, ValidationError
-from ..loops.service import create_template_from_loop
 from ..loops.utils import normalize_tags
 from ..settings import Settings
 from ._runtime import cli_error, error_handler, run_cli_db_action
@@ -89,7 +88,7 @@ def template_create_command(args: Namespace, settings: Settings) -> int:
     return run_cli_db_action(
         settings=settings,
         action=lambda conn: {
-            "id": repo.create_loop_template(
+            "id": template_management.create_loop_template(
                 name=args.name,
                 description=args.description,
                 raw_text_pattern=args.pattern,
@@ -116,7 +115,7 @@ def template_delete_command(args: Namespace, settings: Settings) -> int:
         template = _resolve_template(conn, args.name_or_id)
         if not template:
             raise cli_error(f"template not found: {args.name_or_id}", exit_code=2)
-        repo.delete_loop_template(template_id=template["id"], conn=conn)
+        template_management.delete_loop_template(template_id=template["id"], conn=conn)
         return {"deleted": True, "id": template["id"], "name": template["name"]}
 
     return run_cli_db_action(
@@ -137,7 +136,7 @@ def template_from_loop_command(args: Namespace, settings: Settings) -> int:
     return run_cli_db_action(
         settings=settings,
         action=lambda conn: {
-            "id": create_template_from_loop(
+            "id": template_management.create_template_from_loop(
                 loop_id=args.loop_id,
                 template_name=args.name,
                 conn=conn,

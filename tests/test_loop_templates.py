@@ -32,7 +32,7 @@ from pathlib import Path
 import pytest
 
 from cloop import db
-from cloop.loops import repo, service
+from cloop.loops import repo, template_management
 from cloop.loops.errors import ValidationError
 from cloop.loops.models import LoopStatus
 from cloop.loops.templates import (
@@ -319,7 +319,7 @@ def test_create_template_from_loop(
     )
 
     # Create template from loop
-    template = service.create_template_from_loop(
+    template = template_management.create_template_from_loop(
         loop_id=loop.id,
         template_name="Weekly Review Template",
         conn=conn,

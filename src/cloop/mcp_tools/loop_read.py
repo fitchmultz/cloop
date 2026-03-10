@@ -31,14 +31,18 @@ from typing import TYPE_CHECKING, Any
 
 from ..constants import DEFAULT_LOOP_LIST_LIMIT
 from ..loops import enrichment as loop_enrichment
+from ..loops import events as loop_event_ops
+from ..loops import read_service
 from ..loops import service as loop_service
 from ..loops.models import LoopStatus, validate_iso8601_timestamp
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_list(
     status: str | None = None, limit: int = DEFAULT_LOOP_LIST_LIMIT, cursor: str | None = None
 ) -> dict[str, Any]:
@@ -58,7 +62,7 @@ def loop_list(
     settings = get_settings()
     parsed_status = LoopStatus(status) if status else None
     with db.core_connection(settings) as conn:
-        return loop_service.list_loops_page(
+        return read_service.list_loops_page(
             status=parsed_status,
             limit=limit,
             cursor=cursor,
@@ -66,6 +70,7 @@ def loop_list(
         )
 
 
+@with_mcp_error_handling
 def loop_search(
     query: str, limit: int = DEFAULT_LOOP_LIST_LIMIT, cursor: str | None = None
 ) -> dict[str, Any]:
@@ -98,11 +103,12 @@ def loop_search(
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.search_loops_by_query_page(
+        return read_service.search_loops_by_query_page(
             query=query, limit=limit, cursor=cursor, conn=conn
         )
 
 
+@with_mcp_error_handling
 def loop_snooze(
     loop_id: int,
     snooze_until_utc: str,
@@ -139,6 +145,7 @@ def loop_snooze(
     )
 
 
+@with_mcp_error_handling
 def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
     """Trigger AI enrichment for a loop.
 
@@ -171,6 +178,7 @@ def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
     )
 
 
+@with_mcp_error_handling
 def loop_events(
     loop_id: int,
     limit: int = 50,
@@ -194,7 +202,7 @@ def loop_events(
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.get_loop_events(
+        return loop_event_ops.get_loop_events(
             loop_id=loop_id,
             limit=limit,
             before_id=before_id,
@@ -202,6 +210,7 @@ def loop_events(
         )
 
 
+@with_mcp_error_handling
 def loop_undo(
     loop_id: int,
     request_id: str | None = None,
@@ -226,10 +235,11 @@ def loop_undo(
         tool_name="loop.undo",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_service.undo_last_event(loop_id=loop_id, conn=conn),
+        execute=lambda conn, settings: loop_event_ops.undo_last_event(loop_id=loop_id, conn=conn),
     )
 
 
+@with_mcp_error_handling
 def loop_next(limit: int = 5) -> dict[str, list[dict[str, Any]]]:
     """Get prioritized loops organized into action buckets.
 
@@ -256,9 +266,10 @@ def loop_next(limit: int = 5) -> dict[str, list[dict[str, Any]]]:
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.next_loops(limit=limit, conn=conn, settings=settings)
+        return read_service.next_loops(limit=limit, conn=conn, settings=settings)
 
 
+@with_mcp_error_handling
 def loop_tags() -> list[str]:
     """List all unique tags used across loops.
 
@@ -274,7 +285,7 @@ def loop_tags() -> list[str]:
 
     settings = get_settings()
     with db.core_connection(settings) as conn:
-        return loop_service.list_tags(conn=conn)
+        return read_service.list_tags(conn=conn)
 
 
 def _execute_enrichment(*, loop_id: int, conn: Any, settings: Any) -> dict[str, Any]:
@@ -285,13 +296,13 @@ def _execute_enrichment(*, loop_id: int, conn: Any, settings: Any) -> dict[str, 
 
 def register_loop_read_tools(mcp: "FastMCP") -> None:
     """Register loop read tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.list")(with_db_init(with_mcp_error_handling(loop_list)))
-    mcp.tool(name="loop.search")(with_db_init(with_mcp_error_handling(loop_search)))
-    mcp.tool(name="loop.snooze")(with_db_init(with_mcp_error_handling(loop_snooze)))
-    mcp.tool(name="loop.enrich")(with_db_init(with_mcp_error_handling(loop_enrich)))
-    mcp.tool(name="loop.events")(with_db_init(with_mcp_error_handling(loop_events)))
-    mcp.tool(name="loop.undo")(with_db_init(with_mcp_error_handling(loop_undo)))
-    mcp.tool(name="loop.next")(with_db_init(with_mcp_error_handling(loop_next)))
-    mcp.tool(name="loop.tags")(with_db_init(with_mcp_error_handling(loop_tags)))
+    mcp.tool(name="loop.list")(with_db_init(loop_list))
+    mcp.tool(name="loop.search")(with_db_init(loop_search))
+    mcp.tool(name="loop.snooze")(with_db_init(loop_snooze))
+    mcp.tool(name="loop.enrich")(with_db_init(loop_enrich))
+    mcp.tool(name="loop.events")(with_db_init(loop_events))
+    mcp.tool(name="loop.undo")(with_db_init(loop_undo))
+    mcp.tool(name="loop.next")(with_db_init(loop_next))
+    mcp.tool(name="loop.tags")(with_db_init(loop_tags))

@@ -24,7 +24,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from ... import db
 from ...loops.errors import LoopNotFoundError
-from ...loops.service import (
+from ...loops.timers import (
     ActiveTimerExistsError,
     NoActiveTimerError,
     get_timer_status,

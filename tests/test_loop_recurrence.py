@@ -29,7 +29,7 @@ from pathlib import Path
 import pytest
 from conftest import _now_iso
 
-from cloop.loops import service as loop_service
+from cloop.loops.bulk import bulk_close_loops
 from cloop.settings import get_settings
 
 # ==============================================================================
@@ -147,7 +147,7 @@ def test_bulk_close_recurring_creates_next_occurrence(
     settings = get_settings()
     with closing(sqlite3.connect(settings.core_db_path)) as conn:
         conn.row_factory = sqlite3.Row
-        bulk_result = loop_service.bulk_close_loops(
+        bulk_result = bulk_close_loops(
             items=[{"loop_id": loop_id, "status": "completed"}],
             transactional=True,
             conn=conn,

@@ -1,11 +1,13 @@
 import pytest
 
+from cloop.loops import read_service
 from cloop.loops.errors import ValidationError
 from cloop.tools import (
     _require_fields,
     execute_list_notes,
     execute_loop_close,
     execute_loop_create,
+    execute_loop_enrich,
     execute_loop_get,
     execute_loop_list,
     execute_loop_next,
@@ -489,6 +491,108 @@ class TestLoopSearch:
 
         assert result["action"] == "loop_search"
         assert len(result["items"]) == 0
+
+
+class TestLoopExecutorParity:
+    """Parity checks between loop tool executors and canonical service state."""
+
+    def test_loop_mutation_tools_match_service_state(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        created = execute_loop_create(raw_text="Parity task", status="inbox")
+        loop_id = created["loop"]["id"]
+
+        updated = execute_loop_update(
+            loop_id=loop_id,
+            fields={"title": "Parity title", "next_action": "Ship it"},
+        )
+        transitioned = execute_loop_transition(loop_id=loop_id, status="actionable")
+        snoozed = execute_loop_snooze(loop_id=loop_id, snooze_until_utc="2026-12-31T23:59:59Z")
+        closed = execute_loop_close(loop_id=loop_id, status="completed", note="done")
+
+        with db.core_connection(settings) as conn:
+            canonical = read_service.get_loop(loop_id=loop_id, conn=conn)
+
+        assert updated["loop"]["title"] == canonical["title"]
+        assert transitioned["loop"]["status"] == "actionable"
+        assert snoozed["loop"]["snooze_until_utc"] == canonical["snooze_until_utc"]
+        assert closed["loop"]["status"] == canonical["status"] == "completed"
+        assert closed["loop"]["completion_note"] == canonical["completion_note"] == "done"
+
+    def test_loop_query_tools_match_service_queries(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.loops.models import LoopStatus
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        execute_loop_create(raw_text="Buy milk", status="inbox")
+        execute_loop_create(raw_text="Plan roadmap", status="actionable")
+
+        list_result = execute_loop_list(status="actionable", limit=10)
+        search_result = execute_loop_search(query="roadmap", limit=10)
+        next_result = execute_loop_next(limit=5)
+
+        with db.core_connection(settings) as conn:
+            list_canonical = read_service.list_loops_page(
+                status=LoopStatus.ACTIONABLE,
+                limit=10,
+                cursor=None,
+                conn=conn,
+            )
+            search_canonical = read_service.search_loops_by_query_page(
+                query="roadmap",
+                limit=10,
+                cursor=None,
+                conn=conn,
+            )
+            next_canonical = read_service.next_loops(limit=5, conn=conn, settings=settings)
+
+        assert list_result["items"] == list_canonical["items"]
+        assert search_result["items"] == search_canonical["items"]
+        assert next_result["due_soon"] == next_canonical["due_soon"]
+        assert next_result["quick_wins"] == next_canonical["quick_wins"]
+        assert next_result["high_leverage"] == next_canonical["high_leverage"]
+        assert next_result["standard"] == next_canonical["standard"]
+
+    def test_loop_enrich_tool_matches_enrichment_result(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        from cloop import db
+        from cloop.loops import service as loop_service
+        from cloop.settings import get_settings
+
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        created = execute_loop_create(raw_text="Need enrichment")
+        loop_id = created["loop"]["id"]
+
+        def fake_enrich_loop(*, loop_id: int, conn, settings):
+            return loop_service.update_loop(
+                loop_id=loop_id,
+                fields={"summary": "Enriched summary", "next_action": "Do enriched work"},
+                conn=conn,
+            )
+
+        monkeypatch.setattr("cloop.loops.enrichment.enrich_loop", fake_enrich_loop)
+
+        result = execute_loop_enrich(loop_id=loop_id)
+
+        with db.core_connection(settings) as conn:
+            canonical = read_service.get_loop(loop_id=loop_id, conn=conn)
+
+        assert result["loop"]["summary"] == canonical["summary"] == "Enriched summary"
+        assert result["loop"]["next_action"] == canonical["next_action"] == "Do enriched work"
 
 
 class TestListNotes:

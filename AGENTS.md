@@ -44,6 +44,8 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
   db.init_databases(get_settings())
   ```
 - **Loops**: State machine transitions in `loops/service.py` (inbox → actionable/blocked/scheduled → completed/dropped)
+- **Loop reads**: canonical query/read entrypoints live in `src/cloop/loops/read_service.py`; HTTP, CLI, MCP, and tool read paths should import that module directly instead of routing basic reads through `loops/service.py`.
+- **Saved views + templates**: canonical owners are `src/cloop/loops/views.py` and `src/cloop/loops/template_management.py`; avoid reintroducing generic service wrappers for those concerns.
 - **Scheduler**: Periodic tasks in `scheduler.py` (daily/weekly reviews, due-soon nudges, stale rescue)
 - **SSE**: Streaming utilities in `sse.py` for real-time responses
 - **SQLite in tests**: `with sqlite3.connect(...)` does **not** close connections; use `contextlib.closing(sqlite3.connect(...))` or explicit `conn.close()` in fixtures/finalizers.
@@ -63,6 +65,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Capture orchestration**: shared capture/template/recurrence/enrichment setup lives in `src/cloop/loops/capture_orchestration.py`; HTTP, CLI, and MCP capture entrypoints should delegate there instead of maintaining parallel capture flows.
 - **RAG ask orchestration**: shared retrieval + prompt + answer shaping now lives in `src/cloop/rag/ask_orchestration.py`; keep HTTP `/ask` and CLI `ask` aligned through that service layer instead of forking behavior by transport.
 - **CLI runtime**: loop-adjacent CLI handlers should centralize connection handling, expected exception mapping, and output/render orchestration through `src/cloop/cli_package/_runtime.py` instead of open-coding `with db.core_connection(...)` and per-command stderr/exit-code trees.
+- **MCP runtime**: keep FastMCP decorator/error-wrapping helpers in `src/cloop/mcp_tools/_runtime.py`; `src/cloop/mcp_server.py` should stay focused on server assembly.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
 - **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
 - **Keyboard shortcut UX**: loop-card actions keep keyboard shortcuts via `aria-keyshortcuts` and button tooltips; avoid visible single-letter suffix badges inside action labels.

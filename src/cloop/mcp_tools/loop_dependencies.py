@@ -31,11 +31,13 @@ from ..loops.service import (
     remove_loop_dependency,
 )
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_dependency_add(
     loop_id: int,
     depends_on_loop_id: int,
@@ -64,6 +66,7 @@ def loop_dependency_add(
     )
 
 
+@with_mcp_error_handling
 def loop_dependency_remove(
     loop_id: int,
     depends_on_loop_id: int,
@@ -92,6 +95,7 @@ def loop_dependency_remove(
     )
 
 
+@with_mcp_error_handling
 def loop_dependency_list(loop_id: int) -> list[dict[str, Any]]:
     """List all dependencies (blockers) for a loop.
 
@@ -109,6 +113,7 @@ def loop_dependency_list(loop_id: int) -> list[dict[str, Any]]:
         return get_loop_dependencies(loop_id=loop_id, conn=conn)
 
 
+@with_mcp_error_handling
 def loop_dependency_blocking(loop_id: int) -> list[dict[str, Any]]:
     """List all loops that depend on this loop.
 
@@ -128,15 +133,9 @@ def loop_dependency_blocking(loop_id: int) -> list[dict[str, Any]]:
 
 def register_loop_dependency_tools(mcp: "FastMCP") -> None:
     """Register loop dependency tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.dependency.add")(with_db_init(with_mcp_error_handling(loop_dependency_add)))
-    mcp.tool(name="loop.dependency.remove")(
-        with_db_init(with_mcp_error_handling(loop_dependency_remove))
-    )
-    mcp.tool(name="loop.dependency.list")(
-        with_db_init(with_mcp_error_handling(loop_dependency_list))
-    )
-    mcp.tool(name="loop.dependency.blocking")(
-        with_db_init(with_mcp_error_handling(loop_dependency_blocking))
-    )
+    mcp.tool(name="loop.dependency.add")(with_db_init(loop_dependency_add))
+    mcp.tool(name="loop.dependency.remove")(with_db_init(loop_dependency_remove))
+    mcp.tool(name="loop.dependency.list")(with_db_init(loop_dependency_list))
+    mcp.tool(name="loop.dependency.blocking")(with_db_init(loop_dependency_blocking))

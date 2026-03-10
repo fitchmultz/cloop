@@ -30,11 +30,13 @@ from typing import TYPE_CHECKING, Any
 
 from ..loops import claims as loop_claims
 from ._mutation import run_idempotent_tool_mutation
+from ._runtime import with_mcp_error_handling
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
+@with_mcp_error_handling
 def loop_claim(
     loop_id: int,
     owner: str,
@@ -67,6 +69,7 @@ def loop_claim(
     )
 
 
+@with_mcp_error_handling
 def loop_renew_claim(
     loop_id: int,
     claim_token: str,
@@ -103,6 +106,7 @@ def loop_renew_claim(
     )
 
 
+@with_mcp_error_handling
 def loop_release_claim(
     loop_id: int,
     claim_token: str,
@@ -131,6 +135,7 @@ def loop_release_claim(
     )
 
 
+@with_mcp_error_handling
 def loop_get_claim(loop_id: int) -> dict[str, Any] | None:
     """Get the current claim status for a loop.
 
@@ -148,6 +153,7 @@ def loop_get_claim(loop_id: int) -> dict[str, Any] | None:
         return loop_claims.get_claim_status(loop_id=loop_id, conn=conn)
 
 
+@with_mcp_error_handling
 def loop_list_claims(
     owner: str | None = None,
     limit: int = 100,
@@ -169,6 +175,7 @@ def loop_list_claims(
         return loop_claims.list_active_claims(owner=owner, limit=limit, conn=conn)
 
 
+@with_mcp_error_handling
 def loop_force_release_claim(
     loop_id: int,
     request_id: str | None = None,
@@ -202,13 +209,11 @@ def _release_claim(*, loop_id: int, claim_token: str, conn: Any) -> dict[str, An
 
 def register_loop_claim_tools(mcp: "FastMCP") -> None:
     """Register loop claim management tools with the MCP server."""
-    from ..mcp_server import with_db_init, with_mcp_error_handling
+    from ._runtime import with_db_init
 
-    mcp.tool(name="loop.claim")(with_db_init(with_mcp_error_handling(loop_claim)))
-    mcp.tool(name="loop.renew_claim")(with_db_init(with_mcp_error_handling(loop_renew_claim)))
-    mcp.tool(name="loop.release_claim")(with_db_init(with_mcp_error_handling(loop_release_claim)))
-    mcp.tool(name="loop.get_claim")(with_db_init(with_mcp_error_handling(loop_get_claim)))
-    mcp.tool(name="loop.list_claims")(with_db_init(with_mcp_error_handling(loop_list_claims)))
-    mcp.tool(name="loop.force_release_claim")(
-        with_db_init(with_mcp_error_handling(loop_force_release_claim))
-    )
+    mcp.tool(name="loop.claim")(with_db_init(loop_claim))
+    mcp.tool(name="loop.renew_claim")(with_db_init(loop_renew_claim))
+    mcp.tool(name="loop.release_claim")(with_db_init(loop_release_claim))
+    mcp.tool(name="loop.get_claim")(with_db_init(loop_get_claim))
+    mcp.tool(name="loop.list_claims")(with_db_init(loop_list_claims))
+    mcp.tool(name="loop.force_release_claim")(with_db_init(loop_force_release_claim))

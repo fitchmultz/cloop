@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from cloop import db
-from cloop.loops import repo, service
+from cloop.loops import read_service, repo
 from cloop.loops.models import LoopStatus
 from cloop.loops.related import find_related_loops
 from cloop.settings import get_settings
@@ -88,7 +88,7 @@ def test_list_loops_query_count_not_n_plus_one(
     counting_conn = CountingConnection(conn)
 
     # Call list_loops with the counting wrapper
-    result = service.list_loops(status=None, limit=100, offset=0, conn=counting_conn)
+    result = read_service.list_loops(status=None, limit=100, offset=0, conn=counting_conn)
 
     # Should have exactly 10 loops
     assert len(result) == 10
