@@ -145,8 +145,8 @@ uv run cloop next
 
 Notes:
 
-- `cloop ask` prints JSON (question + retrieved chunks) for easy piping and inspection.
-- For a full LLM-generated answer grounded in those chunks, run the server and use `/ask`.
+- `cloop ask` prints JSON including the generated `answer`, retrieved `chunks`, and `sources`.
+- The HTTP `/ask` endpoint returns the same answer-oriented payload, with optional SSE streaming.
 - Loop lifecycle and utility commands support `--format json|table` (default: `json`).
 
 ## Validation shortcut
@@ -266,6 +266,7 @@ cloop inbox [--limit N]
 
 # View next actions (prioritized)
 cloop next [--limit N]
+# `--limit` is a total cap across all buckets, not per bucket
 ```
 
 ### Exit Codes
@@ -316,7 +317,7 @@ Endpoints:
 - `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
 - `GET /health`: shows current model + storage configuration.
 - `POST /loops/capture`: capture a loop (write-first).
-- `GET /loops`: list loops (default inbox).
+- `GET /loops`: list loops (default `status=open`).
 - `GET /loops/{id}`: fetch a loop.
 - `PATCH /loops/{id}`: update loop fields.
 - `POST /loops/{id}/close`: close a loop (completed or dropped).

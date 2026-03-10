@@ -256,6 +256,31 @@ def test_build_parser_next_custom_limit() -> None:
     assert args.limit == 10
 
 
+def test_ask_help_describes_answer_payload(tmp_path: Path) -> None:
+    """Rendered ask help should match the answer-oriented CLI contract."""
+    result = _run_cli_subprocess(tmp_path, "ask", "--help")
+
+    assert result.returncode == 0
+    assert "generate an answer" in result.stdout
+
+
+def test_next_help_describes_total_limit(tmp_path: Path) -> None:
+    """Rendered next help should describe the real total bucket cap."""
+    result = _run_cli_subprocess(tmp_path, "next", "--help")
+
+    assert result.returncode == 0
+    assert "Max total loops across all buckets" in result.stdout
+    assert "Show more items overall" in result.stdout
+
+
+def test_loop_list_help_describes_open_default(tmp_path: Path) -> None:
+    """Rendered list help should document the default open-loop filter."""
+    result = _run_cli_subprocess(tmp_path, "loop", "list", "--help")
+
+    assert result.returncode == 0
+    assert "List all open loops (default)" in result.stdout
+
+
 # =============================================================================
 # Command Function Tests
 # =============================================================================

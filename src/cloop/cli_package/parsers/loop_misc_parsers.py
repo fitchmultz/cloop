@@ -186,7 +186,7 @@ Examples:
   # Show next actions (default)
   cloop next
 
-  # Show more items per bucket
+  # Show more items overall
   cloop next --limit 10
         """,
         formatter_class=RawDescriptionHelpFormatter,

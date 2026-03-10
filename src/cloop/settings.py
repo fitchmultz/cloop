@@ -177,10 +177,8 @@ def _load_dotenv(root_dir: Path) -> None:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    _load_dotenv(Path.cwd())
     root_dir = Path(os.getenv("CLOOP_ROOT_DIR", Path.cwd())).resolve()
-    if root_dir != Path.cwd():
-        _load_dotenv(root_dir)
+    _load_dotenv(root_dir)
     default_data_dir = Path(os.getenv("CLOOP_DATA_DIR", root_dir / "data")).resolve()
     default_data_dir.mkdir(parents=True, exist_ok=True)
 

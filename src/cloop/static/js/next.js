@@ -33,19 +33,40 @@ export async function loadNext() {
 
   try {
     const data = await api.fetchNextLoops();
-    renderNextBuckets(data);
+    renderNextBuckets(normalizeBuckets(data));
   } catch (error) {
     nextBucketsEl.innerHTML = `<p class="error">Failed to load next actions: ${error.message}</p>`;
   }
 }
 
 /**
+ * Normalize backend next-loop payloads into UI bucket objects.
+ *
+ * The API returns keyed bucket arrays (`due_soon`, `quick_wins`, etc.), while
+ * the renderer expects a list with display titles.
+ */
+function normalizeBuckets(data) {
+  const bucketTitles = {
+    due_soon: 'Due soon',
+    quick_wins: 'Quick wins',
+    high_leverage: 'High leverage',
+    standard: 'Standard',
+  };
+
+  return Object.entries(bucketTitles)
+    .map(([key, title]) => ({
+      key,
+      title,
+      items: Array.isArray(data?.[key]) ? data[key] : [],
+    }))
+    .filter(bucket => bucket.items.length > 0);
+}
+
+/**
  * Render next action buckets
  */
-function renderNextBuckets(data) {
+function renderNextBuckets(buckets) {
   if (!nextBucketsEl) return;
-
-  const buckets = data.buckets || [];
 
   if (buckets.length === 0) {
     nextBucketsEl.innerHTML = '<p class="empty">No next actions found. Capture some loops first!</p>';

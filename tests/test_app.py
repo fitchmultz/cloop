@@ -760,6 +760,22 @@ def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir
     assert "next.js" in html or "init.js" in html
 
 
+def test_next_view_js_supports_bucketed_api_response(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    """The Next tab frontend must normalize the keyed /loops/next API payload."""
+    next_js = (
+        Path(__file__).resolve().parent.parent / "src" / "cloop" / "static" / "js" / "next.js"
+    ).read_text(encoding="utf-8")
+
+    assert "function normalizeBuckets(data)" in next_js
+    assert "due_soon" in next_js
+    assert "quick_wins" in next_js
+    assert "high_leverage" in next_js
+    assert "standard" in next_js
+    assert "data.buckets" not in next_js
+
+
 def test_loops_next_endpoint_data_flow(test_client: TestClient, tmp_data_dir: Path) -> None:
     """Verify /loops/next returns expected bucket structure that UI can render.
 

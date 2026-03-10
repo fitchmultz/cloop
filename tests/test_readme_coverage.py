@@ -38,6 +38,15 @@ class TestCLICommandsDocumented:
             "README must document loop review flags (--daily, --weekly, --all)"
         )
 
+    def test_ask_command_documents_answer_payload(self, readme_content: str) -> None:
+        """README should describe the answer-oriented CLI ask payload."""
+        assert "`cloop ask` prints JSON including the generated `answer`" in readme_content
+        assert "`sources`" in readme_content
+
+    def test_next_limit_documents_total_bucket_cap(self, readme_content: str) -> None:
+        """README should clarify that next limit is total, not per bucket."""
+        assert "`--limit` is a total cap across all buckets" in readme_content
+
 
 class TestWebUIDocumented:
     """Verify web UI features have README documentation."""
@@ -97,6 +106,10 @@ class TestRepoMetadataDocumented:
         """README should expose interactive API docs and machine-readable schema endpoints."""
         for expected in ["/docs", "/redoc", "/openapi.json", "/health"]:
             assert expected in readme_content
+
+    def test_loops_endpoint_default_behavior_documented(self, readme_content: str) -> None:
+        """README should document the real default filter for GET /loops."""
+        assert "GET /loops`: list loops (default `status=open`)" in readme_content
 
     def test_release_links_section_present(self, readme_content: str) -> None:
         """README should link release/tag pages for repo discoverability."""

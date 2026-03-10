@@ -86,3 +86,50 @@ def test_negative_priority_weight_rejected(tmp_path: Path, monkeypatch: pytest.M
 
     with pytest.raises(ValueError, match="PRIORITY_WEIGHT_DUE must be non-negative"):
         settings_module.get_settings()
+
+
+def test_root_dir_dotenv_wins_over_cwd_dotenv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit CLOOP_ROOT_DIR should load its own .env instead of the caller's cwd .env."""
+    import cloop.settings as settings_module
+
+    repo_dir = tmp_path / "repo"
+    root_dir = tmp_path / "configured-root"
+    repo_dir.mkdir()
+    root_dir.mkdir()
+    (repo_dir / ".env").write_text("CLOOP_LLM_MODEL=from-cwd\n", encoding="utf-8")
+    (root_dir / ".env").write_text("CLOOP_LLM_MODEL=from-root\n", encoding="utf-8")
+
+    monkeypatch.chdir(repo_dir)
+    monkeypatch.setenv("CLOOP_ROOT_DIR", str(root_dir))
+    monkeypatch.delenv("CLOOP_LLM_MODEL", raising=False)
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    settings = settings_module.get_settings()
+
+    assert settings.root_dir == root_dir.resolve()
+    assert settings.llm_model == "from-root"
+
+
+def test_cwd_dotenv_used_when_root_dir_not_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without CLOOP_ROOT_DIR, the caller's cwd .env remains the config source."""
+    import cloop.settings as settings_module
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    (repo_dir / ".env").write_text("CLOOP_LLM_MODEL=from-cwd\n", encoding="utf-8")
+
+    monkeypatch.chdir(repo_dir)
+    monkeypatch.delenv("CLOOP_ROOT_DIR", raising=False)
+    monkeypatch.delenv("CLOOP_LLM_MODEL", raising=False)
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    settings = settings_module.get_settings()
+
+    assert settings.root_dir == repo_dir.resolve()
+    assert settings.llm_model == "from-cwd"
