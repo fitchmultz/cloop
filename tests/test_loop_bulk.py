@@ -1,5 +1,8 @@
 """Tests for query-driven bulk loop operations."""
 
+import sqlite3
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -312,3 +315,56 @@ class TestQueryBulkLimitedField:
         data = resp.json()
         assert "limited" in data
         assert data["limited"] is False
+
+
+def test_bulk_update_resets_due_soon_nudge_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bulk updates should clear due-soon nudge state when next_action is set."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    from cloop.loops import repo
+    from cloop.loops.bulk import bulk_update_loops
+    from cloop.loops.models import LoopStatus
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    record = repo.create_loop(
+        raw_text="bulk nudge reset",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+
+    repo.upsert_nudge_state(
+        loop_id=record.id,
+        nudge_type="due_soon",
+        escalation_level=1,
+        nudge_count=2,
+        last_nudge_event_id=None,
+        conn=conn,
+    )
+    assert repo.get_nudge_state(loop_id=record.id, nudge_type="due_soon", conn=conn) is not None
+
+    result = bulk_update_loops(
+        transactional=True,
+        updates=[
+            {
+                "loop_id": record.id,
+                "fields": {"next_action": "Take the first step"},
+            }
+        ],
+        conn=conn,
+    )
+
+    assert result["ok"] is True
+    assert repo.get_nudge_state(loop_id=record.id, nudge_type="due_soon", conn=conn) is None
+
+    conn.close()

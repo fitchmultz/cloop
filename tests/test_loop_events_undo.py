@@ -333,3 +333,116 @@ def test_loop_update_captures_before_state(
     assert "before_state" in payload
 
     conn.close()
+
+
+def test_bulk_update_supports_undo_and_captures_before_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Bulk updates should be undoable and record before_state metadata."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "bulk update undo test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert create_response.status_code == 200
+    loop_id = create_response.json()["id"]
+
+    seed_response = client.patch(
+        f"/loops/{loop_id}",
+        json={"title": "Before", "project": "alpha"},
+    )
+    assert seed_response.status_code == 200
+    assert seed_response.json()["project"] == "alpha"
+
+    bulk_response = client.post(
+        "/loops/bulk/update",
+        json={
+            "transactional": True,
+            "updates": [
+                {
+                    "loop_id": loop_id,
+                    "fields": {"title": "After", "project": "beta"},
+                }
+            ],
+        },
+    )
+    assert bulk_response.status_code == 200
+    assert bulk_response.json()["ok"] is True
+    assert bulk_response.json()["results"][0]["loop"]["title"] == "After"
+    assert bulk_response.json()["results"][0]["loop"]["project"] == "beta"
+
+    undo_response = client.post(f"/loops/{loop_id}/undo")
+    assert undo_response.status_code == 200
+    undo_data = undo_response.json()
+    assert undo_data["undone_event_type"] == "update"
+    assert undo_data["loop"]["title"] == "Before"
+    assert undo_data["loop"]["project"] == "alpha"
+
+    events_response = client.get(f"/loops/{loop_id}/events")
+    assert events_response.status_code == 200
+    update_events = [
+        event
+        for event in events_response.json()["events"]
+        if event["event_type"] == "update"
+        and event["payload"].get("fields", {}).get("title") == "After"
+    ]
+    assert len(update_events) == 1
+    payload = update_events[0]["payload"]
+    assert payload["before_state"]["title"] == "Before"
+    assert "project_id" in payload["before_state"]
+
+
+def test_bulk_close_supports_undo_and_captures_before_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Bulk close events should capture before_state so undo works."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "bulk close undo test",
+            "actionable": True,
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    assert create_response.status_code == 200
+    loop_id = create_response.json()["id"]
+    assert create_response.json()["status"] == "actionable"
+
+    bulk_response = client.post(
+        "/loops/bulk/close",
+        json={
+            "transactional": True,
+            "items": [
+                {
+                    "loop_id": loop_id,
+                    "status": "completed",
+                    "note": "finished in bulk",
+                }
+            ],
+        },
+    )
+    assert bulk_response.status_code == 200
+    assert bulk_response.json()["ok"] is True
+    assert bulk_response.json()["results"][0]["loop"]["status"] == "completed"
+
+    undo_response = client.post(f"/loops/{loop_id}/undo")
+    assert undo_response.status_code == 200
+    undo_data = undo_response.json()
+    assert undo_data["undone_event_type"] == "close"
+    assert undo_data["loop"]["status"] == "actionable"
+
+    events_response = client.get(f"/loops/{loop_id}/events")
+    assert events_response.status_code == 200
+    close_events = [
+        event for event in events_response.json()["events"] if event["event_type"] == "close"
+    ]
+    assert len(close_events) == 1
+    assert close_events[0]["payload"]["before_state"]["status"] == "actionable"

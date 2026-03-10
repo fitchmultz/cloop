@@ -29,12 +29,10 @@ Invariants/Assumptions:
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from typing import Any, Mapping
 
 from .. import typingx
-from ..webhooks.service import queue_deliveries
 from . import repo
 from .errors import (
     ClaimExpiredError,
@@ -48,17 +46,14 @@ from .errors import (
     TransitionError,
     ValidationError,
 )
-from .metrics import record_transition, record_update
-from .models import LoopEventType, LoopStatus, format_utc_datetime, is_terminal_status, utc_now
+from .models import LoopStatus, is_terminal_status, utc_now
 from .query import compile_loop_query, parse_loop_query
 from .service_helpers import (
-    _ALLOWED_TRANSITIONS,
-    _LOCKABLE_FIELDS,
-    _handle_recurrence_on_completion,
+    _apply_loop_update,
+    _apply_status_transition,
+    _enrich_record,
     _record_to_dict,
-    _validate_claim_for_update,
 )
-from .utils import normalize_tags
 
 
 @typingx.validate_io()
@@ -85,58 +80,13 @@ def bulk_update_loops(
     def _update_single(
         loop_id: int, fields: Mapping[str, Any], claim_token: str | None = None
     ) -> dict[str, Any]:
-        if "status" in fields:
-            raise ValidationError("status", "use /loops/{id}/status or /loops/{id}/close endpoints")
-        # Validate claim if loop is claimed
-        _validate_claim_for_update(loop_id=loop_id, claim_token=claim_token, conn=conn)
-        record = repo.read_loop(loop_id=loop_id, conn=conn)
-        if record is None:
-            raise LoopNotFoundError(loop_id)
-        locked_fields = set(record.user_locks)
-        mutable_fields = dict(fields)
-        tags = None
-        if "tags" in mutable_fields:
-            tags = mutable_fields.pop("tags")
-            if tags is not None and not isinstance(tags, list):
-                tags = [tags]
-        project_name = None
-        if "project" in mutable_fields:
-            project_name = mutable_fields.pop("project")
-            project_name = str(project_name).strip() if project_name else ""
-            if project_name:
-                mutable_fields["project_id"] = "pending"
-            else:
-                mutable_fields["project_id"] = None
-
-        for field_name in {**mutable_fields, **({"tags": tags} if tags is not None else {})}.keys():
-            if field_name in _LOCKABLE_FIELDS:
-                locked_fields.add(field_name)
-        updated_fields = dict(mutable_fields)
-        updated_fields["user_locks_json"] = json.dumps(sorted(locked_fields))
-        if project_name:
-            project_id = repo.upsert_project(name=project_name, conn=conn)
-            updated_fields["project_id"] = project_id
-        updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
-        record_update()
-        if tags is not None:
-            normalized_tags = normalize_tags(tags)
-            repo.replace_loop_tags(loop_id=loop_id, tag_names=normalized_tags, conn=conn)
-        event_payload = {"fields": dict(fields)}
-        event_id = repo.insert_loop_event(
-            loop_id=updated.id,
-            event_type=LoopEventType.UPDATE.value,
-            payload=event_payload,
+        updated = _apply_loop_update(
+            loop_id=loop_id,
+            fields=fields,
+            claim_token=claim_token,
             conn=conn,
         )
-        queue_deliveries(
-            event_id=event_id,
-            event_type=LoopEventType.UPDATE.value,
-            payload=event_payload,
-            conn=conn,
-        )
-        project = repo.read_project_name(project_id=updated.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
-        return _record_to_dict(updated, project=project, tags=tags)
+        return _enrich_record(record=updated, conn=conn)
 
     results: list[dict[str, Any]] = []
     succeeded = 0
@@ -276,74 +226,14 @@ def bulk_close_loops(
     def _close_single(
         loop_id: int, to_status: LoopStatus, note: str | None, claim_token: str | None = None
     ) -> dict[str, Any]:
-        # Validate claim if loop is claimed
-        _validate_claim_for_update(loop_id=loop_id, claim_token=claim_token, conn=conn)
-        record = repo.read_loop(loop_id=loop_id, conn=conn)
-        if record is None:
-            raise LoopNotFoundError(loop_id)
-        if record.status == to_status:
-            project = repo.read_project_name(project_id=record.project_id, conn=conn)
-            tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-            return _record_to_dict(record, project=project, tags=tags)
-
-        allowed = _ALLOWED_TRANSITIONS.get(record.status, set())
-        if to_status not in allowed:
-            raise TransitionError(record.status.value, to_status.value)
-
-        # Check for open dependencies when transitioning to actionable
-        if to_status == LoopStatus.ACTIONABLE:
-            open_deps = repo.list_open_dependencies(loop_id=loop_id, conn=conn)
-            if open_deps:
-                raise DependencyNotMetError(loop_id, open_deps)
-
-        closed_at = None
-        if is_terminal_status(to_status):
-            closed_at = format_utc_datetime(utc_now())
-
-        # Handle recurring loop completion - create next occurrence
-        next_loop_id: int | None = None
-        if to_status == LoopStatus.COMPLETED:
-            next_loop_id = _handle_recurrence_on_completion(record=record, conn=conn)
-
-        updates: dict[str, Any] = {"status": to_status.value, "closed_at": closed_at}
-        if to_status is LoopStatus.COMPLETED and note and note.strip():
-            updates["completion_note"] = note.strip()
-        # Disable recurrence on completed loop so it doesn't generate more
-        if to_status == LoopStatus.COMPLETED and record.is_recurring():
-            updates["recurrence_enabled"] = 0
-        updated = repo.update_loop_fields(
+        updated = _apply_status_transition(
             loop_id=loop_id,
-            fields=updates,
+            to_status=to_status,
+            note=note,
+            claim_token=claim_token,
             conn=conn,
         )
-        record_transition(record.status.value, to_status.value)
-        event_type = (
-            LoopEventType.CLOSE.value
-            if is_terminal_status(to_status)
-            else LoopEventType.STATUS_CHANGE.value
-        )
-        payload: dict[str, Any] = {"from": record.status.value, "to": to_status.value}
-        if note:
-            payload["note"] = note
-        if closed_at:
-            payload["closed_at_utc"] = closed_at
-        if next_loop_id is not None:
-            payload["next_occurrence_loop_id"] = next_loop_id
-        event_id = repo.insert_loop_event(
-            loop_id=loop_id,
-            event_type=event_type,
-            payload=payload,
-            conn=conn,
-        )
-        queue_deliveries(
-            event_id=event_id,
-            event_type=event_type,
-            payload=payload,
-            conn=conn,
-        )
-        project = repo.read_project_name(project_id=updated.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
-        return _record_to_dict(updated, project=project, tags=tags)
+        return _enrich_record(record=updated, conn=conn)
 
     results: list[dict[str, Any]] = []
     succeeded = 0
@@ -550,35 +440,13 @@ def bulk_snooze_loops(
     def _snooze_single(
         loop_id: int, snooze_until_utc: str, claim_token: str | None = None
     ) -> dict[str, Any]:
-        # Validate claim if loop is claimed
-        _validate_claim_for_update(loop_id=loop_id, claim_token=claim_token, conn=conn)
-        record = repo.read_loop(loop_id=loop_id, conn=conn)
-        if record is None:
-            raise LoopNotFoundError(loop_id)
-        locked_fields = set(record.user_locks)
-        if "snooze_until_utc" in _LOCKABLE_FIELDS:
-            locked_fields.add("snooze_until_utc")
-        updated_fields = {
-            "snooze_until_utc": snooze_until_utc,
-            "user_locks_json": json.dumps(sorted(locked_fields)),
-        }
-        updated = repo.update_loop_fields(loop_id=loop_id, fields=updated_fields, conn=conn)
-        event_payload = {"fields": {"snooze_until_utc": snooze_until_utc}}
-        event_id = repo.insert_loop_event(
-            loop_id=updated.id,
-            event_type=LoopEventType.UPDATE.value,
-            payload=event_payload,
+        updated = _apply_loop_update(
+            loop_id=loop_id,
+            fields={"snooze_until_utc": snooze_until_utc},
+            claim_token=claim_token,
             conn=conn,
         )
-        queue_deliveries(
-            event_id=event_id,
-            event_type=LoopEventType.UPDATE.value,
-            payload=event_payload,
-            conn=conn,
-        )
-        project = repo.read_project_name(project_id=updated.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
-        return _record_to_dict(updated, project=project, tags=tags)
+        return _enrich_record(record=updated, conn=conn)
 
     results: list[dict[str, Any]] = []
     succeeded = 0
