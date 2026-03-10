@@ -4,12 +4,14 @@ Purpose:
     Implement CLI command handlers for miscellaneous loop operations.
 
 Responsibilities:
-    - Handle review, events, undo, metrics, tags, projects, export, import, suggestions
+    - Handle review, events, undo, metrics, tags, projects, export, import, and suggestions
+    - Normalize DB orchestration, expected error handling, and output emission
+      through the shared CLI runtime
 
 Non-scope:
-    - Does not implement core loop CRUD (in separate command modules)
-    - Does not manage scheduler operations (separate scheduler module)
-    - Does not handle claim operations (in loop_claim_commands module)
+    - Core loop CRUD operations
+    - Scheduler operations
+    - Claim operations
 """
 
 from __future__ import annotations
@@ -17,25 +19,41 @@ from __future__ import annotations
 import json
 import sys
 from argparse import Namespace
+from pathlib import Path
 from typing import Any
 
 from .. import db
 from ..loops import repo, service
-from ..loops.errors import LoopNotFoundError, UndoNotPossibleError, ValidationError
+from ..loops.errors import (
+    LoopNotFoundError,
+    SuggestionNotFoundError,
+    UndoNotPossibleError,
+    ValidationError,
+)
 from ..loops.models import utc_now
 from ..schemas.export_import import ConflictPolicy, ExportFilters, ImportOptions
 from ..settings import Settings
+from ._runtime import cli_error, error_handler, fail_cli, run_cli_action, run_cli_db_action
 from .output import emit_output
+
+
+def _standard_error_handlers() -> list:
+    return [
+        error_handler(
+            ValidationError,
+            lambda exc: cli_error(exc.message),
+        )
+    ]
 
 
 def loop_review_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop review' command."""
     from ..loops.review import compute_review_cohorts
 
-    include_daily = args.daily or (not args.weekly)  # Default to daily if neither specified
+    include_daily = args.daily or (not args.weekly)
     include_weekly = args.weekly or args.all
 
-    with db.core_connection(settings) as conn:
+    def _action(conn: Any) -> dict[str, Any]:
         result = compute_review_cohorts(
             settings=settings,
             now_utc=utc_now(),
@@ -44,76 +62,91 @@ def loop_review_command(args: Namespace, settings: Settings) -> int:
             include_weekly=include_weekly,
             limit_per_cohort=args.limit,
         )
+        cohort_filter = getattr(args, "cohort", None)
+        daily_results = result.daily
+        weekly_results = result.weekly
+        if cohort_filter:
+            daily_results = [
+                cohort for cohort in daily_results if cohort.cohort.value == cohort_filter
+            ]
+            weekly_results = [
+                cohort for cohort in weekly_results if cohort.cohort.value == cohort_filter
+            ]
 
-    # Filter by specific cohort if requested
-    cohort_filter = getattr(args, "cohort", None)
-    daily_results = result.daily
-    weekly_results = result.weekly
-    if cohort_filter:
-        daily_results = [c for c in daily_results if c.cohort.value == cohort_filter]
-        weekly_results = [c for c in weekly_results if c.cohort.value == cohort_filter]
+        payload: dict[str, Any] = {"generated_at_utc": result.generated_at_utc}
+        if include_daily and daily_results:
+            payload["daily"] = [
+                {"cohort": cohort.cohort.value, "count": cohort.count, "items": cohort.items}
+                for cohort in daily_results
+            ]
+        if include_weekly and weekly_results:
+            payload["weekly"] = [
+                {"cohort": cohort.cohort.value, "count": cohort.count, "items": cohort.items}
+                for cohort in weekly_results
+            ]
+        return payload
 
-    output: dict[str, Any] = {
-        "generated_at_utc": result.generated_at_utc,
-    }
-
-    if include_daily and daily_results:
-        output["daily"] = [
-            {"cohort": c.cohort.value, "count": c.count, "items": c.items} for c in daily_results
-        ]
-
-    if include_weekly and weekly_results:
-        output["weekly"] = [
-            {"cohort": c.cohort.value, "count": c.count, "items": c.items} for c in weekly_results
-        ]
-
-    emit_output(output, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=_action,
+        output_format=args.format,
+    )
 
 
 def loop_events_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop events' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            events = service.get_loop_events(
-                loop_id=args.id,
-                limit=args.limit,
-                before_id=args.before,
-                conn=conn,
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: service.get_loop_events(
+            loop_id=args.id,
+            limit=args.limit,
+            before_id=args.before,
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda exc: cli_error(f"loop {exc.loop_id} not found", exit_code=2),
             )
-        emit_output(events, args.format)
-        return 0
-    except LoopNotFoundError:
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
+        ],
+    )
 
 
 def loop_undo_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop undo' command."""
     from ..loops.errors import LoopClaimedError
 
-    try:
-        with db.core_connection(settings) as conn:
-            result = service.undo_last_event(
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: (
+            lambda result: {
+                "loop": result["loop"],
+                "undone_event_id": result["undone_event_id"],
+                "undone_event_type": result["undone_event_type"],
+            }
+        )(
+            service.undo_last_event(
                 loop_id=args.id,
                 conn=conn,
             )
-        output = {
-            "loop": result["loop"],
-            "undone_event_id": result["undone_event_id"],
-            "undone_event_type": result["undone_event_type"],
-        }
-        emit_output(output, args.format)
-        return 0
-    except LoopNotFoundError:
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
-    except UndoNotPossibleError as e:
-        print(f"error: {e.message}", file=sys.stderr)
-        return 1
-    except LoopClaimedError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda exc: cli_error(f"loop {exc.loop_id} not found", exit_code=2),
+            ),
+            error_handler(
+                UndoNotPossibleError,
+                lambda exc: cli_error(exc.message),
+            ),
+            error_handler(
+                LoopClaimedError,
+                lambda exc: cli_error(str(exc)),
+            ),
+        ],
+    )
 
 
 def loop_metrics_command(args: Namespace, settings: Settings) -> int:
@@ -124,7 +157,7 @@ def loop_metrics_command(args: Namespace, settings: Settings) -> int:
     include_trend = getattr(args, "trend", False)
     trend_window_days = getattr(args, "trend_window_days", 7)
 
-    with db.core_connection(settings) as conn:
+    def _action(conn: Any) -> dict[str, Any]:
         metrics = compute_loop_metrics(
             conn=conn,
             now_utc=utc_now(),
@@ -132,145 +165,157 @@ def loop_metrics_command(args: Namespace, settings: Settings) -> int:
             include_trends=include_trend,
             trend_window_days=trend_window_days,
         )
-
-    output: dict[str, Any] = {
-        "generated_at_utc": metrics.generated_at_utc,
-        "total_loops": metrics.total_loops,
-        "status_counts": {
-            "inbox": metrics.status_counts.inbox,
-            "actionable": metrics.status_counts.actionable,
-            "blocked": metrics.status_counts.blocked,
-            "scheduled": metrics.status_counts.scheduled,
-            "completed": metrics.status_counts.completed,
-            "dropped": metrics.status_counts.dropped,
-        },
-        "health_indicators": {
-            "stale_open_count": metrics.stale_open_count,
-            "blocked_too_long_count": metrics.blocked_too_long_count,
-            "no_next_action_count": metrics.no_next_action_count,
-            "enrichment_pending_count": metrics.enrichment_pending_count,
-            "enrichment_failed_count": metrics.enrichment_failed_count,
-        },
-        "throughput_24h": {
-            "captures": metrics.capture_count_24h,
-            "completions": metrics.completion_count_24h,
-        },
-        "avg_age_open_hours": metrics.avg_age_open_hours,
-    }
-
-    if metrics.project_breakdown is not None:
-        output["project_breakdown"] = [
-            {
-                "project_id": p.project_id,
-                "project_name": p.project_name,
-                "total_loops": p.total_loops,
-                "open_loops": p.open_loops,
-                "completed_loops": p.completed_loops,
-                "dropped_loops": p.dropped_loops,
-                "capture_count_window": p.capture_count_window,
-                "completion_count_window": p.completion_count_window,
-                "avg_age_open_hours": p.avg_age_open_hours,
-            }
-            for p in metrics.project_breakdown
-        ]
-
-    if metrics.trend_metrics is not None:
-        output["trend_metrics"] = {
-            "window_days": metrics.trend_metrics.window_days,
-            "points": [
-                {
-                    "date": pt.date,
-                    "capture_count": pt.capture_count,
-                    "completion_count": pt.completion_count,
-                    "open_count": pt.open_count,
-                }
-                for pt in metrics.trend_metrics.points
-            ],
-            "total_captures": metrics.trend_metrics.total_captures,
-            "total_completions": metrics.trend_metrics.total_completions,
-            "avg_daily_captures": metrics.trend_metrics.avg_daily_captures,
-            "avg_daily_completions": metrics.trend_metrics.avg_daily_completions,
+        payload: dict[str, Any] = {
+            "generated_at_utc": metrics.generated_at_utc,
+            "total_loops": metrics.total_loops,
+            "status_counts": {
+                "inbox": metrics.status_counts.inbox,
+                "actionable": metrics.status_counts.actionable,
+                "blocked": metrics.status_counts.blocked,
+                "scheduled": metrics.status_counts.scheduled,
+                "completed": metrics.status_counts.completed,
+                "dropped": metrics.status_counts.dropped,
+            },
+            "health_indicators": {
+                "stale_open_count": metrics.stale_open_count,
+                "blocked_too_long_count": metrics.blocked_too_long_count,
+                "no_next_action_count": metrics.no_next_action_count,
+                "enrichment_pending_count": metrics.enrichment_pending_count,
+                "enrichment_failed_count": metrics.enrichment_failed_count,
+            },
+            "throughput_24h": {
+                "captures": metrics.capture_count_24h,
+                "completions": metrics.completion_count_24h,
+            },
+            "avg_age_open_hours": metrics.avg_age_open_hours,
         }
+        if metrics.project_breakdown is not None:
+            payload["project_breakdown"] = [
+                {
+                    "project_id": project.project_id,
+                    "project_name": project.project_name,
+                    "total_loops": project.total_loops,
+                    "open_loops": project.open_loops,
+                    "completed_loops": project.completed_loops,
+                    "dropped_loops": project.dropped_loops,
+                    "capture_count_window": project.capture_count_window,
+                    "completion_count_window": project.completion_count_window,
+                    "avg_age_open_hours": project.avg_age_open_hours,
+                }
+                for project in metrics.project_breakdown
+            ]
+        if metrics.trend_metrics is not None:
+            payload["trend_metrics"] = {
+                "window_days": metrics.trend_metrics.window_days,
+                "points": [
+                    {
+                        "date": point.date,
+                        "capture_count": point.capture_count,
+                        "completion_count": point.completion_count,
+                        "open_count": point.open_count,
+                    }
+                    for point in metrics.trend_metrics.points
+                ],
+                "total_captures": metrics.trend_metrics.total_captures,
+                "total_completions": metrics.trend_metrics.total_completions,
+                "avg_daily_captures": metrics.trend_metrics.avg_daily_captures,
+                "avg_daily_completions": metrics.trend_metrics.avg_daily_completions,
+            }
+        return payload
 
-    emit_output(output, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=_action,
+        output_format=args.format,
+    )
 
 
 def tags_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop tags' command."""
-    with db.core_connection(settings) as conn:
-        tags = service.list_tags(conn=conn)
-    emit_output(tags, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: service.list_tags(conn=conn),
+        output_format=args.format,
+    )
 
 
 def projects_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop projects' command."""
-    with db.core_connection(settings) as conn:
-        projects = repo.list_projects(conn=conn)
-    emit_output(projects, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: repo.list_projects(conn=conn),
+        output_format=args.format,
+    )
 
 
 def export_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop export' command."""
     from ..loops.models import LoopStatus, parse_utc_datetime
 
-    # Build filters from args
-    filters = None
-    if any(
-        [
-            args.status,
-            args.project,
-            args.tag,
-            args.created_after,
-            args.created_before,
-            args.updated_after,
-        ]
-    ):
-        status_list = None
-        if args.status:
-            try:
-                status_list = [LoopStatus(s).value for s in args.status]
-            except ValueError as e:
-                print(f"error: {e}", file=sys.stderr)
-                return 1
+    def _action() -> dict[str, Any]:
+        filters = None
+        if any(
+            [
+                args.status,
+                args.project,
+                args.tag,
+                args.created_after,
+                args.created_before,
+                args.updated_after,
+            ]
+        ):
+            status_list = None
+            if args.status:
+                try:
+                    status_list = [LoopStatus(status).value for status in args.status]
+                except ValueError as exc:
+                    fail_cli(str(exc))
 
-        filters = ExportFilters(
-            status=status_list,
-            project=args.project,
-            tag=args.tag,
-            created_after=parse_utc_datetime(args.created_after) if args.created_after else None,
-            created_before=parse_utc_datetime(args.created_before) if args.created_before else None,
-            updated_after=parse_utc_datetime(args.updated_after) if args.updated_after else None,
-        )
+            filters = ExportFilters(
+                status=status_list,
+                project=args.project,
+                tag=args.tag,
+                created_after=parse_utc_datetime(args.created_after)
+                if args.created_after
+                else None,
+                created_before=parse_utc_datetime(args.created_before)
+                if args.created_before
+                else None,
+                updated_after=parse_utc_datetime(args.updated_after)
+                if args.updated_after
+                else None,
+            )
 
-    with db.core_connection(settings) as conn:
-        loops = service.export_loops(conn=conn, filters=filters)
+        with db.core_connection(settings) as conn:
+            loops = service.export_loops(conn=conn, filters=filters)
 
-    payload = {"version": 1, "loops": loops, "filtered": filters is not None}
-    if args.output:
-        from pathlib import Path
+        return {"version": 1, "loops": loops, "filtered": filters is not None}
 
-        Path(args.output).write_text(json.dumps(payload, indent=2))
-        print(f"Exported {len(loops)} loops to {args.output}", file=sys.stderr)
-    else:
+    def _render(payload: dict[str, Any]) -> None:
+        if args.output:
+            Path(args.output).write_text(json.dumps(payload, indent=2))
+            print(f"Exported {len(payload['loops'])} loops to {args.output}")
+            return
         emit_output(payload, args.format)
-    return 0
+
+    return run_cli_action(
+        action=_action,
+        render=_render,
+    )
 
 
 def import_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop import' command."""
-    try:
-        if args.file:
-            from pathlib import Path
+    from .. import db
 
-            data = json.loads(Path(args.file).read_text())
-        else:
-            data = json.loads(sys.stdin.read())
+    def _action() -> dict[str, Any]:
+        try:
+            raw_data = Path(args.file).read_text() if args.file else sys.stdin.read()
+            data = json.loads(raw_data)
+        except json.JSONDecodeError as exc:
+            fail_cli(f"invalid JSON: {exc}")
 
         loops = data.get("loops", data) if isinstance(data, dict) else data
-
         options = ImportOptions(
             dry_run=args.dry_run,
             conflict_policy=ConflictPolicy(args.conflict_policy),
@@ -286,7 +331,6 @@ def import_command(args: Namespace, settings: Settings) -> int:
             "conflicts_detected": result.conflicts_detected,
             "dry_run": result.dry_run,
         }
-
         if result.dry_run and result.preview:
             output["preview"] = {
                 "total_loops": result.preview.total_loops,
@@ -295,89 +339,92 @@ def import_command(args: Namespace, settings: Settings) -> int:
                 "would_update": result.preview.would_update,
                 "conflicts": [
                     {
-                        "existing_loop_id": c.existing_loop_id,
-                        "match_field": c.match_field,
-                        "raw_text": c.imported_loop.get("raw_text", ""),
+                        "existing_loop_id": conflict.existing_loop_id,
+                        "match_field": conflict.match_field,
+                        "raw_text": conflict.imported_loop.get("raw_text", ""),
                     }
-                    for c in result.preview.conflicts
+                    for conflict in result.preview.conflicts
                 ],
                 "validation_errors": result.preview.validation_errors,
             }
+        return output
 
-        emit_output(output, args.format)
-        return 0
-    except json.JSONDecodeError as e:
-        print(f"error: invalid JSON: {e}", file=sys.stderr)
-        return 1
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_action(
+        action=_action,
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(exc.message),
+            )
+        ],
+    )
 
 
 def suggestion_list_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion list' command."""
-    with db.core_connection(settings) as conn:
-        suggestions = service.list_loop_suggestions(
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: service.list_loop_suggestions(
             loop_id=args.loop_id,
             pending_only=args.pending,
             limit=args.limit,
             conn=conn,
-        )
-    emit_output(suggestions, args.format)
-    return 0
+        ),
+        output_format=args.format,
+    )
 
 
 def suggestion_show_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion show' command."""
-    with db.core_connection(settings) as conn:
+
+    def _action(conn: Any) -> dict[str, Any]:
         suggestion = repo.read_loop_suggestion(suggestion_id=args.id, conn=conn)
+        if not suggestion:
+            fail_cli(f"suggestion {args.id} not found", exit_code=2)
+        suggestion["parsed"] = json.loads(suggestion["suggestion_json"])
+        return suggestion
 
-    if not suggestion:
-        print(f"error: suggestion {args.id} not found", file=sys.stderr)
-        return 2
-
-    # Parse and pretty-print the suggestion_json
-    suggestion["parsed"] = json.loads(suggestion["suggestion_json"])
-    emit_output(suggestion, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=_action,
+        output_format=args.format,
+    )
 
 
 def suggestion_apply_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion apply' command."""
-    from ..loops.errors import SuggestionNotFoundError
-
     fields = args.fields.split(",") if args.fields else None
-
-    try:
-        with db.core_connection(settings) as conn:
-            result = service.apply_suggestion(
-                suggestion_id=args.id,
-                fields=fields,
-                conn=conn,
-                settings=settings,
-            )
-        emit_output(result, args.format)
-        return 0
-    except SuggestionNotFoundError:
-        print(f"error: suggestion {args.id} not found", file=sys.stderr)
-        return 2
-    except ValidationError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: service.apply_suggestion(
+            suggestion_id=args.id,
+            fields=fields,
+            conn=conn,
+            settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                SuggestionNotFoundError,
+                lambda _exc: cli_error(f"suggestion {args.id} not found", exit_code=2),
+            ),
+            *_standard_error_handlers(),
+        ],
+    )
 
 
 def suggestion_reject_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion reject' command."""
-    from ..loops.errors import SuggestionNotFoundError
-
-    try:
-        with db.core_connection(settings) as conn:
-            result = service.reject_suggestion(suggestion_id=args.id, conn=conn)
-        emit_output(result, args.format)
-        return 0
-    except SuggestionNotFoundError:
-        print(f"error: suggestion {args.id} not found", file=sys.stderr)
-        return 2
-    except ValidationError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: service.reject_suggestion(suggestion_id=args.id, conn=conn),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                SuggestionNotFoundError,
+                lambda _exc: cli_error(f"suggestion {args.id} not found", exit_code=2),
+            ),
+            *_standard_error_handlers(),
+        ],
+    )

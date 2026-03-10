@@ -4,22 +4,19 @@ Purpose:
     Implement CLI command handlers for loop dependency operations.
 
 Responsibilities:
-    - Handle dep add, remove, list, blocking commands
+    - Handle dep add, remove, list, and blocking commands
+    - Normalize dependency command execution through the shared CLI runtime
 
 Non-scope:
-    - Does not handle timer operations (see loop_timer_commands.py)
-    - Does not handle view operations (see loop_view_commands.py)
-    - Does not handle core loop CRUD operations (see loop_core_commands.py)
+    - Timer operations
+    - View operations
+    - Core loop CRUD operations
 """
 
 from __future__ import annotations
 
-import logging
-import sqlite3
-import sys
 from argparse import Namespace
 
-from .. import db
 from ..loops.errors import DependencyCycleError, LoopNotFoundError
 from ..loops.service import (
     add_loop_dependency,
@@ -28,74 +25,87 @@ from ..loops.service import (
     remove_loop_dependency,
 )
 from ..settings import Settings
-from .output import emit_output
+from ._runtime import cli_error, error_handler, fail_cli, run_cli_db_action
 
-logger = logging.getLogger(__name__)
+
+def _dependency_error_handlers() -> list:
+    return [
+        error_handler(
+            LoopNotFoundError,
+            lambda exc: cli_error(f"loop not found: {exc.loop_id}", exit_code=2),
+        ),
+        error_handler(
+            DependencyCycleError,
+            lambda exc: cli_error(exc.message),
+        ),
+    ]
 
 
 def loop_dep_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop dep' commands."""
     action = args.dep_action
-    try:
-        with db.core_connection(settings) as conn:
-            if action == "add":
-                if not args.loop_id or not args.depends_on:
-                    logger.error("--loop and --on required for add")
-                    print("error: --loop and --on required for add", file=sys.stderr)
-                    return 2
-                try:
-                    result = add_loop_dependency(
-                        loop_id=args.loop_id,
-                        depends_on_loop_id=args.depends_on,
-                        conn=conn,
-                    )
-                    emit_output(result, args.format)
-                    return 0
-                except DependencyCycleError as e:
-                    logger.error("Dependency cycle: %s", e)
-                    print(f"error: {e.message}", file=sys.stderr)
-                    return 1
 
-            elif action == "remove":
-                if not args.loop_id or not args.depends_on:
-                    logger.error("--loop and --on required for remove")
-                    print("error: --loop and --on required for remove", file=sys.stderr)
-                    return 2
-                result = remove_loop_dependency(
-                    loop_id=args.loop_id,
-                    depends_on_loop_id=args.depends_on,
-                    conn=conn,
-                )
-                emit_output(result, args.format)
-                return 0
+    if action == "add":
+        if not args.loop_id or not args.depends_on:
+            return run_cli_db_action(
+                settings=settings,
+                action=lambda _conn: fail_cli("--loop and --on required for add", exit_code=2),
+            )
+        return run_cli_db_action(
+            settings=settings,
+            action=lambda conn: add_loop_dependency(
+                loop_id=args.loop_id,
+                depends_on_loop_id=args.depends_on,
+                conn=conn,
+            ),
+            output_format=args.format,
+            error_handlers=_dependency_error_handlers(),
+        )
 
-            elif action == "list":
-                if not args.loop_id:
-                    logger.error("--loop required for list")
-                    print("error: --loop required for list", file=sys.stderr)
-                    return 2
-                deps = get_loop_dependencies(loop_id=args.loop_id, conn=conn)
-                emit_output(deps, args.format)
-                return 0
+    if action == "remove":
+        if not args.loop_id or not args.depends_on:
+            return run_cli_db_action(
+                settings=settings,
+                action=lambda _conn: fail_cli("--loop and --on required for remove", exit_code=2),
+            )
+        return run_cli_db_action(
+            settings=settings,
+            action=lambda conn: remove_loop_dependency(
+                loop_id=args.loop_id,
+                depends_on_loop_id=args.depends_on,
+                conn=conn,
+            ),
+            output_format=args.format,
+            error_handlers=_dependency_error_handlers(),
+        )
 
-            elif action == "blocking":
-                if not args.loop_id:
-                    logger.error("--loop required for blocking")
-                    print("error: --loop required for blocking", file=sys.stderr)
-                    return 2
-                blocking = get_loop_blocking(loop_id=args.loop_id, conn=conn)
-                emit_output(blocking, args.format)
-                return 0
+    if action == "list":
+        if not args.loop_id:
+            return run_cli_db_action(
+                settings=settings,
+                action=lambda _conn: fail_cli("--loop required for list", exit_code=2),
+            )
+        return run_cli_db_action(
+            settings=settings,
+            action=lambda conn: get_loop_dependencies(loop_id=args.loop_id, conn=conn),
+            output_format=args.format,
+            error_handlers=_dependency_error_handlers(),
+        )
 
-            else:
-                logger.error("Unknown dep action: %s", action)
-                print(f"error: unknown dep action: {action}", file=sys.stderr)
-                return 2
-    except LoopNotFoundError as e:
-        logger.error("Loop not found: %s", e.loop_id)
-        print(f"error: loop not found: {e.loop_id}", file=sys.stderr)
-        return 2
-    except sqlite3.Error as e:
-        logger.error("Database error: %s", e)
-        print(f"error: database error - {e}", file=sys.stderr)
-        return 1
+    if action == "blocking":
+        if not args.loop_id:
+            return run_cli_db_action(
+                settings=settings,
+                action=lambda _conn: fail_cli("--loop required for blocking", exit_code=2),
+            )
+        return run_cli_db_action(
+            settings=settings,
+            action=lambda conn: get_loop_blocking(loop_id=args.loop_id, conn=conn),
+            output_format=args.format,
+            error_handlers=_dependency_error_handlers(),
+        )
+
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda _conn: fail_cli(f"unknown dep action: {action}", exit_code=2),
+    )

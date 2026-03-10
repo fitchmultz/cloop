@@ -106,6 +106,7 @@ Examples:
         """,
     )
     delete_parser.add_argument("name_or_id", help="Template name or ID")
+    add_format_option(delete_parser)
 
     # template from-loop
     from_loop_parser = add_command_parser(

@@ -4,75 +4,76 @@ Purpose:
     Implement CLI command handlers for template operations.
 
 Responsibilities:
-    - Handle template list, show, create, delete, from-loop commands
-    - Call template service layer
-    - Format output
+    - Handle template list, show, create, delete, and from-loop commands
+    - Normalize DB access, output emission, and expected-error mapping through
+      the shared CLI runtime
 
 Non-scope:
-    - Does not manage loop lifecycle or state transitions
-    - Does not handle template validation logic (done in service layer)
-    - Does not persist templates directly (uses repository layer)
+    - Loop lifecycle and state transitions
+    - Template validation logic beyond CLI argument-to-payload shaping
+    - Direct persistence details
 """
 
 from __future__ import annotations
 
 import json
-import sys
 from argparse import Namespace
 from typing import Any
 
-from .. import db
 from ..loops import repo
 from ..loops.errors import LoopNotFoundError, ValidationError
 from ..loops.service import create_template_from_loop
 from ..loops.utils import normalize_tags
 from ..settings import Settings
-from .output import emit_output
+from ._runtime import cli_error, error_handler, run_cli_db_action
+
+
+def _resolve_template(conn: Any, name_or_id: str) -> dict[str, Any] | None:
+    try:
+        return repo.get_loop_template(template_id=int(name_or_id), conn=conn)
+    except ValueError:
+        return repo.get_loop_template_by_name(name=name_or_id, conn=conn)
 
 
 def template_list_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop template list' command."""
-    with db.core_connection(settings) as conn:
-        templates = repo.list_loop_templates(conn=conn)
-
-    payload = [
-        {
-            "id": t["id"],
-            "name": t["name"],
-            "description": t["description"],
-            "is_system": bool(t["is_system"]),
-        }
-        for t in templates
-    ]
-    emit_output(payload, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: [
+            {
+                "id": template["id"],
+                "name": template["name"],
+                "description": template["description"],
+                "is_system": bool(template["is_system"]),
+            }
+            for template in repo.list_loop_templates(conn=conn)
+        ],
+        output_format=args.format,
+    )
 
 
 def template_show_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop template show' command."""
-    with db.core_connection(settings) as conn:
-        # Try as ID first
-        try:
-            template_id = int(args.name_or_id)
-            template = repo.get_loop_template(template_id=template_id, conn=conn)
-        except ValueError:
-            template = repo.get_loop_template_by_name(name=args.name_or_id, conn=conn)
 
-    if not template:
-        print(f"Template not found: {args.name_or_id}", file=sys.stderr)
-        return 2
+    def _action(conn: Any) -> dict[str, Any]:
+        template = _resolve_template(conn, args.name_or_id)
+        if not template:
+            raise cli_error(f"template not found: {args.name_or_id}", exit_code=2)
+        defaults = json.loads(template["defaults_json"]) if template["defaults_json"] else {}
+        return {
+            "id": template["id"],
+            "name": template["name"],
+            "description": template["description"],
+            "pattern": template["raw_text_pattern"],
+            "defaults": defaults,
+            "is_system": bool(template["is_system"]),
+        }
 
-    defaults = json.loads(template["defaults_json"]) if template["defaults_json"] else {}
-    payload = {
-        "id": template["id"],
-        "name": template["name"],
-        "description": template["description"],
-        "pattern": template["raw_text_pattern"],
-        "defaults": defaults,
-        "is_system": bool(template["is_system"]),
-    }
-    emit_output(payload, args.format)
-    return 0
+    return run_cli_db_action(
+        settings=settings,
+        action=_action,
+        output_format=args.format,
+    )
 
 
 def template_create_command(args: Namespace, settings: Settings) -> int:
@@ -85,64 +86,73 @@ def template_create_command(args: Namespace, settings: Settings) -> int:
     if args.actionable:
         defaults["actionable"] = True
 
-    with db.core_connection(settings) as conn:
-        try:
-            template = repo.create_loop_template(
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: {
+            "id": repo.create_loop_template(
                 name=args.name,
                 description=args.description,
                 raw_text_pattern=args.pattern,
                 defaults_json=defaults,
                 is_system=False,
                 conn=conn,
+            )["id"],
+            "name": args.name,
+        },
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(exc.message),
             )
-        except ValidationError as e:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 1
-
-    emit_output({"id": template["id"], "name": template["name"]}, args.format)
-    return 0
+        ],
+    )
 
 
 def template_delete_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop template delete' command."""
-    with db.core_connection(settings) as conn:
-        try:
-            template_id = int(args.name_or_id)
-            template = repo.get_loop_template(template_id=template_id, conn=conn)
-        except ValueError:
-            template = repo.get_loop_template_by_name(name=args.name_or_id, conn=conn)
 
+    def _action(conn: Any) -> dict[str, Any]:
+        template = _resolve_template(conn, args.name_or_id)
         if not template:
-            print(f"Template not found: {args.name_or_id}", file=sys.stderr)
-            return 2
+            raise cli_error(f"template not found: {args.name_or_id}", exit_code=2)
+        repo.delete_loop_template(template_id=template["id"], conn=conn)
+        return {"deleted": True, "id": template["id"], "name": template["name"]}
 
-        try:
-            deleted = repo.delete_loop_template(template_id=template["id"], conn=conn)
-        except ValidationError as e:
-            print(f"Cannot delete: {e.message}", file=sys.stderr)
-            return 1
-
-    if deleted:
-        print(f"Deleted template: {template['name']}")
-        return 0
-    return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=_action,
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(exc.message),
+            )
+        ],
+    )
 
 
 def template_from_loop_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop template from-loop' command."""
-    with db.core_connection(settings) as conn:
-        try:
-            template = create_template_from_loop(
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: {
+            "id": create_template_from_loop(
                 loop_id=args.loop_id,
                 template_name=args.name,
                 conn=conn,
-            )
-        except LoopNotFoundError:
-            print(f"Loop not found: {args.loop_id}", file=sys.stderr)
-            return 2
-        except ValidationError as e:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 1
-
-    emit_output({"id": template["id"], "name": template["name"]}, args.format)
-    return 0
+            )["id"],
+            "name": args.name,
+        },
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda exc: cli_error(f"loop {exc.loop_id} not found", exit_code=2),
+            ),
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(exc.message),
+            ),
+        ],
+    )

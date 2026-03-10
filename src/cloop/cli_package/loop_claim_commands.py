@@ -4,20 +4,19 @@ Purpose:
     Implement CLI command handlers for loop claim operations.
 
 Responsibilities:
-    - Handle claim, renew, release, get-claim, claims, force-release commands
+    - Handle claim, renew, release, get-claim, claims, and force-release commands
+    - Delegate connection/error/output orchestration to the shared CLI runtime
 
 Non-scope:
-    - Does not implement claim expiration logic (handled by service layer)
-    - Does not manage claim persistence directly (uses service layer)
-    - Does not handle loop CRUD operations (separate command modules)
+    - Claim expiration logic (handled by the service layer)
+    - Claim persistence (handled by the repository/service layers)
+    - Loop CRUD operations (handled in separate command modules)
 """
 
 from __future__ import annotations
 
-import sys
 from argparse import Namespace
 
-from .. import db
 from ..loops.errors import ClaimNotFoundError, LoopClaimedError, LoopNotFoundError
 from ..loops.service import (
     claim_loop,
@@ -28,102 +27,109 @@ from ..loops.service import (
     renew_claim,
 )
 from ..settings import Settings
-from .output import emit_output
+from ._runtime import cli_error, error_handler, run_cli_db_action
 
 
 def loop_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop claim' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            result = claim_loop(
-                loop_id=args.id,
-                owner=args.owner,
-                ttl_seconds=args.ttl,
-                conn=conn,
-                settings=settings,
-            )
-        emit_output(result, args.format)
-        return 0
-    except LoopClaimedError as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
-    except LoopNotFoundError:
-        print(f"error: loop {args.id} not found", file=sys.stderr)
-        return 2
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: claim_loop(
+            loop_id=args.id,
+            owner=args.owner,
+            ttl_seconds=args.ttl,
+            conn=conn,
+            settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopClaimedError,
+                lambda exc: cli_error(str(exc)),
+            ),
+            error_handler(
+                LoopNotFoundError,
+                lambda exc: cli_error(f"loop {exc.loop_id} not found", exit_code=2),
+            ),
+        ],
+    )
 
 
 def loop_renew_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop renew' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            result = renew_claim(
-                loop_id=args.id,
-                claim_token=args.token,
-                ttl_seconds=args.ttl,
-                conn=conn,
-                settings=settings,
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: renew_claim(
+            loop_id=args.id,
+            claim_token=args.token,
+            ttl_seconds=args.ttl,
+            conn=conn,
+            settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ClaimNotFoundError,
+                lambda _exc: cli_error(f"no valid claim found for loop {args.id}"),
             )
-        emit_output(result, args.format)
-        return 0
-    except ClaimNotFoundError:
-        print(f"error: no valid claim found for loop {args.id}", file=sys.stderr)
-        return 1
+        ],
+    )
 
 
 def loop_release_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop release' command."""
-    try:
-        with db.core_connection(settings) as conn:
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: (
             release_claim(
                 loop_id=args.id,
                 claim_token=args.token,
                 conn=conn,
+            ),
+            {"ok": True, "loop_id": args.id},
+        )[1],
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ClaimNotFoundError,
+                lambda _exc: cli_error(f"no valid claim found for loop {args.id}"),
             )
-        emit_output({"ok": True, "loop_id": args.id}, args.format)
-        return 0
-    except ClaimNotFoundError:
-        print(f"error: no valid claim found for loop {args.id}", file=sys.stderr)
-        return 1
+        ],
+    )
 
 
 def loop_get_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop get-claim' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            result = get_claim_status(loop_id=args.id, conn=conn)
-        if result is None:
-            print(f"Loop {args.id} is not claimed", file=sys.stderr)
-            return 0
-        emit_output(result, args.format)
-        return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: (
+            get_claim_status(loop_id=args.id, conn=conn) or {"loop_id": args.id, "claimed": False}
+        ),
+        output_format=args.format,
+    )
 
 
 def loop_list_claims_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop claims' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            result = list_active_claims(
-                owner=args.owner,
-                limit=args.limit,
-                conn=conn,
-            )
-        emit_output(result, args.format)
-        return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: list_active_claims(
+            owner=args.owner,
+            limit=args.limit,
+            conn=conn,
+        ),
+        output_format=args.format,
+    )
 
 
 def loop_force_release_claim_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop force-release' command."""
-    try:
-        with db.core_connection(settings) as conn:
-            released = force_release_claim(loop_id=args.id, conn=conn)
-        emit_output({"ok": True, "released": released, "loop_id": args.id}, args.format)
-        return 0
-    except Exception as e:
-        print(f"error: {e}", file=sys.stderr)
-        return 1
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: {
+            "ok": True,
+            "released": force_release_claim(loop_id=args.id, conn=conn),
+            "loop_id": args.id,
+        },
+        output_format=args.format,
+    )

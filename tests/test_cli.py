@@ -1517,6 +1517,49 @@ def test_projects_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsy
     assert project_names == {"Project A", "Project B"}
 
 
+def test_loop_get_claim_command_unclaimed_returns_structured_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Unclaimed loops should return a successful structured payload, not stderr text."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    cli._capture_command(parser.parse_args(["capture", "Unclaimed loop"]), settings)
+    capsys.readouterr()
+
+    exit_code = cli.main(["loop", "get-claim", "1"])
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output == {"loop_id": 1, "claimed": False}
+
+
+def test_template_delete_command_emits_structured_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Template delete should follow the shared structured CLI output contract."""
+    _make_settings(tmp_path, monkeypatch)
+
+    create_exit = cli.main(
+        [
+            "template",
+            "create",
+            "Cleanup Template",
+            "--pattern",
+            "Template pattern",
+        ]
+    )
+    assert create_exit == 0
+    created = _get_last_json(capsys)
+
+    delete_exit = cli.main(["template", "delete", str(created["id"])])
+
+    assert delete_exit == 0
+    deleted = _get_last_json(capsys)
+    assert deleted["deleted"] is True
+    assert deleted["id"] == created["id"]
+
+
 def test_export_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     """Test export command."""
     settings = _make_settings(tmp_path, monkeypatch)
