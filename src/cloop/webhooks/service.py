@@ -1,17 +1,26 @@
-"""Webhook service for delivery and retry management.
+"""Webhook delivery service with durable attempts and pinned HTTPS transport.
 
 Purpose:
-    Manage webhook delivery with retry logic and circuit breaking.
+    Queue logical webhook deliveries and execute claimed HTTP attempts safely.
 
 Responsibilities:
-    - Queue webhook deliveries
-    - Retry failed deliveries with backoff
-    - Sign webhook payloads
+    - Queue logical deliveries for loop events without committing caller transactions
+    - Resolve and validate webhook targets before outbound delivery
+    - Claim, execute, and finalize durable delivery attempts
+    - Retry failed deliveries with worker-owned durability
 
 Non-scope:
-    - HTTP endpoint handling (see routes/)
-    - Database operations (see webhooks/repo.py)
+    - HTTP route handling for subscription CRUD
+    - Signature verification on receivers
+    - Webhook payload transformation beyond the canonical envelope
+
+Invariants/Assumptions:
+    - Exact transmitted bytes are signed and persisted per attempt.
+    - Worker processing owns attempt claim/finalize transactions.
+    - HTTPS transport is pinned to prevalidated resolved IPs.
 """
+
+from __future__ import annotations
 
 import datetime
 import http.client
@@ -23,18 +32,25 @@ import socket
 import sqlite3
 import ssl
 import time
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
 from ..settings import Settings, get_settings
 from . import repo
-from .models import DeliveryStatus
+from .models import DeliveryAttemptStatus, DeliveryStatus, WebhookDelivery, WebhookDeliveryAttempt
 from .signer import sign_bytes
 
 logger = logging.getLogger(__name__)
 
 
+def _utc_now_iso() -> str:
+    """Return the current UTC time in canonical ISO format."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+
+
 def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Reject internal, special-use, and metadata IPs."""
     if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
         return False
     if ip == ipaddress.ip_address("169.254.169.254"):
@@ -45,7 +61,7 @@ def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
 def _resolve_safe_delivery_targets(
     url: str,
 ) -> tuple[tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...], str, int, str]:
-    """Resolve and validate all delivery targets for an outbound webhook."""
+    """Resolve an HTTPS target once and validate every resolved connect IP."""
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("URL must use https and include a host")
@@ -56,7 +72,7 @@ def _resolve_safe_delivery_targets(
 
     port = parsed.port or 443
     infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-    resolved_ips = []
+    resolved_ips: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     for info in infos:
         if info[0] not in {socket.AF_INET, socket.AF_INET6}:
             continue
@@ -70,12 +86,11 @@ def _resolve_safe_delivery_targets(
     path = parsed.path or "/"
     if parsed.query:
         path = f"{path}?{parsed.query}"
-    unique_ips = tuple(dict.fromkeys(resolved_ips))
-    return unique_ips, hostname, port, path
+    return tuple(dict.fromkeys(resolved_ips)), hostname, port, path
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    """HTTPSConnection that dials a validated IP while verifying the hostname."""
+    """HTTPS connection that dials a validated IP while verifying the hostname."""
 
     def __init__(
         self,
@@ -87,8 +102,8 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
     ) -> None:
         ssl_context = ssl.create_default_context()
         super().__init__(hostname, port=port, timeout=timeout, context=ssl_context)
-        self._connect_ip = connect_ip
         self._ssl_context = ssl_context
+        self._connect_ip = connect_ip
 
     def connect(self) -> None:
         sock = socket.create_connection((self._connect_ip, self.port), self.timeout)
@@ -101,8 +116,8 @@ def _send_pinned_webhook_request(
     payload_bytes: bytes,
     headers: dict[str, str],
     timeout_seconds: float,
-) -> tuple[int, str]:
-    """Send a webhook request over a pinned, prevalidated HTTPS connection."""
+) -> tuple[int, str, str]:
+    """Send a webhook request to one of the prevalidated connect IPs."""
     resolved_ips, hostname, port, path = _resolve_safe_delivery_targets(url)
     last_error: Exception | None = None
 
@@ -119,7 +134,7 @@ def _send_pinned_webhook_request(
             response_body = response.read().decode("utf-8", errors="replace")[:1000]
             if 300 <= response.status < 400:
                 raise RuntimeError(f"Redirects are not allowed: HTTP {response.status}")
-            return response.status, response_body
+            return response.status, response_body, str(ip)
         except Exception as exc:  # noqa: BLE001
             last_error = exc
         finally:
@@ -131,17 +146,17 @@ def _send_pinned_webhook_request(
 
 
 def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
-    """Serialize a webhook payload deterministically."""
+    """Serialize payload deterministically for signing and persistence."""
     return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
 
 def _build_delivery_payload(
     *,
-    delivery: Any,
+    delivery: WebhookDelivery,
     delivered_at: str,
     attempt_number: int,
 ) -> dict[str, Any]:
-    """Build the canonical outbound webhook envelope."""
+    """Build the canonical outbound webhook JSON envelope."""
     return {
         "delivery_id": delivery.id,
         "event_id": delivery.event_id,
@@ -154,42 +169,17 @@ def _build_delivery_payload(
 
 
 def _calculate_retry_delay(attempt_count: int, settings: Settings) -> float:
-    """Calculate exponential backoff delay with jitter.
-
-    Args:
-        attempt_count: Number of delivery attempts made so far
-        settings: Application settings containing retry configuration
-
-    Returns:
-        Delay in seconds before next retry
-    """
+    """Calculate exponential backoff with bounded jitter."""
     base = settings.webhook_retry_base_delay
     max_delay = settings.webhook_retry_max_delay
-
-    # Exponential backoff: 2^attempt * base
     delay = base * (2**attempt_count)
-
-    # Add jitter (±25% randomization) to prevent thundering herd
-    jitter = delay * 0.25 * (2 * random.random() - 1)
-    delay = delay + jitter
-
-    # Cap at maximum delay
+    delay += delay * 0.25 * (2 * random.random() - 1)
     return min(delay, max_delay)
 
 
 def _should_deliver_event(event_type: str, subscription_event_types: list[str]) -> bool:
-    """Check if an event should be delivered to a subscription.
-
-    Args:
-        event_type: The event type to check
-        subscription_event_types: List of event types the subscription accepts
-
-    Returns:
-        True if the event should be delivered
-    """
-    if "*" in subscription_event_types:
-        return True
-    return event_type in subscription_event_types
+    """Return whether a subscription should receive a given event type."""
+    return "*" in subscription_event_types or event_type in subscription_event_types
 
 
 def queue_deliveries(
@@ -200,31 +190,13 @@ def queue_deliveries(
     conn: sqlite3.Connection,
     settings: Settings | None = None,
 ) -> list[int]:
-    """Queue webhook deliveries for a loop event.
-
-    This is called synchronously during loop mutations to queue
-    deliveries. The actual HTTP delivery happens asynchronously
-    via background tasks.
-
-    Args:
-        event_id: The loop_events.id
-        event_type: Type of event (e.g., 'capture', 'update')
-        payload: Event payload dictionary
-        conn: Database connection
-        settings: Optional settings override
-
-    Returns:
-        List of created delivery IDs
-    """
-    settings = settings or get_settings()
+    """Queue logical deliveries for a loop event without committing the caller transaction."""
+    _ = settings or get_settings()
     delivery_ids: list[int] = []
-
     subscriptions = repo.list_active_subscriptions(conn=conn)
-
     for subscription in subscriptions:
         if not _should_deliver_event(event_type, subscription.event_types):
             continue
-
         delivery = repo.create_delivery(
             subscription_id=subscription.id,
             event_id=event_id,
@@ -233,8 +205,12 @@ def queue_deliveries(
             conn=conn,
         )
         delivery_ids.append(delivery.id)
-
     return delivery_ids
+
+
+def _lease_seconds(settings: Settings) -> int:
+    """Choose a webhook in-flight lease long enough to cover one HTTP request."""
+    return max(int(settings.webhook_timeout_seconds) + 30, 60)
 
 
 def deliver_webhook(
@@ -242,72 +218,72 @@ def deliver_webhook(
     delivery_id: int,
     conn: sqlite3.Connection,
     settings: Settings | None = None,
+    owner_token: str | None = None,
 ) -> DeliveryStatus:
-    """Attempt to deliver a queued webhook.
-
-    Args:
-        delivery_id: The webhook delivery ID
-        conn: Database connection
-        settings: Optional settings override
-
-    Returns:
-        Final delivery status
-    """
+    """Claim and execute one logical webhook delivery by ID."""
     settings = settings or get_settings()
+    claimed = repo.claim_delivery_attempt(
+        conn=conn,
+        owner_token=owner_token or f"webhook-{uuid.uuid4()}",
+        lease_seconds=_lease_seconds(settings),
+        delivery_id=delivery_id,
+    )
+    if claimed is None:
+        delivery = repo.get_delivery(delivery_id=delivery_id, conn=conn)
+        return delivery.status if delivery is not None else DeliveryStatus.DEAD_LETTER
 
-    delivery = repo.get_delivery(delivery_id=delivery_id, conn=conn)
-    if delivery is None:
-        logger.error("Delivery %s not found", delivery_id)
-        return DeliveryStatus.FAILED
+    delivery, attempt = claimed
+    return _deliver_claimed_webhook(
+        delivery=delivery,
+        attempt=attempt,
+        conn=conn,
+        settings=settings,
+        owner_token=claimed[0].lease_owner or "",
+    )
 
-    if delivery.status == DeliveryStatus.SUCCESS:
-        return DeliveryStatus.SUCCESS
 
-    if delivery.status == DeliveryStatus.DEAD_LETTER:
+def _deliver_claimed_webhook(
+    *,
+    delivery: WebhookDelivery,
+    attempt: WebhookDeliveryAttempt,
+    conn: sqlite3.Connection,
+    settings: Settings,
+    owner_token: str,
+) -> DeliveryStatus:
+    """Execute one already-claimed webhook attempt and persist the final state."""
+    subscription = repo.get_subscription(subscription_id=delivery.subscription_id, conn=conn)
+    if subscription is None:
+        repo.finalize_delivery_attempt(
+            conn=conn,
+            delivery_id=delivery.id,
+            attempt_number=attempt.attempt_number,
+            owner_token=owner_token,
+            delivery_status=DeliveryStatus.DEAD_LETTER,
+            attempt_status=DeliveryAttemptStatus.FAILED,
+            request_bytes=b"",
+            signature_header="",
+            started_at=attempt.started_at,
+            finished_at=_utc_now_iso(),
+            http_status=None,
+            response_body=None,
+            error_message="Subscription not found",
+            connect_ip=None,
+            next_retry_at_epoch=None,
+        )
         return DeliveryStatus.DEAD_LETTER
 
-    subscription = repo.get_subscription(
-        subscription_id=delivery.subscription_id,
-        conn=conn,
-    )
-    if subscription is None:
-        logger.error(
-            "Subscription %s not found for delivery %s", delivery.subscription_id, delivery_id
-        )
-        repo.update_delivery_status(
-            delivery_id=delivery_id,
-            status=DeliveryStatus.FAILED,
-            error_message="Subscription not found",
-            conn=conn,
-        )
-        return DeliveryStatus.FAILED
-
-    try:
-        _resolve_safe_delivery_targets(subscription.url)
-    except ValueError as exc:
-        logger.error("Unsafe URL for subscription %s: %s", subscription.id, subscription.url)
-        repo.update_delivery_status(
-            delivery_id=delivery_id,
-            status=DeliveryStatus.FAILED,
-            error_message=str(exc),
-            conn=conn,
-        )
-        return DeliveryStatus.FAILED
-
-    delivered_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    attempt_number = delivery.attempt_count + 1
+    delivered_at = _utc_now_iso()
     payload = _build_delivery_payload(
         delivery=delivery,
         delivered_at=delivered_at,
-        attempt_number=attempt_number,
+        attempt_number=attempt.attempt_number,
     )
     payload_bytes = _canonical_json_bytes(payload)
     timestamp = str(int(time.time()))
     signature_header = sign_bytes(payload_bytes, subscription.secret, timestamp)
 
-    # Attempt delivery
     try:
-        http_status, response_body = _send_pinned_webhook_request(
+        send_result = _send_pinned_webhook_request(
             url=subscription.url,
             payload_bytes=payload_bytes,
             headers={
@@ -319,76 +295,61 @@ def deliver_webhook(
             },
             timeout_seconds=settings.webhook_timeout_seconds,
         )
+        if len(send_result) == 2:
+            http_status, response_body = send_result
+            connect_ip = None
+        else:
+            http_status, response_body, connect_ip = send_result
 
-        # 2xx status codes are considered success
         if 200 <= http_status < 300:
-            repo.update_delivery_status(
-                delivery_id=delivery_id,
-                status=DeliveryStatus.SUCCESS,
+            repo.finalize_delivery_attempt(
+                conn=conn,
+                delivery_id=delivery.id,
+                attempt_number=attempt.attempt_number,
+                owner_token=owner_token,
+                delivery_status=DeliveryStatus.SUCCEEDED,
+                attempt_status=DeliveryAttemptStatus.SUCCEEDED,
+                request_bytes=payload_bytes,
                 signature_header=signature_header,
-                attempt_payload_json=payload_bytes.decode("utf-8"),
-                last_attempted_at=delivered_at,
+                started_at=attempt.started_at,
+                finished_at=delivered_at,
                 http_status=http_status,
                 response_body=response_body,
-                conn=conn,
+                error_message=None,
+                connect_ip=connect_ip,
+                next_retry_at_epoch=None,
             )
-            logger.debug("Webhook delivery %s succeeded: HTTP %s", delivery_id, http_status)
-            return DeliveryStatus.SUCCESS
-        else:
-            # Non-2xx is a failure that may be retried
-            raise RuntimeError(f"HTTP {http_status}: Non-2xx response")
+            return DeliveryStatus.SUCCEEDED
 
-    except Exception as exc:
+        raise RuntimeError(f"HTTP {http_status}: Non-2xx response")
+    except Exception as exc:  # noqa: BLE001
         error_message = str(exc)[:500]
-        attempt_count = delivery.attempt_count + 1
+        delivery_status = DeliveryStatus.DEAD_LETTER
+        next_retry_at_epoch: int | None = None
+        if attempt.attempt_number < settings.webhook_max_retries:
+            delivery_status = DeliveryStatus.QUEUED
+            next_retry_at_epoch = int(
+                time.time() + _calculate_retry_delay(attempt.attempt_number, settings)
+            )
 
-        # Determine if we should retry or give up
-        if attempt_count >= settings.webhook_max_retries:
-            final_status = DeliveryStatus.DEAD_LETTER
-            logger.warning(
-                "Webhook delivery %s failed after %s attempts, moved to dead letter: %s",
-                delivery_id,
-                attempt_count,
-                error_message,
-            )
-        else:
-            final_status = DeliveryStatus.PENDING
-            delay = _calculate_retry_delay(attempt_count, settings)
-            next_retry = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
-                seconds=delay
-            )
-            next_retry_at = next_retry.isoformat()
-
-            repo.update_delivery_status(
-                delivery_id=delivery_id,
-                status=final_status,
-                signature_header=signature_header,
-                attempt_payload_json=payload_bytes.decode("utf-8"),
-                last_attempted_at=delivered_at,
-                error_message=error_message,
-                next_retry_at=next_retry_at,
-                conn=conn,
-            )
-            logger.debug(
-                "Webhook delivery %s failed (attempt %s/%s), retry scheduled: %s",
-                delivery_id,
-                attempt_count,
-                settings.webhook_max_retries,
-                error_message,
-            )
-            return final_status
-
-        # Final failure - update status
-        repo.update_delivery_status(
-            delivery_id=delivery_id,
-            status=final_status,
-            signature_header=signature_header,
-            attempt_payload_json=payload_bytes.decode("utf-8"),
-            last_attempted_at=delivered_at,
-            error_message=error_message,
+        repo.finalize_delivery_attempt(
             conn=conn,
+            delivery_id=delivery.id,
+            attempt_number=attempt.attempt_number,
+            owner_token=owner_token,
+            delivery_status=delivery_status,
+            attempt_status=DeliveryAttemptStatus.FAILED,
+            request_bytes=payload_bytes,
+            signature_header=signature_header,
+            started_at=attempt.started_at,
+            finished_at=delivered_at,
+            http_status=None,
+            response_body=None,
+            error_message=error_message,
+            connect_ip=None,
+            next_retry_at_epoch=next_retry_at_epoch,
         )
-        return final_status
+        return delivery_status
 
 
 def process_pending_deliveries(
@@ -396,36 +357,34 @@ def process_pending_deliveries(
     conn: sqlite3.Connection,
     settings: Settings | None = None,
     batch_size: int = 100,
+    owner_token: str | None = None,
 ) -> dict[str, int]:
-    """Process all pending webhook deliveries.
-
-    This is typically called by a background task/worker.
-
-    Args:
-        conn: Database connection
-        settings: Optional settings override
-        batch_size: Maximum number of deliveries to process
-
-    Returns:
-        Dict with counts of succeeded, failed, and dead_letter deliveries
-    """
+    """Claim and process up to `batch_size` eligible deliveries."""
     settings = settings or get_settings()
-    pending = repo.list_pending_deliveries(conn=conn)[:batch_size]
+    results = {"succeeded": 0, "queued": 0, "dead_letter": 0}
+    worker_token = owner_token or f"webhook-worker-{uuid.uuid4()}"
 
-    results = {"succeeded": 0, "failed": 0, "dead_letter": 0}
-
-    for delivery in pending:
-        status = deliver_webhook(
-            delivery_id=delivery.id,
+    for index in range(batch_size):
+        claimed = repo.claim_delivery_attempt(
+            conn=conn,
+            owner_token=f"{worker_token}:{index}",
+            lease_seconds=_lease_seconds(settings),
+        )
+        if claimed is None:
+            break
+        delivery, attempt = claimed
+        status = _deliver_claimed_webhook(
+            delivery=delivery,
+            attempt=attempt,
             conn=conn,
             settings=settings,
+            owner_token=delivery.lease_owner or "",
         )
-
-        if status == DeliveryStatus.SUCCESS:
+        if status == DeliveryStatus.SUCCEEDED:
             results["succeeded"] += 1
         elif status == DeliveryStatus.DEAD_LETTER:
             results["dead_letter"] += 1
         else:
-            results["failed"] += 1
+            results["queued"] += 1
 
     return results

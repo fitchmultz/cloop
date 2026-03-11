@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 31
+SCHEMA_VERSION: int = 32
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -259,12 +259,17 @@ CREATE TABLE loop_events (
     loop_id INTEGER,
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
+    source_task_name TEXT,
+    source_slot_key TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
 CREATE INDEX idx_loop_events_type_created ON loop_events(event_type, created_at);
+CREATE UNIQUE INDEX idx_loop_events_scheduler_slot
+    ON loop_events(source_task_name, source_slot_key, event_type)
+    WHERE source_task_name IS NOT NULL AND source_slot_key IS NOT NULL;
 
 CREATE TABLE loop_suggestions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -350,24 +355,50 @@ CREATE TABLE webhook_deliveries (
     event_type TEXT NOT NULL,
     source_payload_json TEXT NOT NULL,
     last_attempt_payload_json TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'in_flight', 'succeeded', 'dead_letter')),
     http_status INTEGER,
     response_body TEXT,
     error_message TEXT,
     signature_header TEXT,
     attempt_count INTEGER NOT NULL DEFAULT 0,
+    active_attempt_number INTEGER,
     last_attempted_at TEXT,
-    next_retry_at TEXT,
+    next_retry_at_epoch INTEGER,
+    lease_owner TEXT,
+    lease_until_epoch INTEGER,
+    last_connect_ip TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
     FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
 );
 
+CREATE TABLE webhook_delivery_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    delivery_id INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    request_bytes BLOB,
+    signature_header TEXT,
+    http_status INTEGER,
+    response_body TEXT,
+    error_message TEXT,
+    connect_ip TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(delivery_id) REFERENCES webhook_deliveries(id) ON DELETE CASCADE,
+    UNIQUE(delivery_id, attempt_number)
+);
+
 CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
-CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
-    WHERE status = 'pending';
+CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at_epoch)
+    WHERE status = 'queued';
+CREATE INDEX idx_webhook_deliveries_inflight_lease ON webhook_deliveries(lease_until_epoch)
+    WHERE status = 'in_flight';
 CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
+CREATE INDEX idx_webhook_delivery_attempts_delivery ON webhook_delivery_attempts(delivery_id, attempt_number DESC);
 
 CREATE TABLE loop_claims (
     loop_id INTEGER PRIMARY KEY,
@@ -439,45 +470,50 @@ CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
 CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
 CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
 
--- Scheduler lease coordination and run-state tracking
-CREATE TABLE scheduler_task_leases (
+-- Scheduler slot coordination and run-state tracking
+CREATE TABLE scheduler_task_schedule (
     task_name TEXT PRIMARY KEY,
-    owner_token TEXT NOT NULL,
-    acquired_at TEXT NOT NULL,
-    heartbeat_at TEXT NOT NULL,
-    lease_until TEXT NOT NULL
-);
-
-CREATE INDEX idx_scheduler_task_leases_until ON scheduler_task_leases(lease_until);
-
-CREATE TABLE scheduler_task_state (
-    task_name TEXT PRIMARY KEY,
+    next_due_at TEXT,
+    last_slot_key TEXT,
     last_started_at TEXT,
     last_finished_at TEXT,
     last_success_at TEXT,
     last_failure_at TEXT,
-    last_error TEXT,
     last_result_json TEXT,
-    next_due_at TEXT,
+    last_error TEXT,
     runs_count INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE INDEX idx_scheduler_task_state_next_due ON scheduler_task_state(next_due_at);
+CREATE INDEX idx_scheduler_task_schedule_next_due ON scheduler_task_schedule(next_due_at);
 
-CREATE TABLE scheduler_task_executions (
-    run_id TEXT PRIMARY KEY,
+CREATE TABLE scheduler_task_runs (
     task_name TEXT NOT NULL,
-    owner_token TEXT NOT NULL,
-    started_at TEXT NOT NULL,
+    slot_key TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'abandoned')),
+    owner_token TEXT,
+    lease_until TEXT,
+    started_at TEXT,
     heartbeat_at TEXT,
     finished_at TEXT,
-    status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'abandoned')),
+    result_json TEXT,
     error TEXT,
-    result_json TEXT
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (task_name, slot_key)
 );
 
-CREATE INDEX idx_scheduler_task_executions_task_started
-    ON scheduler_task_executions(task_name, started_at DESC);
+CREATE INDEX idx_scheduler_task_runs_status_lease
+    ON scheduler_task_runs(task_name, status, lease_until);
+
+CREATE TABLE scheduler_push_deliveries (
+    task_name TEXT NOT NULL,
+    slot_key TEXT NOT NULL,
+    push_kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    push_count INTEGER NOT NULL DEFAULT 0,
+    sent_at TEXT NOT NULL,
+    PRIMARY KEY (task_name, slot_key, push_kind)
+);
 
 -- Nudge tracking for escalation state
 CREATE TABLE loop_nudges (
@@ -488,6 +524,7 @@ CREATE TABLE loop_nudges (
     first_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_nudge_event_id INTEGER,
+    last_slot_key TEXT,
     PRIMARY KEY (loop_id, nudge_type),
     FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
     FOREIGN KEY (last_nudge_event_id) REFERENCES loop_events(id) ON DELETE SET NULL
@@ -539,6 +576,168 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    32: """
+    ALTER TABLE loop_events ADD COLUMN source_task_name TEXT;
+    ALTER TABLE loop_events ADD COLUMN source_slot_key TEXT;
+    CREATE UNIQUE INDEX idx_loop_events_scheduler_slot
+        ON loop_events(source_task_name, source_slot_key, event_type)
+        WHERE source_task_name IS NOT NULL AND source_slot_key IS NOT NULL;
+
+    ALTER TABLE loop_nudges ADD COLUMN last_slot_key TEXT;
+
+    DROP TABLE IF EXISTS scheduler_push_deliveries;
+    DROP TABLE IF EXISTS scheduler_task_runs;
+    DROP TABLE IF EXISTS scheduler_task_schedule;
+    DROP TABLE IF EXISTS scheduler_task_executions;
+    DROP TABLE IF EXISTS scheduler_task_state;
+    DROP TABLE IF EXISTS scheduler_task_leases;
+
+    CREATE TABLE scheduler_task_schedule (
+        task_name TEXT PRIMARY KEY,
+        next_due_at TEXT,
+        last_slot_key TEXT,
+        last_started_at TEXT,
+        last_finished_at TEXT,
+        last_success_at TEXT,
+        last_failure_at TEXT,
+        last_result_json TEXT,
+        last_error TEXT,
+        runs_count INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX idx_scheduler_task_schedule_next_due ON scheduler_task_schedule(next_due_at);
+
+    CREATE TABLE scheduler_task_runs (
+        task_name TEXT NOT NULL,
+        slot_key TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'abandoned')),
+        owner_token TEXT,
+        lease_until TEXT,
+        started_at TEXT,
+        heartbeat_at TEXT,
+        finished_at TEXT,
+        result_json TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (task_name, slot_key)
+    );
+
+    CREATE INDEX idx_scheduler_task_runs_status_lease
+        ON scheduler_task_runs(task_name, status, lease_until);
+
+    CREATE TABLE scheduler_push_deliveries (
+        task_name TEXT NOT NULL,
+        slot_key TEXT NOT NULL,
+        push_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        push_count INTEGER NOT NULL DEFAULT 0,
+        sent_at TEXT NOT NULL,
+        PRIMARY KEY (task_name, slot_key, push_kind)
+    );
+
+    DROP TABLE IF EXISTS webhook_delivery_attempts;
+    ALTER TABLE webhook_deliveries RENAME TO webhook_deliveries_old;
+
+    CREATE TABLE webhook_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER NOT NULL,
+        event_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        source_payload_json TEXT NOT NULL,
+        last_attempt_payload_json TEXT,
+        status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued', 'in_flight', 'succeeded', 'dead_letter')),
+        http_status INTEGER,
+        response_body TEXT,
+        error_message TEXT,
+        signature_header TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        active_attempt_number INTEGER,
+        last_attempted_at TEXT,
+        next_retry_at_epoch INTEGER,
+        lease_owner TEXT,
+        lease_until_epoch INTEGER,
+        last_connect_ip TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
+    );
+
+    INSERT INTO webhook_deliveries (
+        id,
+        subscription_id,
+        event_id,
+        event_type,
+        source_payload_json,
+        last_attempt_payload_json,
+        status,
+        http_status,
+        response_body,
+        error_message,
+        signature_header,
+        attempt_count,
+        last_attempted_at,
+        next_retry_at_epoch,
+        created_at,
+        updated_at
+    )
+    SELECT
+        id,
+        subscription_id,
+        event_id,
+        event_type,
+        source_payload_json,
+        last_attempt_payload_json,
+        CASE
+            WHEN status = 'success' THEN 'succeeded'
+            WHEN status = 'pending' THEN 'queued'
+            ELSE status
+        END,
+        http_status,
+        response_body,
+        error_message,
+        signature_header,
+        attempt_count,
+        last_attempted_at,
+        CASE
+            WHEN next_retry_at IS NULL THEN NULL
+            ELSE unixepoch(next_retry_at)
+        END,
+        created_at,
+        updated_at
+    FROM webhook_deliveries_old;
+
+    DROP TABLE webhook_deliveries_old;
+
+    CREATE TABLE webhook_delivery_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        delivery_id INTEGER NOT NULL,
+        attempt_number INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        request_bytes BLOB,
+        signature_header TEXT,
+        http_status INTEGER,
+        response_body TEXT,
+        error_message TEXT,
+        connect_ip TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(delivery_id) REFERENCES webhook_deliveries(id) ON DELETE CASCADE,
+        UNIQUE(delivery_id, attempt_number)
+    );
+
+    CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
+    CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at_epoch)
+        WHERE status = 'queued';
+    CREATE INDEX idx_webhook_deliveries_inflight_lease ON webhook_deliveries(lease_until_epoch)
+        WHERE status = 'in_flight';
+    CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
+    CREATE INDEX idx_webhook_delivery_attempts_delivery
+        ON webhook_delivery_attempts(delivery_id, attempt_number DESC);
+    """,
     31: """
     CREATE TABLE scheduler_task_executions (
         run_id TEXT PRIMARY KEY,

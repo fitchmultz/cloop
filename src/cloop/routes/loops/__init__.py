@@ -29,7 +29,7 @@ Route Ordering:
 from fastapi import APIRouter
 
 # Export shared utilities
-from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
+from ._common import IdempotencyKeyHeader, SettingsDep
 from .bulk import router as bulk_router
 from .claims import router as claims_router
 from .comments import router as comments_router
@@ -91,5 +91,4 @@ __all__ = [
     "router",
     "SettingsDep",
     "IdempotencyKeyHeader",
-    "_idempotency_conflict",
 ]

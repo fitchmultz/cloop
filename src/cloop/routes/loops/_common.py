@@ -19,7 +19,7 @@ Non-scope:
 from collections.abc import Callable
 from typing import Annotated, Any, Mapping, Sequence
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header
 from fastapi.responses import JSONResponse
 
 from ... import db
@@ -28,7 +28,13 @@ from ...idempotency_flow import (
     prepare_http_idempotency,
     replay_http_response,
 )
-from ...loops.errors import LoopClaimedError, NotFoundError, ValidationError
+from ...loops.errors import (
+    LoopClaimedError,
+    NoFieldsToUpdateError,
+    NotFoundError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from ...schemas.loops import (
     BulkResultItem,
     DependencyInfo,
@@ -56,14 +62,6 @@ IdempotencyKeyHeader = Header(
         "Max length: 255 characters."
     ),
 )
-
-
-def _idempotency_conflict(detail: str) -> HTTPException:
-    """Create an HTTPException for idempotency key conflicts."""
-    return HTTPException(
-        status_code=409,
-        detail={"message": "idempotency_key_conflict", "detail": detail},
-    )
 
 
 def run_idempotent_loop_route(
@@ -100,50 +98,24 @@ def run_idempotent_loop_route(
         return response_body
 
 
-def loop_claimed_http_exception(exc: LoopClaimedError) -> HTTPException:
-    """Build the standard HTTP 409 payload for an active loop claim."""
-    return HTTPException(
-        status_code=409,
-        detail={
-            "code": "loop_claimed",
-            "message": str(exc),
-            "owner": exc.owner,
-            "lease_until": exc.lease_until,
-        },
-    )
+def loop_claimed_http_exception(exc: LoopClaimedError) -> LoopClaimedError:
+    """Return the canonical loop-claimed domain exception."""
+    return exc
 
 
-def invalid_claim_token_http_exception() -> HTTPException:
-    """Build the standard HTTP 403 payload for a missing or stale claim token."""
-    return HTTPException(
-        status_code=403,
-        detail={
-            "code": "invalid_claim_token",
-            "message": "Invalid or expired claim token",
-        },
-    )
+def invalid_claim_token_http_exception() -> ResourceNotFoundError:
+    """Return the canonical invalid-claim-token application error."""
+    return ResourceNotFoundError("claim", "Invalid or expired claim token")
 
 
-def claim_not_found_http_exception(*, loop_id: int) -> HTTPException:
-    """Build the standard HTTP 404 payload for a missing or expired claim."""
-    return HTTPException(
-        status_code=404,
-        detail={
-            "code": "claim_not_found",
-            "message": f"No valid claim for loop {loop_id}",
-        },
-    )
+def claim_not_found_http_exception(*, loop_id: int) -> ResourceNotFoundError:
+    """Return the canonical missing-claim application error."""
+    return ResourceNotFoundError("claim", f"No valid claim for loop {loop_id}")
 
 
-def no_fields_to_update_http_exception() -> HTTPException:
-    """Build the standard HTTP 400 payload for empty PATCH-like mutations."""
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "validation_error",
-            "message": "no_fields_to_update",
-        },
-    )
+def no_fields_to_update_http_exception() -> NoFieldsToUpdateError:
+    """Return the canonical no-fields-to-update domain exception."""
+    return NoFieldsToUpdateError()
 
 
 def map_not_found_to_404(
@@ -151,31 +123,17 @@ def map_not_found_to_404(
     *,
     resource_type: str,
     message: str | None = None,
-) -> HTTPException:
-    """Build the standard HTTP 404 payload for a missing domain resource."""
+) -> NotFoundError:
+    """Return the canonical domain not-found exception for a named resource."""
     resolved_message = message or (
         exc.message if exc is not None else f"{resource_type.capitalize()} not found"
     )
-    return HTTPException(
-        status_code=404,
-        detail={
-            "code": f"{resource_type}_not_found",
-            "message": resolved_message,
-        },
-    )
+    return ResourceNotFoundError(resource_type, resolved_message)
 
 
-def map_validation_to_400(exc: ValidationError) -> HTTPException:
-    """Build the standard HTTP 400 payload for domain validation failures."""
-    return HTTPException(
-        status_code=400,
-        detail={
-            "code": "validation_error",
-            "message": exc.message,
-            "field": exc.field,
-            "reason": exc.reason,
-        },
-    )
+def map_validation_to_400(exc: ValidationError) -> ValidationError:
+    """Return the canonical domain validation exception unchanged."""
+    return exc
 
 
 def build_loop_response(loop: Mapping[str, Any]) -> LoopResponse:

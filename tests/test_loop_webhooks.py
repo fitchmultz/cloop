@@ -212,7 +212,7 @@ def test_webhook_deliveries_list(
     deliveries = deliveries_response.json()
     assert len(deliveries) == 1
     assert deliveries[0]["event_type"] == "capture"
-    assert deliveries[0]["status"] == "pending"
+    assert deliveries[0]["status"] == "queued"
 
 
 def test_webhook_update_no_fields(
@@ -280,7 +280,7 @@ def test_webhook_repo_operations(
 ) -> None:
     """Test webhook repository operations directly."""
     from cloop.webhooks import repo
-    from cloop.webhooks.models import DeliveryStatus
+    from cloop.webhooks.models import DeliveryAttemptStatus, DeliveryStatus
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
@@ -333,23 +333,42 @@ def test_webhook_repo_operations(
         payload={"test": "data"},
         conn=conn,
     )
+    conn.commit()
     assert delivery.subscription_id == sub.id
-    assert delivery.status == DeliveryStatus.PENDING
+    assert delivery.status == DeliveryStatus.QUEUED
     assert delivery.source_payload_json is not None
 
-    # Update delivery status
-    repo.update_delivery_status(
+    # Claim and finalize one delivery attempt
+    claimed = repo.claim_delivery_attempt(
+        conn=conn,
+        owner_token="worker-a",
+        lease_seconds=60,
         delivery_id=delivery.id,
-        status=DeliveryStatus.SUCCESS,
+    )
+    assert claimed is not None
+    claimed_delivery, attempt = claimed
+    repo.finalize_delivery_attempt(
+        conn=conn,
+        delivery_id=claimed_delivery.id,
+        attempt_number=attempt.attempt_number,
+        owner_token="worker-a",
+        delivery_status=DeliveryStatus.SUCCEEDED,
+        attempt_status=DeliveryAttemptStatus.SUCCEEDED,
+        request_bytes=b'{"test":"data"}',
+        signature_header="sig",
+        started_at=attempt.started_at,
+        finished_at=attempt.started_at,
         http_status=200,
         response_body="OK",
-        conn=conn,
+        error_message=None,
+        connect_ip="203.0.113.10",
+        next_retry_at_epoch=None,
     )
 
     # Get delivery
     fetched_delivery = repo.get_delivery(delivery_id=delivery.id, conn=conn)
     assert fetched_delivery is not None
-    assert fetched_delivery.status == DeliveryStatus.SUCCESS
+    assert fetched_delivery.status == DeliveryStatus.SUCCEEDED
     assert fetched_delivery.http_status == 200
 
     # List deliveries for subscription
@@ -490,7 +509,7 @@ def test_webhook_delivery_signs_exact_transmitted_bytes(tmp_path: Path, monkeypa
     monkeypatch.setattr(service, "_send_pinned_webhook_request", _fake_send)
 
     status = service.deliver_webhook(delivery_id=delivery.id, conn=conn, settings=settings)
-    assert status.value == "success"
+    assert status.value == "succeeded"
 
     stored = repo.get_delivery(delivery_id=delivery.id, conn=conn)
     assert stored is not None

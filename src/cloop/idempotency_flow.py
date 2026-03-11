@@ -21,9 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from fastapi import HTTPException
 from fastapi.responses import JSONResponse
-from mcp.server.fastmcp.exceptions import ToolError
 
 from .idempotency import (
     IdempotencyConflictError,
@@ -33,6 +31,7 @@ from .idempotency import (
     expiry_timestamp,
     normalize_idempotency_key,
 )
+from .loops.errors import IdempotencyConflictAppError, InvalidIdempotencyKeyError
 from .settings import Settings
 from .storage import idempotency_store
 
@@ -68,11 +67,8 @@ def prepare_http_idempotency(
         payload=payload,
         settings=settings,
         conn=conn,
-        invalid_key_error=lambda message: HTTPException(status_code=400, detail=message),
-        conflict_error=lambda message: HTTPException(
-            status_code=409,
-            detail={"message": "idempotency_key_conflict", "detail": message},
-        ),
+        invalid_key_error=InvalidIdempotencyKeyError,
+        conflict_error=IdempotencyConflictAppError,
     )
 
 
@@ -91,8 +87,8 @@ def prepare_mcp_idempotency(
         payload=payload,
         settings=settings,
         conn=conn,
-        invalid_key_error=ToolError,
-        conflict_error=lambda message: ToolError(f"Idempotency conflict: {message}"),
+        invalid_key_error=InvalidIdempotencyKeyError,
+        conflict_error=IdempotencyConflictAppError,
     )
 
 

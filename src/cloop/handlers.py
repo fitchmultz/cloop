@@ -33,28 +33,9 @@ from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .constants import (
-    HTTP_BAD_REQUEST,
-    HTTP_INTERNAL_SERVER_ERROR,
-    HTTP_NOT_FOUND,
-    HTTP_UNPROCESSABLE_ENTITY,
-)
-from .loops.errors import (
-    ClaimExpiredError,
-    ClaimNotFoundError,
-    CloopError,
-    DependencyCycleError,
-    DependencyNotMetError,
-    LoopClaimedError,
-    LoopCreateError,
-    LoopImportError,
-    MergeConflictError,
-    NotFoundError,
-    RecurrenceError,
-    TransitionError,
-    UndoNotPossibleError,
-    ValidationError,
-)
+from .constants import HTTP_INTERNAL_SERVER_ERROR, HTTP_UNPROCESSABLE_ENTITY
+from .error_contract import error_response, error_view_from_exception
+from .loops.errors import CloopError
 
 logger = logging.getLogger(__name__)
 
@@ -75,116 +56,12 @@ def _http_error(detail: Any, *, status_code: int, error_type: str) -> JSONRespon
 
 def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
     """Handle FastAPI HTTPException."""
-    return _http_error(exc.detail, status_code=exc.status_code, error_type="http_error")
+    return error_response(error_view_from_exception(exc))
 
 
 def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
-    """Handle all typed Cloop domain exceptions.
-
-    Maps exception types to appropriate HTTP status codes:
-    - NotFoundError -> 404
-    - ValidationError -> 400
-    - TransitionError -> 400
-    - Other CloopError -> 400
-    """
-    if isinstance(exc, NotFoundError):
-        status_code = HTTP_NOT_FOUND
-        error_type = "not_found"
-        detail: Any = {"code": error_type, "message": exc.message, "detail": exc.detail}
-    elif isinstance(exc, TransitionError):
-        status_code = HTTP_BAD_REQUEST
-        error_type = "transition_error"
-        detail = {
-            "code": error_type,
-            "message": exc.message,
-            "detail": exc.detail,
-            "from_status": exc.from_status,
-            "to_status": exc.to_status,
-        }
-    elif isinstance(exc, ValidationError):
-        status_code = HTTP_BAD_REQUEST
-        error_type = "validation_error"
-        detail = {
-            "code": error_type,
-            "message": exc.message,
-            "detail": exc.detail,
-            "field": exc.field,
-            "reason": exc.reason,
-        }
-    elif isinstance(exc, RecurrenceError):
-        status_code = HTTP_BAD_REQUEST
-        error_type = "recurrence_error"
-        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
-    elif isinstance(exc, DependencyCycleError):
-        status_code = HTTP_BAD_REQUEST
-        error_type = "dependency_cycle"
-        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
-    elif isinstance(exc, DependencyNotMetError):
-        status_code = HTTP_BAD_REQUEST
-        error_type = "dependency_not_met"
-        # Include open_dependencies in the response
-        return _http_error(
-            {
-                "message": exc.message,
-                "detail": exc.detail,
-                "open_dependencies": exc.open_dependencies,
-            },
-            status_code=status_code,
-            error_type=error_type,
-        )
-    elif isinstance(exc, LoopClaimedError):
-        status_code = 409
-        error_type = "loop_claimed"
-        detail = {
-            "code": error_type,
-            "message": exc.message,
-            "detail": exc.detail,
-            "loop_id": exc.loop_id,
-            "owner": exc.owner,
-            "lease_until": exc.lease_until,
-        }
-    elif isinstance(exc, ClaimNotFoundError):
-        status_code = 403
-        error_type = "invalid_claim_token"
-        detail = {
-            "code": error_type,
-            "message": exc.message,
-            "detail": exc.detail,
-            "loop_id": exc.loop_id,
-        }
-    elif isinstance(exc, ClaimExpiredError):
-        status_code = 410
-        error_type = "claim_expired"
-        detail = {
-            "code": error_type,
-            "message": exc.message,
-            "detail": exc.detail,
-            "loop_id": exc.loop_id,
-        }
-    elif isinstance(exc, MergeConflictError):
-        status_code = 409
-        error_type = "merge_conflict"
-        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
-    elif isinstance(exc, UndoNotPossibleError):
-        status_code = HTTP_BAD_REQUEST
-        error_type = "undo_not_possible"
-        detail = {
-            "code": error_type,
-            "message": exc.message,
-            "detail": exc.detail,
-            "loop_id": exc.loop_id,
-            "reason": exc.reason,
-        }
-    elif isinstance(exc, (LoopCreateError, LoopImportError)):
-        status_code = HTTP_INTERNAL_SERVER_ERROR
-        error_type = "persistence_error"
-        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
-    else:
-        status_code = HTTP_BAD_REQUEST
-        error_type = "domain_error"
-        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
-
-    return _http_error(detail, status_code=status_code, error_type=error_type)
+    """Handle all typed Cloop domain exceptions through the shared contract."""
+    return error_response(error_view_from_exception(exc))
 
 
 def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:

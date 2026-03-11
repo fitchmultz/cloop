@@ -433,7 +433,7 @@ def test_view_get_missing_view_returns_structured_404(
 
     assert response.status_code == 404
     body = response.json()
-    assert body["error"]["type"] == "http_error"
+    assert body["error"]["type"] == "not_found"
     assert body["error"]["details"]["code"] == "view_not_found"
     assert "99999" in body["error"]["message"]
 

@@ -104,6 +104,36 @@ class ValidationError(CloopError):
         self.reason = reason
 
 
+class NoFieldsToUpdateError(CloopError):
+    """Raised when a PATCH-like mutation is called without any update fields."""
+
+    def __init__(self) -> None:
+        super().__init__("no_fields_to_update", detail="field_set=empty")
+
+
+class IdempotencyConflictAppError(CloopError):
+    """Raised when an idempotency key is reused with a different request body."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__("Idempotency conflict", detail=detail)
+
+
+class InvalidIdempotencyKeyError(CloopError):
+    """Raised when an idempotency key does not meet validation rules."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__("Invalid idempotency key", detail=detail)
+
+
+class ResourceNotFoundError(NotFoundError):
+    """Raised when a named application resource is not found."""
+
+    def __init__(self, resource_type: str, message: str | None = None) -> None:
+        resolved_message = message or f"{resource_type.capitalize()} not found"
+        super().__init__(resolved_message, detail=f"resource_type={resource_type}")
+        self.resource_type = resource_type
+
+
 class TransitionError(CloopError):
     """Raised when an invalid status transition is attempted.
 

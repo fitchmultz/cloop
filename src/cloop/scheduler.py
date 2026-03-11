@@ -1,18 +1,22 @@
 """Dedicated scheduler runtime for proactive assistant routines.
 
 Purpose:
-    Run periodic tasks for daily/weekly review generation, due-soon nudges,
-    and stale-loop rescue without requiring manual polling.
+    Run periodic reviews, nudges, stale rescue, and webhook delivery from one
+    dedicated process using deterministic scheduler slots.
 
 Responsibilities:
-    - Execute periodic jobs with SQLite-backed leases and run-state
-    - Expose a dedicated scheduler process entrypoint
-    - Emit events for SSE consumption
+    - Claim one logical run per task slot and heartbeat ownership
+    - Deduplicate scheduler-owned loop events and push notifications
+    - Execute webhook retry processing inside the dedicated scheduler process
+    - Expose the `cloop-scheduler` CLI entrypoint
 
 Non-scope:
-    - HTTP application lifespan management
-    - Review computation logic (see loops/review.py)
+    - FastAPI application lifespan management
+    - General route handling
+    - Loop business logic outside scheduler-owned orchestration
 """
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -21,9 +25,9 @@ import logging
 import sqlite3
 import uuid
 from collections import Counter
-from dataclasses import replace
-from datetime import timedelta
-from typing import Any
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
+from typing import Any, Callable, Coroutine
 
 from . import db
 from .constants import MAX_ESCALATION_LEVEL, NUDGE_THRESHOLD_HIGH, NUDGE_THRESHOLD_LOW
@@ -33,6 +37,7 @@ from .loops.review import compute_review_cohorts
 from .push_sender import send_scheduler_push
 from .settings import Settings, get_settings
 from .storage import scheduler_store
+from .webhooks.service import process_pending_deliveries
 
 logger = logging.getLogger(__name__)
 
@@ -41,65 +46,276 @@ SCHEDULER_TASKS = (
     "weekly_review",
     "due_soon_nudge",
     "stale_rescue",
+    "webhook_delivery",
 )
 
 
-async def _heartbeat_scheduler_lease(
+@dataclass(slots=True)
+class SchedulerRunContext:
+    """Runtime state for one claimed scheduler slot."""
+
+    task_name: str
+    slot_key: str
+    owner_token: str
+    settings: Settings
+    lease_lost: asyncio.Event
+
+    def assert_active(self) -> None:
+        """Abort immediately if this run lost ownership of its slot."""
+        if self.lease_lost.is_set():
+            raise RuntimeError(f"scheduler_lease_lost:{self.task_name}:{self.slot_key}")
+
+
+def _resolved_context(
+    context: SchedulerRunContext | None,
     *,
     task_name: str,
-    owner_token: str,
-    run_id: str,
     settings: Settings,
-    stop_event: asyncio.Event,
-) -> bool:
-    """Heartbeat the task lease and execution marker until the run completes."""
-    interval_seconds = max(1.0, settings.scheduler_lease_seconds / 3)
-    while not stop_event.is_set():
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
-            break
-        except asyncio.TimeoutError:
-            with db.core_connection(settings) as heartbeat_conn:
-                renewed = scheduler_store.heartbeat_task_lease(
-                    task_name=task_name,
-                    owner_token=owner_token,
-                    lease_seconds=settings.scheduler_lease_seconds,
-                    conn=heartbeat_conn,
-                )
-                scheduler_store.heartbeat_task_execution(
-                    run_id=run_id,
-                    owner_token=owner_token,
-                    heartbeat_at=utc_now(),
-                    conn=heartbeat_conn,
-                )
-            if not renewed:
-                return False
-    return True
+) -> SchedulerRunContext:
+    """Return the provided scheduler context or a one-shot context for direct calls."""
+    if context is not None:
+        return context
+    return SchedulerRunContext(
+        task_name=task_name,
+        slot_key=f"adhoc-{uuid.uuid4()}",
+        owner_token="adhoc",
+        settings=settings,
+        lease_lost=asyncio.Event(),
+    )
+
+
+def _slot_interval_seconds(task_name: str, settings: Settings) -> int:
+    if task_name == "daily_review":
+        return int(settings.scheduler_daily_review_interval_hours * 3600)
+    if task_name == "weekly_review":
+        return int(settings.scheduler_weekly_review_interval_hours * 3600)
+    if task_name == "due_soon_nudge":
+        return int(settings.scheduler_due_soon_nudge_interval_hours * 3600)
+    if task_name == "stale_rescue":
+        return int(settings.scheduler_stale_rescue_interval_hours * 3600)
+    if task_name == "webhook_delivery":
+        return max(1, int(settings.scheduler_poll_interval_seconds))
+    raise ValueError(f"Unknown scheduler task: {task_name}")
+
+
+def _slot_key(task_name: str, now_utc: datetime, settings: Settings) -> str:
+    if task_name == "daily_review":
+        return now_utc.date().isoformat()
+    if task_name == "weekly_review":
+        week_start = (now_utc - timedelta(days=now_utc.weekday())).date()
+        return week_start.isoformat()
+    if task_name in {"due_soon_nudge", "stale_rescue", "webhook_delivery"}:
+        interval_seconds = _slot_interval_seconds(task_name, settings)
+        slot_number = int(now_utc.timestamp()) // interval_seconds
+        return str(slot_number)
+    raise ValueError(f"Unknown scheduler task: {task_name}")
+
+
+def _next_due_at(
+    task_name: str,
+    started_at: datetime,
+    settings: Settings,
+    *,
+    success: bool,
+) -> datetime:
+    if not success:
+        return started_at + timedelta(seconds=settings.scheduler_poll_interval_seconds)
+    return started_at + timedelta(seconds=_slot_interval_seconds(task_name, settings))
+
+
+async def _heartbeat_scheduler_run(
+    *,
+    context: SchedulerRunContext,
+    runner_task: asyncio.Task[Any],
+) -> None:
+    """Renew the owned slot lease and cancel the runner on lease loss."""
+    interval_seconds = max(1.0, context.settings.scheduler_lease_seconds / 3)
+    while not context.lease_lost.is_set():
+        await asyncio.sleep(interval_seconds)
+        with db.core_connection(context.settings) as heartbeat_conn:
+            renewed = scheduler_store.heartbeat_task_run(
+                task_name=context.task_name,
+                slot_key=context.slot_key,
+                owner_token=context.owner_token,
+                lease_seconds=context.settings.scheduler_lease_seconds,
+                heartbeat_at=utc_now(),
+                conn=heartbeat_conn,
+            )
+        if not renewed:
+            context.lease_lost.set()
+            runner_task.cancel()
+            return
 
 
 def _emit_scheduler_event(
     event_type: LoopEventType,
     payload: dict[str, Any],
+    *,
+    context: SchedulerRunContext,
     conn: sqlite3.Connection,
 ) -> int:
-    """Emit a scheduler event to loop_events table.
-
-    Returns the event ID for SSE streaming.
-    """
-    now = utc_now()
+    """Insert one scheduler-owned loop event per `(task, slot, event_type)`."""
+    context.assert_active()
     cursor = conn.execute(
-        """INSERT INTO loop_events (loop_id, event_type, payload_json, created_at)
-           VALUES (NULL, ?, ?, ?)
+        """
+        INSERT INTO loop_events (
+            loop_id,
+            event_type,
+            payload_json,
+            source_task_name,
+            source_slot_key,
+            created_at
+        )
+        VALUES (NULL, ?, ?, ?, ?, ?)
         """,
-        (event_type.value, json.dumps(payload), now.isoformat()),
+        (
+            event_type.value,
+            json.dumps(payload),
+            context.task_name,
+            context.slot_key,
+            utc_now().isoformat(),
+        ),
     )
-    conn.commit()
-    return cursor.lastrowid or 0
+    if cursor.lastrowid is not None:
+        conn.commit()
+        return int(cursor.lastrowid)
+    if cursor.rowcount == 1:
+        conn.commit()
+        assert cursor.lastrowid is not None
+        return int(cursor.lastrowid)
+
+    row = conn.execute(
+        """
+        SELECT id
+        FROM loop_events
+        WHERE source_task_name = ?
+          AND source_slot_key = ?
+          AND event_type = ?
+        """,
+        (context.task_name, context.slot_key, event_type.value),
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO loop_events (
+                loop_id,
+                event_type,
+                payload_json,
+                source_task_name,
+                source_slot_key,
+                created_at
+            )
+            VALUES (NULL, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_type.value,
+                json.dumps(payload),
+                context.task_name,
+                context.slot_key,
+                utc_now().isoformat(),
+            ),
+        )
+        row = conn.execute(
+            """
+            SELECT id
+            FROM loop_events
+            WHERE source_task_name = ?
+              AND source_slot_key = ?
+              AND event_type = ?
+            """,
+            (context.task_name, context.slot_key, event_type.value),
+        ).fetchone()
+    if row is None:
+        raise RuntimeError("scheduler_event_dedupe_lookup_failed")
+    return int(row["id"])
 
 
-async def run_daily_review(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Generate daily review cohorts and emit event."""
+def _send_scheduler_push_once(
+    *,
+    push_kind: str,
+    payload: dict[str, Any],
+    context: SchedulerRunContext,
+    conn: sqlite3.Connection,
+) -> int:
+    """Send at most one scheduler push per `(task, slot, push_kind)`."""
+    context.assert_active()
+    existing = conn.execute(
+        """
+        SELECT push_count
+        FROM scheduler_push_deliveries
+        WHERE task_name = ? AND slot_key = ? AND push_kind = ?
+        """,
+        (context.task_name, context.slot_key, push_kind),
+    ).fetchone()
+    if existing is not None:
+        return int(existing["push_count"] or 0)
+
+    push_count = send_scheduler_push(push_kind, payload, context.settings, conn)
+    scheduler_store.record_scheduler_push(
+        task_name=context.task_name,
+        slot_key=context.slot_key,
+        push_kind=push_kind,
+        payload=payload,
+        push_count=push_count,
+        sent_at=utc_now(),
+        conn=conn,
+    )
+    return push_count
+
+
+def _upsert_nudge_state_for_slot(
+    *,
+    loop_id: int,
+    nudge_type: str,
+    escalation_level: int,
+    nudge_count: int,
+    last_nudge_event_id: int,
+    slot_key: str,
+    conn: sqlite3.Connection,
+) -> None:
+    """Persist one nudge update per loop and scheduler slot."""
+    conn.execute(
+        """
+        INSERT INTO loop_nudges (
+            loop_id,
+            nudge_type,
+            escalation_level,
+            nudge_count,
+            first_nudged_at,
+            last_nudged_at,
+            last_nudge_event_id,
+            last_slot_key
+        )
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?)
+        ON CONFLICT(loop_id, nudge_type) DO UPDATE SET
+            escalation_level = excluded.escalation_level,
+            nudge_count = excluded.nudge_count,
+            last_nudged_at = CURRENT_TIMESTAMP,
+            last_nudge_event_id = excluded.last_nudge_event_id,
+            last_slot_key = excluded.last_slot_key
+        WHERE loop_nudges.last_slot_key IS NULL
+           OR loop_nudges.last_slot_key != excluded.last_slot_key
+        """,
+        (
+            loop_id,
+            nudge_type,
+            escalation_level,
+            nudge_count,
+            last_nudge_event_id,
+            slot_key,
+        ),
+    )
+
+
+async def run_daily_review(
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None = None,
+) -> dict[str, Any]:
+    """Generate one daily review payload and emit exactly one deduped event/push."""
     from .loops.models import format_utc_datetime
+
+    resolved = _resolved_context(context, task_name="daily_review", settings=settings)
 
     result = compute_review_cohorts(
         settings=settings,
@@ -109,7 +325,6 @@ async def run_daily_review(settings: Settings, conn: sqlite3.Connection) -> dict
         include_weekly=False,
         limit_per_cohort=50,
     )
-
     payload = {
         "review_type": "daily",
         "cohorts": [
@@ -123,24 +338,33 @@ async def run_daily_review(settings: Settings, conn: sqlite3.Connection) -> dict
         "total_items": sum(c.count for c in result.daily),
         "generated_at_utc": format_utc_datetime(utc_now()),
     }
-
-    event_id = _emit_scheduler_event(LoopEventType.REVIEW_GENERATED, payload, conn)
-    logger.info(
-        f"Daily review generated: {payload['total_items']} items across {len(result.daily)} cohorts"
+    event_id = _emit_scheduler_event(
+        LoopEventType.REVIEW_GENERATED,
+        payload,
+        context=resolved,
+        conn=conn,
     )
-
-    # Send push notification
     try:
-        send_scheduler_push("review_generated", payload, settings, conn)
-    except Exception as e:
-        logger.warning(f"Push notification failed: {e}")
-
+        _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload=payload,
+            context=resolved,
+            conn=conn,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Push notification failed: %s", exc)
     return {"event_id": event_id, **payload}
 
 
-async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Generate weekly review cohorts and emit event."""
+async def run_weekly_review(
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None = None,
+) -> dict[str, Any]:
+    """Generate one weekly review payload and emit exactly one deduped event/push."""
     from .loops.models import format_utc_datetime
+
+    resolved = _resolved_context(context, task_name="weekly_review", settings=settings)
 
     result = compute_review_cohorts(
         settings=settings,
@@ -150,7 +374,6 @@ async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dic
         include_weekly=True,
         limit_per_cohort=100,
     )
-
     payload = {
         "review_type": "weekly",
         "cohorts": [
@@ -164,38 +387,39 @@ async def run_weekly_review(settings: Settings, conn: sqlite3.Connection) -> dic
         "total_items": sum(c.count for c in result.weekly),
         "generated_at_utc": format_utc_datetime(utc_now()),
     }
-
-    event_id = _emit_scheduler_event(LoopEventType.REVIEW_GENERATED, payload, conn)
-    cohort_count = len(result.weekly)
-    logger.info(
-        f"Weekly review generated: {payload['total_items']} items across {cohort_count} cohorts"
+    event_id = _emit_scheduler_event(
+        LoopEventType.REVIEW_GENERATED,
+        payload,
+        context=resolved,
+        conn=conn,
     )
-
-    # Send push notification
     try:
-        send_scheduler_push("review_generated", payload, settings, conn)
-    except Exception as e:
-        logger.warning(f"Push notification failed: {e}")
-
+        _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload=payload,
+            context=resolved,
+            conn=conn,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Push notification failed: %s", exc)
     return {"event_id": event_id, **payload}
 
 
-async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Find loops due soon without next_action and emit escalating nudge events."""
-    from datetime import timedelta
-
+async def run_due_soon_nudge(
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None = None,
+) -> dict[str, Any]:
+    """Emit and persist one deduped due-soon nudge slot."""
     from .loops import repo as loop_repo
     from .loops.models import format_utc_datetime, parse_utc_datetime
     from .loops.prioritization import PriorityWeights, bucketize, compute_priority_score
-    from .loops.repo import get_nudge_states_batch, upsert_nudge_state
+    from .loops.repo import get_nudge_states_batch
 
+    resolved = _resolved_context(context, task_name="due_soon_nudge", settings=settings)
     now = utc_now()
     due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.due_soon_hours))
     now_str = format_utc_datetime(now)
-
-    # Find due-soon and overdue loops without next_action
-    # Include overdue loops (due_at_utc <= now) for escalation
-    # Exclude snoozed loops (snooze_until_utc in the future)
     effective_due_expr = effective_due_sql(table_alias="")
     rows = conn.execute(
         f"""SELECT id, title, due_at_utc, next_due_at_utc, urgency, importance,
@@ -205,15 +429,12 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
              AND {effective_due_expr} <= ?
              AND next_action IS NULL
              AND status IN ('inbox', 'actionable', 'scheduled')
-             AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
-        """,
+             AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)""",
         (due_soon_cutoff, now_str),
     ).fetchall()
-
     if not rows:
         return {"nudged": 0, "loop_ids": [], "escalation_summary": {}, "bucket_summary": {}}
 
-    # Build priority weights from settings
     weights = PriorityWeights(
         due_weight=settings.priority_weight_due,
         urgency_weight=settings.priority_weight_urgency,
@@ -222,13 +443,11 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
         activation_penalty=settings.priority_weight_activation_penalty,
         blocked_penalty=settings.priority_weight_blocked_penalty,
     )
-
-    # Score each candidate
     scored_candidates = []
     for row in rows:
         loop_dict = dict(row)
         effective_due = effective_due_iso(row)
-        loop_dict["due_at_utc"] = effective_due  # Override for scoring/bucketing
+        loop_dict["due_at_utc"] = effective_due
         has_open_deps = loop_repo.has_open_dependencies(loop_id=row["id"], conn=conn)
         score = compute_priority_score(
             loop_dict,
@@ -249,27 +468,16 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
                 "effective_due": effective_due,
                 "score": score,
                 "bucket": bucket,
-                "has_open_deps": has_open_deps,
             }
         )
 
-    # Sort by score descending and truncate to top 50
-    scored_candidates.sort(key=lambda x: x["score"], reverse=True)
+    scored_candidates.sort(key=lambda item: item["score"], reverse=True)
     scored_candidates = scored_candidates[:50]
+    loop_ids = [candidate["row"]["id"] for candidate in scored_candidates]
+    existing_states = get_nudge_states_batch(loop_ids=loop_ids, nudge_type="due_soon", conn=conn)
 
-    loop_ids = [c["row"]["id"] for c in scored_candidates]
-
-    # Fetch existing nudge states
-    existing_states = get_nudge_states_batch(
-        loop_ids=loop_ids,
-        nudge_type="due_soon",
-        conn=conn,
-    )
-
-    # Build details with escalation info
     details = []
-    escalation_summary: dict[int, int] = {}  # level -> count
-
+    escalation_summary: dict[int, int] = {}
     for candidate in scored_candidates:
         row = candidate["row"]
         loop_id = row["id"]
@@ -278,18 +486,11 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
         due_at = parse_utc_datetime(effective_due) if effective_due else now
         hours_until_due = (due_at - now).total_seconds() / 3600
         is_overdue = hours_until_due < 0
-
-        # Calculate escalation
         if state is None:
             nudge_count = 1
-            # First nudge: overdue loops start at max escalation
-            if is_overdue:
-                escalation_level = MAX_ESCALATION_LEVEL
-            else:
-                escalation_level = 0
+            escalation_level = MAX_ESCALATION_LEVEL if is_overdue else 0
         else:
             nudge_count = state.nudge_count + 1
-            # Escalate based on count and overdue status
             if is_overdue:
                 escalation_level = min(
                     MAX_ESCALATION_LEVEL + 1,
@@ -301,10 +502,7 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
                 escalation_level = min(MAX_ESCALATION_LEVEL + 1, 1)
             else:
                 escalation_level = state.escalation_level
-
-        # Track escalation summary
         escalation_summary[escalation_level] = escalation_summary.get(escalation_level, 0) + 1
-
         details.append(
             {
                 "id": loop_id,
@@ -319,69 +517,68 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
             }
         )
 
-    bucket_summary = dict(Counter(c["bucket"] for c in scored_candidates))
-
     payload = {
         "nudge_type": "due_soon",
         "loop_ids": loop_ids,
         "details": details,
         "escalation_summary": escalation_summary,
-        "bucket_summary": bucket_summary,
+        "bucket_summary": dict(Counter(c["bucket"] for c in scored_candidates)),
         "generated_at_utc": format_utc_datetime(now),
     }
 
-    event_id = _emit_scheduler_event(LoopEventType.NUDGE_DUE_SOON, payload, conn)
-
-    # Send push notification
+    resolved.assert_active()
+    event_id = _emit_scheduler_event(
+        LoopEventType.NUDGE_DUE_SOON,
+        payload,
+        context=resolved,
+        conn=conn,
+    )
     try:
-        send_scheduler_push("nudge_due_soon", payload, settings, conn)
-    except Exception as e:
-        logger.warning(f"Push notification failed: {e}")
-
-    # Persist nudge states
+        _send_scheduler_push_once(
+            push_kind="nudge_due_soon",
+            payload=payload,
+            context=resolved,
+            conn=conn,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Push notification failed: %s", exc)
     for detail in details:
-        upsert_nudge_state(
+        _upsert_nudge_state_for_slot(
             loop_id=detail["id"],
             nudge_type="due_soon",
             escalation_level=detail["escalation_level"],
             nudge_count=detail["nudge_count"],
             last_nudge_event_id=event_id,
+            slot_key=resolved.slot_key,
             conn=conn,
         )
     conn.commit()
-
-    logger.info(
-        f"Due-soon nudge: {len(loop_ids)} loops, buckets: {bucket_summary}, "
-        f"escalation: {escalation_summary}"
-    )
-
     return {"event_id": event_id, "nudged": len(loop_ids), **payload}
 
 
-async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict[str, Any]:
-    """Find stale loops and emit rescue nudge event."""
-    from datetime import timedelta
-
+async def run_stale_rescue(
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None = None,
+) -> dict[str, Any]:
+    """Emit one deduped stale-rescue scheduler slot."""
     from .loops.models import format_utc_datetime
+
+    resolved = _resolved_context(context, task_name="stale_rescue", settings=settings)
 
     now = utc_now()
     stale_cutoff = format_utc_datetime(now - timedelta(hours=settings.review_stale_hours))
     now_str = format_utc_datetime(now)
-
-    # Find stale loops, excluding snoozed loops
     rows = conn.execute(
         """SELECT id, title, status, updated_at FROM loops
            WHERE status IN ('inbox', 'actionable', 'blocked', 'scheduled')
              AND updated_at < ?
              AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
            ORDER BY updated_at ASC
-           LIMIT 100
-        """,
+           LIMIT 100""",
         (stale_cutoff, now_str),
     ).fetchall()
-
     loop_ids = [row["id"] for row in rows]
-
     if not loop_ids:
         return {"rescued": 0, "loop_ids": []}
 
@@ -390,41 +587,49 @@ async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict
         "loop_ids": loop_ids,
         "details": [
             {
-                "id": r["id"],
-                "title": r["title"],
-                "status": r["status"],
-                "updated_at": r["updated_at"],
+                "id": row["id"],
+                "title": row["title"],
+                "status": row["status"],
+                "updated_at": row["updated_at"],
             }
-            for r in rows
+            for row in rows
         ],
         "generated_at_utc": format_utc_datetime(now),
     }
-
-    event_id = _emit_scheduler_event(LoopEventType.NUDGE_STALE, payload, conn)
-    logger.info(f"Stale rescue nudge: {len(loop_ids)} loops")
-
-    # Send push notification
+    event_id = _emit_scheduler_event(
+        LoopEventType.NUDGE_STALE,
+        payload,
+        context=resolved,
+        conn=conn,
+    )
     try:
-        send_scheduler_push("nudge_stale", payload, settings, conn)
-    except Exception as e:
-        logger.warning(f"Push notification failed: {e}")
-
+        _send_scheduler_push_once(
+            push_kind="nudge_stale",
+            payload=payload,
+            context=resolved,
+            conn=conn,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Push notification failed: %s", exc)
     return {"event_id": event_id, "rescued": len(loop_ids), **payload}
 
 
-def _task_interval_hours(task_name: str, settings: Settings) -> float:
-    if task_name == "daily_review":
-        return settings.scheduler_daily_review_interval_hours
-    if task_name == "weekly_review":
-        return settings.scheduler_weekly_review_interval_hours
-    if task_name == "due_soon_nudge":
-        return settings.scheduler_due_soon_nudge_interval_hours
-    if task_name == "stale_rescue":
-        return settings.scheduler_stale_rescue_interval_hours
-    raise ValueError(f"Unknown scheduler task: {task_name}")
+async def run_webhook_delivery(
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None = None,
+) -> dict[str, Any]:
+    """Process queued webhook deliveries from the dedicated scheduler runtime."""
+    _ = context
+    return process_pending_deliveries(conn=conn, settings=settings, batch_size=100)
 
 
-def _task_runner(task_name: str):
+def _task_runner(
+    task_name: str,
+) -> Callable[
+    [Settings, sqlite3.Connection, SchedulerRunContext | None],
+    Coroutine[Any, Any, dict[str, Any]],
+]:
     if task_name == "daily_review":
         return run_daily_review
     if task_name == "weekly_review":
@@ -433,6 +638,8 @@ def _task_runner(task_name: str):
         return run_due_soon_nudge
     if task_name == "stale_rescue":
         return run_stale_rescue
+    if task_name == "webhook_delivery":
+        return run_webhook_delivery
     raise ValueError(f"Unknown scheduler task: {task_name}")
 
 
@@ -442,107 +649,127 @@ async def run_scheduler_task(
     settings: Settings,
     owner_token: str,
 ) -> dict[str, Any] | None:
-    """Run one scheduler task if this process acquires the lease and it is due."""
-    run_id = str(uuid.uuid4())
-    heartbeat_task: asyncio.Task[bool] | None = None
-    heartbeat_stop = asyncio.Event()
-
+    """Run one scheduler task if this process owns the task slot and it is due."""
+    started_at = utc_now()
+    slot_key = _slot_key(task_name, started_at, settings)
     with db.core_connection(settings) as conn:
-        if not scheduler_store.acquire_task_lease(
+        if not scheduler_store.task_ready(task_name=task_name, now_utc=started_at, conn=conn):
+            return None
+        if not scheduler_store.claim_task_run(
             task_name=task_name,
+            slot_key=slot_key,
             owner_token=owner_token,
+            started_at=started_at,
             lease_seconds=settings.scheduler_lease_seconds,
             conn=conn,
         ):
             return None
-        started_at = utc_now()
-        try:
-            if not scheduler_store.task_due(task_name=task_name, now_utc=started_at, conn=conn):
-                return None
-            scheduler_store.start_task_execution(
-                run_id=run_id,
+
+    context = SchedulerRunContext(
+        task_name=task_name,
+        slot_key=slot_key,
+        owner_token=owner_token,
+        settings=settings,
+        lease_lost=asyncio.Event(),
+    )
+    runner_task = asyncio.current_task()
+    assert runner_task is not None
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_scheduler_run(context=context, runner_task=runner_task)
+    )
+    try:
+        with db.core_connection(settings) as conn:
+            result = await _task_runner(task_name)(settings, conn, context)
+        finished_at = utc_now()
+        with db.core_connection(settings) as conn:
+            scheduler_store.finish_task_run(
                 task_name=task_name,
-                owner_token=owner_token,
-                started_at=started_at,
-                conn=conn,
-            )
-            heartbeat_task = asyncio.create_task(
-                _heartbeat_scheduler_lease(
-                    task_name=task_name,
-                    owner_token=owner_token,
-                    run_id=run_id,
-                    settings=settings,
-                    stop_event=heartbeat_stop,
-                )
-            )
-            runner = _task_runner(task_name)
-            result = await runner(settings, conn)
-            heartbeat_stop.set()
-            if heartbeat_task is not None and not await heartbeat_task:
-                raise RuntimeError(f"scheduler_lease_lost:{task_name}")
-            finished_at = utc_now()
-            interval_hours = _task_interval_hours(task_name, settings)
-            next_due_at = started_at + timedelta(hours=interval_hours)
-            scheduler_store.finish_task_execution(
-                run_id=run_id,
+                slot_key=slot_key,
                 owner_token=owner_token,
                 finished_at=finished_at,
                 status="succeeded",
-                error=None,
                 result=result,
+                error=None,
                 conn=conn,
             )
-            scheduler_store.update_task_run_state(
+            scheduler_store.update_task_schedule(
                 task_name=task_name,
+                next_due_at=_next_due_at(task_name, started_at, settings, success=True),
                 started_at=started_at,
                 finished_at=finished_at,
+                slot_key=slot_key,
                 success=True,
-                next_due_at=next_due_at,
                 result=result,
                 error=None,
                 conn=conn,
             )
-            return result
-        except Exception as exc:
-            heartbeat_stop.set()
-            if heartbeat_task is not None:
-                await heartbeat_task
-            finished_at = utc_now()
-            interval_hours = _task_interval_hours(task_name, settings)
-            next_due_at = started_at + timedelta(hours=interval_hours)
-            scheduler_store.finish_task_execution(
-                run_id=run_id,
+        return result
+    except asyncio.CancelledError as exc:
+        finished_at = utc_now()
+        with db.core_connection(settings) as conn:
+            scheduler_store.finish_task_run(
+                task_name=task_name,
+                slot_key=slot_key,
+                owner_token=owner_token,
+                finished_at=finished_at,
+                status="abandoned" if context.lease_lost.is_set() else "failed",
+                result=None,
+                error="lease_lost" if context.lease_lost.is_set() else "cancelled",
+                conn=conn,
+            )
+            if not context.lease_lost.is_set():
+                scheduler_store.update_task_schedule(
+                    task_name=task_name,
+                    next_due_at=_next_due_at(task_name, started_at, settings, success=False),
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    slot_key=slot_key,
+                    success=False,
+                    result=None,
+                    error="cancelled",
+                    conn=conn,
+                )
+        raise RuntimeError(f"scheduler_task_cancelled:{task_name}:{slot_key}") from exc
+    except Exception as exc:  # noqa: BLE001
+        finished_at = utc_now()
+        with db.core_connection(settings) as conn:
+            scheduler_store.finish_task_run(
+                task_name=task_name,
+                slot_key=slot_key,
                 owner_token=owner_token,
                 finished_at=finished_at,
                 status="failed",
-                error=str(exc),
                 result=None,
+                error=str(exc),
                 conn=conn,
             )
-            scheduler_store.update_task_run_state(
+            scheduler_store.update_task_schedule(
                 task_name=task_name,
+                next_due_at=_next_due_at(task_name, started_at, settings, success=False),
                 started_at=started_at,
                 finished_at=finished_at,
+                slot_key=slot_key,
                 success=False,
-                next_due_at=next_due_at,
                 result=None,
                 error=str(exc),
                 conn=conn,
             )
-            raise
-        finally:
-            heartbeat_stop.set()
-            scheduler_store.release_task_lease(
-                task_name=task_name,
-                owner_token=owner_token,
-                conn=conn,
-            )
+        raise
+    finally:
+        context.lease_lost.set()
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
 
 
 async def run_scheduler_once(
-    settings: Settings, *, owner_token: str | None = None
+    settings: Settings,
+    *,
+    owner_token: str | None = None,
 ) -> dict[str, Any]:
-    """Run one scheduler polling cycle."""
+    """Run one full scheduler polling cycle."""
     if not settings.scheduler_enabled:
         logger.info("Scheduler disabled via configuration")
         return {}
@@ -564,8 +791,8 @@ async def scheduler_loop(settings: Settings) -> None:
     if not settings.scheduler_enabled:
         logger.info("Scheduler disabled via configuration")
         return
-    logger.info("Dedicated scheduler started")
     owner_token = f"scheduler-{uuid.uuid4()}"
+    logger.info("Dedicated scheduler started")
     while True:
         try:
             await run_scheduler_once(settings, owner_token=owner_token)
@@ -573,7 +800,7 @@ async def scheduler_loop(settings: Settings) -> None:
         except asyncio.CancelledError:
             logger.info("Scheduler stopped")
             raise
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.exception("Scheduler error: %s", exc)
             await asyncio.sleep(settings.scheduler_poll_interval_seconds)
 
@@ -595,22 +822,18 @@ Exit codes:
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--once",
-        action="store_true",
-        help="Run one polling cycle and exit.",
-    )
+    parser.add_argument("--once", action="store_true", help="Run one polling cycle and exit.")
     parser.add_argument(
         "--poll-seconds",
         type=float,
         default=None,
-        help="Override scheduler poll interval for this process.",
+        help="Override scheduler poll interval seconds for this process.",
     )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the dedicated scheduler process."""
+    """CLI entrypoint for the dedicated scheduler process."""
     parser = build_scheduler_parser()
     args = parser.parse_args(argv)
     settings = get_settings()
@@ -622,11 +845,23 @@ def main(argv: list[str] | None = None) -> int:
             asyncio.run(run_scheduler_once(settings))
         else:
             asyncio.run(scheduler_loop(settings))
-    except Exception:
-        logger.exception("Scheduler process failed")
+    except KeyboardInterrupt:
+        return 0
+    except Exception:  # noqa: BLE001
+        logger.exception("Scheduler execution failed")
         return 1
     return 0
 
 
-if __name__ == "__main__":  # pragma: no cover
-    raise SystemExit(main())
+__all__ = [
+    "build_scheduler_parser",
+    "main",
+    "run_daily_review",
+    "run_due_soon_nudge",
+    "run_scheduler_once",
+    "run_scheduler_task",
+    "run_stale_rescue",
+    "run_webhook_delivery",
+    "run_weekly_review",
+    "scheduler_loop",
+]

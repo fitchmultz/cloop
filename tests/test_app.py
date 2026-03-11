@@ -605,7 +605,7 @@ def test_loop_update_empty_fields_returns_400(
     response = test_client.patch(f"/loops/{loop_id}", json={})
     assert response.status_code == 400
     data = response.json()
-    assert data["error"]["type"] == "http_error"
+    assert data["error"]["type"] == "validation_error"
     assert "no_fields_to_update" in data["error"]["message"]
 
 
