@@ -156,9 +156,9 @@ def _emit_scheduler_event(
 ) -> int:
     """Insert one scheduler-owned loop event per `(task, slot, event_type)`."""
     context.assert_active()
-    cursor = conn.execute(
+    conn.execute(
         """
-        INSERT INTO loop_events (
+        INSERT OR IGNORE INTO loop_events (
             loop_id,
             event_type,
             payload_json,
@@ -176,14 +176,6 @@ def _emit_scheduler_event(
             utc_now().isoformat(),
         ),
     )
-    if cursor.lastrowid is not None:
-        conn.commit()
-        return int(cursor.lastrowid)
-    if cursor.rowcount == 1:
-        conn.commit()
-        assert cursor.lastrowid is not None
-        return int(cursor.lastrowid)
-
     row = conn.execute(
         """
         SELECT id
@@ -195,38 +187,8 @@ def _emit_scheduler_event(
         (context.task_name, context.slot_key, event_type.value),
     ).fetchone()
     if row is None:
-        conn.execute(
-            """
-            INSERT OR IGNORE INTO loop_events (
-                loop_id,
-                event_type,
-                payload_json,
-                source_task_name,
-                source_slot_key,
-                created_at
-            )
-            VALUES (NULL, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_type.value,
-                json.dumps(payload),
-                context.task_name,
-                context.slot_key,
-                utc_now().isoformat(),
-            ),
-        )
-        row = conn.execute(
-            """
-            SELECT id
-            FROM loop_events
-            WHERE source_task_name = ?
-              AND source_slot_key = ?
-              AND event_type = ?
-            """,
-            (context.task_name, context.slot_key, event_type.value),
-        ).fetchone()
-    if row is None:
         raise RuntimeError("scheduler_event_dedupe_lookup_failed")
+    conn.commit()
     return int(row["id"])
 
 
@@ -237,7 +199,11 @@ def _send_scheduler_push_once(
     context: SchedulerRunContext,
     conn: sqlite3.Connection,
 ) -> int:
-    """Send at most one scheduler push per `(task, slot, push_kind)`."""
+    """Send at most one scheduler push per `(task, slot, push_kind)`.
+
+    The push marker is claimed before the external send to guarantee at-most-once
+    delivery per scheduler slot, even if the process crashes mid-send.
+    """
     context.assert_active()
     existing = conn.execute(
         """
@@ -249,6 +215,25 @@ def _send_scheduler_push_once(
     ).fetchone()
     if existing is not None:
         return int(existing["push_count"] or 0)
+
+    claimed = scheduler_store.claim_scheduler_push(
+        task_name=context.task_name,
+        slot_key=context.slot_key,
+        push_kind=push_kind,
+        payload=payload,
+        claimed_at=utc_now(),
+        conn=conn,
+    )
+    if not claimed:
+        row = conn.execute(
+            """
+            SELECT push_count
+            FROM scheduler_push_deliveries
+            WHERE task_name = ? AND slot_key = ? AND push_kind = ?
+            """,
+            (context.task_name, context.slot_key, push_kind),
+        ).fetchone()
+        return int(row["push_count"] or 0) if row is not None else 0
 
     push_count = send_scheduler_push(push_kind, payload, context.settings, conn)
     scheduler_store.record_scheduler_push(

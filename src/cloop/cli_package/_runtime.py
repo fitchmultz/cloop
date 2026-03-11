@@ -39,6 +39,8 @@ from dataclasses import dataclass
 from typing import NoReturn, TypeVar
 
 from .. import db
+from ..error_contract import error_view_from_exception
+from ..loops.errors import CloopError
 from ..settings import Settings
 from .output import emit_output
 
@@ -97,6 +99,13 @@ def emit_cli_error(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
 
 
+def _cli_command_error_from_exception(exc: CloopError) -> CliCommandError:
+    """Map one domain exception to the canonical CLI-facing failure."""
+    view = error_view_from_exception(exc)
+    exit_code = 2 if view.status_code in {403, 404, 410} else 1
+    return cli_error(view.message, exit_code=exit_code)
+
+
 def run_cli_action(
     *,
     action: Callable[[], ResultT],
@@ -117,6 +126,10 @@ def run_cli_action(
                 mapped = handler.transform(exc)
                 emit_cli_error(mapped.message)
                 return mapped.exit_code
+        if isinstance(exc, CloopError):
+            mapped = _cli_command_error_from_exception(exc)
+            emit_cli_error(mapped.message)
+            return mapped.exit_code
         raise
 
     if render is not None:

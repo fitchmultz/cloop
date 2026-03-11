@@ -321,7 +321,33 @@ def _deliver_claimed_webhook(
             )
             return DeliveryStatus.SUCCEEDED
 
-        raise RuntimeError(f"HTTP {http_status}: Non-2xx response")
+        error_message = f"HTTP {http_status}: Non-2xx response"
+        delivery_status = DeliveryStatus.DEAD_LETTER
+        next_retry_at_epoch: int | None = None
+        if attempt.attempt_number < settings.webhook_max_retries:
+            delivery_status = DeliveryStatus.QUEUED
+            next_retry_at_epoch = int(
+                time.time() + _calculate_retry_delay(attempt.attempt_number, settings)
+            )
+
+        repo.finalize_delivery_attempt(
+            conn=conn,
+            delivery_id=delivery.id,
+            attempt_number=attempt.attempt_number,
+            owner_token=owner_token,
+            delivery_status=delivery_status,
+            attempt_status=DeliveryAttemptStatus.FAILED,
+            request_bytes=payload_bytes,
+            signature_header=signature_header,
+            started_at=attempt.started_at,
+            finished_at=delivered_at,
+            http_status=http_status,
+            response_body=response_body,
+            error_message=error_message,
+            connect_ip=connect_ip,
+            next_retry_at_epoch=next_retry_at_epoch,
+        )
+        return delivery_status
     except Exception as exc:  # noqa: BLE001
         error_message = str(exc)[:500]
         delivery_status = DeliveryStatus.DEAD_LETTER

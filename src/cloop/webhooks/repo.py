@@ -332,6 +332,25 @@ def claim_delivery_attempt(
             conn.rollback()
             return None
 
+        if row["status"] == DeliveryStatus.IN_FLIGHT.value:
+            conn.execute(
+                """
+                UPDATE webhook_delivery_attempts
+                SET status = ?,
+                    finished_at = ?,
+                    error_message = ?
+                WHERE delivery_id = ?
+                  AND status = ?
+                """,
+                (
+                    DeliveryAttemptStatus.FAILED.value,
+                    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_epoch)),
+                    "Attempt lease expired and was reclaimed by a new worker",
+                    row["id"],
+                    DeliveryAttemptStatus.RUNNING.value,
+                ),
+            )
+
         claimed = conn.execute(
             """
             UPDATE webhook_deliveries
@@ -361,7 +380,15 @@ def claim_delivery_attempt(
             conn.rollback()
             return None
 
-        attempt_number = int(row["attempt_count"]) + 1
+        attempt_number_row = conn.execute(
+            """
+            SELECT COALESCE(MAX(attempt_number), 0) AS attempt_number
+            FROM webhook_delivery_attempts
+            WHERE delivery_id = ?
+            """,
+            (row["id"],),
+        ).fetchone()
+        attempt_number = int(attempt_number_row["attempt_number"]) + 1
         started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now_epoch))
         attempt_cursor = conn.execute(
             """

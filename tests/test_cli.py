@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from cloop import db
+from cloop.cli_package._runtime import run_cli_action
 from cloop.cli_package.loop_core_commands import (
     capture_command,
     inbox_command,
@@ -26,6 +27,7 @@ from cloop.cli_package.loop_core_commands import (
 from cloop.cli_package.loop_misc_commands import import_command
 from cloop.cli_package.main import build_parser, main
 from cloop.cli_package.rag_commands import ask_command, ingest_command
+from cloop.loops.errors import LoopNotFoundError
 from cloop.loops.models import LoopStatus, resolve_status_from_flags
 from cloop.settings import Settings, get_settings
 
@@ -79,6 +81,19 @@ def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
         return "mock-response", {"model": settings.llm_model, "latency_ms": 12.5}
 
     monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)
+
+
+def test_run_cli_action_uses_shared_domain_error_mapping(capsys: Any) -> None:
+    """CLI runtime should map domain exceptions through the shared error contract."""
+
+    def _raise_not_found() -> None:
+        raise LoopNotFoundError(loop_id=42)
+
+    exit_code = run_cli_action(action=_raise_not_found)
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "Loop not found: 42" in captured.err
 
 
 def _get_last_json(capsys: Any) -> Any:

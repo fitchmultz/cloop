@@ -26,32 +26,21 @@ Exception Mapping:
 
 import logging
 import uuid
-from typing import Any
 
 from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from .constants import HTTP_INTERNAL_SERVER_ERROR, HTTP_UNPROCESSABLE_ENTITY
-from .error_contract import error_response, error_view_from_exception
+from .error_contract import (
+    error_response,
+    error_view_from_exception,
+    internal_error_view,
+    request_validation_error_view,
+)
 from .loops.errors import CloopError
 
 logger = logging.getLogger(__name__)
-
-
-def _http_error(detail: Any, *, status_code: int, error_type: str) -> JSONResponse:
-    """Build a structured JSON error response."""
-    if isinstance(detail, dict):
-        message = detail.get("message") or detail.get("detail") or "Request failed"
-        details = detail
-    else:
-        message = str(detail)
-        details = {}
-    return JSONResponse(
-        status_code=status_code,
-        content={"error": {"type": error_type, "message": message, "details": details}},
-    )
 
 
 def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
@@ -66,21 +55,7 @@ def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
 
 def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:
     """Handle Pydantic request validation errors."""
-    serialized_errors: list[dict[str, Any]] = []
-    for error in exc.errors():
-        normalized = dict(error)
-        ctx = normalized.get("ctx")
-        if isinstance(ctx, dict):
-            normalized["ctx"] = {
-                key: (str(value) if isinstance(value, Exception) else value)
-                for key, value in ctx.items()
-            }
-        serialized_errors.append(normalized)
-    return _http_error(
-        {"message": "Validation failed", "errors": serialized_errors},
-        status_code=HTTP_UNPROCESSABLE_ENTITY,
-        error_type="validation_error",
-    )
+    return error_response(request_validation_error_view(exc))
 
 
 def handle_generic_exception(_: Request, exc: Exception) -> JSONResponse:
@@ -91,11 +66,7 @@ def handle_generic_exception(_: Request, exc: Exception) -> JSONResponse:
     """
     error_id = str(uuid.uuid4())
     logger.exception("Unhandled exception [%s]: %s", error_id, exc)
-    return _http_error(
-        {"message": "Unexpected server error", "error_id": error_id},
-        status_code=HTTP_INTERNAL_SERVER_ERROR,
-        error_type="server_error",
-    )
+    return error_response(internal_error_view(error_id=error_id))
 
 
 def register_exception_handlers(app) -> None:

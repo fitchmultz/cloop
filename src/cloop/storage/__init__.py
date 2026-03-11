@@ -32,6 +32,7 @@ from .memory_store import (
 )
 from .notes_store import list_notes, read_note, search_notes, upsert_note
 from .scheduler_store import (
+    claim_scheduler_push,
     claim_task_run,
     finish_task_run,
     get_task_run,
@@ -45,6 +46,7 @@ from .scheduler_store import (
 
 __all__ = [
     "claim_or_replay_idempotency",
+    "claim_scheduler_push",
     "claim_task_run",
     "create_memory_entry",
     "delete_memory_entry",

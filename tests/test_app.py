@@ -456,6 +456,7 @@ def test_validation_error_shape(test_client: TestClient, tmp_data_dir: Path) -> 
     assert response.status_code == 422
     payload = response.json()
     assert payload["error"]["type"] == "validation_error"
+    assert payload["error"]["code"] == "request_validation_error"
     assert payload["error"]["details"]["errors"]
 
 
@@ -632,6 +633,7 @@ def test_generic_exception_sanitized_response(
     assert response.status_code == 500
     data = response.json()
     assert data["error"]["type"] == "server_error"
+    assert data["error"]["code"] == "internal_server_error"
     assert data["error"]["message"] == "Unexpected server error"
 
     assert "error_id" in data["error"]["details"]

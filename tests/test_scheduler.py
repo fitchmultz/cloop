@@ -24,6 +24,9 @@ import pytest
 from cloop import db
 from cloop.loops.models import LoopEventType
 from cloop.scheduler import (
+    SchedulerRunContext,
+    _emit_scheduler_event,
+    _send_scheduler_push_once,
     run_daily_review,
     run_due_soon_nudge,
     run_scheduler_once,
@@ -124,6 +127,170 @@ class TestSchedulerState:
         assert row is not None
         assert row["status"] == "succeeded"
         assert row["result_json"] is not None
+
+    def test_same_slot_cannot_be_reclaimed_after_success(
+        self, scheduler_db: sqlite3.Connection
+    ) -> None:
+        started_at = datetime.now(timezone.utc)
+        claimed = scheduler_store.claim_task_run(
+            task_name="daily_review",
+            slot_key="2026-03-11",
+            owner_token="owner-a",
+            started_at=started_at,
+            lease_seconds=180,
+            conn=scheduler_db,
+        )
+        assert claimed is True
+
+        finished = scheduler_store.finish_task_run(
+            task_name="daily_review",
+            slot_key="2026-03-11",
+            owner_token="owner-a",
+            finished_at=started_at,
+            status="succeeded",
+            result={"ok": True},
+            error=None,
+            conn=scheduler_db,
+        )
+        assert finished is True
+
+        reclaimed = scheduler_store.claim_task_run(
+            task_name="daily_review",
+            slot_key="2026-03-11",
+            owner_token="owner-b",
+            started_at=started_at + timedelta(minutes=5),
+            lease_seconds=180,
+            conn=scheduler_db,
+        )
+        assert reclaimed is False
+
+    def test_same_slot_rerun_reuses_existing_scheduler_event(
+        self, scheduler_db: sqlite3.Connection
+    ) -> None:
+        context = SchedulerRunContext(
+            task_name="daily_review",
+            slot_key="2026-03-11",
+            owner_token="owner-a",
+            settings=get_settings(),
+            lease_lost=asyncio.Event(),
+        )
+
+        event_id_one = _emit_scheduler_event(
+            LoopEventType.REVIEW_GENERATED,
+            {"review_type": "daily", "total_items": 1},
+            context=context,
+            conn=scheduler_db,
+        )
+        event_id_two = _emit_scheduler_event(
+            LoopEventType.REVIEW_GENERATED,
+            {"review_type": "daily", "total_items": 1},
+            context=context,
+            conn=scheduler_db,
+        )
+
+        row = scheduler_db.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM loop_events
+            WHERE source_task_name = ? AND source_slot_key = ? AND event_type = ?
+            """,
+            ("daily_review", "2026-03-11", LoopEventType.REVIEW_GENERATED.value),
+        ).fetchone()
+        assert event_id_one == event_id_two
+        assert row is not None
+        assert row["count"] == 1
+
+    def test_same_slot_push_is_reserved_before_send(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        send_calls: list[dict[str, object]] = []
+
+        def _fake_send(push_kind, payload, settings, conn):  # noqa: ANN001
+            send_calls.append({"push_kind": push_kind, "payload": payload})
+            return 3
+
+        monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _fake_send)
+        context = SchedulerRunContext(
+            task_name="daily_review",
+            slot_key="2026-03-11",
+            owner_token="owner-a",
+            settings=get_settings(),
+            lease_lost=asyncio.Event(),
+        )
+
+        push_count_one = _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload={"review_type": "daily"},
+            context=context,
+            conn=scheduler_db,
+        )
+        push_count_two = _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload={"review_type": "daily"},
+            context=context,
+            conn=scheduler_db,
+        )
+
+        row = scheduler_db.execute(
+            """
+            SELECT push_count
+            FROM scheduler_push_deliveries
+            WHERE task_name = ? AND slot_key = ? AND push_kind = ?
+            """,
+            ("daily_review", "2026-03-11", "review_generated"),
+        ).fetchone()
+        assert push_count_one == 3
+        assert push_count_two == 3
+        assert len(send_calls) == 1
+        assert row is not None
+        assert row["push_count"] == 3
+
+    def test_same_slot_push_is_not_retried_after_send_crash(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        call_count = 0
+
+        def _crashing_send(push_kind, payload, settings, conn):  # noqa: ANN001
+            nonlocal call_count
+            call_count += 1
+            raise RuntimeError("push send crashed after reservation")
+
+        monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _crashing_send)
+        context = SchedulerRunContext(
+            task_name="daily_review",
+            slot_key="2026-03-12",
+            owner_token="owner-a",
+            settings=get_settings(),
+            lease_lost=asyncio.Event(),
+        )
+
+        with pytest.raises(RuntimeError, match="push send crashed"):
+            _send_scheduler_push_once(
+                push_kind="review_generated",
+                payload={"review_type": "daily"},
+                context=context,
+                conn=scheduler_db,
+            )
+
+        push_count = _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload={"review_type": "daily"},
+            context=context,
+            conn=scheduler_db,
+        )
+
+        row = scheduler_db.execute(
+            """
+            SELECT push_count
+            FROM scheduler_push_deliveries
+            WHERE task_name = ? AND slot_key = ? AND push_kind = ?
+            """,
+            ("daily_review", "2026-03-12", "review_generated"),
+        ).fetchone()
+        assert call_count == 1
+        assert push_count == 0
+        assert row is not None
+        assert row["push_count"] == 0
 
 
 class TestDailyReview:

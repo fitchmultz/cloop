@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import HTTPException
+from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
 from .constants import (
@@ -234,4 +235,36 @@ def error_response(view: AppErrorView) -> JSONResponse:
                 "details": details,
             }
         },
+    )
+
+
+def request_validation_error_view(exc: RequestValidationError) -> AppErrorView:
+    """Normalize FastAPI request validation failures to the canonical contract."""
+    serialized_errors: list[dict[str, Any]] = []
+    for error in exc.errors():
+        normalized = dict(error)
+        ctx = normalized.get("ctx")
+        if isinstance(ctx, dict):
+            normalized["ctx"] = {
+                key: (str(value) if isinstance(value, Exception) else value)
+                for key, value in ctx.items()
+            }
+        serialized_errors.append(normalized)
+    return AppErrorView(
+        error_type="validation_error",
+        code="request_validation_error",
+        message="Validation failed",
+        details={"errors": serialized_errors},
+        status_code=422,
+    )
+
+
+def internal_error_view(*, error_id: str) -> AppErrorView:
+    """Build the canonical response for unexpected internal failures."""
+    return AppErrorView(
+        error_type="server_error",
+        code="internal_server_error",
+        message="Unexpected server error",
+        details={"error_id": error_id},
+        status_code=HTTP_INTERNAL_SERVER_ERROR,
     )

@@ -292,6 +292,22 @@ def record_scheduler_push(
     """Record a push send once per task slot and push kind."""
     cursor = conn.execute(
         """
+        UPDATE scheduler_push_deliveries
+        SET payload_json = ?,
+            push_count = ?,
+            sent_at = ?
+        WHERE task_name = ?
+          AND slot_key = ?
+          AND push_kind = ?
+        """,
+        (json.dumps(payload), push_count, _iso(sent_at), task_name, slot_key, push_kind),
+    )
+    if cursor.rowcount == 1:
+        conn.commit()
+        return True
+
+    cursor = conn.execute(
+        """
         INSERT OR IGNORE INTO scheduler_push_deliveries (
             task_name,
             slot_key,
@@ -303,6 +319,34 @@ def record_scheduler_push(
         VALUES (?, ?, ?, ?, ?, ?)
         """,
         (task_name, slot_key, push_kind, json.dumps(payload), push_count, _iso(sent_at)),
+    )
+    conn.commit()
+    return cursor.rowcount == 1
+
+
+def claim_scheduler_push(
+    *,
+    task_name: str,
+    slot_key: str,
+    push_kind: str,
+    payload: dict[str, Any],
+    claimed_at: datetime,
+    conn: sqlite3.Connection,
+) -> bool:
+    """Reserve one scheduler push marker before sending the external notification."""
+    cursor = conn.execute(
+        """
+        INSERT OR IGNORE INTO scheduler_push_deliveries (
+            task_name,
+            slot_key,
+            push_kind,
+            payload_json,
+            push_count,
+            sent_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (task_name, slot_key, push_kind, json.dumps(payload), 0, _iso(claimed_at)),
     )
     conn.commit()
     return cursor.rowcount == 1

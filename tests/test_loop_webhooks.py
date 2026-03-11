@@ -21,6 +21,7 @@ Invariants:
     - Signature verification includes replay protection via timestamp validation
 """
 
+import socket
 import sqlite3
 import time
 from pathlib import Path
@@ -521,6 +522,197 @@ def test_webhook_delivery_signs_exact_transmitted_bytes(tmp_path: Path, monkeypa
         stored.signature_header or "",
     )
     conn.close()
+
+
+def test_webhook_reclaim_marks_stale_running_attempt_failed(tmp_path: Path, monkeypatch) -> None:
+    """Expired in-flight deliveries should fail stale running attempts before reclaim."""
+    from cloop.webhooks import repo
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+    sub = repo.create_subscription(
+        url="https://example.com/reclaim",
+        secret="secret",
+        event_types=["*"],
+        description=None,
+        conn=conn,
+    )
+    delivery = repo.create_delivery(
+        subscription_id=sub.id,
+        event_id=1,
+        event_type="capture",
+        payload={"ok": True},
+        conn=conn,
+    )
+    conn.commit()
+
+    claimed = repo.claim_delivery_attempt(
+        conn=conn,
+        owner_token="worker-a",
+        lease_seconds=1,
+        delivery_id=delivery.id,
+    )
+    assert claimed is not None
+    conn.execute(
+        "UPDATE webhook_deliveries SET lease_until_epoch = ? WHERE id = ?",
+        (int(time.time()) - 5, delivery.id),
+    )
+    conn.commit()
+
+    reclaimed = repo.claim_delivery_attempt(
+        conn=conn,
+        owner_token="worker-b",
+        lease_seconds=60,
+        delivery_id=delivery.id,
+    )
+    assert reclaimed is not None
+    _, attempt = reclaimed
+    attempts = repo.list_attempts_for_delivery(delivery_id=delivery.id, conn=conn)
+    assert attempt.attempt_number == 2
+    assert attempts[0].status == repo.DeliveryAttemptStatus.RUNNING
+    assert attempts[1].status == repo.DeliveryAttemptStatus.FAILED
+    assert attempts[1].error_message is not None
+    assert "lease expired" in attempts[1].error_message.lower()
+    conn.close()
+
+
+def test_webhook_non_2xx_failure_preserves_http_observability(tmp_path: Path, monkeypatch) -> None:
+    """Non-2xx webhook failures should persist status/body/connect IP for retries."""
+    from cloop.webhooks import repo, service
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+    sub = repo.create_subscription(
+        url="https://example.com/failure",
+        secret="secret",
+        event_types=["*"],
+        description=None,
+        conn=conn,
+    )
+    delivery = repo.create_delivery(
+        subscription_id=sub.id,
+        event_id=1,
+        event_type="capture",
+        payload={"ok": False},
+        conn=conn,
+    )
+    conn.commit()
+
+    monkeypatch.setattr(
+        service,
+        "_send_pinned_webhook_request",
+        lambda **kwargs: (500, "receiver said no", "203.0.113.10"),
+    )
+    monkeypatch.setattr(service.time, "time", lambda: 1_700_000_000)
+
+    status = service.deliver_webhook(
+        delivery_id=delivery.id,
+        conn=conn,
+        settings=settings,
+        owner_token="worker-a",
+    )
+    attempts = repo.list_attempts_for_delivery(delivery_id=delivery.id, conn=conn)
+    refreshed = repo.get_delivery(delivery_id=delivery.id, conn=conn)
+
+    assert status == repo.DeliveryStatus.QUEUED
+    assert refreshed is not None
+    assert refreshed.status == repo.DeliveryStatus.QUEUED
+    assert refreshed.http_status == 500
+    assert refreshed.response_body == "receiver said no"
+    assert refreshed.last_connect_ip == "203.0.113.10"
+    assert refreshed.next_retry_at_epoch is not None
+    assert attempts[0].http_status == 500
+    assert attempts[0].response_body == "receiver said no"
+    assert attempts[0].connect_ip == "203.0.113.10"
+    conn.close()
+
+
+def test_webhook_resolve_targets_accepts_safe_multi_ip(tmp_path: Path, monkeypatch) -> None:
+    """Safe multi-IP targets should be accepted and deduplicated."""
+    from cloop.webhooks.service import _resolve_safe_delivery_targets
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, type=0: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", port)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", port)),
+        ],
+    )
+
+    ips, hostname, port, path = _resolve_safe_delivery_targets("https://example.com/hook?q=1")
+    assert [str(ip) for ip in ips] == ["8.8.8.8", "1.1.1.1"]
+    assert hostname == "example.com"
+    assert port == 443
+    assert path == "/hook?q=1"
+
+
+def test_webhook_resolve_targets_rejects_private_ip(tmp_path: Path, monkeypatch) -> None:
+    """Private resolved targets should be rejected before any outbound connect."""
+    from cloop.webhooks.service import _resolve_safe_delivery_targets
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, type=0: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.0.0.5", port)),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="Unsafe resolved address"):
+        _resolve_safe_delivery_targets("https://example.com/hook")
+
+
+def test_webhook_delivery_rejects_redirects(tmp_path: Path, monkeypatch) -> None:
+    """Pinned webhook delivery should reject redirect responses."""
+    from cloop.webhooks import service
+
+    class _FakeResponse:
+        status = 302
+
+        def read(self) -> bytes:
+            return b"redirect"
+
+    class _FakeConnection:
+        def __init__(self, *, hostname: str, connect_ip: str, port: int, timeout: float) -> None:
+            self.closed = False
+
+        def request(self, method: str, path: str, body: bytes, headers: dict[str, str]) -> None:
+            return None
+
+        def getresponse(self) -> _FakeResponse:
+            return _FakeResponse()
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(
+        service,
+        "_resolve_safe_delivery_targets",
+        lambda url: (("203.0.113.10",), "example.com", 443, "/hook"),
+    )
+    monkeypatch.setattr(service, "_PinnedHTTPSConnection", _FakeConnection)
+
+    with pytest.raises(RuntimeError, match="Redirects are not allowed"):
+        service._send_pinned_webhook_request(
+            url="https://example.com/hook",
+            payload_bytes=b"{}",
+            headers={"Content-Type": "application/json"},
+            timeout_seconds=5.0,
+        )
 
 
 def test_webhook_queueing_is_transaction_neutral(tmp_path: Path, monkeypatch) -> None:
