@@ -286,11 +286,7 @@ def retrieve_similar_chunks(
                     return rows
                 continue
             if path is RetrievalPath.PYTHON:
-                # When scope is set, we need to fetch more rows than top_k because
-                # scope filtering reduces the result set. Use a multiplier to ensure
-                # we still get top_k results after filtering.
-                fetch_limit = top_k * 10 if scope else top_k
-                rows = fetch_all_chunks(settings=settings, limit=fetch_limit)
+                rows = fetch_all_chunks(settings=settings, limit=None)
                 if scope:
                     rows = _filter_rows_by_scope(rows, scope)
                 if not rows:
@@ -411,13 +407,21 @@ def _sqlite_similar_chunks(
                     c.embedding_dim,
                     c.metadata,
                     stats.dot,
-                    stats.chunk_norm_sq
+                    c.embedding_norm,
+                    stats.chunk_norm_sq,
+                    CASE
+                        WHEN COALESCE(c.embedding_norm, sqrt(stats.chunk_norm_sq)) > 0
+                        THEN stats.dot / (
+                            (? * COALESCE(c.embedding_norm, sqrt(stats.chunk_norm_sq))) + 1e-12
+                        )
+                        ELSE 0.0
+                    END AS cosine_score
                 FROM stats
                 JOIN chunks c ON c.id = stats.id
-                ORDER BY stats.dot DESC
+                ORDER BY cosine_score DESC
                 LIMIT ?
                 """,
-                (top_k,),
+                (query_norm, top_k),
             ).fetchall()
         finally:
             conn.execute("DROP TABLE IF EXISTS temp_query")
@@ -426,8 +430,11 @@ def _sqlite_similar_chunks(
     for row in rows:
         chunk = dict(row)
         dot = float(chunk.pop("dot", 0.0))
+        chunk_norm = chunk.pop("embedding_norm", None)
         chunk_norm_sq = float(chunk.pop("chunk_norm_sq", 0.0))
-        denom = (query_norm * math.sqrt(chunk_norm_sq)) + 1e-12
+        norm_value = float(chunk_norm) if chunk_norm is not None else math.sqrt(chunk_norm_sq)
+        denom = (query_norm * norm_value) + 1e-12
         chunk["score"] = dot / denom if denom > 0 else 0.0
+        chunk.pop("cosine_score", None)
         results.append(chunk)
     return results

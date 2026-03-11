@@ -138,6 +138,8 @@ class Settings:
     scheduler_weekly_review_interval_hours: float
     scheduler_due_soon_nudge_interval_hours: float
     scheduler_stale_rescue_interval_hours: float
+    scheduler_poll_interval_seconds: float
+    scheduler_lease_seconds: int
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -282,6 +284,10 @@ def get_settings() -> Settings:
         scheduler_stale_rescue_interval_hours=float(
             os.getenv("CLOOP_SCHEDULER_STALE_RESCUE_INTERVAL_HOURS", "6.0")
         ),
+        scheduler_poll_interval_seconds=float(
+            os.getenv("CLOOP_SCHEDULER_POLL_INTERVAL_SECONDS", "60.0")
+        ),
+        scheduler_lease_seconds=int(os.getenv("CLOOP_SCHEDULER_LEASE_SECONDS", "180")),
     )
     return _validate_settings(settings)
 
@@ -399,4 +405,8 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_SCHEDULER_DUE_SOON_NUDGE_INTERVAL_HOURS must be at least 0.5")
     if settings.scheduler_stale_rescue_interval_hours < 1:
         raise ValueError("CLOOP_SCHEDULER_STALE_RESCUE_INTERVAL_HOURS must be at least 1")
+    if settings.scheduler_poll_interval_seconds < 1:
+        raise ValueError("CLOOP_SCHEDULER_POLL_INTERVAL_SECONDS must be at least 1")
+    if settings.scheduler_lease_seconds < int(settings.scheduler_poll_interval_seconds):
+        raise ValueError("CLOOP_SCHEDULER_LEASE_SECONDS must be >= poll interval")
     return settings

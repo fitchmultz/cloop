@@ -21,7 +21,7 @@ from .models import DeliveryStatus, WebhookDelivery, WebhookSubscription
 
 
 def _validate_url(url: str) -> None:
-    """Validate that a URL is valid and uses http or https scheme.
+    """Validate that a URL is valid and uses HTTPS.
 
     Raises:
         ValueError: If the URL is invalid or doesn't use http/https scheme.
@@ -32,10 +32,10 @@ def _validate_url(url: str) -> None:
         raise ValueError(f"Invalid URL: {url}") from e
 
     if not parsed.scheme:
-        raise ValueError(f"URL must have a scheme (http or https): {url}")
+        raise ValueError(f"URL must have a scheme (https): {url}")
 
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"URL scheme must be http or https, got: {parsed.scheme}")
+    if parsed.scheme != "https":
+        raise ValueError(f"URL scheme must be https, got: {parsed.scheme}")
 
     if not parsed.netloc:
         raise ValueError(f"URL must have a host: {url}")
@@ -72,13 +72,15 @@ def _row_to_delivery(row: sqlite3.Row) -> WebhookDelivery:
         subscription_id=row["subscription_id"],
         event_id=row["event_id"],
         event_type=row["event_type"],
-        payload_json=row["payload_json"],
+        source_payload_json=row["source_payload_json"],
+        last_attempt_payload_json=row["last_attempt_payload_json"],
         status=DeliveryStatus(row["status"]),
         http_status=row["http_status"],
         response_body=row["response_body"],
         error_message=row["error_message"],
-        signature=row["signature"],
+        signature_header=row["signature_header"],
         attempt_count=row["attempt_count"],
+        last_attempted_at=row["last_attempted_at"],
         next_retry_at=row["next_retry_at"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
@@ -194,22 +196,20 @@ def create_delivery(
     event_id: int,
     event_type: str,
     payload: dict[str, Any],
-    signature: str,
     conn: sqlite3.Connection,
 ) -> WebhookDelivery:
     """Create a new webhook delivery record."""
     cursor = conn.execute(
         """
         INSERT INTO webhook_deliveries
-            (subscription_id, event_id, event_type, payload_json, signature, status)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (subscription_id, event_id, event_type, source_payload_json, status)
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             subscription_id,
             event_id,
             event_type,
             json.dumps(payload),
-            signature,
             DeliveryStatus.PENDING.value,
         ),
     )
@@ -236,6 +236,9 @@ def update_delivery_status(
     *,
     delivery_id: int,
     status: DeliveryStatus,
+    signature_header: str | None = None,
+    attempt_payload_json: str | None = None,
+    last_attempted_at: str | None = None,
     http_status: int | None = None,
     response_body: str | None = None,
     error_message: str | None = None,
@@ -247,6 +250,9 @@ def update_delivery_status(
         """
         UPDATE webhook_deliveries
         SET status = ?,
+            signature_header = ?,
+            last_attempt_payload_json = ?,
+            last_attempted_at = ?,
             http_status = ?,
             response_body = ?,
             error_message = ?,
@@ -257,6 +263,9 @@ def update_delivery_status(
         """,
         (
             status.value,
+            signature_header,
+            attempt_payload_json,
+            last_attempted_at,
             http_status,
             response_body,
             error_message,

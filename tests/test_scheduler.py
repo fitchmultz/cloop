@@ -24,18 +24,16 @@ import pytest
 from cloop import db
 from cloop.loops.models import LoopEventType
 from cloop.scheduler import (
-    _get_last_run,
-    _record_run,
-    _should_run,
     run_daily_review,
     run_due_soon_nudge,
+    run_scheduler_once,
+    run_scheduler_task,
     run_stale_rescue,
     run_weekly_review,
     scheduler_loop,
-    start_scheduler,
-    stop_scheduler,
 )
 from cloop.settings import get_settings
+from cloop.storage import scheduler_store
 
 
 @pytest.fixture
@@ -56,43 +54,50 @@ def scheduler_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[sq
 
 
 class TestSchedulerState:
-    """Tests for scheduler_runs table state management."""
+    """Tests for scheduler lease and run-state tables."""
 
-    def test_get_last_run_returns_none_initially(self, scheduler_db: sqlite3.Connection) -> None:
-        result = _get_last_run("daily_review", scheduler_db)
-        assert result is None
+    def test_task_due_returns_true_initially(self, scheduler_db: sqlite3.Connection) -> None:
+        assert (
+            scheduler_store.task_due(
+                task_name="daily_review",
+                now_utc=datetime.now(timezone.utc),
+                conn=scheduler_db,
+            )
+            is True
+        )
 
-    def test_record_run_creates_entry(self, scheduler_db: sqlite3.Connection) -> None:
-        _record_run("daily_review", {"status": "ok", "count": 5}, scheduler_db)
+    def test_acquire_task_lease_allows_single_owner(self, scheduler_db: sqlite3.Connection) -> None:
+        acquired = scheduler_store.acquire_task_lease(
+            task_name="daily_review",
+            owner_token="owner-a",
+            lease_seconds=180,
+            conn=scheduler_db,
+        )
+        blocked = scheduler_store.acquire_task_lease(
+            task_name="daily_review",
+            owner_token="owner-b",
+            lease_seconds=180,
+            conn=scheduler_db,
+        )
+        assert acquired is True
+        assert blocked is False
 
-        row = scheduler_db.execute(
-            "SELECT * FROM scheduler_runs WHERE task_name = ?",
-            ("daily_review",),
-        ).fetchone()
-
-        assert row is not None
-        assert row["runs_count"] == 1
-        assert row["last_result_json"] is not None
-
-    def test_record_run_updates_existing(self, scheduler_db: sqlite3.Connection) -> None:
-        _record_run("daily_review", {"status": "ok"}, scheduler_db)
-        _record_run("daily_review", {"status": "ok", "extra": True}, scheduler_db)
-
-        row = scheduler_db.execute(
-            "SELECT runs_count FROM scheduler_runs WHERE task_name = ?",
-            ("daily_review",),
-        ).fetchone()
-
-        assert row["runs_count"] == 2
-
-    def test_should_run_returns_true_initially(self, scheduler_db: sqlite3.Connection) -> None:
-        assert _should_run("daily_review", 24.0, scheduler_db) is True
-
-    def test_should_run_returns_false_within_interval(
-        self, scheduler_db: sqlite3.Connection
-    ) -> None:
-        _record_run("daily_review", {"status": "ok"}, scheduler_db)
-        assert _should_run("daily_review", 24.0, scheduler_db) is False
+    def test_update_task_run_state_persists_result(self, scheduler_db: sqlite3.Connection) -> None:
+        now = datetime.now(timezone.utc)
+        scheduler_store.update_task_run_state(
+            task_name="daily_review",
+            started_at=now,
+            finished_at=now,
+            success=True,
+            next_due_at=now + timedelta(hours=24),
+            result={"status": "ok", "count": 5},
+            error=None,
+            conn=scheduler_db,
+        )
+        state = scheduler_store.get_task_run_state(task_name="daily_review", conn=scheduler_db)
+        assert state is not None
+        assert state["runs_count"] == 1
+        assert state["last_result"]["count"] == 5
 
 
 class TestDailyReview:
@@ -641,9 +646,8 @@ class TestSchedulerIntegration:
         settings = get_settings()
         db.init_databases(settings)
 
-        # Should not raise, should log disabled
-        start_scheduler(settings)
-        stop_scheduler()
+        result = asyncio.run(run_scheduler_once(settings))
+        assert result == {}
 
     def test_scheduler_loop_cancellation(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -667,6 +671,36 @@ class TestSchedulerIntegration:
 
         result = asyncio.run(run_and_cancel())
         assert result is True
+
+    def test_run_scheduler_task_updates_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "true")
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        with db.core_connection(settings) as conn:
+            conn.execute(
+                """INSERT INTO loops (raw_text, status, captured_at_utc, captured_tz_offset_min)
+                   VALUES ('review item', 'actionable', datetime('now'), 0)
+                """
+            )
+            conn.commit()
+
+        asyncio.run(
+            run_scheduler_task(
+                task_name="daily_review",
+                settings=settings,
+                owner_token="scheduler-test:daily_review",
+            )
+        )
+
+        with db.core_connection(settings) as conn:
+            state = scheduler_store.get_task_run_state(task_name="daily_review", conn=conn)
+        assert state is not None
+        assert state["runs_count"] == 1
 
 
 class TestDueSoonNudgeEscalation:

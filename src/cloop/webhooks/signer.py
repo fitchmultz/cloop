@@ -1,11 +1,11 @@
-"""HMAC-SHA256 webhook signature generation and verification.
+"""HMAC-SHA256 webhook byte-signing.
 
 Purpose:
     Sign and verify webhook payloads using HMAC-SHA256.
 
 Responsibilities:
-    - Generate webhook signatures
-    - Verify incoming webhook signatures
+    - Generate webhook signatures over exact bytes
+    - Verify incoming webhook signatures over exact bytes
 
 Non-scope:
     - Webhook delivery (see webhooks/service.py)
@@ -14,29 +14,26 @@ Non-scope:
 
 import hashlib
 import hmac
-import json
 import time
-from typing import Any
 
 # 5 minutes in seconds for replay attack protection
 REPLAY_TOLERANCE_SECONDS = 300
 
 
-def generate_signature(payload: dict[str, Any], secret: str, timestamp: str) -> str:
-    """Generate HMAC-SHA256 signature for webhook payload.
+def sign_bytes(payload_bytes: bytes, secret: str, timestamp: str) -> str:
+    """Generate HMAC-SHA256 signature for exact webhook bytes.
 
     Signature format: t=<timestamp>,v1=<hex_signature>
 
     Args:
-        payload: Event payload dictionary
+        payload_bytes: Exact transmitted request bytes
         secret: Webhook secret
         timestamp: Unix timestamp as string
 
     Returns:
         Signature string
     """
-    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    signed_payload = f"{timestamp}.{payload_bytes.decode('utf-8')}".encode("utf-8")
+    signed_payload = timestamp.encode("utf-8") + b"." + payload_bytes
     signature = hmac.new(
         secret.encode("utf-8"),
         signed_payload,
@@ -45,13 +42,13 @@ def generate_signature(payload: dict[str, Any], secret: str, timestamp: str) -> 
     return f"t={timestamp},v1={signature}"
 
 
-def verify_signature(payload: dict[str, Any], secret: str, signature_header: str) -> bool:
-    """Verify HMAC-SHA256 signature from webhook request.
+def verify_signature(payload_bytes: bytes, secret: str, signature_header: str) -> bool:
+    """Verify HMAC-SHA256 signature from exact webhook bytes.
 
     Includes replay attack protection by validating timestamp is within ±5 minutes.
 
     Args:
-        payload: Event payload dictionary
+        payload_bytes: Exact transmitted request bytes
         secret: Webhook secret
         signature_header: Signature header value
 
@@ -84,7 +81,7 @@ def verify_signature(payload: dict[str, Any], secret: str, signature_header: str
             return False
 
         # Generate expected signature
-        expected = generate_signature(payload, secret, timestamp_str)
+        expected = sign_bytes(payload_bytes, secret, timestamp_str)
 
         # Compare signatures using constant-time comparison
         return hmac.compare_digest(expected, signature_header)

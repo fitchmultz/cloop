@@ -151,33 +151,35 @@ def test_webhook_subscription_not_found(
 
 def test_webhook_signature_generation_and_verification() -> None:
     """Test HMAC-SHA256 signature generation and verification."""
-    from cloop.webhooks.signer import generate_signature, verify_signature
+    from cloop.webhooks.service import _canonical_json_bytes
+    from cloop.webhooks.signer import sign_bytes, verify_signature
 
     payload = {"loop_id": 123, "event_type": "capture"}
+    payload_bytes = _canonical_json_bytes(payload)
     secret = "test_secret_key"
     timestamp = str(int(time.time()))  # Use current timestamp for replay protection
 
     # Generate signature
-    signature = generate_signature(payload, secret, timestamp)
+    signature = sign_bytes(payload_bytes, secret, timestamp)
     assert signature.startswith(f"t={timestamp},v1=")
 
     # Verify valid signature
-    assert verify_signature(payload, secret, signature) is True
+    assert verify_signature(payload_bytes, secret, signature) is True
 
     # Verify with wrong secret
-    assert verify_signature(payload, "wrong_secret", signature) is False
+    assert verify_signature(payload_bytes, "wrong_secret", signature) is False
 
     # Verify with tampered payload
     tampered_payload = {"loop_id": 999, "event_type": "capture"}
-    assert verify_signature(tampered_payload, secret, signature) is False
+    assert verify_signature(_canonical_json_bytes(tampered_payload), secret, signature) is False
 
     # Verify with invalid signature format
-    assert verify_signature(payload, secret, "invalid-format") is False
+    assert verify_signature(payload_bytes, secret, "invalid-format") is False
 
     # Verify with expired timestamp (replay protection)
     old_timestamp = "1707830400"  # Old timestamp from 2024
-    old_signature = generate_signature(payload, secret, old_timestamp)
-    assert verify_signature(payload, secret, old_signature) is False
+    old_signature = sign_bytes(payload_bytes, secret, old_timestamp)
+    assert verify_signature(payload_bytes, secret, old_signature) is False
 
 
 def test_webhook_deliveries_list(
@@ -328,11 +330,11 @@ def test_webhook_repo_operations(
         event_id=1,
         event_type="capture",
         payload={"test": "data"},
-        signature="test_sig",
         conn=conn,
     )
     assert delivery.subscription_id == sub.id
     assert delivery.status == DeliveryStatus.PENDING
+    assert delivery.source_payload_json is not None
 
     # Update delivery status
     repo.update_delivery_status(

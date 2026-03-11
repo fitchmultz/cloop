@@ -111,6 +111,12 @@ CLOOP_SCHEDULER_ENABLED=false
 
 This keeps setup predictable while you validate core capture/search/chat flows.
 
+When you do enable scheduling, run it as a separate process:
+
+```bash
+cloop-scheduler
+```
+
 ## Security and privacy
 
 - Keep Cloop local by default (`localhost` / trusted private network only).
@@ -484,7 +490,9 @@ Both operations return:
 - `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
 - `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `false`)
 - `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
-- `CLOOP_SCHEDULER_ENABLED`: enable background review/nudge scheduler (default: `false`)
+- `CLOOP_SCHEDULER_ENABLED`: enable the dedicated review/nudge scheduler process (default: `false`)
+- `CLOOP_SCHEDULER_POLL_INTERVAL_SECONDS`: scheduler poll interval (default: `60.0`)
+- `CLOOP_SCHEDULER_LEASE_SECONDS`: scheduler lease duration (default: `180`)
 
 ### Idempotency (safe retries)
 

@@ -18,6 +18,7 @@ import ipaddress
 import json
 import logging
 import random
+import socket
 import sqlite3
 import time
 import urllib.error
@@ -28,9 +29,17 @@ from urllib.parse import urlparse
 from ..settings import Settings, get_settings
 from . import repo
 from .models import DeliveryStatus
-from .signer import generate_signature
+from .signer import sign_bytes
 
 logger = logging.getLogger(__name__)
+
+
+def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+        return False
+    if ip == ipaddress.ip_address("169.254.169.254"):
+        return False
+    return True
 
 
 def _is_safe_url(url: str) -> bool:
@@ -65,25 +74,51 @@ def _is_safe_url(url: str) -> bool:
         # Check if hostname is an IP address
         try:
             ip = ipaddress.ip_address(hostname)
-            # Block private IP ranges
-            if ip.is_private:
-                return False
-            # Block loopback
-            if ip.is_loopback:
-                return False
-            # Block link-local
-            if ip.is_link_local:
-                return False
-            # Block AWS metadata service IP
-            if ip == ipaddress.ip_address("169.254.169.254"):
-                return False
+            return _is_safe_ip(ip)
         except ValueError:
-            # Not an IP address, assume hostname is safe for now
-            pass
-
-        return True
+            infos = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
+            resolved_ips = {
+                ipaddress.ip_address(info[4][0])
+                for info in infos
+                if info[0] in {socket.AF_INET, socket.AF_INET6}
+            }
+            if not resolved_ips:
+                return False
+            if len(resolved_ips) != 1:
+                return False
+            return all(_is_safe_ip(ip) for ip in resolved_ips)
     except Exception:
         return False
+
+
+def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
+    """Serialize a webhook payload deterministically."""
+    return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def _build_delivery_payload(
+    *,
+    delivery: Any,
+    delivered_at: str,
+    attempt_number: int,
+) -> dict[str, Any]:
+    """Build the canonical outbound webhook envelope."""
+    return {
+        "delivery_id": delivery.id,
+        "event_id": delivery.event_id,
+        "event_type": delivery.event_type,
+        "occurred_at": delivery.created_at,
+        "delivered_at": delivered_at,
+        "attempt": attempt_number,
+        "data": json.loads(delivery.source_payload_json),
+    }
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects for webhook delivery."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
 
 
 def _calculate_retry_delay(attempt_count: int, settings: Settings) -> float:
@@ -158,16 +193,11 @@ def queue_deliveries(
         if not _should_deliver_event(event_type, subscription.event_types):
             continue
 
-        # Generate signature with current timestamp
-        timestamp = str(int(time.time()))
-        signature = generate_signature(payload, subscription.secret, timestamp)
-
         delivery = repo.create_delivery(
             subscription_id=subscription.id,
             event_id=event_id,
             event_type=event_type,
             payload=payload,
-            signature=signature,
             conn=conn,
         )
         delivery_ids.append(delivery.id)
@@ -231,22 +261,25 @@ def deliver_webhook(
         )
         return DeliveryStatus.FAILED
 
-    # Prepare payload
-    payload = {
-        "event_id": delivery.event_id,
-        "event_type": delivery.event_type,
-        "timestamp": delivery.created_at,
-        "data": delivery.payload_json,
-    }
+    delivered_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    attempt_number = delivery.attempt_count + 1
+    payload = _build_delivery_payload(
+        delivery=delivery,
+        delivered_at=delivered_at,
+        attempt_number=attempt_number,
+    )
+    payload_bytes = _canonical_json_bytes(payload)
+    timestamp = str(int(time.time()))
+    signature_header = sign_bytes(payload_bytes, subscription.secret, timestamp)
 
     # Attempt delivery
     try:
         req = urllib.request.Request(
             subscription.url,
-            data=json.dumps(payload).encode("utf-8"),
+            data=payload_bytes,
             headers={
                 "Content-Type": "application/json",
-                "X-Webhook-Signature": delivery.signature,
+                "X-Webhook-Signature": signature_header,
                 "X-Webhook-Event": delivery.event_type,
                 "X-Webhook-Event-Id": str(delivery.event_id),
                 "User-Agent": "cloop-webhook/1.0",
@@ -254,7 +287,8 @@ def deliver_webhook(
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=settings.webhook_timeout_seconds) as response:
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+        with opener.open(req, timeout=settings.webhook_timeout_seconds) as response:
             http_status = response.status
             response_body = response.read().decode("utf-8", errors="replace")[:1000]
 
@@ -263,6 +297,9 @@ def deliver_webhook(
             repo.update_delivery_status(
                 delivery_id=delivery_id,
                 status=DeliveryStatus.SUCCESS,
+                signature_header=signature_header,
+                attempt_payload_json=payload_bytes.decode("utf-8"),
+                last_attempted_at=delivered_at,
                 http_status=http_status,
                 response_body=response_body,
                 conn=conn,
@@ -297,6 +334,9 @@ def deliver_webhook(
             repo.update_delivery_status(
                 delivery_id=delivery_id,
                 status=final_status,
+                signature_header=signature_header,
+                attempt_payload_json=payload_bytes.decode("utf-8"),
+                last_attempted_at=delivered_at,
                 error_message=error_message,
                 next_retry_at=next_retry_at,
                 conn=conn,
@@ -314,6 +354,9 @@ def deliver_webhook(
         repo.update_delivery_status(
             delivery_id=delivery_id,
             status=final_status,
+            signature_header=signature_header,
+            attempt_payload_json=payload_bytes.decode("utf-8"),
+            last_attempted_at=delivered_at,
             error_message=error_message,
             conn=conn,
         )

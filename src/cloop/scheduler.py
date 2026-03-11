@@ -1,25 +1,28 @@
-"""Background scheduler for proactive assistant routines.
+"""Dedicated scheduler runtime for proactive assistant routines.
 
 Purpose:
     Run periodic tasks for daily/weekly review generation, due-soon nudges,
     and stale-loop rescue without requiring manual polling.
 
 Responsibilities:
-    - Manage scheduler lifecycle (start/stop)
-    - Execute periodic jobs with idempotent SQLite-backed state
+    - Execute periodic jobs with SQLite-backed leases and run-state
+    - Expose a dedicated scheduler process entrypoint
     - Emit events for SSE consumption
 
 Non-scope:
-    - HTTP endpoint handling (see routes/)
+    - HTTP application lifespan management
     - Review computation logic (see loops/review.py)
 """
 
+import argparse
 import asyncio
 import json
 import logging
 import sqlite3
+import uuid
 from collections import Counter
-from datetime import datetime
+from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 
 from . import db
@@ -27,60 +30,17 @@ from .constants import MAX_ESCALATION_LEVEL, NUDGE_THRESHOLD_HIGH, NUDGE_THRESHO
 from .loops.models import LoopEventType, utc_now
 from .loops.review import compute_review_cohorts
 from .push_sender import send_scheduler_push
-from .settings import Settings
+from .settings import Settings, get_settings
+from .storage import scheduler_store
 
 logger = logging.getLogger(__name__)
 
-SCHEDULER_TASKS = {
+SCHEDULER_TASKS = (
     "daily_review",
     "weekly_review",
     "due_soon_nudge",
     "stale_rescue",
-}
-
-
-def _get_last_run(task_name: str, conn: sqlite3.Connection) -> datetime | None:
-    """Get last run time for a scheduler task."""
-    row = conn.execute(
-        "SELECT last_run_at FROM scheduler_runs WHERE task_name = ?",
-        (task_name,),
-    ).fetchone()
-    if row is None:
-        return None
-    return datetime.fromisoformat(row["last_run_at"])
-
-
-def _record_run(
-    task_name: str,
-    result: dict[str, Any],
-    conn: sqlite3.Connection,
-) -> None:
-    """Record a successful scheduler run."""
-    now = utc_now()
-    conn.execute(
-        """INSERT INTO scheduler_runs (task_name, last_run_at, last_result_json, runs_count)
-           VALUES (?, ?, ?, 1)
-           ON CONFLICT(task_name) DO UPDATE SET
-               last_run_at = excluded.last_run_at,
-               last_result_json = excluded.last_result_json,
-               runs_count = runs_count + 1
-        """,
-        (task_name, now.isoformat(), json.dumps(result)),
-    )
-    conn.commit()
-
-
-def _should_run(
-    task_name: str,
-    interval_hours: float,
-    conn: sqlite3.Connection,
-) -> bool:
-    """Check if enough time has elapsed since last run."""
-    last_run = _get_last_run(task_name, conn)
-    if last_run is None:
-        return True
-    elapsed = (utc_now() - last_run).total_seconds() / 3600
-    return elapsed >= interval_hours
+)
 
 
 def _emit_scheduler_event(
@@ -419,73 +379,176 @@ async def run_stale_rescue(settings: Settings, conn: sqlite3.Connection) -> dict
     return {"event_id": event_id, "rescued": len(loop_ids), **payload}
 
 
-async def scheduler_loop(settings: Settings) -> None:
-    """Main scheduler loop that runs periodic tasks."""
-    logger.info("Scheduler started")
+def _task_interval_hours(task_name: str, settings: Settings) -> float:
+    if task_name == "daily_review":
+        return settings.scheduler_daily_review_interval_hours
+    if task_name == "weekly_review":
+        return settings.scheduler_weekly_review_interval_hours
+    if task_name == "due_soon_nudge":
+        return settings.scheduler_due_soon_nudge_interval_hours
+    if task_name == "stale_rescue":
+        return settings.scheduler_stale_rescue_interval_hours
+    raise ValueError(f"Unknown scheduler task: {task_name}")
 
-    while True:
+
+def _task_runner(task_name: str):
+    if task_name == "daily_review":
+        return run_daily_review
+    if task_name == "weekly_review":
+        return run_weekly_review
+    if task_name == "due_soon_nudge":
+        return run_due_soon_nudge
+    if task_name == "stale_rescue":
+        return run_stale_rescue
+    raise ValueError(f"Unknown scheduler task: {task_name}")
+
+
+async def run_scheduler_task(
+    *,
+    task_name: str,
+    settings: Settings,
+    owner_token: str,
+) -> dict[str, Any] | None:
+    """Run one scheduler task if this process acquires the lease and it is due."""
+    with db.core_connection(settings) as conn:
+        if not scheduler_store.acquire_task_lease(
+            task_name=task_name,
+            owner_token=owner_token,
+            lease_seconds=settings.scheduler_lease_seconds,
+            conn=conn,
+        ):
+            return None
+        started_at = utc_now()
         try:
-            with db.core_connection(settings) as conn:
-                # Check and run each task if interval elapsed
-                if _should_run(
-                    "daily_review", settings.scheduler_daily_review_interval_hours, conn
-                ):
-                    await run_daily_review(settings, conn)
-                    _record_run("daily_review", {"status": "ok"}, conn)
-
-                if _should_run(
-                    "weekly_review", settings.scheduler_weekly_review_interval_hours, conn
-                ):
-                    await run_weekly_review(settings, conn)
-                    _record_run("weekly_review", {"status": "ok"}, conn)
-
-                if _should_run(
-                    "due_soon_nudge", settings.scheduler_due_soon_nudge_interval_hours, conn
-                ):
-                    await run_due_soon_nudge(settings, conn)
-                    _record_run("due_soon_nudge", {"status": "ok"}, conn)
-
-                if _should_run(
-                    "stale_rescue", settings.scheduler_stale_rescue_interval_hours, conn
-                ):
-                    await run_stale_rescue(settings, conn)
-                    _record_run("stale_rescue", {"status": "ok"}, conn)
-
-            # Sleep for 1 minute before checking again
-            await asyncio.sleep(60)
-
-        except asyncio.CancelledError:
-            logger.info("Scheduler stopped")
+            if not scheduler_store.task_due(task_name=task_name, now_utc=started_at, conn=conn):
+                return None
+            runner = _task_runner(task_name)
+            result = await runner(settings, conn)
+            finished_at = utc_now()
+            interval_hours = _task_interval_hours(task_name, settings)
+            next_due_at = started_at + timedelta(hours=interval_hours)
+            scheduler_store.update_task_run_state(
+                task_name=task_name,
+                started_at=started_at,
+                finished_at=finished_at,
+                success=True,
+                next_due_at=next_due_at,
+                result=result,
+                error=None,
+                conn=conn,
+            )
+            return result
+        except Exception as exc:
+            finished_at = utc_now()
+            interval_hours = _task_interval_hours(task_name, settings)
+            next_due_at = started_at + timedelta(hours=interval_hours)
+            scheduler_store.update_task_run_state(
+                task_name=task_name,
+                started_at=started_at,
+                finished_at=finished_at,
+                success=False,
+                next_due_at=next_due_at,
+                result=None,
+                error=str(exc),
+                conn=conn,
+            )
             raise
-        except Exception as e:
-            logger.exception(f"Scheduler error: {e}")
-            await asyncio.sleep(60)
+        finally:
+            scheduler_store.release_task_lease(
+                task_name=task_name,
+                owner_token=owner_token,
+                conn=conn,
+            )
 
 
-_scheduler_task: asyncio.Task | None = None
+async def run_scheduler_once(
+    settings: Settings, *, owner_token: str | None = None
+) -> dict[str, Any]:
+    """Run one scheduler polling cycle."""
+    if not settings.scheduler_enabled:
+        logger.info("Scheduler disabled via configuration")
+        return {}
+    resolved_owner = owner_token or f"scheduler-{uuid.uuid4()}"
+    results: dict[str, Any] = {}
+    for task_name in SCHEDULER_TASKS:
+        result = await run_scheduler_task(
+            task_name=task_name,
+            settings=settings,
+            owner_token=f"{resolved_owner}:{task_name}",
+        )
+        if result is not None:
+            results[task_name] = result
+    return results
 
 
-def start_scheduler(settings: Settings) -> None:
-    """Start the scheduler background task."""
-    global _scheduler_task
-
+async def scheduler_loop(settings: Settings) -> None:
+    """Run the dedicated scheduler process until cancelled."""
     if not settings.scheduler_enabled:
         logger.info("Scheduler disabled via configuration")
         return
+    logger.info("Dedicated scheduler started")
+    owner_token = f"scheduler-{uuid.uuid4()}"
+    while True:
+        try:
+            await run_scheduler_once(settings, owner_token=owner_token)
+            await asyncio.sleep(settings.scheduler_poll_interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("Scheduler stopped")
+            raise
+        except Exception as exc:
+            logger.exception("Scheduler error: %s", exc)
+            await asyncio.sleep(settings.scheduler_poll_interval_seconds)
 
-    if _scheduler_task is not None and not _scheduler_task.done():
-        logger.warning("Scheduler already running")
-        return
 
-    _scheduler_task = asyncio.create_task(scheduler_loop(settings))
-    logger.info("Scheduler task created")
+def build_scheduler_parser() -> argparse.ArgumentParser:
+    """Build the dedicated scheduler CLI parser."""
+    parser = argparse.ArgumentParser(
+        prog="cloop-scheduler",
+        description="Run the dedicated Cloop scheduler process.",
+        epilog="""
+Examples:
+  cloop-scheduler
+  cloop-scheduler --once
+  cloop-scheduler --poll-seconds 30
+
+Exit codes:
+  0  success
+  1  scheduler execution failed
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one polling cycle and exit.",
+    )
+    parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=None,
+        help="Override scheduler poll interval for this process.",
+    )
+    return parser
 
 
-def stop_scheduler() -> None:
-    """Stop the scheduler background task."""
-    global _scheduler_task
+def main(argv: list[str] | None = None) -> int:
+    """Run the dedicated scheduler process."""
+    parser = build_scheduler_parser()
+    args = parser.parse_args(argv)
+    settings = get_settings()
+    if args.poll_seconds is not None:
+        settings = replace(settings, scheduler_poll_interval_seconds=args.poll_seconds)
+    db.init_databases(settings)
+    try:
+        if args.once:
+            asyncio.run(run_scheduler_once(settings))
+        else:
+            asyncio.run(scheduler_loop(settings))
+    except Exception:
+        logger.exception("Scheduler process failed")
+        return 1
+    return 0
 
-    if _scheduler_task is not None and not _scheduler_task.done():
-        _scheduler_task.cancel()
-        _scheduler_task = None
-        logger.info("Scheduler stop requested")
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())

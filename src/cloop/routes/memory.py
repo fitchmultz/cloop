@@ -20,7 +20,6 @@ from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from .. import db
 from ..schemas.memory import (
     MemoryCategory,
     MemoryCreateRequest,
@@ -30,6 +29,7 @@ from ..schemas.memory import (
     MemoryUpdateRequest,
 )
 from ..settings import Settings, get_settings
+from ..storage import memory_store
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -46,7 +46,7 @@ def list_memories(
     cursor: Annotated[str | None, Query(description="Pagination cursor")] = None,
 ) -> Dict[str, Any]:
     """List memory entries with optional filters."""
-    return db.list_memory_entries(
+    return memory_store.list_memory_entries(
         category=category.value if category else None,
         source=source.value if source else None,
         min_priority=min_priority,
@@ -62,7 +62,7 @@ def create_memory(
     settings: SettingsDep,
 ) -> Dict[str, Any]:
     """Create a new memory entry."""
-    entry = db.create_memory_entry(
+    entry = memory_store.create_memory_entry(
         key=request.key,
         content=request.content,
         category=request.category.value,
@@ -85,7 +85,7 @@ def search_memories(
     cursor: Annotated[str | None, Query(description="Pagination cursor")] = None,
 ) -> Dict[str, Any]:
     """Search memory entries by text."""
-    return db.search_memory_entries(
+    return memory_store.search_memory_entries(
         query=q,
         category=category.value if category else None,
         source=source.value if source else None,
@@ -102,7 +102,7 @@ def get_memory(
     settings: SettingsDep,
 ) -> Dict[str, Any]:
     """Get a single memory entry by ID."""
-    entry = db.get_memory_entry(entry_id, settings)
+    entry = memory_store.get_memory_entry(entry_id, settings)
     if entry is None:
         raise HTTPException(status_code=404, detail="Memory entry not found")
     return entry
@@ -115,11 +115,11 @@ def update_memory(
     settings: SettingsDep,
 ) -> Dict[str, Any]:
     """Update a memory entry."""
-    existing = db.get_memory_entry(entry_id, settings)
+    existing = memory_store.get_memory_entry(entry_id, settings)
     if existing is None:
         raise HTTPException(status_code=404, detail="Memory entry not found")
 
-    entry = db.update_memory_entry(
+    entry = memory_store.update_memory_entry(
         entry_id,
         key=request.key,
         content=request.content,
@@ -139,6 +139,6 @@ def delete_memory(
     settings: SettingsDep,
 ) -> None:
     """Delete a memory entry."""
-    deleted = db.delete_memory_entry(entry_id, settings)
+    deleted = memory_store.delete_memory_entry(entry_id, settings)
     if not deleted:
         raise HTTPException(status_code=404, detail="Memory entry not found")

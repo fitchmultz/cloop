@@ -41,13 +41,15 @@ class WebhookDelivery:
     subscription_id: int
     event_id: int
     event_type: str
-    payload_json: str
+    source_payload_json: str
+    last_attempt_payload_json: str | None
     status: DeliveryStatus
     http_status: int | None
     response_body: str | None
     error_message: str | None
-    signature: str
+    signature_header: str | None
     attempt_count: int
+    last_attempted_at: str | None
     next_retry_at: str | None
     created_at: str
     updated_at: str

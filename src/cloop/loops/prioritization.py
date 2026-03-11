@@ -38,6 +38,11 @@ def _parse_time(value: str | None) -> datetime | None:
     return parse_utc_datetime(value)
 
 
+def _effective_due(loop: dict[str, Any]) -> datetime | None:
+    """Return the canonical due timestamp for prioritization."""
+    return _parse_time(loop.get("due_at_utc")) or _parse_time(loop.get("next_due_at_utc"))
+
+
 def compute_priority_score(
     loop: dict[str, Any],
     *,
@@ -47,7 +52,7 @@ def compute_priority_score(
     has_open_dependencies: bool = False,
 ) -> float:
     score = 0.0
-    due_at = _parse_time(loop.get("due_at_utc"))
+    due_at = _effective_due(loop)
     if due_at is not None:
         delta = (due_at - now_utc).total_seconds()
         if delta <= 0:
@@ -88,7 +93,7 @@ def bucketize(
     if has_open_dependencies:
         return "standard"
 
-    due_at = _parse_time(loop.get("due_at_utc"))
+    due_at = _effective_due(loop)
     if due_at is not None and due_at <= now_utc + timedelta(hours=settings.due_soon_hours):
         return "due_soon"
 

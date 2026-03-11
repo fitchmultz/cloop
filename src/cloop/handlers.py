@@ -40,11 +40,19 @@ from .constants import (
     HTTP_UNPROCESSABLE_ENTITY,
 )
 from .loops.errors import (
+    ClaimExpiredError,
+    ClaimNotFoundError,
     CloopError,
     DependencyCycleError,
     DependencyNotMetError,
+    LoopClaimedError,
+    LoopCreateError,
+    LoopImportError,
+    MergeConflictError,
     NotFoundError,
+    RecurrenceError,
     TransitionError,
+    UndoNotPossibleError,
     ValidationError,
 )
 
@@ -88,6 +96,9 @@ def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
     elif isinstance(exc, ValidationError):
         status_code = HTTP_BAD_REQUEST
         error_type = "validation_error"
+    elif isinstance(exc, RecurrenceError):
+        status_code = HTTP_BAD_REQUEST
+        error_type = "recurrence_error"
     elif isinstance(exc, DependencyCycleError):
         status_code = HTTP_BAD_REQUEST
         error_type = "dependency_cycle"
@@ -104,6 +115,24 @@ def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
             status_code=status_code,
             error_type=error_type,
         )
+    elif isinstance(exc, LoopClaimedError):
+        status_code = 409
+        error_type = "loop_claimed"
+    elif isinstance(exc, ClaimNotFoundError):
+        status_code = HTTP_NOT_FOUND
+        error_type = "claim_not_found"
+    elif isinstance(exc, ClaimExpiredError):
+        status_code = 410
+        error_type = "claim_expired"
+    elif isinstance(exc, MergeConflictError):
+        status_code = 409
+        error_type = "merge_conflict"
+    elif isinstance(exc, UndoNotPossibleError):
+        status_code = 409
+        error_type = "undo_not_possible"
+    elif isinstance(exc, (LoopCreateError, LoopImportError)):
+        status_code = HTTP_INTERNAL_SERVER_ERROR
+        error_type = "persistence_error"
     else:
         status_code = HTTP_BAD_REQUEST
         error_type = "domain_error"

@@ -36,6 +36,7 @@ from ..schemas.chat import _InteractionMetadata
 from ..schemas.rag import AskResponse, IngestMode, IngestRequest, IngestResponse
 from ..settings import Settings, get_settings
 from ..sse import format_sse_event
+from ..storage import interaction_store
 
 router = APIRouter(tags=["rag"])
 
@@ -66,7 +67,7 @@ def ingest_endpoint(
         result = ingest_paths(request.paths, mode=mode, recursive=recursive, settings=settings)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    db.record_interaction(
+    interaction_store.record_interaction(
         endpoint="/ingest",
         request_payload=request.model_dump(),
         response_payload=result,
@@ -147,7 +148,7 @@ def ask_endpoint(
                 "sources": prepared.sources,
                 "context": context_snapshot,
             }
-            db.record_interaction(
+            interaction_store.record_interaction(
                 endpoint="/ask",
                 request_payload=request_payload,
                 response_payload=response_payload,
@@ -172,7 +173,7 @@ def ask_endpoint(
 
     answer = answer_prepared_question(prepared=prepared, settings=settings)
 
-    db.record_interaction(
+    interaction_store.record_interaction(
         endpoint="/ask",
         request_payload={
             key: value

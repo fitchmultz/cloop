@@ -830,8 +830,8 @@ def test_compile_due_on_date():
 
     query = parse_loop_query("due:on:2026-02-25")
     where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
-    assert "due_at_utc >= ?" in where_sql
-    assert "due_at_utc <= ?" in where_sql
+    assert "COALESCE(loops.due_at_utc, loops.next_due_at_utc) >= ?" in where_sql
+    assert "COALESCE(loops.due_at_utc, loops.next_due_at_utc) <= ?" in where_sql
     assert "2026-02-25T00:00:00Z" in params
     assert "2026-02-25T23:59:59" in str(params)
 
@@ -842,7 +842,7 @@ def test_compile_due_before_date():
 
     query = parse_loop_query("due:before:2026-03-01")
     where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
-    assert "due_at_utc < ?" in where_sql
+    assert "COALESCE(loops.due_at_utc, loops.next_due_at_utc) < ?" in where_sql
     assert "2026-03-01T00:00:00Z" in params
 
 
@@ -852,7 +852,7 @@ def test_compile_due_after_date():
 
     query = parse_loop_query("due:after:2026-02-20")
     where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
-    assert "due_at_utc > ?" in where_sql
+    assert "COALESCE(loops.due_at_utc, loops.next_due_at_utc) > ?" in where_sql
     assert "2026-02-20T23:59:59" in str(params)
 
 
@@ -862,8 +862,8 @@ def test_compile_due_between_range():
 
     query = parse_loop_query("due:between:2026-02-20..2026-02-28")
     where_sql, params = compile_loop_query(query, now_utc=datetime.now(timezone.utc))
-    assert "due_at_utc >= ?" in where_sql
-    assert "due_at_utc <= ?" in where_sql
+    assert "COALESCE(loops.due_at_utc, loops.next_due_at_utc) >= ?" in where_sql
+    assert "COALESCE(loops.due_at_utc, loops.next_due_at_utc) <= ?" in where_sql
     assert "2026-02-20T00:00:00Z" in params
     assert "2026-02-28T23:59:59" in str(params)
 

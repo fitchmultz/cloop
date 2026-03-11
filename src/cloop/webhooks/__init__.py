@@ -15,7 +15,7 @@ from .repo import (
     update_subscription,
 )
 from .service import deliver_webhook, process_pending_deliveries, queue_deliveries
-from .signer import generate_signature, verify_signature
+from .signer import sign_bytes, verify_signature
 
 __all__ = [
     # Models
@@ -39,6 +39,6 @@ __all__ = [
     "process_pending_deliveries",
     "queue_deliveries",
     # Signer
-    "generate_signature",
+    "sign_bytes",
     "verify_signature",
 ]

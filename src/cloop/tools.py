@@ -41,6 +41,7 @@ from .loops.errors import (
 )
 from .loops.models import LoopStatus, format_utc_datetime, is_terminal_status, utc_now
 from .settings import get_settings
+from .storage import memory_store, notes_store
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def execute_write_note(**kwargs: Any) -> Dict[str, Any]:
         raise ValidationError("body", f"exceeds maximum length of {NOTE_BODY_MAX} characters")
 
     note_id = kwargs.get("note_id")
-    note = db.upsert_note(title=title, body=body, note_id=note_id)
+    note = notes_store.upsert_note(title=title, body=body, note_id=note_id)
     return {"action": "write_note", "note": note}
 
 
@@ -81,7 +82,7 @@ def execute_read_note(**kwargs: Any) -> Dict[str, Any]:
     note_id = kwargs.get("note_id")
     if note_id is None:
         raise ValidationError("note_id", "required for read_note")
-    note = db.read_note(int(note_id))
+    note = notes_store.read_note(int(note_id))
     if note is None:
         raise NoteNotFoundError(note_id=int(note_id))
     return {"action": "read_note", "note": note}
@@ -92,7 +93,7 @@ def execute_list_notes(**kwargs: Any) -> Dict[str, Any]:
     limit = kwargs.get("limit", 50)
     cursor = kwargs.get("cursor")
 
-    result = db.list_notes(
+    result = notes_store.list_notes(
         limit=min(limit, 100),
         cursor=cursor,
     )
@@ -108,7 +109,7 @@ def execute_search_notes(**kwargs: Any) -> Dict[str, Any]:
     limit = kwargs.get("limit", 50)
     cursor = kwargs.get("cursor")
 
-    result = db.search_notes(
+    result = notes_store.search_notes(
         query=query,
         limit=min(limit, 100),
         cursor=cursor,
@@ -463,7 +464,7 @@ def execute_memory_create(**kwargs: Any) -> Dict[str, Any]:
             "content", f"exceeds maximum length of {MEMORY_CONTENT_MAX} characters"
         )
 
-    entry = db.create_memory_entry(
+    entry = memory_store.create_memory_entry(
         key=key,
         content=content,
         category=kwargs.get("category", "fact"),
@@ -481,7 +482,7 @@ def execute_memory_search(**kwargs: Any) -> Dict[str, Any]:
     if not query:
         raise ValidationError("query", "query is required")
 
-    result = db.search_memory_entries(
+    result = memory_store.search_memory_entries(
         query=query,
         category=kwargs.get("category"),
         source=kwargs.get("source"),
@@ -498,7 +499,7 @@ def execute_memory_update(**kwargs: Any) -> Dict[str, Any]:
     if not entry_id:
         raise ValidationError("entry_id", "entry_id is required")
 
-    entry = db.update_memory_entry(
+    entry = memory_store.update_memory_entry(
         entry_id,
         key=kwargs.get("key"),
         content=kwargs.get("content"),
@@ -519,7 +520,7 @@ def execute_memory_delete(**kwargs: Any) -> Dict[str, Any]:
     if not entry_id:
         raise ValidationError("entry_id", "entry_id is required")
 
-    deleted = db.delete_memory_entry(entry_id, settings=get_settings())
+    deleted = memory_store.delete_memory_entry(entry_id, settings=get_settings())
     if not deleted:
         raise MemoryNotFoundError(entry_id)
     return {"action": "memory_delete", "deleted": True, "entry_id": entry_id}

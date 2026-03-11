@@ -138,7 +138,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 28
+SCHEMA_VERSION: int = 30
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -349,13 +349,15 @@ CREATE TABLE webhook_deliveries (
     subscription_id INTEGER NOT NULL,
     event_id INTEGER NOT NULL,
     event_type TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
+    source_payload_json TEXT NOT NULL,
+    last_attempt_payload_json TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     http_status INTEGER,
     response_body TEXT,
     error_message TEXT,
-    signature TEXT NOT NULL,
+    signature_header TEXT,
     attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_attempted_at TEXT,
     next_retry_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -438,13 +440,30 @@ CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
 CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
 CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
 
--- Scheduler state tracking for periodic tasks
-CREATE TABLE scheduler_runs (
+-- Scheduler lease coordination and run-state tracking
+CREATE TABLE scheduler_task_leases (
     task_name TEXT PRIMARY KEY,
-    last_run_at TEXT NOT NULL,
+    owner_token TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL,
+    lease_until TEXT NOT NULL
+);
+
+CREATE INDEX idx_scheduler_task_leases_until ON scheduler_task_leases(lease_until);
+
+CREATE TABLE scheduler_task_state (
+    task_name TEXT PRIMARY KEY,
+    last_started_at TEXT,
+    last_finished_at TEXT,
+    last_success_at TEXT,
+    last_failure_at TEXT,
+    last_error TEXT,
     last_result_json TEXT,
+    next_due_at TEXT,
     runs_count INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE INDEX idx_scheduler_task_state_next_due ON scheduler_task_state(next_due_at);
 
 -- Nudge tracking for escalation state
 CREATE TABLE loop_nudges (
@@ -506,6 +525,100 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    30: """
+    CREATE TABLE webhook_deliveries_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subscription_id INTEGER NOT NULL,
+        event_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        source_payload_json TEXT NOT NULL,
+        last_attempt_payload_json TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        http_status INTEGER,
+        response_body TEXT,
+        error_message TEXT,
+        signature_header TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_attempted_at TEXT,
+        next_retry_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+        FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
+    );
+
+    INSERT INTO webhook_deliveries_new (
+        id,
+        subscription_id,
+        event_id,
+        event_type,
+        source_payload_json,
+        last_attempt_payload_json,
+        status,
+        http_status,
+        response_body,
+        error_message,
+        signature_header,
+        attempt_count,
+        last_attempted_at,
+        next_retry_at,
+        created_at,
+        updated_at
+    )
+    SELECT
+        id,
+        subscription_id,
+        event_id,
+        event_type,
+        payload_json,
+        NULL,
+        status,
+        http_status,
+        response_body,
+        error_message,
+        signature,
+        attempt_count,
+        NULL,
+        next_retry_at,
+        created_at,
+        updated_at
+    FROM webhook_deliveries;
+
+    DROP TABLE webhook_deliveries;
+    ALTER TABLE webhook_deliveries_new RENAME TO webhook_deliveries;
+
+    CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
+    CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
+        WHERE status = 'pending';
+    CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
+    """,
+    29: """
+    DROP TABLE IF EXISTS scheduler_runs;
+
+    CREATE TABLE scheduler_task_leases (
+        task_name TEXT PRIMARY KEY,
+        owner_token TEXT NOT NULL,
+        acquired_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        lease_until TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_scheduler_task_leases_until ON scheduler_task_leases(lease_until);
+
+    CREATE TABLE scheduler_task_state (
+        task_name TEXT PRIMARY KEY,
+        last_started_at TEXT,
+        last_finished_at TEXT,
+        last_success_at TEXT,
+        last_failure_at TEXT,
+        last_error TEXT,
+        last_result_json TEXT,
+        next_due_at TEXT,
+        runs_count INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX idx_scheduler_task_state_next_due ON scheduler_task_state(next_due_at);
+    """,
     28: """
     -- Make loop_id nullable to support system-level events (e.g., REVIEW_GENERATED)
     -- SQLite requires recreating the table to drop NOT NULL constraint

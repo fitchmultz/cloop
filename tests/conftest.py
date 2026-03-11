@@ -103,6 +103,8 @@ def test_settings() -> Callable[..., Settings]:
             "scheduler_weekly_review_interval_hours": 168.0,
             "scheduler_due_soon_nudge_interval_hours": 1.0,
             "scheduler_stale_rescue_interval_hours": 6.0,
+            "scheduler_poll_interval_seconds": 60.0,
+            "scheduler_lease_seconds": 180,
         }
         defaults.update(overrides)
         return Settings(**defaults)  # type: ignore[arg-type]

@@ -40,6 +40,7 @@ from ..rag import retrieve_similar_chunks
 from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
 from ..settings import Settings, ToolMode, get_settings
 from ..sse import format_sse_event
+from ..storage import interaction_store, memory_store
 from ..tools import TOOL_SPECS
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -142,7 +143,7 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
         lines.append("\n### Due Soon")
         for loop in due_soon[:3]:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
-            due = loop.get("due_at_utc")
+            due = loop.get("due_at_utc") or loop.get("next_due_at_utc")
             lines.append(f"- {title}")
             if due:
                 lines.append(f"  Due: {due}")
@@ -197,7 +198,7 @@ def _build_memory_context(settings: Settings, limit: int = 10) -> str:
     Target: ~300-500 tokens to avoid context bloat.
     """
     try:
-        result = db.list_memory_entries(
+        result = memory_store.list_memory_entries(
             limit=limit,
             settings=settings,
         )
@@ -377,7 +378,7 @@ def chat_endpoint(
             sanitized_rag_chunks = [
                 {k: v for k, v in chunk.items() if k != "embedding_blob"} for chunk in rag_chunks
             ]
-            db.record_interaction(
+            interaction_store.record_interaction(
                 endpoint="/chat",
                 request_payload=request_payload,
                 response_payload=response_payload,
@@ -420,7 +421,7 @@ def chat_endpoint(
     sanitized_rag_chunks = [
         {k: v for k, v in chunk.items() if k != "embedding_blob"} for chunk in rag_chunks
     ]
-    db.record_interaction(
+    interaction_store.record_interaction(
         endpoint="/chat",
         request_payload=request.model_dump(),
         response_payload=response_payload,

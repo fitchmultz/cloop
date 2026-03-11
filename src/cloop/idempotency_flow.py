@@ -25,7 +25,6 @@ from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from mcp.server.fastmcp.exceptions import ToolError
 
-from . import db
 from .idempotency import (
     IdempotencyConflictError,
     build_http_scope,
@@ -35,6 +34,7 @@ from .idempotency import (
     normalize_idempotency_key,
 )
 from .settings import Settings
+from .storage import idempotency_store
 
 
 @dataclass(frozen=True)
@@ -123,7 +123,7 @@ def finalize_idempotent_response(
     if state.key is None:
         return
 
-    db.finalize_idempotency_response(
+    idempotency_store.finalize_idempotency_response(
         scope=state.scope,
         idempotency_key=state.key,
         response_status=response_status,
@@ -152,7 +152,7 @@ def _prepare_idempotency(
         raise invalid_key_error(str(exc)) from None
 
     try:
-        claim = db.claim_or_replay_idempotency(
+        claim = idempotency_store.claim_or_replay_idempotency(
             scope=scope,
             idempotency_key=key,
             request_hash=canonical_request_hash(payload),

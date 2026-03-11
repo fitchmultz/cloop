@@ -345,6 +345,8 @@ def compile_loop_query(query: LoopQuery, *, now_utc: datetime) -> tuple[str, lis
         conditions.append(f"LOWER(projects.name) IN ({placeholders})")
         params.extend(query.projects)
 
+    effective_due_expr = "COALESCE(loops.due_at_utc, loops.next_due_at_utc)"
+
     # Handle due filters (both keyword and date-based)
     due_conditions: list[str] = []
     if query.due_filters:
@@ -355,18 +357,20 @@ def compile_loop_query(query: LoopQuery, *, now_utc: datetime) -> tuple[str, lis
 
         for due_filter in query.due_filters:
             if due_filter == "today":
-                due_conditions.append("(loops.due_at_utc >= ? AND loops.due_at_utc < ?)")
+                due_conditions.append(f"({effective_due_expr} >= ? AND {effective_due_expr} < ?)")
                 params.extend([start_of_today.isoformat(), start_of_tomorrow.isoformat()])
             elif due_filter == "tomorrow":
-                due_conditions.append("(loops.due_at_utc >= ? AND loops.due_at_utc < ?)")
+                due_conditions.append(f"({effective_due_expr} >= ? AND {effective_due_expr} < ?)")
                 params.extend([start_of_tomorrow.isoformat(), start_of_day_after.isoformat()])
             elif due_filter == "overdue":
-                due_conditions.append("(loops.due_at_utc IS NOT NULL AND loops.due_at_utc < ?)")
+                due_conditions.append(
+                    f"({effective_due_expr} IS NOT NULL AND {effective_due_expr} < ?)"
+                )
                 params.append(now_utc.isoformat())
             elif due_filter == "none":
-                due_conditions.append("loops.due_at_utc IS NULL")
+                due_conditions.append(f"{effective_due_expr} IS NULL")
             elif due_filter == "next7d":
-                due_conditions.append("(loops.due_at_utc >= ? AND loops.due_at_utc < ?)")
+                due_conditions.append(f"({effective_due_expr} >= ? AND {effective_due_expr} < ?)")
                 params.extend([now_utc.isoformat(), start_of_next_week.isoformat()])
 
     # Handle structured date predicates
@@ -376,23 +380,23 @@ def compile_loop_query(query: LoopQuery, *, now_utc: datetime) -> tuple[str, lis
                 # Due on this date (start of day to end of day)
                 date_start = f"{df.date}T00:00:00Z"
                 date_end = f"{df.date}T23:59:59.999999Z"
-                due_conditions.append("(loops.due_at_utc >= ? AND loops.due_at_utc <= ?)")
+                due_conditions.append(f"({effective_due_expr} >= ? AND {effective_due_expr} <= ?)")
                 params.extend([date_start, date_end])
             elif df.operator == "before":
                 # Due before start of this date
                 date_start = f"{df.date}T00:00:00Z"
-                due_conditions.append("(loops.due_at_utc < ?)")
+                due_conditions.append(f"({effective_due_expr} < ?)")
                 params.append(date_start)
             elif df.operator == "after":
                 # Due after end of this date
                 date_end = f"{df.date}T23:59:59.999999Z"
-                due_conditions.append("(loops.due_at_utc > ?)")
+                due_conditions.append(f"({effective_due_expr} > ?)")
                 params.append(date_end)
             elif df.operator == "between":
                 # Due within range (inclusive)
                 range_start = f"{df.date}T00:00:00Z"
                 range_end = f"{df.date_end}T23:59:59.999999Z"
-                due_conditions.append("(loops.due_at_utc >= ? AND loops.due_at_utc <= ?)")
+                due_conditions.append(f"({effective_due_expr} >= ? AND {effective_due_expr} <= ?)")
                 params.extend([range_start, range_end])
 
     if due_conditions:

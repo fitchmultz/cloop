@@ -57,6 +57,7 @@ Changelog = "https://github.com/fitchmultz/cloop/blob/main/CHANGELOG.md"
 [project.scripts]
 cloop = "cloop.cli:main"
 cloop-mcp = "cloop.mcp_server:main"
+cloop-scheduler = "cloop.scheduler:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
