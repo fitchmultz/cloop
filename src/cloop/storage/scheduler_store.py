@@ -7,6 +7,7 @@ Purpose:
 Responsibilities:
     - Acquire, renew, heartbeat, and release task leases
     - Read and update task run-state records
+    - Persist task execution markers for crash visibility
     - Answer whether a task is due based on persisted eligibility
 
 Non-scope:
@@ -192,6 +193,76 @@ def update_task_run_state(
             error,
             json.dumps(result) if result is not None else None,
             next_due_at_iso,
+        ),
+    )
+    conn.commit()
+
+
+def start_task_execution(
+    *,
+    run_id: str,
+    task_name: str,
+    owner_token: str,
+    started_at: datetime,
+    conn: sqlite3.Connection,
+) -> None:
+    """Persist a scheduler execution marker before task side effects begin."""
+    conn.execute(
+        """
+        INSERT INTO scheduler_task_executions (
+            run_id, task_name, owner_token, started_at, heartbeat_at, status
+        )
+        VALUES (?, ?, ?, ?, ?, 'running')
+        """,
+        (run_id, task_name, owner_token, _iso(started_at), _iso(started_at)),
+    )
+    conn.commit()
+
+
+def heartbeat_task_execution(
+    *,
+    run_id: str,
+    owner_token: str,
+    heartbeat_at: datetime,
+    conn: sqlite3.Connection,
+) -> None:
+    """Update the execution heartbeat for an in-flight scheduler task."""
+    conn.execute(
+        """
+        UPDATE scheduler_task_executions
+        SET heartbeat_at = ?
+        WHERE run_id = ? AND owner_token = ? AND status = 'running'
+        """,
+        (_iso(heartbeat_at), run_id, owner_token),
+    )
+    conn.commit()
+
+
+def finish_task_execution(
+    *,
+    run_id: str,
+    owner_token: str,
+    finished_at: datetime,
+    status: str,
+    error: str | None,
+    result: dict[str, Any] | None,
+    conn: sqlite3.Connection,
+) -> None:
+    """Mark a scheduler execution as succeeded or failed."""
+    conn.execute(
+        """
+        UPDATE scheduler_task_executions
+        SET heartbeat_at = ?, finished_at = ?, status = ?, error = ?, result_json = ?
+        WHERE run_id = ? AND owner_token = ?
+        """,
+        (
+            _iso(finished_at),
+            _iso(finished_at),
+            status,
+            error,
+            json.dumps(result) if result is not None else None,
+            run_id,
+            owner_token,
         ),
     )
     conn.commit()

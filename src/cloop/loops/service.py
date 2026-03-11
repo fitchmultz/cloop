@@ -49,7 +49,8 @@ from .models import (
     parse_utc_datetime,
     utc_now,
 )
-from .service_helpers import (
+from .utils import normalize_tags
+from .write_ops import (
     _apply_loop_update,
     _apply_status_transition,
     _enrich_record,
@@ -57,7 +58,6 @@ from .service_helpers import (
     _handle_recurrence_on_completion,
     _record_to_dict,
 )
-from .utils import normalize_tags
 
 if TYPE_CHECKING:
     pass

@@ -68,13 +68,14 @@ def create_webhook_subscription(
     """
     secret = _generate_webhook_secret()
     with db.core_connection(settings) as conn:
-        subscription = webhooks_repo.create_subscription(
-            url=request.url,
-            secret=secret,
-            event_types=request.event_types,
-            description=request.description,
-            conn=conn,
-        )
+        with conn:
+            subscription = webhooks_repo.create_subscription(
+                url=request.url,
+                secret=secret,
+                event_types=request.event_types,
+                description=request.description,
+                conn=conn,
+            )
     return build_webhook_subscription_create_response(subscription, secret=secret)
 
 
@@ -100,14 +101,15 @@ def update_webhook_subscription(
         raise no_fields_to_update_http_exception() from None
 
     with db.core_connection(settings) as conn:
-        subscription = webhooks_repo.update_subscription(
-            subscription_id=subscription_id,
-            url=fields.get("url"),
-            event_types=fields.get("event_types"),
-            active=fields.get("active"),
-            description=fields.get("description"),
-            conn=conn,
-        )
+        with conn:
+            subscription = webhooks_repo.update_subscription(
+                subscription_id=subscription_id,
+                url=fields.get("url"),
+                event_types=fields.get("event_types"),
+                active=fields.get("active"),
+                description=fields.get("description"),
+                conn=conn,
+            )
         if subscription is None:
             raise map_not_found_to_404(resource_type="subscription") from None
 
@@ -121,10 +123,11 @@ def delete_webhook_subscription(
 ) -> dict[str, bool]:
     """Delete a webhook subscription."""
     with db.core_connection(settings) as conn:
-        deleted = webhooks_repo.delete_subscription(
-            subscription_id=subscription_id,
-            conn=conn,
-        )
+        with conn:
+            deleted = webhooks_repo.delete_subscription(
+                subscription_id=subscription_id,
+                conn=conn,
+            )
         if not deleted:
             raise map_not_found_to_404(resource_type="subscription") from None
     return {"deleted": True}

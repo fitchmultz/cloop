@@ -99,6 +99,32 @@ class TestSchedulerState:
         assert state["runs_count"] == 1
         assert state["last_result"]["count"] == 5
 
+    def test_task_execution_markers_persist_result(self, scheduler_db: sqlite3.Connection) -> None:
+        now = datetime.now(timezone.utc)
+        scheduler_store.start_task_execution(
+            run_id="run-1",
+            task_name="daily_review",
+            owner_token="owner-a",
+            started_at=now,
+            conn=scheduler_db,
+        )
+        scheduler_store.finish_task_execution(
+            run_id="run-1",
+            owner_token="owner-a",
+            finished_at=now,
+            status="succeeded",
+            error=None,
+            result={"count": 1},
+            conn=scheduler_db,
+        )
+        row = scheduler_db.execute(
+            "SELECT status, result_json FROM scheduler_task_executions WHERE run_id = ?",
+            ("run-1",),
+        ).fetchone()
+        assert row is not None
+        assert row["status"] == "succeeded"
+        assert row["result_json"] is not None
+
 
 class TestDailyReview:
     """Tests for daily review scheduler task."""
@@ -701,6 +727,56 @@ class TestSchedulerIntegration:
             state = scheduler_store.get_task_run_state(task_name="daily_review", conn=conn)
         assert state is not None
         assert state["runs_count"] == 1
+
+    def test_run_scheduler_task_heartbeats_long_running_task(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "true")
+        monkeypatch.setenv("CLOOP_SCHEDULER_LEASE_SECONDS", "1")
+        monkeypatch.setenv("CLOOP_SCHEDULER_POLL_INTERVAL_SECONDS", "1")
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        heartbeat_times: list[datetime] = []
+
+        async def _slow_runner(settings, conn):  # noqa: ANN001
+            await asyncio.sleep(1.2)
+            return {"ok": True}
+
+        original_heartbeat = scheduler_store.heartbeat_task_execution
+
+        def _record_heartbeat(*args, **kwargs):  # noqa: ANN002, ANN003
+            heartbeat_times.append(kwargs["heartbeat_at"])
+            return original_heartbeat(*args, **kwargs)
+
+        monkeypatch.setattr("cloop.scheduler._task_runner", lambda task_name: _slow_runner)
+        monkeypatch.setattr(scheduler_store, "heartbeat_task_execution", _record_heartbeat)
+
+        result = asyncio.run(
+            run_scheduler_task(
+                task_name="daily_review",
+                settings=settings,
+                owner_token="scheduler-test:daily_review",
+            )
+        )
+
+        assert result == {"ok": True}
+        assert heartbeat_times
+
+        with db.core_connection(settings) as conn:
+            row = conn.execute(
+                """
+                SELECT status, heartbeat_at
+                FROM scheduler_task_executions
+                ORDER BY started_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        assert row is not None
+        assert row["status"] == "succeeded"
+        assert row["heartbeat_at"] is not None
 
 
 class TestDueSoonNudgeEscalation:

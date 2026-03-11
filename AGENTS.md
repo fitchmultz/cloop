@@ -17,7 +17,8 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Schemas | `src/cloop/schemas/*.py` |
 | Loop management | `src/cloop/loops/` |
 | RAG | `src/cloop/rag/` |
-| Database schema | `src/cloop/db.py` |
+| Database schema + infra DB wiring | `src/cloop/db.py` |
+| Feature-owned persistence stores | `src/cloop/storage/` |
 | Scheduler | `src/cloop/scheduler.py` |
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
@@ -46,7 +47,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Loops**: State machine transitions in `loops/service.py` (inbox → actionable/blocked/scheduled → completed/dropped)
 - **Loop reads**: canonical query/read entrypoints live in `src/cloop/loops/read_service.py`; HTTP, CLI, MCP, and tool read paths should import that module directly instead of routing basic reads through `loops/service.py`.
 - **Saved views + templates**: canonical owners are `src/cloop/loops/views.py` and `src/cloop/loops/template_management.py`; avoid reintroducing generic service wrappers for those concerns.
-- **Scheduler**: Periodic tasks in `scheduler.py` (daily/weekly reviews, due-soon nudges, stale rescue)
+- **Scheduler**: `src/cloop/scheduler.py` is a dedicated process entrypoint (`cloop-scheduler`), not an app-lifespan background task.
 - **SSE**: Streaming utilities in `sse.py` for real-time responses
 - **SQLite in tests**: `with sqlite3.connect(...)` does **not** close connections; use `contextlib.closing(sqlite3.connect(...))` or explicit `conn.close()` in fixtures/finalizers.
 - **CI test contract**: `make ci` runs quality + tests excluding `performance` + packaging; use `make test-all` for exhaustive marker-inclusive runs.
@@ -61,7 +62,8 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Loop route error payloads**: prefer the structured helpers in `src/cloop/routes/loops/_common.py` for empty-field validation and claim/not-found mapping instead of ad-hoc plain-string `HTTPException` details.
 - **Timer pagination**: `src/cloop/loops/timers.py::list_time_sessions` now returns both paginated sessions and a real `total_count`; route code should not derive totals from the current page length.
 - **Comment mutations**: `src/cloop/loops/comments.py` commits exactly once after the full comment write + loop event insert + webhook queue succeeds; do not reintroduce intermediate commits in that flow.
-- **Bulk mutations**: `src/cloop/loops/bulk.py` should delegate single-item update/close/snooze behavior to the shared mutation helpers in `src/cloop/loops/service_helpers.py`; do not fork those business rules back into bulk-specific copies.
+- **Bulk mutations**: `src/cloop/loops/bulk.py` should delegate single-item update/close/snooze behavior to the shared mutation helpers in `src/cloop/loops/write_ops.py`; do not fork those business rules back into bulk-specific copies.
+- **Storage ownership**: notes, memory, interaction logging, idempotency, and scheduler state belong under `src/cloop/storage/*`; `src/cloop/db.py` should stay infra-only.
 - **Capture orchestration**: shared capture/template/recurrence/enrichment setup lives in `src/cloop/loops/capture_orchestration.py`; HTTP, CLI, and MCP capture entrypoints should delegate there instead of maintaining parallel capture flows.
 - **RAG ask orchestration**: shared retrieval + prompt + answer shaping now lives in `src/cloop/rag/ask_orchestration.py`; keep HTTP `/ask` and CLI `ask` aligned through that service layer instead of forking behavior by transport.
 - **CLI runtime**: loop-adjacent CLI handlers should centralize connection handling, expected exception mapping, and output/render orchestration through `src/cloop/cli_package/_runtime.py` instead of open-coding `with db.core_connection(...)` and per-command stderr/exit-code trees.

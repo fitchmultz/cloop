@@ -90,18 +90,35 @@ def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
     if isinstance(exc, NotFoundError):
         status_code = HTTP_NOT_FOUND
         error_type = "not_found"
+        detail: Any = {"code": error_type, "message": exc.message, "detail": exc.detail}
     elif isinstance(exc, TransitionError):
         status_code = HTTP_BAD_REQUEST
         error_type = "transition_error"
+        detail = {
+            "code": error_type,
+            "message": exc.message,
+            "detail": exc.detail,
+            "from_status": exc.from_status,
+            "to_status": exc.to_status,
+        }
     elif isinstance(exc, ValidationError):
         status_code = HTTP_BAD_REQUEST
         error_type = "validation_error"
+        detail = {
+            "code": error_type,
+            "message": exc.message,
+            "detail": exc.detail,
+            "field": exc.field,
+            "reason": exc.reason,
+        }
     elif isinstance(exc, RecurrenceError):
         status_code = HTTP_BAD_REQUEST
         error_type = "recurrence_error"
+        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
     elif isinstance(exc, DependencyCycleError):
         status_code = HTTP_BAD_REQUEST
         error_type = "dependency_cycle"
+        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
     elif isinstance(exc, DependencyNotMetError):
         status_code = HTTP_BAD_REQUEST
         error_type = "dependency_not_met"
@@ -118,30 +135,56 @@ def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
     elif isinstance(exc, LoopClaimedError):
         status_code = 409
         error_type = "loop_claimed"
+        detail = {
+            "code": error_type,
+            "message": exc.message,
+            "detail": exc.detail,
+            "loop_id": exc.loop_id,
+            "owner": exc.owner,
+            "lease_until": exc.lease_until,
+        }
     elif isinstance(exc, ClaimNotFoundError):
-        status_code = HTTP_NOT_FOUND
-        error_type = "claim_not_found"
+        status_code = 403
+        error_type = "invalid_claim_token"
+        detail = {
+            "code": error_type,
+            "message": exc.message,
+            "detail": exc.detail,
+            "loop_id": exc.loop_id,
+        }
     elif isinstance(exc, ClaimExpiredError):
         status_code = 410
         error_type = "claim_expired"
+        detail = {
+            "code": error_type,
+            "message": exc.message,
+            "detail": exc.detail,
+            "loop_id": exc.loop_id,
+        }
     elif isinstance(exc, MergeConflictError):
         status_code = 409
         error_type = "merge_conflict"
+        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
     elif isinstance(exc, UndoNotPossibleError):
-        status_code = 409
+        status_code = HTTP_BAD_REQUEST
         error_type = "undo_not_possible"
+        detail = {
+            "code": error_type,
+            "message": exc.message,
+            "detail": exc.detail,
+            "loop_id": exc.loop_id,
+            "reason": exc.reason,
+        }
     elif isinstance(exc, (LoopCreateError, LoopImportError)):
         status_code = HTTP_INTERNAL_SERVER_ERROR
         error_type = "persistence_error"
+        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
     else:
         status_code = HTTP_BAD_REQUEST
         error_type = "domain_error"
+        detail = {"code": error_type, "message": exc.message, "detail": exc.detail}
 
-    return _http_error(
-        {"message": exc.message, "detail": exc.detail},
-        status_code=status_code,
-        error_type=error_type,
-    )
+    return _http_error(detail, status_code=status_code, error_type=error_type)
 
 
 def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSONResponse:

@@ -24,6 +24,7 @@ Invariants:
 import sqlite3
 import time
 from pathlib import Path
+from typing import cast
 
 import pytest
 from conftest import _now_iso
@@ -432,6 +433,118 @@ def test_webhook_queue_deliveries(
     )
     assert len(delivery_ids) == 1  # Only all events subscription
 
+    conn.close()
+
+
+def test_webhook_delivery_signs_exact_transmitted_bytes(tmp_path: Path, monkeypatch) -> None:
+    """Delivery should sign the exact canonical bytes sent on the wire."""
+    from cloop.webhooks import repo, service
+    from cloop.webhooks.signer import verify_signature
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    with conn:
+        subscription = repo.create_subscription(
+            url="https://example.com/webhook",
+            secret="test-secret",
+            event_types=["*"],
+            description="Test sub",
+            conn=conn,
+        )
+        conn.execute(
+            """
+            INSERT INTO loop_events (event_type, payload_json, created_at)
+            VALUES ('capture', '{}', datetime('now'))
+            """
+        )
+        delivery = repo.create_delivery(
+            subscription_id=subscription.id,
+            event_id=1,
+            event_type="capture",
+            payload={"loop_id": 42, "message": "hello"},
+            conn=conn,
+        )
+
+    sent: dict[str, object] = {}
+
+    def _fake_send(
+        *,
+        url: str,
+        payload_bytes: bytes,
+        headers: dict[str, str],
+        timeout_seconds: float,
+    ):
+        sent["url"] = url
+        sent["payload_bytes"] = payload_bytes
+        sent["headers"] = headers
+        sent["timeout_seconds"] = timeout_seconds
+        return 200, "ok"
+
+    monkeypatch.setattr(service, "_send_pinned_webhook_request", _fake_send)
+
+    status = service.deliver_webhook(delivery_id=delivery.id, conn=conn, settings=settings)
+    assert status.value == "success"
+
+    stored = repo.get_delivery(delivery_id=delivery.id, conn=conn)
+    assert stored is not None
+    payload_bytes = cast(bytes, sent["payload_bytes"])
+    assert stored.last_attempt_payload_json == payload_bytes.decode("utf-8")
+    assert verify_signature(
+        payload_bytes,
+        subscription.secret,
+        stored.signature_header or "",
+    )
+    conn.close()
+
+
+def test_webhook_queueing_is_transaction_neutral(tmp_path: Path, monkeypatch) -> None:
+    """Queueing deliveries should not commit the caller's outer transaction."""
+    from cloop.webhooks import repo, service
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    with conn:
+        repo.create_subscription(
+            url="https://example.com/tx",
+            secret="secret",
+            event_types=["*"],
+            description="tx",
+            conn=conn,
+        )
+
+    conn.execute("BEGIN")
+    conn.execute(
+        """
+        INSERT INTO loop_events (event_type, payload_json, created_at)
+        VALUES ('capture', '{}', datetime('now'))
+        """
+    )
+    service.queue_deliveries(
+        event_id=1,
+        event_type="capture",
+        payload={"loop_id": 1},
+        conn=conn,
+        settings=settings,
+    )
+    conn.rollback()
+
+    deliveries = conn.execute("SELECT COUNT(*) AS count FROM webhook_deliveries").fetchone()
+    assert deliveries is not None
+    assert deliveries["count"] == 0
     conn.close()
 
 

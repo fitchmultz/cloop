@@ -27,12 +27,11 @@ import time
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from ... import db
 from ...loops import events as loop_events
-from ...loops.errors import ClaimNotFoundError, LoopClaimedError, UndoNotPossibleError
 from ...schemas.loops import (
     LoopEventListResponse,
     LoopEventResponse,
@@ -40,13 +39,7 @@ from ...schemas.loops import (
     LoopUndoResponse,
 )
 from ...sse import format_sse_comment, format_sse_event
-from ._common import (
-    IdempotencyKeyHeader,
-    SettingsDep,
-    invalid_claim_token_http_exception,
-    loop_claimed_http_exception,
-    run_idempotent_loop_route,
-)
+from ._common import IdempotencyKeyHeader, SettingsDep, run_idempotent_loop_route
 
 router = APIRouter()
 
@@ -63,18 +56,13 @@ def loop_events_endpoint(
     Returns events in reverse chronological order (newest first).
     Use before_id cursor for pagination.
     """
-    from ...loops.errors import LoopNotFoundError
-
     with db.core_connection(settings) as conn:
-        try:
-            events = loop_events.get_loop_events(
-                loop_id=loop_id,
-                limit=limit + 1,  # Fetch one extra to detect has_more
-                before_id=before_id,
-                conn=conn,
-            )
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        events = loop_events.get_loop_events(
+            loop_id=loop_id,
+            limit=limit + 1,
+            before_id=before_id,
+            conn=conn,
+        )
 
     has_more = len(events) > limit
     if has_more:
@@ -101,34 +89,15 @@ def loop_undo_endpoint(
 
     Returns the updated loop and details of the undone event.
     """
-    from ...loops.errors import LoopNotFoundError
-
     payload = {"loop_id": loop_id}
-
-    try:
-        result = run_idempotent_loop_route(
-            settings=settings,
-            method="POST",
-            path=f"/loops/{loop_id}/undo",
-            idempotency_key=idempotency_key,
-            payload=payload,
-            execute=lambda conn: _undo_response(loop_id=loop_id, conn=conn),
-        )
-    except UndoNotPossibleError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "undo_not_possible",
-                "reason": exc.reason,
-                "message": exc.message,
-            },
-        ) from None
-    except LoopNotFoundError:
-        raise HTTPException(status_code=404, detail="Loop not found") from None
-    except LoopClaimedError as exc:
-        raise loop_claimed_http_exception(exc) from None
-    except ClaimNotFoundError:
-        raise invalid_claim_token_http_exception() from None
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="POST",
+        path=f"/loops/{loop_id}/undo",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: _undo_response(loop_id=loop_id, conn=conn),
+    )
 
     if isinstance(result, JSONResponse):
         return result

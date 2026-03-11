@@ -35,6 +35,7 @@ from ..llm import (
     estimate_tokens,
     stream_completion,
 )
+from ..loops.due import effective_due_iso
 from ..loops.errors import CloopError
 from ..rag import retrieve_similar_chunks
 from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
@@ -143,7 +144,7 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
         lines.append("\n### Due Soon")
         for loop in due_soon[:3]:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
-            due = loop.get("due_at_utc") or loop.get("next_due_at_utc")
+            due = effective_due_iso(loop)
             lines.append(f"- {title}")
             if due:
                 lines.append(f"  Due: {due}")

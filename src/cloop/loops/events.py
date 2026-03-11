@@ -26,7 +26,7 @@ from .. import typingx
 from ..webhooks.service import queue_deliveries
 from . import repo
 from .errors import LoopNotFoundError, UndoNotPossibleError
-from .service_helpers import _record_to_dict, _validate_claim_for_update
+from .write_ops import _record_to_dict, _validate_claim_for_update
 
 # ============================================================================
 # Event History and Undo Service Functions

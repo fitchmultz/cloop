@@ -33,10 +33,13 @@ from .memory_store import (
 from .notes_store import list_notes, read_note, search_notes, upsert_note
 from .scheduler_store import (
     acquire_task_lease,
+    finish_task_execution,
     get_task_run_state,
+    heartbeat_task_execution,
     heartbeat_task_lease,
     release_task_lease,
     renew_task_lease,
+    start_task_execution,
     task_due,
     update_task_run_state,
 )
@@ -47,9 +50,11 @@ __all__ = [
     "create_memory_entry",
     "delete_memory_entry",
     "finalize_idempotency_response",
+    "finish_task_execution",
     "get_memory_entry",
     "get_task_run_state",
     "heartbeat_task_lease",
+    "heartbeat_task_execution",
     "list_memory_entries",
     "list_notes",
     "read_note",
@@ -58,6 +63,7 @@ __all__ = [
     "renew_task_lease",
     "search_memory_entries",
     "search_notes",
+    "start_task_execution",
     "task_due",
     "update_memory_entry",
     "update_task_run_state",

@@ -104,7 +104,6 @@ def create_subscription(
         """,
         (url, secret, json.dumps(event_types), description),
     )
-    conn.commit()
     row = conn.execute(
         "SELECT * FROM webhook_subscriptions WHERE id = ?",
         (cursor.lastrowid,),
@@ -176,7 +175,6 @@ def update_subscription(
         """,
         params,
     )
-    conn.commit()
     return get_subscription(subscription_id=subscription_id, conn=conn)
 
 
@@ -186,7 +184,6 @@ def delete_subscription(*, subscription_id: int, conn: sqlite3.Connection) -> bo
         "DELETE FROM webhook_subscriptions WHERE id = ?",
         (subscription_id,),
     )
-    conn.commit()
     return cursor.rowcount > 0
 
 
@@ -213,7 +210,6 @@ def create_delivery(
             DeliveryStatus.PENDING.value,
         ),
     )
-    conn.commit()
     row = conn.execute(
         "SELECT * FROM webhook_deliveries WHERE id = ?",
         (cursor.lastrowid,),
@@ -273,7 +269,6 @@ def update_delivery_status(
             delivery_id,
         ),
     )
-    conn.commit()
 
 
 def list_pending_deliveries(*, conn: sqlite3.Connection) -> list[WebhookDelivery]:

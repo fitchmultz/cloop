@@ -33,8 +33,8 @@ from .errors import LoopNotFoundError
 from .models import LoopRecord, LoopStatus, utc_now
 from .pagination import build_next_cursor, prepare_cursor_state
 from .prioritization import PriorityWeights, bucketize, compute_priority_score
-from .service_helpers import _enrich_records_batch, _record_to_dict
 from .utils import normalize_tag
+from .write_ops import _enrich_records_batch, _record_to_dict
 
 
 @typingx.validate_io()

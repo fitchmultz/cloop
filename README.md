@@ -15,13 +15,17 @@ No Docker. No external vector database. Loop and retrieval data stay in local SQ
 ```mermaid
 flowchart LR
   UI[Web UI] --> API[FastAPI app]
-  CLI[CLI] --> API
-  MCP[MCP server] --> API
   API --> LOOPS[Loop services]
   API --> RAG[RAG services]
+  CLI[CLI] --> LOOPS
+  CLI --> RAG
+  MCP[MCP server] --> LOOPS
+  MCP --> RAG
   LOOPS --> CORE[(core.db)]
   RAG --> RAGDB[(rag.db)]
   LOOPS --> EVENTS[SSE + Webhooks]
+  SCHED[cloop-scheduler] --> LOOPS
+  SCHED --> CORE
 ```
 
 - Public architecture summary: [`docs/architecture.md`](docs/architecture.md)

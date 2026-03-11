@@ -23,13 +23,12 @@ Endpoints:
 - DELETE /{loop_id}/claim/force: Force-release a claim (admin)
 """
 
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from ...loops import claims as loop_claims
-from ...loops.errors import ClaimNotFoundError, LoopClaimedError
 from ...schemas.loops import (
     LoopClaimRequest,
     LoopClaimResponse,
@@ -40,8 +39,6 @@ from ...schemas.loops import (
 from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
-    claim_not_found_http_exception,
-    loop_claimed_http_exception,
     run_idempotent_loop_route,
 )
 
@@ -62,23 +59,20 @@ def claim_loop_endpoint(
     """
     payload = {"loop_id": loop_id, "owner": request.owner, "ttl_seconds": request.ttl_seconds}
 
-    try:
-        result = run_idempotent_loop_route(
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="POST",
+        path=f"/loops/{loop_id}/claim",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: loop_claims.claim_loop(
+            loop_id=loop_id,
+            owner=request.owner,
+            ttl_seconds=request.ttl_seconds,
+            conn=conn,
             settings=settings,
-            method="POST",
-            path=f"/loops/{loop_id}/claim",
-            idempotency_key=idempotency_key,
-            payload=payload,
-            execute=lambda conn: loop_claims.claim_loop(
-                loop_id=loop_id,
-                owner=request.owner,
-                ttl_seconds=request.ttl_seconds,
-                conn=conn,
-                settings=settings,
-            ),
-        )
-    except LoopClaimedError as exc:
-        raise loop_claimed_http_exception(exc) from None
+        ),
+    )
 
     if isinstance(result, JSONResponse):
         return result
@@ -99,23 +93,20 @@ def renew_claim_endpoint(
         "ttl_seconds": request.ttl_seconds,
     }
 
-    try:
-        result = run_idempotent_loop_route(
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="POST",
+        path=f"/loops/{loop_id}/renew",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: loop_claims.renew_claim(
+            loop_id=loop_id,
+            claim_token=request.claim_token,
+            ttl_seconds=request.ttl_seconds,
+            conn=conn,
             settings=settings,
-            method="POST",
-            path=f"/loops/{loop_id}/renew",
-            idempotency_key=idempotency_key,
-            payload=payload,
-            execute=lambda conn: loop_claims.renew_claim(
-                loop_id=loop_id,
-                claim_token=request.claim_token,
-                ttl_seconds=request.ttl_seconds,
-                conn=conn,
-                settings=settings,
-            ),
-        )
-    except ClaimNotFoundError:
-        raise claim_not_found_http_exception(loop_id=loop_id) from None
+        ),
+    )
 
     if isinstance(result, JSONResponse):
         return result
@@ -132,23 +123,34 @@ def release_claim_endpoint(
     """Release a claim on a loop."""
     payload = {"loop_id": loop_id, "claim_token": request.claim_token}
 
-    try:
-        result = run_idempotent_loop_route(
-            settings=settings,
-            method="DELETE",
-            path=f"/loops/{loop_id}/claim",
-            idempotency_key=idempotency_key,
-            payload=payload,
-            execute=lambda conn: _release_claim_response(
-                loop_id=loop_id,
-                claim_token=request.claim_token,
-                conn=conn,
-            ),
-        )
-    except ClaimNotFoundError:
-        raise claim_not_found_http_exception(loop_id=loop_id) from None
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="DELETE",
+        path=f"/loops/{loop_id}/claim",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: _release_claim_response(
+            loop_id=loop_id,
+            claim_token=request.claim_token,
+            conn=conn,
+        ),
+    )
 
     return result
+
+
+@router.get("/claims", response_model=list[LoopClaimStatusResponse])
+def list_claims_endpoint(
+    settings: SettingsDep,
+    owner: Annotated[str | None, Query(description="Filter by owner")] = None,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+) -> list[LoopClaimStatusResponse]:
+    """List all active claims."""
+    from ... import db
+
+    with db.core_connection(settings) as conn:
+        claims = loop_claims.list_active_claims(owner=owner, limit=limit, conn=conn)
+    return [LoopClaimStatusResponse(**claim) for claim in claims]
 
 
 @router.get("/{loop_id}/claim", response_model=LoopClaimStatusResponse | None)

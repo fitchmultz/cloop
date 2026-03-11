@@ -27,6 +27,7 @@ from typing import Any
 
 from . import db
 from .constants import MAX_ESCALATION_LEVEL, NUDGE_THRESHOLD_HIGH, NUDGE_THRESHOLD_LOW
+from .loops.due import effective_due_iso, effective_due_sql
 from .loops.models import LoopEventType, utc_now
 from .loops.review import compute_review_cohorts
 from .push_sender import send_scheduler_push
@@ -41,6 +42,39 @@ SCHEDULER_TASKS = (
     "due_soon_nudge",
     "stale_rescue",
 )
+
+
+async def _heartbeat_scheduler_lease(
+    *,
+    task_name: str,
+    owner_token: str,
+    run_id: str,
+    settings: Settings,
+    stop_event: asyncio.Event,
+) -> bool:
+    """Heartbeat the task lease and execution marker until the run completes."""
+    interval_seconds = max(1.0, settings.scheduler_lease_seconds / 3)
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+            break
+        except asyncio.TimeoutError:
+            with db.core_connection(settings) as heartbeat_conn:
+                renewed = scheduler_store.heartbeat_task_lease(
+                    task_name=task_name,
+                    owner_token=owner_token,
+                    lease_seconds=settings.scheduler_lease_seconds,
+                    conn=heartbeat_conn,
+                )
+                scheduler_store.heartbeat_task_execution(
+                    run_id=run_id,
+                    owner_token=owner_token,
+                    heartbeat_at=utc_now(),
+                    conn=heartbeat_conn,
+                )
+            if not renewed:
+                return False
+    return True
 
 
 def _emit_scheduler_event(
@@ -162,13 +196,13 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     # Find due-soon and overdue loops without next_action
     # Include overdue loops (due_at_utc <= now) for escalation
     # Exclude snoozed loops (snooze_until_utc in the future)
-    # Use COALESCE to include recurring loops with only next_due_at_utc
+    effective_due_expr = effective_due_sql(table_alias="")
     rows = conn.execute(
-        """SELECT id, title, due_at_utc, next_due_at_utc, urgency, importance,
+        f"""SELECT id, title, due_at_utc, next_due_at_utc, urgency, importance,
                   time_minutes, activation_energy
            FROM loops
-           WHERE COALESCE(due_at_utc, next_due_at_utc) IS NOT NULL
-             AND COALESCE(due_at_utc, next_due_at_utc) <= ?
+           WHERE {effective_due_expr} IS NOT NULL
+             AND {effective_due_expr} <= ?
              AND next_action IS NULL
              AND status IN ('inbox', 'actionable', 'scheduled')
              AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
@@ -193,8 +227,7 @@ async def run_due_soon_nudge(settings: Settings, conn: sqlite3.Connection) -> di
     scored_candidates = []
     for row in rows:
         loop_dict = dict(row)
-        # Compute effective due date: prefer due_at_utc, fall back to next_due_at_utc
-        effective_due = row["due_at_utc"] or row["next_due_at_utc"]
+        effective_due = effective_due_iso(row)
         loop_dict["due_at_utc"] = effective_due  # Override for scoring/bucketing
         has_open_deps = loop_repo.has_open_dependencies(loop_id=row["id"], conn=conn)
         score = compute_priority_score(
@@ -410,6 +443,10 @@ async def run_scheduler_task(
     owner_token: str,
 ) -> dict[str, Any] | None:
     """Run one scheduler task if this process acquires the lease and it is due."""
+    run_id = str(uuid.uuid4())
+    heartbeat_task: asyncio.Task[bool] | None = None
+    heartbeat_stop = asyncio.Event()
+
     with db.core_connection(settings) as conn:
         if not scheduler_store.acquire_task_lease(
             task_name=task_name,
@@ -422,11 +459,39 @@ async def run_scheduler_task(
         try:
             if not scheduler_store.task_due(task_name=task_name, now_utc=started_at, conn=conn):
                 return None
+            scheduler_store.start_task_execution(
+                run_id=run_id,
+                task_name=task_name,
+                owner_token=owner_token,
+                started_at=started_at,
+                conn=conn,
+            )
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_scheduler_lease(
+                    task_name=task_name,
+                    owner_token=owner_token,
+                    run_id=run_id,
+                    settings=settings,
+                    stop_event=heartbeat_stop,
+                )
+            )
             runner = _task_runner(task_name)
             result = await runner(settings, conn)
+            heartbeat_stop.set()
+            if heartbeat_task is not None and not await heartbeat_task:
+                raise RuntimeError(f"scheduler_lease_lost:{task_name}")
             finished_at = utc_now()
             interval_hours = _task_interval_hours(task_name, settings)
             next_due_at = started_at + timedelta(hours=interval_hours)
+            scheduler_store.finish_task_execution(
+                run_id=run_id,
+                owner_token=owner_token,
+                finished_at=finished_at,
+                status="succeeded",
+                error=None,
+                result=result,
+                conn=conn,
+            )
             scheduler_store.update_task_run_state(
                 task_name=task_name,
                 started_at=started_at,
@@ -439,9 +504,21 @@ async def run_scheduler_task(
             )
             return result
         except Exception as exc:
+            heartbeat_stop.set()
+            if heartbeat_task is not None:
+                await heartbeat_task
             finished_at = utc_now()
             interval_hours = _task_interval_hours(task_name, settings)
             next_due_at = started_at + timedelta(hours=interval_hours)
+            scheduler_store.finish_task_execution(
+                run_id=run_id,
+                owner_token=owner_token,
+                finished_at=finished_at,
+                status="failed",
+                error=str(exc),
+                result=None,
+                conn=conn,
+            )
             scheduler_store.update_task_run_state(
                 task_name=task_name,
                 started_at=started_at,
@@ -454,6 +531,7 @@ async def run_scheduler_task(
             )
             raise
         finally:
+            heartbeat_stop.set()
             scheduler_store.release_task_lease(
                 task_name=task_name,
                 owner_token=owner_token,

@@ -51,6 +51,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
+from .due import effective_due_sql
 from .errors import ValidationError
 
 _ALLOWED_FIELDS = frozenset({"status", "tag", "project", "due", "text", "recurring"})
@@ -345,7 +346,7 @@ def compile_loop_query(query: LoopQuery, *, now_utc: datetime) -> tuple[str, lis
         conditions.append(f"LOWER(projects.name) IN ({placeholders})")
         params.extend(query.projects)
 
-    effective_due_expr = "COALESCE(loops.due_at_utc, loops.next_due_at_utc)"
+    effective_due_expr = effective_due_sql()
 
     # Handle due filters (both keyword and date-based)
     due_conditions: list[str] = []

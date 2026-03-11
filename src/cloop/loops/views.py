@@ -29,7 +29,7 @@ from .. import typingx
 from . import repo
 from .errors import ValidationError
 from .pagination import build_next_cursor, prepare_cursor_state
-from .service_helpers import _enrich_records_batch
+from .write_ops import _enrich_records_batch
 
 
 def _get_required_view(*, view_id: int, conn: sqlite3.Connection) -> dict[str, Any]:

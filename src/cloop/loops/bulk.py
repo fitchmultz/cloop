@@ -49,7 +49,7 @@ from .errors import (
 )
 from .models import LoopStatus, is_terminal_status, utc_now
 from .query import compile_loop_query, parse_loop_query
-from .service_helpers import (
+from .write_ops import (
     _apply_loop_update,
     _apply_status_transition,
     _enrich_record,

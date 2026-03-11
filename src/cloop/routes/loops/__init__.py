@@ -5,7 +5,11 @@ Purpose:
     organized by domain across multiple focused modules.
 
 Modules:
-- core: Main loop CRUD operations (capture, list, get, update, close, status, enrich)
+- lifecycle: Loop capture and mutation endpoints
+- query: Loop listing, search, next, review, and tags
+- import_export: Loop import/export endpoints
+- metrics: Workflow metrics endpoints
+- suggestions_clarifications: Suggestion and clarification endpoints
 - dependencies: Loop dependency management (blockers, dependents)
 - views: Saved views for filtered queries
 - templates: Loop templates for pre-filled capture
@@ -29,11 +33,15 @@ from ._common import IdempotencyKeyHeader, SettingsDep, _idempotency_conflict
 from .bulk import router as bulk_router
 from .claims import router as claims_router
 from .comments import router as comments_router
-from .core import router as core_router
 from .dependencies import router as dependencies_router
 from .duplicates import router as duplicates_router
 from .events import router as events_router
+from .import_export import router as import_export_router
+from .lifecycle import router as lifecycle_router
+from .metrics import router as metrics_router
 from .push import router as push_router
+from .query import router as query_router
+from .suggestions_clarifications import router as suggestions_clarifications_router
 from .templates import router as templates_router
 from .timers import router as timers_router
 from .views import router as views_router
@@ -58,17 +66,22 @@ router.include_router(views_router)
 # 4. Templates - static paths: /templates/*
 router.include_router(templates_router)
 
-# 5. Core router - mix of static paths and dynamic /{loop_id}
-# Must be registered after other static paths but before nested dynamic routes
-router.include_router(core_router)
+# 5. Query / export / metrics / suggestion endpoints - static paths first
+router.include_router(query_router)
+router.include_router(import_export_router)
+router.include_router(metrics_router)
+router.include_router(suggestions_clarifications_router)
+router.include_router(claims_router)
 
-# 6. Push subscriptions - static paths: /push/*
+# 6. Lifecycle router - includes dynamic /{loop_id} routes
+router.include_router(lifecycle_router)
+
+# 7. Push subscriptions - static paths: /push/*
 router.include_router(push_router)
 
-# 7. Loop-specific nested routes - all start with /{loop_id}/...
+# 8. Loop-specific nested routes - all start with /{loop_id}/...
 # These are least specific and should be registered last
 router.include_router(dependencies_router)
-router.include_router(claims_router)
 router.include_router(events_router)
 router.include_router(timers_router)
 router.include_router(comments_router)

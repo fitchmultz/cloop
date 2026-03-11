@@ -14,15 +14,15 @@ Non-scope:
 """
 
 import datetime
+import http.client
 import ipaddress
 import json
 import logging
 import random
 import socket
 import sqlite3
+import ssl
 import time
-import urllib.error
-import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
@@ -42,53 +42,92 @@ def _is_safe_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return True
 
 
-def _is_safe_url(url: str) -> bool:
-    """Check if a URL is safe to fetch (SSRF protection).
+def _resolve_safe_delivery_targets(
+    url: str,
+) -> tuple[tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...], str, int, str]:
+    """Resolve and validate all delivery targets for an outbound webhook."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        raise ValueError("URL must use https and include a host")
 
-    Args:
-        url: The URL to validate
+    hostname = parsed.hostname
+    if not hostname or hostname.lower() in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError("Unsafe or missing hostname")
 
-    Returns:
-        True if the URL is safe to fetch
-    """
-    try:
-        parsed = urlparse(url)
+    port = parsed.port or 443
+    infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    resolved_ips = []
+    for info in infos:
+        if info[0] not in {socket.AF_INET, socket.AF_INET6}:
+            continue
+        ip = ipaddress.ip_address(info[4][0])
+        if not _is_safe_ip(ip):
+            raise ValueError(f"Unsafe resolved address: {ip}")
+        resolved_ips.append(ip)
+    if not resolved_ips:
+        raise ValueError("No safe resolved addresses")
 
-        # Must have scheme and netloc
-        if not parsed.scheme or not parsed.netloc:
-            return False
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    unique_ips = tuple(dict.fromkeys(resolved_ips))
+    return unique_ips, hostname, port, path
 
-        # Only allow HTTPS
-        if parsed.scheme != "https":
-            return False
 
-        # Extract hostname
-        hostname = parsed.hostname
-        if not hostname:
-            return False
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPSConnection that dials a validated IP while verifying the hostname."""
 
-        # Block localhost hostname
-        if hostname.lower() in ("localhost", "127.0.0.1", "::1"):
-            return False
+    def __init__(
+        self,
+        *,
+        hostname: str,
+        connect_ip: str,
+        port: int,
+        timeout: float,
+    ) -> None:
+        ssl_context = ssl.create_default_context()
+        super().__init__(hostname, port=port, timeout=timeout, context=ssl_context)
+        self._connect_ip = connect_ip
+        self._ssl_context = ssl_context
 
-        # Check if hostname is an IP address
+    def connect(self) -> None:
+        sock = socket.create_connection((self._connect_ip, self.port), self.timeout)
+        self.sock = self._ssl_context.wrap_socket(sock, server_hostname=self.host)
+
+
+def _send_pinned_webhook_request(
+    *,
+    url: str,
+    payload_bytes: bytes,
+    headers: dict[str, str],
+    timeout_seconds: float,
+) -> tuple[int, str]:
+    """Send a webhook request over a pinned, prevalidated HTTPS connection."""
+    resolved_ips, hostname, port, path = _resolve_safe_delivery_targets(url)
+    last_error: Exception | None = None
+
+    for ip in resolved_ips:
+        connection = _PinnedHTTPSConnection(
+            hostname=hostname,
+            connect_ip=str(ip),
+            port=port,
+            timeout=timeout_seconds,
+        )
         try:
-            ip = ipaddress.ip_address(hostname)
-            return _is_safe_ip(ip)
-        except ValueError:
-            infos = socket.getaddrinfo(hostname, parsed.port or 443, type=socket.SOCK_STREAM)
-            resolved_ips = {
-                ipaddress.ip_address(info[4][0])
-                for info in infos
-                if info[0] in {socket.AF_INET, socket.AF_INET6}
-            }
-            if not resolved_ips:
-                return False
-            if len(resolved_ips) != 1:
-                return False
-            return all(_is_safe_ip(ip) for ip in resolved_ips)
-    except Exception:
-        return False
+            connection.request("POST", path, body=payload_bytes, headers=headers)
+            response = connection.getresponse()
+            response_body = response.read().decode("utf-8", errors="replace")[:1000]
+            if 300 <= response.status < 400:
+                raise RuntimeError(f"Redirects are not allowed: HTTP {response.status}")
+            return response.status, response_body
+        except Exception as exc:  # noqa: BLE001
+            last_error = exc
+        finally:
+            connection.close()
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Webhook delivery failed before attempting a connection")
 
 
 def _canonical_json_bytes(payload: dict[str, Any]) -> bytes:
@@ -112,13 +151,6 @@ def _build_delivery_payload(
         "attempt": attempt_number,
         "data": json.loads(delivery.source_payload_json),
     }
-
-
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Reject redirects for webhook delivery."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        raise urllib.error.HTTPError(newurl, code, msg, headers, fp)
 
 
 def _calculate_retry_delay(attempt_count: int, settings: Settings) -> float:
@@ -250,13 +282,14 @@ def deliver_webhook(
         )
         return DeliveryStatus.FAILED
 
-    # Validate URL safety (SSRF protection)
-    if not _is_safe_url(subscription.url):
+    try:
+        _resolve_safe_delivery_targets(subscription.url)
+    except ValueError as exc:
         logger.error("Unsafe URL for subscription %s: %s", subscription.id, subscription.url)
         repo.update_delivery_status(
             delivery_id=delivery_id,
             status=DeliveryStatus.FAILED,
-            error_message="Invalid or unsafe URL",
+            error_message=str(exc),
             conn=conn,
         )
         return DeliveryStatus.FAILED
@@ -274,9 +307,9 @@ def deliver_webhook(
 
     # Attempt delivery
     try:
-        req = urllib.request.Request(
-            subscription.url,
-            data=payload_bytes,
+        http_status, response_body = _send_pinned_webhook_request(
+            url=subscription.url,
+            payload_bytes=payload_bytes,
             headers={
                 "Content-Type": "application/json",
                 "X-Webhook-Signature": signature_header,
@@ -284,13 +317,8 @@ def deliver_webhook(
                 "X-Webhook-Event-Id": str(delivery.event_id),
                 "User-Agent": "cloop-webhook/1.0",
             },
-            method="POST",
+            timeout_seconds=settings.webhook_timeout_seconds,
         )
-
-        opener = urllib.request.build_opener(_NoRedirectHandler())
-        with opener.open(req, timeout=settings.webhook_timeout_seconds) as response:
-            http_status = response.status
-            response_body = response.read().decode("utf-8", errors="replace")[:1000]
 
         # 2xx status codes are considered success
         if 200 <= http_status < 300:

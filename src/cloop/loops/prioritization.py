@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from ..settings import Settings
-from .models import parse_utc_datetime
+from .due import effective_due_datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,15 +32,9 @@ class PriorityWeights:
     blocked_penalty: float  # Penalty for loops with open dependencies
 
 
-def _parse_time(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    return parse_utc_datetime(value)
-
-
 def _effective_due(loop: dict[str, Any]) -> datetime | None:
     """Return the canonical due timestamp for prioritization."""
-    return _parse_time(loop.get("due_at_utc")) or _parse_time(loop.get("next_due_at_utc"))
+    return effective_due_datetime(loop)
 
 
 def compute_priority_score(

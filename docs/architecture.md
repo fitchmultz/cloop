@@ -12,23 +12,26 @@ Cloop is a local-first FastAPI service with three primary interfaces:
 - **MCP server** (`src/cloop/mcp_server.py`, tools in `src/cloop/mcp_tools/*`)
 
 All interfaces converge on shared domain/service/repository logic in `src/cloop/loops/*` and `src/cloop/rag/*`.
-Persistent state is local SQLite (`core.db`, `rag.db`), not an external database service.
+Persistent state is local SQLite (`core.db`, `rag.db`), not an external database service. The scheduler is a separate local process (`cloop-scheduler`) that coordinates through SQLite leases and execution markers.
 
 ```mermaid
 flowchart LR
   UI[Static Web UI\nsrc/cloop/static] --> API[FastAPI\nsrc/cloop/main.py]
-  CLI[CLI\ncloop] --> API
-  MCP[MCP Server\ncloop-mcp] --> API
-
   API --> ROUTES[Routes\nsrc/cloop/routes/*]
-  ROUTES --> LOOPS[Loop services\nsrc/cloop/loops/service.py]
-  ROUTES --> RAG[RAG services\nsrc/cloop/rag/*]
+  CLI[CLI\ncloop] --> LOOPS[Shared loop domain\nsrc/cloop/loops/*]
+  CLI --> RAG[RAG services\nsrc/cloop/rag/*]
+  MCP[MCP Server\ncloop-mcp] --> LOOPS
+  MCP --> RAG
+  ROUTES --> LOOPS
+  ROUTES --> RAG
 
   LOOPS --> CORE[(core.db)]
   RAG --> RAGDB[(rag.db)]
 
   LOOPS --> SSE[SSE stream\nsrc/cloop/sse.py]
   LOOPS --> WEBHOOKS[Webhook delivery\nsrc/cloop/webhooks/*]
+  SCHED[Scheduler\ncloop-scheduler] --> LOOPS
+  SCHED --> CORE
 ```
 
 ## 2) Core components
@@ -39,8 +42,10 @@ flowchart LR
 
 ### Domain logic
 - `src/cloop/loops/service.py`: loop lifecycle operations and state transitions.
+- `src/cloop/loops/write_ops.py`: canonical write-operation helpers and mutation invariants.
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
 - `src/cloop/loops/prioritization.py`, `review.py`, `timers.py`, `claims.py`: specialized loop behavior.
+- `src/cloop/storage/*`: feature-owned persistence for notes, memory, idempotency, interaction logs, and scheduler state.
 
 ### Retrieval + generation
 - `src/cloop/rag/*`: ingestion, chunking, embeddings, vector search order, and retrieval composition.
@@ -49,7 +54,7 @@ flowchart LR
 ### Real-time/eventing
 - `src/cloop/sse.py`: server-sent events fan-out for loop events.
 - `src/cloop/webhooks/*`: signed webhook subscriptions and delivery/retry behavior.
-- `src/cloop/scheduler.py`: periodic review/nudge routines.
+- `src/cloop/scheduler.py`: dedicated-process periodic review/nudge routines.
 
 ## 3) Data and control flow examples
 
@@ -67,7 +72,7 @@ flowchart LR
 4. LLM response is generated with explicit source payload.
 
 ### MCP loop mutation
-1. MCP tool call maps to loop service operation.
+1. MCP tool call maps directly to the shared loop service operation.
 2. Optional idempotency key (`request_id`) guards repeated mutations.
 3. Service/repo persist state changes; event stream/webhooks reflect updates.
 
@@ -94,6 +99,7 @@ flowchart LR
 ## 5) Operational notes
 
 - **Health:** `GET /health` reports model/storage mode and dependency signals.
+- **Scheduler runtime:** run `cloop-scheduler` separately from the FastAPI app when scheduler automation is enabled.
 - **Local CI gate:** `make ci` (quality, tests, packaging checks).
 - **Fast dev gate:** `make check-fast` (quality + fast tests).
 - **Release-grade artifacts:** `make dist-check` validates build metadata before release publishing.
