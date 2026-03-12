@@ -58,3 +58,4 @@ CLAUDE.md
 .vscode/
 .idea/
 *.log
+.playwright-cli/
