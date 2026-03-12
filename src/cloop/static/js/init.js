@@ -61,8 +61,6 @@ const elements = {
   queryFilter: document.getElementById("query-filter"),
   viewFilter: document.getElementById("view-filter"),
   saveViewBtn: document.getElementById("save-view-btn"),
-  exportBtn: document.getElementById("export-btn"),
-  importBtn: document.getElementById("import-btn"),
   importFile: document.getElementById("import-file"),
   templateSelect: document.getElementById("template-select"),
   inboxMain: document.getElementById("inbox-main"),
@@ -82,12 +80,25 @@ const elements = {
   ragInput: document.getElementById("rag-input"),
   ragForm: document.getElementById("rag-form"),
   ragAnswer: document.getElementById("rag-answer"),
+  ragEmptyState: document.getElementById("rag-empty-state"),
+  ragFocusIngestBtn: document.getElementById("rag-focus-ingest-btn"),
+  ragIngestForm: document.getElementById("rag-ingest-form"),
+  ragIngestPath: document.getElementById("rag-ingest-path"),
+  ragIngestMode: document.getElementById("rag-ingest-mode"),
+  ragIngestRecursive: document.getElementById("rag-ingest-recursive"),
+  ragIngestStatus: document.getElementById("rag-ingest-status"),
   reviewCohorts: document.getElementById("review-cohorts"),
   metricsContent: document.getElementById("metrics-content"),
   bulkActionBar: document.getElementById("bulk-action-bar"),
   helpModal: document.getElementById("help-modal"),
   offlineBanner: document.getElementById("offline-banner"),
 };
+
+const dataManagementStatuses = Array.from(
+  document.querySelectorAll("[data-data-management-status]"),
+);
+const exportButtons = Array.from(document.querySelectorAll("[data-export-loops]"));
+const importButtons = Array.from(document.querySelectorAll("[data-import-loops]"));
 
 const MOBILE_CAPTURE_MEDIA = "(max-width: 640px)";
 const CAPTURE_DETAILS_STORAGE_KEY = "cloop.captureDetails.mobileExpanded";
@@ -120,6 +131,13 @@ function writeCaptureDetailsPreference(expanded) {
   }
 }
 
+function setDataManagementStatus(message, { isError = false } = {}) {
+  dataManagementStatuses.forEach((element) => {
+    element.textContent = message;
+    element.classList.toggle("is-error", isError);
+  });
+}
+
 // ========================================
 // Tab Switching
 // ========================================
@@ -147,7 +165,7 @@ function switchTab(tabName) {
     elements.reviewMain.style.display = tabName === "review" ? "grid" : "none";
   }
   if (elements.metricsMain) {
-    elements.metricsMain.style.display = tabName === "metrics" ? "block" : "none";
+    elements.metricsMain.style.display = tabName === "metrics" ? "grid" : "none";
   }
 
   // Load data when switching to tabs
@@ -399,17 +417,21 @@ function downloadExport(payload) {
 
 async function exportLoops() {
   elements.status.textContent = "Exporting...";
+  setDataManagementStatus("Exporting data...");
   try {
     const payload = await api.exportLoops();
     downloadExport(payload);
     elements.status.textContent = "Exported.";
+    setDataManagementStatus("Exported loop snapshot.");
   } catch (error) {
     elements.status.textContent = error.message;
+    setDataManagementStatus(error.message, { isError: true });
   }
 }
 
 async function importLoops(file) {
   elements.status.textContent = "Importing...";
+  setDataManagementStatus("Importing data...");
   try {
     const text = await file.text();
     let payload;
@@ -417,14 +439,17 @@ async function importLoops(file) {
       payload = JSON.parse(text);
     } catch {
       elements.status.textContent = "Invalid JSON file.";
+      setDataManagementStatus("Invalid JSON file.", { isError: true });
       return;
     }
     const loops = Array.isArray(payload) ? payload : payload.loops || [];
     const result = await api.importLoops(loops);
     elements.status.textContent = `Imported ${result.imported} loops.`;
+    setDataManagementStatus(`Imported ${result.imported} loops.`);
     await loop.loadInbox();
   } catch (error) {
     elements.status.textContent = error.message;
+    setDataManagementStatus(error.message, { isError: true });
   }
 }
 
@@ -641,6 +666,13 @@ function setupEventHandlers() {
     elements.ragInput.value = "";
     rag.submitRagQuestion(question);
   });
+  elements.ragIngestForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await rag.submitIngestPath();
+  });
+  elements.ragFocusIngestBtn?.addEventListener("click", () => {
+    rag.handleEmptyStateAction();
+  });
 
   // Filter handlers
   elements.statusFilter.addEventListener("change", () => {
@@ -689,8 +721,10 @@ function setupEventHandlers() {
       elements.status.textContent = error.message;
     }
   });
-  elements.exportBtn.addEventListener("click", exportLoops);
-  elements.importBtn.addEventListener("click", () => elements.importFile.click());
+  exportButtons.forEach((button) => button.addEventListener("click", exportLoops));
+  importButtons.forEach((button) => {
+    button.addEventListener("click", () => elements.importFile.click());
+  });
   elements.importFile.addEventListener("change", (event) => {
     const file = event.target.files?.[0];
     if (file) importLoops(file);
@@ -1026,8 +1060,15 @@ function init() {
   rag.init({
     ragAnswer: elements.ragAnswer,
     ragAnswerText: elements.ragAnswer.querySelector(".rag-answer-text"),
+    ragSources: elements.ragAnswer.querySelector(".rag-sources"),
     ragSourcesList: elements.ragAnswer.querySelector(".rag-sources-list"),
     ragInput: elements.ragInput,
+    ragEmptyState: elements.ragEmptyState,
+    ragIngestForm: elements.ragIngestForm,
+    ragIngestPath: elements.ragIngestPath,
+    ragIngestMode: elements.ragIngestMode,
+    ragIngestRecursive: elements.ragIngestRecursive,
+    ragIngestStatus: elements.ragIngestStatus,
   });
   modals.init({ helpModal: elements.helpModal });
   keyboard.init(

@@ -159,99 +159,229 @@
     </main>
 
     <!-- Chat Tab -->
-    <main class="chat-main" id="chat-main">
-      <section class="panel chat-panel">
-        <div class="chat-header">
-          <div class="chat-header-copy">
-            <h2>Chat</h2>
-            <p id="chat-thread-status" class="chat-thread-status">Thread saved locally in this browser.</p>
+    <main class="workspace-main chat-main" id="chat-main">
+      <div class="workspace-primary">
+        <section class="panel chat-panel">
+          <div class="chat-header">
+            <div class="chat-header-copy">
+              <h2>Chat</h2>
+              <p id="chat-thread-status" class="chat-thread-status">Thread saved locally in this browser.</p>
+            </div>
+            <button type="button" id="chat-reset-btn" class="secondary chat-reset-btn">New thread</button>
           </div>
-          <button type="button" id="chat-reset-btn" class="secondary chat-reset-btn">New thread</button>
-        </div>
-        <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat conversation">
-          <div class="chat-placeholder">Start a conversation...</div>
-        </div>
-        <form id="chat-form" class="chat-form">
-          <label for="chat-input" class="sr-only">Chat message</label>
-          <input
-            type="text"
-            id="chat-input"
-            placeholder="Type a message..."
-            autocomplete="off"
-            required
-          >
-          <button type="submit">Send</button>
-        </form>
-      </section>
+          <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat conversation">
+            <div class="chat-placeholder">Start a conversation...</div>
+          </div>
+          <form id="chat-form" class="chat-form">
+            <label for="chat-input" class="sr-only">Chat message</label>
+            <input
+              type="text"
+              id="chat-input"
+              placeholder="Type a message..."
+              autocomplete="off"
+              required
+            >
+            <button type="submit">Send</button>
+          </form>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Chat support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Conversation mode</p>
+          <h3>Keep answers grounded in your actual work</h3>
+          <p class="support-copy">Chat keeps loop and memory context on by default, so this thread can help you reason from what is already in Cloop instead of starting from scratch.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Create a local JSON snapshot before experiments, or import a saved export to restore your loop state.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" id="export-btn" aria-label="Export loops" data-export-loops>Export data</button>
+            <button class="secondary" type="button" id="import-btn" aria-label="Import loops" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Local-only JSON snapshots for loops and loop metadata.</p>
+        </section>
+      </aside>
     </main>
 
     <!-- Next Tab -->
-    <main class="next-main" id="next-main">
-      <section class="panel">
-        <div class="next-header">
-          <h2>What should I do now?</h2>
-          <button class="secondary" id="refresh-next-btn" type="button">Refresh</button>
-        </div>
-        <div id="next-buckets" class="next-buckets"></div>
-      </section>
+    <main class="workspace-main next-main" id="next-main">
+      <div class="workspace-primary">
+        <section class="panel">
+          <div class="next-header">
+            <h2>What should I do now?</h2>
+            <button class="secondary" id="refresh-next-btn" type="button">Refresh</button>
+          </div>
+          <div id="next-buckets" class="next-buckets"></div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Next support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Momentum</p>
+          <h3>Use this view when you need a sharp next move</h3>
+          <p class="support-copy">Buckets stay intentionally short so you can scan for urgency and leverage without digging through the full Inbox.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Export a snapshot before reorganizing work, or import one when you need to restore or compare a saved state.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Use exports to preserve context before major cleanup or review passes.</p>
+        </section>
+      </aside>
     </main>
 
     <!-- RAG Tab -->
-    <main class="rag-main" id="rag-main">
-      <section class="panel rag-panel">
-        <h2>Ask Your Knowledge Base</h2>
-        <form id="rag-form" class="rag-form">
-          <label for="rag-input" class="sr-only">RAG question</label>
-          <input
-            type="text"
-            id="rag-input"
-            placeholder="Ask a question about your documents..."
-            autocomplete="off"
-            required
-          >
-          <button type="submit">Ask</button>
-        </form>
-        <div id="rag-answer" class="rag-answer hidden" role="region" aria-live="polite" aria-label="RAG answer">
-          <div class="rag-answer-text"></div>
-          <div class="rag-sources">
-            <h3>Sources</h3>
-            <div class="rag-sources-list"></div>
+    <main class="workspace-main rag-main" id="rag-main">
+      <div class="workspace-primary">
+        <section class="panel rag-panel">
+          <div class="rag-header">
+            <div>
+              <h2>Ask Your Knowledge Base</h2>
+              <p class="rag-intro">Search your indexed local documents and answer from retrieved source context.</p>
+            </div>
           </div>
-        </div>
-      </section>
+          <form id="rag-form" class="rag-form">
+            <label for="rag-input" class="sr-only">RAG question</label>
+            <input
+              type="text"
+              id="rag-input"
+              placeholder="Ask a question about your documents..."
+              autocomplete="off"
+              required
+            >
+            <button type="submit">Ask</button>
+          </form>
+          <div id="rag-answer" class="rag-answer hidden" role="region" aria-live="polite" aria-label="RAG answer">
+            <div class="rag-answer-text"></div>
+            <div id="rag-empty-state" class="rag-empty-state hidden">
+              <p class="rag-empty-title">No indexed knowledge yet.</p>
+              <p class="rag-empty-copy">Point Cloop at a local file or folder, then ask again once indexing finishes.</p>
+              <div class="rag-empty-actions">
+                <button type="button" class="secondary" id="rag-focus-ingest-btn">Index files or folders</button>
+              </div>
+              <p class="rag-empty-hint">Try a folder like <code>~/Documents/notes</code> or a file like <code>/Users/you/manual.md</code>.</p>
+            </div>
+            <div class="rag-sources">
+              <h3>Sources</h3>
+              <div class="rag-sources-list"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Knowledge base support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Knowledge base</p>
+          <h3>Index files or folders for grounded answers</h3>
+          <p class="support-copy">RAG stays local-first. Add a document set from your machine, reindex when content changes, or sync a directory to keep answers current.</p>
+          <form id="rag-ingest-form" class="rag-ingest-form">
+            <label for="rag-ingest-path" class="sr-only">Path to ingest</label>
+            <input
+              type="text"
+              id="rag-ingest-path"
+              placeholder="~/Documents/notes or /Users/you/notes.md"
+              autocomplete="off"
+              required
+            >
+            <div class="rag-ingest-options">
+              <label for="rag-ingest-mode" class="sr-only">Ingest mode</label>
+              <select id="rag-ingest-mode">
+                <option value="add" selected>Add</option>
+                <option value="sync">Sync</option>
+                <option value="reindex">Reindex</option>
+                <option value="purge">Purge</option>
+              </select>
+              <label class="toggle rag-ingest-toggle">
+                <input type="checkbox" id="rag-ingest-recursive" checked>
+                Recursive
+              </label>
+            </div>
+            <div class="support-actions">
+              <button type="submit">Index knowledge</button>
+            </div>
+            <p id="rag-ingest-status" class="support-status" role="status" aria-live="polite">Supports individual files or whole directories.</p>
+          </form>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Loop exports are separate from document indexing, but they are still useful when you want to preserve or restore task context around your research.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Loop exports preserve tasks and metadata. Knowledge indexing is managed above.</p>
+        </section>
+      </aside>
     </main>
 
     <!-- Review Tab -->
-    <main class="review-main" id="review-main">
-      <section class="panel review-panel">
-        <div class="review-header">
-          <h2>Loop Review</h2>
-          <div class="review-toggle">
-            <button class="toggle-btn active" data-review-mode="daily">Daily</button>
-            <button class="toggle-btn" data-review-mode="weekly">Weekly</button>
+    <main class="workspace-main review-main" id="review-main">
+      <div class="workspace-primary">
+        <section class="panel review-panel">
+          <div class="review-header">
+            <h2>Loop Review</h2>
+            <div class="review-toggle">
+              <button class="toggle-btn active" data-review-mode="daily">Daily</button>
+              <button class="toggle-btn" data-review-mode="weekly">Weekly</button>
+            </div>
           </div>
-        </div>
-        <div id="review-cohorts" class="review-cohorts"></div>
-      </section>
+          <div id="review-cohorts" class="review-cohorts"></div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Review support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Review rhythm</p>
+          <h3>Turn drift into an action list</h3>
+          <p class="support-copy">Daily review catches stale or blocked work quickly. Weekly review is better for broader cleanup when priorities have shifted.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Capture an export before sweeping status changes, or import a saved state if you need to recover a prior review baseline.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Exports help preserve comparison points before larger review cleanups.</p>
+        </section>
+      </aside>
     </main>
 
     <!-- Metrics Tab -->
-    <main class="metrics-main" id="metrics-main">
-      <section class="panel">
-        <div class="metrics-header">
-          <h2>Loop Health Metrics</h2>
-          <button class="secondary" id="refresh-metrics-btn" type="button">Refresh</button>
-        </div>
-        <div id="metrics-content" class="metrics-content"></div>
-      </section>
+    <main class="workspace-main metrics-main" id="metrics-main">
+      <div class="workspace-primary">
+        <section class="panel">
+          <div class="metrics-header">
+            <h2>Loop Health Metrics</h2>
+            <button class="secondary" id="refresh-metrics-btn" type="button">Refresh</button>
+          </div>
+          <div id="metrics-content" class="metrics-content"></div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Metrics support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Signal</p>
+          <h3>Use metrics to decide where cleanup matters</h3>
+          <p class="support-copy">Metrics show whether the system is healthy enough to trust, or whether you need to reduce backlog, stale work, or status imbalance first.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Export a baseline before structural changes, or import a prior snapshot when you want to compare metrics against an earlier state.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Use exports when you want a stable checkpoint before broad changes.</p>
+        </section>
+      </aside>
     </main>
 
-    <!-- Footer Actions -->
-    <div class="footer-actions">
-      <button class="tag-add" type="button" id="export-btn" aria-label="Export loops">Export data</button>
-      <button class="tag-add" type="button" id="import-btn" aria-label="Import loops">Import data</button>
-      <input type="file" id="import-file" accept="application/json" hidden>
-    </div>
+    <input type="file" id="import-file" accept="application/json" hidden>
 
     <!-- Bulk Action Bar -->
     <div class="bulk-action-bar" id="bulk-action-bar">

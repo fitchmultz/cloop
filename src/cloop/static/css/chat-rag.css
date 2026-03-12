@@ -241,6 +241,19 @@
   gap: 16px;
 }
 
+.rag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.rag-intro {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
 .rag-form {
   display: flex;
   gap: 10px;
@@ -265,15 +278,58 @@
   background: var(--color-bg-accent);
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  padding: 16px;
+  padding: 18px;
   animation: rise 280ms ease both;
   display: grid;
   gap: 16px;
 }
 
+.rag-answer-empty {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.66), rgba(255, 255, 255, 0.35)),
+    linear-gradient(135deg, rgba(214, 107, 63, 0.10), rgba(214, 107, 63, 0.02));
+}
+
+.rag-answer-error {
+  border-color: rgba(184, 74, 52, 0.28);
+}
+
 .rag-answer-text {
   line-height: 1.6;
   white-space: pre-wrap;
+}
+
+.rag-empty-state {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(214, 107, 63, 0.14);
+}
+
+.rag-empty-title,
+.rag-empty-copy,
+.rag-empty-hint {
+  margin: 0;
+}
+
+.rag-empty-title {
+  font-weight: var(--font-semibold);
+  font-family: var(--font-display);
+  color: var(--color-ink);
+}
+
+.rag-empty-copy,
+.rag-empty-hint {
+  color: var(--color-muted);
+  line-height: 1.6;
+}
+
+.rag-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .rag-sources h3 {
@@ -326,6 +382,30 @@
   font-style: italic;
 }
 
+.rag-ingest-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.rag-ingest-form input {
+  width: 100%;
+}
+
+.rag-ingest-options {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.rag-ingest-options select {
+  min-width: 120px;
+}
+
+.rag-ingest-toggle {
+  min-height: 42px;
+}
+
 @media (max-width: 640px) {
   .chat-header {
     flex-direction: column;
@@ -343,5 +423,19 @@
 
   .chat-form input {
     min-width: 0;
+  }
+
+  .rag-form {
+    flex-direction: column;
+  }
+
+  .rag-ingest-options {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rag-empty-actions button,
+  .rag-ingest-form .support-actions button {
+    width: 100%;
   }
 }

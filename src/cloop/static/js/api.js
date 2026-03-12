@@ -423,6 +423,25 @@ export async function submitRagQuestion(question, stream = true) {
   return response;
 }
 
+export async function ingestKnowledge(paths, mode = "add", recursive = true) {
+  const response = await fetch("/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ paths, mode, recursive }),
+  });
+  if (!response.ok) {
+    let message = "Knowledge ingestion failed";
+    try {
+      const error = await response.json();
+      message = error.detail || message;
+    } catch {
+      // Fall back to the generic message when the error payload is absent.
+    }
+    throw new Error(message);
+  }
+  return response.json();
+}
+
 // ========================================
 // Recurrence
 // ========================================
