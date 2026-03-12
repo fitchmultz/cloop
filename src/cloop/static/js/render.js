@@ -73,6 +73,34 @@ function hasLongMobileCardText(compactCard, capturedText, summary) {
   return capturedText.length > 260 || summary.length > 180;
 }
 
+function buildDueEditor(loop) {
+  const dueLabel = loop.due_at_utc ? `Due ${formatTime(loop.due_at_utc)}` : "Set due date";
+  const dueFieldClass = loop.due_at_utc ? "due-field has-value" : "due-field";
+
+  return `
+    <div class="${dueFieldClass}" data-due-field>
+      <button
+        type="button"
+        class="badge due-display ${loop.due_at_utc ? "has-value" : "empty"}"
+        data-action="edit-due"
+        aria-label="${escapeHtml(dueLabel)}"
+      >
+        ${escapeHtml(dueLabel)}
+      </button>
+      <div class="due-editor">
+        <input
+          class="badge-input due-input"
+          type="datetime-local"
+          data-field="due_at_utc"
+          placeholder="Due"
+          aria-label="Due date"
+        >
+        <button type="button" class="secondary due-clear" data-action="clear-due">Clear</button>
+      </div>
+    </div>
+  `;
+}
+
 export function setCompactCardExpanded(card, expanded) {
   if (!card?.classList?.contains("compact-card")) {
     return;
@@ -125,6 +153,10 @@ export function setCompactCardExpanded(card, expanded) {
       button.tabIndex = expanded ? 0 : -1;
     }
   });
+
+  if (!expanded) {
+    setDueEditorExpanded(card, false);
+  }
 }
 
 export function setMobileCardTextExpanded(card, expanded) {
@@ -139,6 +171,39 @@ export function setMobileCardTextExpanded(card, expanded) {
   if (toggle instanceof HTMLButtonElement) {
     toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
     toggle.textContent = expanded ? "Show less" : "Show full context";
+  }
+}
+
+export function setDueEditorExpanded(card, expanded) {
+  const dueField = card?.querySelector?.('[data-due-field]');
+  if (!dueField) {
+    return;
+  }
+
+  dueField.classList.toggle("editing", expanded);
+  const trigger = dueField.querySelector('[data-action="edit-due"]');
+  const input = dueField.querySelector('[data-field="due_at_utc"]');
+  const clearButton = dueField.querySelector('[data-action="clear-due"]');
+
+  if (trigger instanceof HTMLButtonElement) {
+    trigger.hidden = expanded;
+    trigger.tabIndex = expanded ? -1 : 0;
+  }
+
+  if (input instanceof HTMLInputElement) {
+    input.disabled = !expanded;
+    input.tabIndex = expanded ? 0 : -1;
+    if (expanded) {
+      requestAnimationFrame(() => {
+        input.focus();
+        input.showPicker?.();
+      });
+    }
+  }
+
+  if (clearButton instanceof HTMLButtonElement) {
+    clearButton.disabled = !expanded;
+    clearButton.tabIndex = expanded ? 0 : -1;
   }
 }
 
@@ -294,6 +359,7 @@ export function renderLoop(loop) {
   const recurrenceRrule = loop.recurrence_rrule || "";
   const nextDueAt = loop.next_due_at_utc || "";
   const showRecurrenceSection = recurrenceEnabled || !compactCard;
+  const dueEditorHtml = buildDueEditor(loop);
   const compactSummaryStateHtml = compactCard
     ? `
       <div class="compact-summary-strip">
@@ -308,13 +374,7 @@ export function renderLoop(loop) {
         <select class="badge-select" data-field="status" aria-label="Loop status">
           ${statusSelectOptions(loop.status)}
         </select>
-        <input
-          class="badge-input"
-          type="datetime-local"
-          data-field="due_at_utc"
-          placeholder="Due"
-          aria-label="Due date"
-        >
+        ${dueEditorHtml}
         ${closed ? `<span class="badge">${closed}</span>` : ""}
         <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
         ${snoozeIndicatorHtml}
@@ -325,13 +385,7 @@ export function renderLoop(loop) {
       <select class="badge-select" data-field="status" aria-label="Loop status">
         ${statusSelectOptions(loop.status)}
       </select>
-      <input
-        class="badge-input"
-        type="datetime-local"
-        data-field="due_at_utc"
-        placeholder="Due"
-        aria-label="Due date"
-      >
+      ${dueEditorHtml}
       ${closed ? `<span class="badge">${closed}</span>` : ""}
       <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
       ${snoozeIndicatorHtml}
@@ -572,6 +626,7 @@ export function renderLoop(loop) {
   if (compactCard) {
     setCompactCardExpanded(card, false);
   }
+  setDueEditorExpanded(card, false);
 
   return card;
 }

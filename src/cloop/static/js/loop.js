@@ -26,9 +26,129 @@ import { escapeHtml, normalizeTags, isoFromLocalInput } from './utils.js';
 
 // DOM Elements
 let inbox, statusEl, queryFilter, statusFilter, tagFilter, viewFilter;
+const OPEN_STATUSES = new Set(["inbox", "actionable", "blocked", "scheduled"]);
+let inboxReloadScheduled = false;
+let nextRefreshScheduled = false;
 
 function removeInboxEmptyState() {
   inbox?.querySelector(".inbox-empty-state")?.remove();
+}
+
+function activeInboxQuery() {
+  return queryFilter?.value?.trim() || "";
+}
+
+function usesServerDrivenInboxResults() {
+  return Boolean(activeInboxQuery());
+}
+
+function activeStatusFilter() {
+  return statusFilter?.value || "open";
+}
+
+function activeTagFilter() {
+  return tagFilter?.value || "";
+}
+
+function loopMatchesInboxFilters(loop) {
+  const statusValue = activeStatusFilter();
+  if (statusValue === "open") {
+    if (!OPEN_STATUSES.has(loop.status)) {
+      return false;
+    }
+  } else if (statusValue !== "all" && statusValue && loop.status !== statusValue) {
+    return false;
+  }
+
+  const tagValue = activeTagFilter();
+  if (tagValue && tagValue !== "all" && !(loop.tags || []).includes(tagValue)) {
+    return false;
+  }
+
+  return true;
+}
+
+function ensureInboxState() {
+  if (!inbox) {
+    return;
+  }
+
+  if (inbox.querySelector(".loop-card")) {
+    removeInboxEmptyState();
+    return;
+  }
+
+  removeInboxEmptyState();
+  inbox.appendChild(
+    render.renderInboxEmptyState({
+      query: activeInboxQuery(),
+      status: activeStatusFilter(),
+      tag: activeTagFilter(),
+    }),
+  );
+}
+
+function removeLoopFromInbox(loopId) {
+  const card = inbox?.querySelector?.(`[data-loop-id="${loopId}"]`);
+  if (card) {
+    card.remove();
+    ensureInboxState();
+  }
+}
+
+function queueInboxReload() {
+  if (inboxReloadScheduled) {
+    return;
+  }
+  inboxReloadScheduled = true;
+  queueMicrotask(async () => {
+    inboxReloadScheduled = false;
+    await loadInbox();
+  });
+}
+
+function queueNextRefresh() {
+  if (nextRefreshScheduled) {
+    return;
+  }
+  nextRefreshScheduled = true;
+  queueMicrotask(async () => {
+    nextRefreshScheduled = false;
+    const nextBuckets = document.getElementById("next-buckets");
+    if (!nextBuckets) {
+      return;
+    }
+    const { loadNext } = await import("./next.js");
+    await loadNext();
+  });
+}
+
+function syncInboxLoop(loop) {
+  if (!inbox) {
+    return;
+  }
+
+  if (usesServerDrivenInboxResults()) {
+    queueInboxReload();
+    return;
+  }
+
+  const existingInbox = inbox.querySelector(`[data-loop-id="${loop.id}"]`);
+  if (!loopMatchesInboxFilters(loop)) {
+    existingInbox?.remove();
+    ensureInboxState();
+    return;
+  }
+
+  const rendered = render.renderLoop(loop);
+  if (existingInbox) {
+    existingInbox.replaceWith(rendered);
+  } else {
+    removeInboxEmptyState();
+    inbox.prepend(rendered);
+  }
+
+  render.queueNextActionResize(rendered);
 }
 
 /**
@@ -47,27 +167,8 @@ export function init(elements) {
  * Replace a loop card in the DOM
  */
 export function replaceLoop(loop) {
-  const rendered = render.renderLoop(loop);
-
-  // Update in inbox view
-  const existingInbox = inbox.querySelector(`[data-loop-id="${loop.id}"]`);
-  if (existingInbox) {
-    existingInbox.replaceWith(rendered);
-  } else {
-    removeInboxEmptyState();
-    inbox.prepend(rendered);
-  }
-
-  // Also update in nextBuckets view if present
-  const nextBuckets = document.getElementById("next-buckets");
-  if (nextBuckets) {
-    const existingNext = nextBuckets.querySelector(`[data-loop-id="${loop.id}"]`);
-    if (existingNext) {
-      existingNext.replaceWith(rendered.cloneNode(true));
-    }
-  }
-
-  render.queueNextActionResize(rendered);
+  syncInboxLoop(loop);
+  queueNextRefresh();
 }
 
 export function toggleCompactCard(loopId) {
@@ -133,7 +234,8 @@ export async function refreshLoop(loopId) {
   try {
     const loop = await api.fetchLoop(loopId);
     if (!loop) {
-      statusEl.textContent = "Failed to refresh loop.";
+      removeLoopFromInbox(loopId);
+      queueNextRefresh();
       return;
     }
 
@@ -348,16 +450,6 @@ export async function saveCompletionNote(loopId, input) {
 export async function confirmComplete(loopId, note) {
   try {
     const updated = await api.transitionLoopStatus(loopId, "completed", note);
-    const filterValue = statusFilter.value;
-    const shouldHide =
-      filterValue === "open" ||
-      (filterValue && filterValue !== "all" && filterValue !== "completed");
-
-    if (shouldHide) {
-      const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
-      card?.remove();
-      return;
-    }
     replaceLoop(updated);
   } catch (error) {
     statusEl.textContent = error.message;
@@ -532,14 +624,14 @@ export async function removeTag(loopId, tag, card) {
  * Handle loop closed event
  */
 export function handleLoopClosed(loopId, payload) {
-  const filterValue = statusFilter.value;
-  const shouldHide = filterValue === 'open' ||
-    (filterValue && filterValue !== 'all' && filterValue !== payload?.to);
-
-  if (shouldHide) {
-    const card = inbox.querySelector(`[data-loop-id="${loopId}"]`);
-    card?.remove();
+  if (usesServerDrivenInboxResults()) {
+    queueInboxReload();
+  } else if ((activeTagFilter() || "") !== "" && activeTagFilter() !== "all") {
+    refreshLoop(loopId);
+  } else if (payload?.to && !loopMatchesInboxFilters({ status: payload.to, tags: [] })) {
+    removeLoopFromInbox(loopId);
   } else {
     refreshLoop(loopId);
   }
+  queueNextRefresh();
 }

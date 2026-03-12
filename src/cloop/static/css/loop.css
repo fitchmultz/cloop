@@ -583,6 +583,38 @@
   color: var(--color-muted);
 }
 
+.due-field {
+  display: inline-flex;
+  align-items: center;
+}
+
+.due-display {
+  cursor: pointer;
+}
+
+.due-display.empty {
+  background: rgba(255, 255, 255, 0.74);
+  border-style: dashed;
+}
+
+.due-editor {
+  display: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.due-field.editing .due-editor {
+  display: inline-flex;
+}
+
+.due-input {
+  min-width: 210px;
+}
+
+.due-clear {
+  padding-inline: 10px;
+}
+
 /* Tags */
 .tags {
   display: flex;

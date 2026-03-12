@@ -32,11 +32,12 @@ export function escapeHtml(value) {
  * Format ISO timestamp to local string
  */
 export function formatTime(value) {
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
   }
+  return date.toLocaleString();
 }
 
 /**

@@ -32,7 +32,7 @@ import * as comments from './comments.js';
 import * as sse from './sse.js';
 import * as duplicates from './duplicates.js';
 import * as suggestions from './suggestions.js';
-import { formatDateInputValue, parseUserDateInput, snoozeDurationToUtc } from './utils.js';
+import { formatDateInputValue, parseUserDateInput, snoozeDurationToUtc, toLocalInputValue } from './utils.js';
 import { selectedLoopIds } from './state.js';
 import { updateBulkActionBar } from './bulk.js';
 
@@ -848,6 +848,14 @@ function setupLoopCardHandlers(container) {
         loop.showCompletionNote(button.dataset.id);
       } else if (button.dataset.action === "toggle-compact") {
         loop.toggleCompactCard(button.closest(".loop-card")?.dataset.loopId);
+      } else if (button.dataset.action === "edit-due") {
+        import('./render.js').then((m) => {
+          const card = button.closest(".loop-card");
+          if (card) {
+            m.setDueEditorExpanded(card, true);
+          }
+        });
+        event.preventDefault();
       } else if (button.dataset.action === "toggle-card-body") {
         loop.toggleMobileCardText(button.closest(".loop-card")?.dataset.loopId);
       } else if (button.dataset.action === "confirm-complete") {
@@ -885,6 +893,18 @@ function setupLoopCardHandlers(container) {
         }
       } else if (button.dataset.action === "save-template") {
         saveAsTemplate(button.dataset.id);
+      } else if (button.dataset.action === "clear-due") {
+        const card = button.closest(".loop-card");
+        const dueInput = card?.querySelector('[data-field="due_at_utc"]');
+        if (dueInput) {
+          dueInput.value = "";
+          loop.applyInlineUpdate(dueInput);
+        }
+        import('./render.js').then((m) => {
+          if (card) {
+            m.setDueEditorExpanded(card, false);
+          }
+        });
       }
 
       // Handle snooze option clicks
@@ -961,6 +981,21 @@ function setupLoopCardHandlers(container) {
 
     if (target?.classList?.contains("tag-input")) {
       loop.appendTagsFromInput(target);
+      return;
+    }
+
+    if (target?.dataset?.field === "due_at_utc") {
+      const dueField = target.closest("[data-due-field]");
+      if (dueField?.contains(event.relatedTarget)) {
+        return;
+      }
+      loop.applyInlineUpdate(target);
+      import('./render.js').then((m) => {
+        const card = target.closest(".loop-card");
+        if (card) {
+          m.setDueEditorExpanded(card, false);
+        }
+      });
     }
   });
 
@@ -1016,14 +1051,34 @@ function setupLoopCardHandlers(container) {
       event.preventDefault();
       if (target.dataset.field === "tags_add") {
         loop.appendTagsFromInput(target);
+      } else if (target.dataset.field === "due_at_utc") {
+        loop.applyInlineUpdate(target);
+        import('./render.js').then((m) => {
+          const card = target.closest(".loop-card");
+          if (card) {
+            m.setDueEditorExpanded(card, false);
+          }
+        });
+        target.blur();
       } else {
         target.blur();
       }
-    } else if (event.key === "Escape" && target.dataset.field === "tags_add") {
-      const tagsWrap = target.closest(".tags-edit");
-      target.value = "";
-      if (tagsWrap) {
-        tagsWrap.classList.remove("editing");
+    } else if (event.key === "Escape") {
+      if (target.dataset.field === "tags_add") {
+        const tagsWrap = target.closest(".tags-edit");
+        target.value = "";
+        if (tagsWrap) {
+          tagsWrap.classList.remove("editing");
+        }
+      } else if (target.dataset.field === "due_at_utc") {
+        target.value = toLocalInputValue(target.dataset.initial);
+        import('./render.js').then((m) => {
+          const card = target.closest(".loop-card");
+          if (card) {
+            m.setDueEditorExpanded(card, false);
+          }
+        });
+        target.blur();
       }
     }
   }, true);
