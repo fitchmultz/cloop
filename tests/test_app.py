@@ -742,6 +742,20 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert "/static/js/init.js?v=" in html
 
 
+def test_chat_empty_state_copy_is_consistent_on_initial_html(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    """Initial HTML should present the unsaved-thread state consistently before JS hydration."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "No saved thread yet. Send a message to keep this conversation across reloads." in html
+    assert "No saved thread in this browser yet." in html
+    assert "Thread saved locally in this browser." not in html
+
+
 def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
     """Verify the index.html contains Next Actions tab and bucket elements."""
     response = test_client.get("/")

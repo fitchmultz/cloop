@@ -227,11 +227,21 @@
   display: grid;
   gap: var(--space-2);
   color: var(--color-muted);
-  text-align: center;
+  text-align: left;
   padding: 40px 20px;
   border: 1px dashed var(--color-border);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.35);
+}
+
+.chat-placeholder-title {
+  color: var(--color-ink);
+  font-size: var(--text-base);
+}
+
+.chat-placeholder-body {
+  margin: 0;
+  line-height: 1.6;
 }
 
 /* RAG Styles */

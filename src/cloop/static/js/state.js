@@ -131,6 +131,17 @@ export function clearChatMessages() {
   persistStateToStorage();
 }
 
+export function getChatThreadState() {
+  const messageCount = Array.isArray(state.chatMessages) ? state.chatMessages.length : 0;
+  const lastMessage = messageCount > 0 ? state.chatMessages.at(-1) : null;
+
+  return {
+    hasSavedThread: messageCount > 0,
+    messageCount,
+    lastUpdatedAt: typeof lastMessage?.createdAt === "string" ? lastMessage.createdAt : null,
+  };
+}
+
 export function toggleLoopSelection(loopId, isSelected) {
   if (isSelected) {
     selectedLoopIds.add(loopId);

@@ -25,6 +25,15 @@ let chatInput;
 let chatComposerEl;
 let chatResetButtonEl;
 let chatThreadStatusEl;
+let chatIsBusy = false;
+
+function getEmptyThreadCopy() {
+  return {
+    title: "No saved thread in this browser yet.",
+    body: "Send your first message to save this conversation across reloads. Ask about your real work: \"What should I focus on next?\", \"What is blocked?\", or \"What is due soon?\"",
+    status: "No saved thread yet. Send a message to keep this conversation across reloads.",
+  };
+}
 
 function scrollConversationToBottom() {
   requestAnimationFrame(() => {
@@ -33,10 +42,11 @@ function scrollConversationToBottom() {
 }
 
 function renderPlaceholder() {
+  const emptyCopy = getEmptyThreadCopy();
   chatMessagesEl.innerHTML = `
     <div class="chat-placeholder">
-      <strong>Thread saved locally in this browser.</strong>
-      Ask about your real work: "What should I focus on next?", "What is blocked?", or "What is due soon?"
+      <strong class="chat-placeholder-title">${emptyCopy.title}</strong>
+      <p class="chat-placeholder-body">${emptyCopy.body}</p>
     </div>
   `;
 }
@@ -55,9 +65,11 @@ function renderMessageContent(message) {
 
 function renderChatMessages() {
   const messages = state.state.chatMessages;
+  const threadState = state.getChatThreadState();
   if (messages.length === 0) {
     renderPlaceholder();
-    updateThreadStatus("No saved thread yet. Starting here will keep this conversation across reloads.");
+    updateThreadStatus(getEmptyThreadCopy().status);
+    syncResetButton(threadState, chatIsBusy);
     return;
   }
 
@@ -67,19 +79,18 @@ function renderChatMessages() {
     </article>
   `).join("");
 
-  const updatedAt = messages.at(-1)?.createdAt;
-  updateThreadStatus(updatedAt
-    ? `Saved locally. Last updated ${new Date(updatedAt).toLocaleString()}.`
+  updateThreadStatus(threadState.lastUpdatedAt
+    ? `Saved locally in this browser. Last updated ${new Date(threadState.lastUpdatedAt).toLocaleString()}.`
     : "Saved locally in this browser.");
+  syncResetButton(threadState, chatIsBusy);
   scrollConversationToBottom();
 }
 
 function setComposerBusy(isBusy) {
+  chatIsBusy = isBusy;
   chatComposerEl?.classList.toggle("is-busy", isBusy);
   chatInput.disabled = isBusy;
-  if (chatResetButtonEl) {
-    chatResetButtonEl.disabled = isBusy;
-  }
+  syncResetButton(state.getChatThreadState(), isBusy);
 }
 
 function addChatBubble(role, content) {
@@ -91,6 +102,15 @@ function updateThreadStatus(text) {
   if (chatThreadStatusEl) {
     chatThreadStatusEl.textContent = text;
   }
+}
+
+function syncResetButton(threadState, isBusy) {
+  if (!chatResetButtonEl) {
+    return;
+  }
+
+  chatResetButtonEl.hidden = !threadState.hasSavedThread;
+  chatResetButtonEl.disabled = isBusy || !threadState.hasSavedThread;
 }
 
 /**
@@ -122,10 +142,15 @@ function updateLastAssistantBubble(content) {
  * Submit a chat message and handle streaming response
  */
 export async function submitChat(text) {
+  const wasEmptyThread = !state.getChatThreadState().hasSavedThread;
   addChatBubble("user", text);
   addChatBubble("assistant", "");
   setComposerBusy(true);
-  updateThreadStatus("Streaming response… thread will stay available after reload.");
+  updateThreadStatus(
+    wasEmptyThread
+      ? "First message saved locally. Waiting for the first reply…"
+      : "Saved locally. Streaming response…",
+  );
 
   const messages = state.state.chatMessages.slice(0, -1).map((message) => ({
     role: message.role,
