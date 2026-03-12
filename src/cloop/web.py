@@ -29,6 +29,23 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 router = APIRouter()
 
 
+def _static_file_response(
+    filename: str,
+    *,
+    media_type: str,
+    cache_control: str,
+    extra_headers: dict[str, str] | None = None,
+) -> FileResponse:
+    """Serve a root-level static asset with explicit headers."""
+    file_path = _STATIC_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"{filename} not found")
+    headers = {"Cache-Control": cache_control}
+    if extra_headers:
+        headers.update(extra_headers)
+    return FileResponse(file_path, media_type=media_type, headers=headers)
+
+
 class CloopStaticFiles(StaticFiles):
     """Static file server with safer cache headers for mutable frontend assets."""
 
@@ -66,29 +83,31 @@ def serve_index() -> HTMLResponse:
 @router.get("/manifest.json")
 def serve_manifest() -> FileResponse:
     """Serve the web app manifest with correct content type."""
-    manifest_path = _STATIC_DIR / "manifest.json"
-    if not manifest_path.exists():
-        raise HTTPException(status_code=404, detail="manifest.json not found")
-    return FileResponse(
-        manifest_path,
+    return _static_file_response(
+        "manifest.json",
         media_type="application/manifest+json",
-        headers={"Cache-Control": "public, max-age=86400"},
+        cache_control="public, max-age=86400",
+    )
+
+
+@router.api_route("/favicon.ico", methods=["GET", "HEAD"])
+def serve_favicon() -> FileResponse:
+    """Serve the browser favicon from the canonical root path."""
+    return _static_file_response(
+        "favicon.ico",
+        media_type="image/x-icon",
+        cache_control="public, max-age=86400",
     )
 
 
 @router.get("/sw.js")
 def serve_service_worker() -> FileResponse:
     """Serve service worker with correct headers for SW registration."""
-    sw_path = _STATIC_DIR / "sw.js"
-    if not sw_path.exists():
-        raise HTTPException(status_code=404, detail="sw.js not found")
-    return FileResponse(
-        sw_path,
+    return _static_file_response(
+        "sw.js",
         media_type="application/javascript",
-        headers={
-            "Cache-Control": "no-cache",
-            "Service-Worker-Allowed": "/",
-        },
+        cache_control="no-cache",
+        extra_headers={"Service-Worker-Allowed": "/"},
     )
 
 

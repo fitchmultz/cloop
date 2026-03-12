@@ -21,7 +21,7 @@
 const CACHE_VERSION = "cloop-v2";
 const STATIC_ASSETS = [
   "/",
-  "/static/manifest.json",
+  "/manifest.json",
   // Note: index.html is served at /, CSS/JS is inline in the single HTML file
 ];
 

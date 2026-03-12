@@ -1167,6 +1167,24 @@ def test_web_manifest_returns_json(test_client: TestClient, tmp_data_dir: Path) 
     assert "icons" in data or "display" in data
 
 
+def test_web_favicon_returns_icon(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify GET /favicon.ico returns the browser favicon with cache headers."""
+    response = test_client.get("/favicon.ico")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/x-icon"
+    assert "Cache-Control" in response.headers
+    assert "max-age=86400" in response.headers["Cache-Control"]
+    assert response.content
+
+
+def test_web_favicon_head_returns_icon_headers(test_client: TestClient, tmp_data_dir: Path) -> None:
+    """Verify HEAD /favicon.ico returns success for browser/tooling probes."""
+    response = test_client.head("/favicon.ico")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/x-icon"
+    assert "Cache-Control" in response.headers
+
+
 def test_web_service_worker_returns_js(test_client: TestClient, tmp_data_dir: Path) -> None:
     """Verify GET /sw.js returns service worker with correct headers."""
     response = test_client.get("/sw.js")
@@ -1248,6 +1266,27 @@ def test_web_manifest_missing_returns_404(tmp_path: Path, monkeypatch: pytest.Mo
     client = TestClient(app)
 
     response = client.get("/manifest.json")
+    assert response.status_code == 404
+
+
+def test_web_favicon_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /favicon.ico returns 404 when file is missing."""
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+
+    (static_dir / "index.html").write_text("<html></html>")
+    (static_dir / "manifest.json").write_text('{"name": "test"}')
+    (static_dir / "sw.js").write_text("// test")
+
+    from cloop import web
+
+    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+
+    from cloop.main import app
+
+    client = TestClient(app)
+
+    response = client.get("/favicon.ico")
     assert response.status_code == 404
 
 
