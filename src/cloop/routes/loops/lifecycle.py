@@ -118,13 +118,13 @@ def loop_capture_endpoint(
         path="/loops/capture",
         idempotency_key=idempotency_key,
         payload=payload,
-        execute=lambda conn: (
+        execute=lambda conn: build_loop_response(
             orchestrate_capture(
                 input_data=input_data,
                 settings=settings,
                 conn=conn,
             ).loop
-        ),
+        ).model_dump(),
     )
     if isinstance(result, JSONResponse):
         return result
@@ -135,7 +135,7 @@ def loop_capture_endpoint(
             loop_id=result["id"],
             settings=settings,
         )
-    return LoopResponse(**result)
+    return build_loop_response(result)
 
 
 @router.get("/{loop_id}", response_model=LoopResponse)
@@ -145,7 +145,7 @@ def loop_get_endpoint(
 ) -> LoopResponse:
     with db.core_connection(settings) as conn:
         record = loop_read_service.get_loop(loop_id=loop_id, conn=conn)
-    return LoopResponse(**record)
+    return build_loop_response(record)
 
 
 @router.patch("/{loop_id}", response_model=LoopResponse)
@@ -180,7 +180,7 @@ def loop_update_endpoint(
 
     if isinstance(result, JSONResponse):
         return result
-    return LoopResponse(**result)
+    return build_loop_response(result)
 
 
 @router.post("/{loop_id}/close", response_model=LoopResponse)
@@ -219,7 +219,7 @@ def loop_close_endpoint(
 
     if isinstance(result, JSONResponse):
         return result
-    return LoopResponse(**result)
+    return build_loop_response(result)
 
 
 @router.post("/{loop_id}/status", response_model=LoopResponse)
@@ -255,7 +255,7 @@ def loop_status_endpoint(
 
     if isinstance(result, JSONResponse):
         return result
-    return LoopResponse(**result)
+    return build_loop_response(result)
 
 
 @router.post("/{loop_id}/enrich", response_model=LoopResponse)
@@ -273,8 +273,8 @@ def loop_enrich_endpoint(
         path=f"/loops/{loop_id}/enrich",
         idempotency_key=idempotency_key,
         payload=payload,
-        execute=lambda conn: LoopResponse(
-            **loop_service.request_enrichment(loop_id=loop_id, conn=conn)
+        execute=lambda conn: build_loop_response(
+            loop_service.request_enrichment(loop_id=loop_id, conn=conn)
         ).model_dump(),
     )
     if isinstance(result, JSONResponse):
@@ -285,4 +285,4 @@ def loop_enrich_endpoint(
         loop_id=loop_id,
         settings=settings,
     )
-    return LoopResponse(**result)
+    return build_loop_response(result)

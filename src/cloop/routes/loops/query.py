@@ -37,7 +37,7 @@ from ...schemas.loops import (
     LoopSearchRequest,
     LoopSearchResponse,
 )
-from ._common import SettingsDep
+from ._common import SettingsDep, build_loop_responses
 
 router = APIRouter()
 
@@ -95,7 +95,7 @@ def loop_list_endpoint(
                     offset=offset,
                     conn=conn,
                 )
-    return [LoopResponse(**loop_item) for loop_item in loops]
+    return build_loop_responses(loops)
 
 
 @router.get("/tags", response_model=list[str])
@@ -115,10 +115,10 @@ def loop_next_endpoint(
             conn=conn,
         )
     return LoopNextResponse(
-        due_soon=[LoopResponse(**item) for item in result["due_soon"]],
-        quick_wins=[LoopResponse(**item) for item in result["quick_wins"]],
-        high_leverage=[LoopResponse(**item) for item in result["high_leverage"]],
-        standard=[LoopResponse(**item) for item in result["standard"]],
+        due_soon=build_loop_responses(result["due_soon"]),
+        quick_wins=build_loop_responses(result["quick_wins"]),
+        high_leverage=build_loop_responses(result["high_leverage"]),
+        standard=build_loop_responses(result["standard"]),
     )
 
 
@@ -178,5 +178,5 @@ def loop_search_endpoint(
         query=request.query,
         limit=request.limit,
         offset=request.offset,
-        items=[LoopResponse(**item) for item in items],
+        items=build_loop_responses(items),
     )

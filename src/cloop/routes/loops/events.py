@@ -35,11 +35,15 @@ from ...loops import events as loop_events
 from ...schemas.loops import (
     LoopEventListResponse,
     LoopEventResponse,
-    LoopResponse,
     LoopUndoResponse,
 )
 from ...sse import format_sse_comment, format_sse_event
-from ._common import IdempotencyKeyHeader, SettingsDep, run_idempotent_loop_route
+from ._common import (
+    IdempotencyKeyHeader,
+    SettingsDep,
+    build_loop_response,
+    run_idempotent_loop_route,
+)
 
 router = APIRouter()
 
@@ -108,7 +112,7 @@ def _undo_response(*, loop_id: int, conn: Any) -> dict[str, object]:
     """Execute undo once and normalize the route response body."""
     result = loop_events.undo_last_event(loop_id=loop_id, conn=conn)
     return LoopUndoResponse(
-        loop=LoopResponse(**result["loop"]),
+        loop=build_loop_response(result["loop"]),
         undone_event_id=result["undone_event_id"],
         undone_event_type=result["undone_event_type"],
     ).model_dump()
