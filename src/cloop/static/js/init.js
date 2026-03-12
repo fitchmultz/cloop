@@ -1086,6 +1086,7 @@ function init() {
   // Setup handlers
   setupEventHandlers();
   setupLoopCardHandlers(elements.inbox);
+  setupLoopCardHandlers(elements.nextBuckets);
   comments.setupCommentHandlers();
   suggestions.setupSuggestionHandlers();
   duplicates.setupMergeHandlers();

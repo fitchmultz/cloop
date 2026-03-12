@@ -27,6 +27,10 @@ import { escapeHtml, normalizeTags, isoFromLocalInput } from './utils.js';
 // DOM Elements
 let inbox, statusEl, queryFilter, statusFilter, tagFilter, viewFilter;
 
+function removeInboxEmptyState() {
+  inbox?.querySelector(".inbox-empty-state")?.remove();
+}
+
 /**
  * Initialize loop module with DOM elements
  */
@@ -50,6 +54,7 @@ export function replaceLoop(loop) {
   if (existingInbox) {
     existingInbox.replaceWith(rendered);
   } else {
+    removeInboxEmptyState();
     inbox.prepend(rendered);
   }
 

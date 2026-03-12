@@ -15,6 +15,7 @@
  */
 
 import * as api from './api.js';
+import { renderLoop } from './render.js';
 
 let nextBucketsEl = null;
 
@@ -73,21 +74,44 @@ function renderNextBuckets(buckets) {
     return;
   }
 
-  const html = buckets.map(bucket => `
-    <div class="next-bucket">
-      <h3 class="bucket-title">${escapeHtml(bucket.title)}</h3>
-      <div class="bucket-items">
-        ${(bucket.items || []).map(item => `
-          <div class="bucket-item" data-loop-id="${item.id}">
-            <span class="item-text">${escapeHtml(item.raw_text || item.title || 'Untitled')}</span>
-            ${item.time_minutes ? `<span class="item-meta">${item.time_minutes}m</span>` : ''}
-          </div>
-        `).join('')}
-      </div>
-    </div>
-  `).join('');
+  nextBucketsEl.innerHTML = "";
 
-  nextBucketsEl.innerHTML = html;
+  buckets.forEach((bucket) => {
+    const section = document.createElement("section");
+    section.className = `next-bucket bucket-${bucket.key}`;
+    section.innerHTML = `
+      <div class="next-bucket-header">
+        <div>
+          <h3 class="next-bucket-title">${escapeHtml(bucket.title)}</h3>
+          <p class="next-bucket-description">${escapeHtml(getBucketDescription(bucket.key))}</p>
+        </div>
+        <span class="next-bucket-count">${bucket.items.length}</span>
+      </div>
+      <div class="next-bucket-list"></div>
+    `;
+
+    const list = section.querySelector(".next-bucket-list");
+    (bucket.items || []).forEach((item) => {
+      list?.appendChild(renderLoop(item));
+    });
+
+    nextBucketsEl.appendChild(section);
+  });
+}
+
+function getBucketDescription(key) {
+  switch (key) {
+    case "due_soon":
+      return "Time-sensitive work that needs attention quickly.";
+    case "quick_wins":
+      return "Low-friction tasks you can finish fast.";
+    case "high_leverage":
+      return "Important work with outsized payoff.";
+    case "standard":
+      return "Solid actionable work to pick up next.";
+    default:
+      return "Actionable loops ready to move.";
+  }
 }
 
 /**
