@@ -77,6 +77,8 @@ const elements = {
   chatMessages: document.getElementById("chat-messages"),
   chatInput: document.getElementById("chat-input"),
   chatForm: document.getElementById("chat-form"),
+  chatThreadStatus: document.getElementById("chat-thread-status"),
+  chatResetButton: document.getElementById("chat-reset-btn"),
   ragInput: document.getElementById("rag-input"),
   ragForm: document.getElementById("rag-form"),
   ragAnswer: document.getElementById("rag-answer"),
@@ -998,6 +1000,7 @@ function setupLoopCardHandlers(container) {
 // ========================================
 
 function init() {
+  state.hydrateStateFromStorage();
   initializeCaptureDisclosure();
 
   // Initialize modules
@@ -1013,7 +1016,13 @@ function init() {
   bulk.init({ status: elements.status, bulkActionBar: elements.bulkActionBar });
   review.init({ reviewCohorts: elements.reviewCohorts });
   next.init({ nextBuckets: elements.nextBuckets });
-  chat.init({ chatMessages: elements.chatMessages, chatInput: elements.chatInput });
+  chat.init({
+    chatMessages: elements.chatMessages,
+    chatInput: elements.chatInput,
+    chatForm: elements.chatForm,
+    chatThreadStatus: elements.chatThreadStatus,
+    chatResetButton: elements.chatResetButton,
+  });
   rag.init({
     ragAnswer: elements.ragAnswer,
     ragAnswerText: elements.ragAnswer.querySelector(".rag-answer-text"),
@@ -1041,6 +1050,7 @@ function init() {
   duplicates.setupMergeHandlers();
 
   // Initial load
+  switchTab(state.state.activeTab || "inbox");
   loop.loadInbox();
   populateTemplateDropdown();
 

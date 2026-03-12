@@ -161,7 +161,13 @@
     <!-- Chat Tab -->
     <main class="chat-main" id="chat-main">
       <section class="panel chat-panel">
-        <h2>Chat</h2>
+        <div class="chat-header">
+          <div class="chat-header-copy">
+            <h2>Chat</h2>
+            <p id="chat-thread-status" class="chat-thread-status">Thread saved locally in this browser.</p>
+          </div>
+          <button type="button" id="chat-reset-btn" class="secondary chat-reset-btn">New thread</button>
+        </div>
         <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat conversation">
           <div class="chat-placeholder">Start a conversation...</div>
         </div>

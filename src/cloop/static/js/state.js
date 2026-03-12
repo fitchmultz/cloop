@@ -34,6 +34,63 @@ export const state = {
   notificationPermissionRequested: false,
 };
 
+const CLIENT_STATE_STORAGE_KEY = "cloop.clientState.v2";
+
+function canUseLocalStorage() {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function normalizeChatMessages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .filter((message) => message && typeof message.role === "string" && typeof message.content === "string")
+    .map((message, index) => ({
+      id: typeof message.id === "string" ? message.id : `chat-${index}-${Date.now()}`,
+      role: message.role,
+      content: message.content,
+      createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
+    }));
+}
+
+export function hydrateStateFromStorage() {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CLIENT_STATE_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+
+    const persisted = JSON.parse(raw);
+    if (typeof persisted.activeTab === "string") {
+      state.activeTab = persisted.activeTab;
+    }
+    state.chatMessages = normalizeChatMessages(persisted.chatMessages);
+  } catch {
+    // Ignore malformed persisted state and continue with in-memory defaults.
+  }
+}
+
+export function persistStateToStorage() {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(CLIENT_STATE_STORAGE_KEY, JSON.stringify({
+      activeTab: state.activeTab,
+      chatMessages: state.chatMessages,
+    }));
+  } catch {
+    // Ignore storage failures and preserve the current in-memory session.
+  }
+}
+
 // ========================================
 // Bulk Selection State
 // ========================================
@@ -42,6 +99,36 @@ export const selectedLoopIds = new Set();
 
 export function updateState(updates) {
   Object.assign(state, updates);
+  persistStateToStorage();
+}
+
+export function replaceChatMessages(messages) {
+  state.chatMessages = normalizeChatMessages(messages);
+  persistStateToStorage();
+}
+
+export function appendChatMessage(message) {
+  state.chatMessages.push({
+    id: typeof message.id === "string" ? message.id : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    role: message.role,
+    content: message.content,
+    createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
+  });
+  persistStateToStorage();
+}
+
+export function updateLastChatMessage(fields) {
+  const lastMessage = state.chatMessages.at(-1);
+  if (!lastMessage) {
+    return;
+  }
+  Object.assign(lastMessage, fields);
+  persistStateToStorage();
+}
+
+export function clearChatMessages() {
+  state.chatMessages = [];
+  persistStateToStorage();
 }
 
 export function toggleLoopSelection(loopId, isSelected) {
