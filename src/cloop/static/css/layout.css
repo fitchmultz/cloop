@@ -100,10 +100,6 @@ main {
     margin-top: var(--space-2);
   }
 
-  button {
-    width: 100%;
-  }
-
   .filters button,
   .footer-actions button {
     width: auto;

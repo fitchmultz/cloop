@@ -130,6 +130,7 @@ select:focus {
 /* Tabs */
 .tabs {
   display: flex;
+  align-items: center;
   justify-content: center;
   gap: var(--space-1);
   margin: var(--space-4) var(--space-5) 0;
@@ -163,19 +164,34 @@ select:focus {
     justify-content: flex-start;
     gap: var(--space-2);
     margin: var(--space-3) 0 0;
-    padding: 0 var(--space-3) var(--space-1);
+    padding: 0 var(--space-3) var(--space-2);
     overflow-x: auto;
     scroll-snap-type: x proximity;
+    scroll-padding-inline: var(--space-3);
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  .tabs::after {
+    content: "";
+    flex: 0 0 var(--space-1);
   }
 
   .tabs::-webkit-scrollbar {
-    display: none;
+    height: 6px;
+  }
+
+  .tabs::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: var(--radius-full);
   }
 
   .tab {
     flex: 0 0 auto;
+    width: auto;
+    min-width: max-content;
     scroll-snap-align: start;
     white-space: nowrap;
   }

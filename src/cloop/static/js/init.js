@@ -32,7 +32,7 @@ import * as comments from './comments.js';
 import * as sse from './sse.js';
 import * as duplicates from './duplicates.js';
 import * as suggestions from './suggestions.js';
-import { snoozeDurationToUtc } from './utils.js';
+import { formatDateInputValue, parseUserDateInput, snoozeDurationToUtc } from './utils.js';
 import { selectedLoopIds } from './state.js';
 import { updateBulkActionBar } from './bulk.js';
 
@@ -87,16 +87,55 @@ const elements = {
   offlineBanner: document.getElementById("offline-banner"),
 };
 
+const MOBILE_CAPTURE_MEDIA = "(max-width: 640px)";
+const CAPTURE_DETAILS_STORAGE_KEY = "cloop.captureDetails.mobileExpanded";
+let captureMediaQuery = null;
+
+function isMobileCaptureViewport() {
+  return captureMediaQuery?.matches ?? window.matchMedia(MOBILE_CAPTURE_MEDIA).matches;
+}
+
+function readCaptureDetailsPreference() {
+  try {
+    const storedValue = window.localStorage.getItem(CAPTURE_DETAILS_STORAGE_KEY);
+    if (storedValue === "true") {
+      return true;
+    }
+    if (storedValue === "false") {
+      return false;
+    }
+  } catch {
+    // Ignore storage access issues and fall back to viewport defaults.
+  }
+  return null;
+}
+
+function writeCaptureDetailsPreference(expanded) {
+  try {
+    window.localStorage.setItem(CAPTURE_DETAILS_STORAGE_KEY, expanded ? "true" : "false");
+  } catch {
+    // Ignore storage access issues and keep the current in-memory state.
+  }
+}
+
 // ========================================
 // Tab Switching
 // ========================================
 
 function switchTab(tabName) {
   const tabs = document.querySelectorAll(".tab");
+  let activeTab = null;
   tabs.forEach(t => {
-    t.classList.toggle("active", t.dataset.tab === tabName);
-    t.setAttribute("aria-selected", t.dataset.tab === tabName);
+    const isActive = t.dataset.tab === tabName;
+    t.classList.toggle("active", isActive);
+    t.setAttribute("aria-selected", isActive);
+    if (isActive) {
+      activeTab = t;
+    }
   });
+
+  const scrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  activeTab?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: scrollBehavior });
 
   elements.inboxMain.style.display = tabName === "inbox" ? "grid" : "none";
   elements.nextMain.style.display = tabName === "next" ? "grid" : "none";
@@ -123,7 +162,7 @@ function switchTab(tabName) {
   state.updateState({ activeTab: tabName });
 }
 
-function setCaptureDetailsExpanded(expanded) {
+function setCaptureDetailsExpanded(expanded, { persist = false } = {}) {
   if (!elements.captureDetails || !elements.captureDetailsToggle) {
     return;
   }
@@ -131,6 +170,24 @@ function setCaptureDetailsExpanded(expanded) {
   elements.captureDetails.hidden = !expanded;
   elements.captureDetailsToggle.setAttribute("aria-expanded", expanded ? "true" : "false");
   elements.captureDetailsToggle.textContent = expanded ? "Hide details" : "Add details";
+
+  if (persist && isMobileCaptureViewport()) {
+    writeCaptureDetailsPreference(expanded);
+  }
+}
+
+function syncCaptureDisclosureToViewport() {
+  if (!elements.captureDetails || !elements.captureDetailsToggle) {
+    return;
+  }
+
+  if (isMobileCaptureViewport()) {
+    const mobilePreference = readCaptureDetailsPreference();
+    setCaptureDetailsExpanded(mobilePreference ?? false);
+    return;
+  }
+
+  setCaptureDetailsExpanded(true);
 }
 
 function initializeCaptureDisclosure() {
@@ -138,13 +195,43 @@ function initializeCaptureDisclosure() {
     return;
   }
 
-  const isMobile = window.matchMedia("(max-width: 640px)").matches;
-  setCaptureDetailsExpanded(!isMobile);
+  captureMediaQuery = window.matchMedia(MOBILE_CAPTURE_MEDIA);
+  syncCaptureDisclosureToViewport();
+
+  const handleViewportChange = () => syncCaptureDisclosureToViewport();
+  if (typeof captureMediaQuery.addEventListener === "function") {
+    captureMediaQuery.addEventListener("change", handleViewportChange);
+  } else if (typeof captureMediaQuery.addListener === "function") {
+    captureMediaQuery.addListener(handleViewportChange);
+  }
 
   elements.captureDetailsToggle.addEventListener("click", () => {
     const expanded = elements.captureDetailsToggle.getAttribute("aria-expanded") === "true";
-    setCaptureDetailsExpanded(!expanded);
+    setCaptureDetailsExpanded(!expanded, { persist: true });
   });
+}
+
+function normalizeDueDateField() {
+  if (!elements.dueDate) {
+    return { parsedDate: null, isValid: true };
+  }
+
+  const rawValue = elements.dueDate.value.trim();
+  if (!rawValue) {
+    elements.dueDate.value = "";
+    elements.dueDate.removeAttribute("aria-invalid");
+    return { parsedDate: null, isValid: true };
+  }
+
+  const parsedDate = parseUserDateInput(rawValue);
+  if (!parsedDate) {
+    elements.dueDate.setAttribute("aria-invalid", "true");
+    return { parsedDate: null, isValid: false };
+  }
+
+  elements.dueDate.value = parsedDate.displayValue;
+  elements.dueDate.removeAttribute("aria-invalid");
+  return { parsedDate, isValid: true };
 }
 
 // ========================================
@@ -153,6 +240,14 @@ function initializeCaptureDisclosure() {
 
 async function captureLoop(event) {
   event.preventDefault();
+
+  const { parsedDate, isValid: isDueDateValid } = normalizeDueDateField();
+  if (!isDueDateValid) {
+    elements.status.textContent = "Enter a valid due date as MM/DD/YYYY.";
+    elements.dueDate.focus();
+    elements.dueDate.select();
+    return;
+  }
 
   const now = new Date();
   const templateId = elements.templateSelect.value;
@@ -170,9 +265,9 @@ async function captureLoop(event) {
   }
 
   // Add optional metadata fields (only if non-empty)
-  if (elements.dueDate.value) {
-    // Convert date input to ISO8601 timestamp with time set to end of day
-    payload.due_at_utc = elements.dueDate.value + "T23:59:59Z";
+  if (parsedDate) {
+    // Preserve the chosen calendar day at end-of-day in UTC.
+    payload.due_at_utc = `${parsedDate.isoDate}T23:59:59Z`;
   }
   if (elements.nextAction.value.trim()) {
     payload.next_action = elements.nextAction.value.trim();
@@ -522,6 +617,14 @@ function setupEventHandlers() {
 
   // Form submissions
   elements.form.addEventListener("submit", captureLoop);
+  elements.dueDate?.addEventListener("input", () => {
+    const formattedValue = formatDateInputValue(elements.dueDate.value);
+    if (elements.dueDate.value !== formattedValue) {
+      elements.dueDate.value = formattedValue;
+    }
+    elements.dueDate.removeAttribute("aria-invalid");
+  });
+  elements.dueDate?.addEventListener("blur", normalizeDueDateField);
   elements.chatForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const text = elements.chatInput.value.trim();

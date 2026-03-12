@@ -37,7 +37,7 @@
       </span>
     </div>
 
-    <nav class="tabs" role="tablist">
+    <nav class="tabs" role="tablist" aria-label="Primary">
       <button class="tab active" data-tab="inbox" role="tab" aria-selected="true" id="tab-inbox" aria-controls="inbox-main" type="button">Inbox<span class="shortcut-hint">1</span></button>
       <button class="tab" data-tab="next" role="tab" aria-selected="false" id="tab-next" aria-controls="next-main" type="button">Next<span class="shortcut-hint">2</span></button>
       <button class="tab" data-tab="chat" role="tab" aria-selected="false" id="tab-chat" aria-controls="chat-main" type="button">Chat<span class="shortcut-hint">3</span></button>
@@ -75,7 +75,15 @@
           </div>
           <div class="form-row wrap capture-core-row">
             <label for="due-date" class="sr-only">Due date</label>
-            <input type="date" id="due-date" class="input-flex-sm" placeholder="Due date">
+            <input
+              type="text"
+              id="due-date"
+              class="input-flex-sm"
+              placeholder="MM/DD/YYYY"
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="10"
+            >
             <label for="next-action" class="sr-only">Next action</label>
             <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Next action">
           </div>
@@ -88,7 +96,7 @@
           >
             Add details
           </button>
-          <div id="capture-details" class="form-row wrap metadata-row capture-details">
+          <div id="capture-details" class="form-row wrap metadata-row capture-details" hidden>
             <label for="time-minutes" class="sr-only">Estimated minutes</label>
             <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
             <label for="activation-energy" class="sr-only">Activation energy</label>

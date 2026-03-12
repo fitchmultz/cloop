@@ -61,6 +61,77 @@ export function isoFromLocalInput(value) {
 }
 
 /**
+ * Format freeform date input as MM/DD/YYYY while the user types.
+ */
+export function formatDateInputValue(value) {
+  const digits = String(value ?? "")
+    .replace(/\D/g, "")
+    .slice(0, 8);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+  if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  }
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+/**
+ * Parse user-entered due date values.
+ * Accepts MM/DD/YYYY, M/D/YYYY, and YYYY-MM-DD.
+ */
+export function parseUserDateInput(value) {
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) {
+    return null;
+  }
+
+  let month;
+  let day;
+  let year;
+
+  const usMatch = rawValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (usMatch) {
+    month = Number.parseInt(usMatch[1], 10);
+    day = Number.parseInt(usMatch[2], 10);
+    year = Number.parseInt(usMatch[3], 10);
+  } else {
+    const isoMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!isoMatch) {
+      return null;
+    }
+    year = Number.parseInt(isoMatch[1], 10);
+    month = Number.parseInt(isoMatch[2], 10);
+    day = Number.parseInt(isoMatch[3], 10);
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    Number.isNaN(parsed.getTime())
+    || parsed.getUTCFullYear() !== year
+    || parsed.getUTCMonth() !== month - 1
+    || parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  const isoDate = [
+    String(year).padStart(4, "0"),
+    String(month).padStart(2, "0"),
+    String(day).padStart(2, "0"),
+  ].join("-");
+
+  return {
+    year,
+    month,
+    day,
+    isoDate,
+    displayValue: `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${String(year).padStart(4, "0")}`,
+  };
+}
+
+/**
  * Normalize tags from comma-separated string to array
  */
 export function normalizeTags(value) {
