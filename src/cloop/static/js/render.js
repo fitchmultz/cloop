@@ -18,7 +18,7 @@
  *   - State management (see state.js)
  */
 
-import { escapeHtml, formatTime, toLocalInputValue, normalizeTags } from './utils.js';
+import { escapeHtml, formatTime, toLocalInputValue } from './utils.js';
 
 // Status options for dropdown
 const statusOptions = [
@@ -142,6 +142,66 @@ export function setMobileCardTextExpanded(card, expanded) {
   }
 }
 
+function formatLoopStateLabel(value) {
+  return String(value ?? "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildLoopContextBadges(loop) {
+  const badges = [];
+  const projectName = String(loop.project ?? "").trim();
+  const tags = Array.isArray(loop.tags)
+    ? loop.tags
+        .map((tag) => String(tag ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  if (projectName) {
+    badges.push(`
+      <span class="loop-context-badge project">
+        <span class="loop-context-badge-label">Project</span>
+        <span class="loop-context-badge-value">${escapeHtml(projectName)}</span>
+      </span>
+    `);
+  }
+
+  tags.forEach((tag) => {
+    badges.push(`
+      <span class="loop-context-badge tag-pill">
+        <span class="loop-context-badge-label">Tag</span>
+        <span class="loop-context-badge-value">${escapeHtml(tag)}</span>
+      </span>
+    `);
+  });
+
+  return badges.join("");
+}
+
+export function renderInboxEmptyState({ query = "", status = "open", tag = "" } = {}) {
+  const hasActiveFilters = Boolean(query || tag || !["open", "all"].includes(status));
+  const title = hasActiveFilters ? "No loops match this view." : "Inbox is clear.";
+  const body = hasActiveFilters
+    ? "Try a broader query, switch the status filter, or clear the tag filter to bring loops back into view."
+    : "Capture your first loop above to start organizing work, or switch to Next once you have actionable items.";
+  const hint = hasActiveFilters
+    ? `Current view: ${escapeHtml(formatLoopStateLabel(status))}${tag ? ` • tag:${escapeHtml(tag)}` : ""}${query ? ` • query:${escapeHtml(query)}` : ""}`
+    : "Fresh start: your Inbox will fill here as soon as you capture a loop, idea, or reminder.";
+
+  const emptyState = document.createElement("section");
+  emptyState.className = "inbox-empty-state";
+  emptyState.setAttribute("aria-live", "polite");
+  emptyState.innerHTML = `
+    <div class="inbox-empty-icon" aria-hidden="true">+</div>
+    <div class="inbox-empty-copy">
+      <h3>${title}</h3>
+      <p>${body}</p>
+      <p class="inbox-empty-hint">${hint}</p>
+    </div>
+  `;
+  return emptyState;
+}
+
 /**
  * Render a single loop card
  */
@@ -165,6 +225,8 @@ export function renderLoop(loop) {
 
   const title = loop.title || loop.raw_text;
   const summary = loop.summary || loop.definition_of_done || "";
+  const contextBadges = buildLoopContextBadges(loop);
+  const hasContextBadges = Boolean(contextBadges);
   const capturedText =
     loop.raw_text && loop.raw_text.trim() && loop.raw_text.trim() !== title
       ? loop.raw_text.trim()
@@ -175,6 +237,8 @@ export function renderLoop(loop) {
   const completionNoteValue = loop.completion_note || "";
   const completionVisible = Boolean(completionNoteValue.trim());
   const nextActionSummary = loop.next_action?.trim() || "";
+  const timerDisplay = loop.timer_display || "";
+  const hasTimerMeta = Boolean(timerDisplay || loop.total_tracked_minutes || loop.time_minutes);
 
   const tagChips = Array.isArray(loop.tags) && loop.tags.length
     ? loop.tags
@@ -200,7 +264,7 @@ export function renderLoop(loop) {
   const tags = `
     <div class="tags-edit">
       <div class="tags tags-chips">${tagChips}</div>
-      <button class="tag-add" type="button" data-action="edit-tags">+ add</button>
+      <button class="tag-add" type="button" data-action="edit-tags">${tagChips ? "+ add" : "Add tags"}</button>
       <input
         class="tag-input"
         type="text"
@@ -317,6 +381,7 @@ export function renderLoop(loop) {
       <div class="loop-content">
         ${capturedText ? `<div class="captured-text"><span class="captured-text-label">Captured text</span><p>${escapeHtml(capturedText)}</p></div>` : ""}
         ${summary ? `<div class="loop-summary">${escapeHtml(summary)}</div>` : ""}
+        ${hasContextBadges ? `<div class="loop-context-strip">${contextBadges}</div>` : ""}
         ${mobileTextCollapsible ? `
           <button
             type="button"
@@ -369,11 +434,13 @@ export function renderLoop(loop) {
           >
             ${loop.timer_running ? '⏹ Stop' : '▶ Start'}
           </button>
-          <span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">
-            ${loop.timer_display || ''}
-          </span>
-          ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
-          ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
+          ${hasTimerMeta ? `
+            <div class="timer-meta">
+              ${timerDisplay ? `<span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">${timerDisplay}</span>` : ''}
+              ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
+              ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
+            </div>
+          ` : ''}
         </div>
         ${showRecurrenceSection ? `
           <div class="recurrence-section ${recurrenceEnabled ? 'expanded' : ''}" data-recurrence-section="${loop.id}">

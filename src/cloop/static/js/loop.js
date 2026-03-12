@@ -102,6 +102,17 @@ export async function loadInbox() {
     }
 
     inbox.innerHTML = "";
+    if (data.length === 0) {
+      inbox.appendChild(
+        render.renderInboxEmptyState({
+          query: queryValue,
+          status: statusFilter.value,
+          tag: tagFilter.value,
+        }),
+      );
+      return;
+    }
+
     data.forEach((loop) => inbox.appendChild(render.renderLoop(loop)));
     render.queueNextActionResize(inbox);
   } catch (error) {
