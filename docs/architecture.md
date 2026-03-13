@@ -51,6 +51,7 @@ flowchart LR
 - `src/cloop/rag/*`: ingestion, chunking, embeddings, vector search order, and retrieval composition.
 - `src/cloop/llm.py`, `src/cloop/ai_bridge/*`, `src/cloop/pi_bridge/*`: pi-backed generative runtime, bridge protocol, and Node bridge implementation.
 - `src/cloop/embeddings.py`, `src/cloop/embedding_providers.py`: embeddings-only LiteLLM path and provider resolution.
+- `docs/ai_runtime.md`: operational reference for the bridge boundary, protocol, health semantics, and failure modes.
 
 ### Real-time/eventing
 - `src/cloop/sse.py`: server-sent events fan-out for loop events.
@@ -99,7 +100,7 @@ flowchart LR
 
 ## 5) Operational notes
 
-- **Health:** `GET /health` reports pi bridge readiness, chat/organizer model selectors, embedding model, and storage mode.
+- **Health:** `GET /health` reports pi bridge readiness, chat/organizer model selectors, embedding model, storage mode, and bridge metadata (`bridge_name`, `bridge_version`, `bridge_protocol`).
 - **Scheduler runtime:** run `cloop-scheduler` separately from the FastAPI app when scheduler automation is enabled.
 - **Local CI gate:** `make ci` (quality, tests, packaging checks).
 - **Fast dev gate:** `make check-fast` (quality + fast tests).

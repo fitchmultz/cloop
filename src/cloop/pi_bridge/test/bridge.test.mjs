@@ -2,11 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import readline from "node:readline";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bridgePath = path.resolve(testDir, "..", "bridge.mjs");
+const bridgeModule = await import(pathToFileURL(bridgePath).href);
+
+const { buildBridgeErrorPayload, parseConversationMessages, parseModelSelector } = bridgeModule;
 
 function startBridge() {
 	const child = spawn(process.execPath, [bridgePath], {
@@ -123,4 +126,108 @@ test("bridge reports invalid start requests as protocol errors", async () => {
 	} finally {
 		await bridge.stop();
 	}
+});
+
+test("parseConversationMessages preserves assistant metadata and defaults replay metadata", () => {
+	const parsed = parseConversationMessages(
+		[
+			{ role: "system", content: "system guidance" },
+			{ role: "user", content: "hello" },
+			{
+				role: "assistant",
+				content: "preserve me",
+				provider: "anthropic",
+				api: "anthropic-messages",
+				model: "claude-3-7-sonnet",
+				usage: { input: 11, output: 7 },
+				stop_reason: "stop",
+			},
+			{
+				role: "assistant",
+				content: "selector fallback",
+				model: "openai/gpt-5.4",
+			},
+			{
+				role: "assistant",
+				content: "default everything",
+			},
+			{
+				role: "tool",
+				tool_call_id: "tool-1",
+				name: "write_note",
+				content: { ok: false },
+				is_error: true,
+			},
+		],
+		{
+			provider: "google",
+			api: "google-genai",
+			model: "gemini-3-flash-preview",
+		},
+	);
+
+	assert.equal(parsed.systemPrompt, "system guidance");
+	assert.equal(parsed.messages[1].provider, "anthropic");
+	assert.equal(parsed.messages[1].api, "anthropic-messages");
+	assert.equal(parsed.messages[1].model, "claude-3-7-sonnet");
+	assert.deepEqual(parsed.messages[1].usage, { input: 11, output: 7 });
+	assert.equal(parsed.messages[2].provider, "openai");
+	assert.equal(parsed.messages[2].api, "google-genai");
+	assert.equal(parsed.messages[2].model, "gpt-5.4");
+	assert.equal(parsed.messages[3].provider, "google");
+	assert.equal(parsed.messages[3].api, "google-genai");
+	assert.equal(parsed.messages[3].model, "gemini-3-flash-preview");
+	assert.equal(parsed.messages[4].role, "toolResult");
+	assert.equal(parsed.messages[4].isError, true);
+});
+
+test("buildBridgeErrorPayload returns explicit timeout and tool round limit errors", () => {
+	assert.deepEqual(
+		buildBridgeErrorPayload({
+			requestId: "req-timeout",
+			timedOut: true,
+			finalMessage: { errorMessage: "timed out upstream" },
+		}),
+		{
+			type: "error",
+			request_id: "req-timeout",
+			code: "timeout",
+			message: "timed out upstream",
+			retryable: false,
+		},
+	);
+	assert.deepEqual(
+		buildBridgeErrorPayload({
+			requestId: "req-round-limit",
+			roundLimitExceeded: true,
+		}),
+		{
+			type: "error",
+			request_id: "req-round-limit",
+			code: "tool_round_limit",
+			message: "Pi bridge tool round limit exceeded before the model produced a terminal response.",
+			retryable: false,
+		},
+	);
+});
+
+test("parseModelSelector rejects unavailable models with pi guidance", async () => {
+	const registry = {
+		find(provider, model) {
+			return provider === "openai" && model === "gpt-5.4"
+				? { provider, id: model, api: "openai-responses" }
+				: null;
+		},
+		getAll() {
+			return [{ provider: "openai", id: "gpt-5.4", api: "openai-responses" }];
+		},
+		async getAvailable() {
+			return [];
+		},
+	};
+
+	await assert.rejects(
+		parseModelSelector("openai/gpt-5.4", registry),
+		/not currently available|pi --list-models/i,
+	);
 });

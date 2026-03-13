@@ -6,7 +6,7 @@ import pytest
 
 from cloop import db
 from cloop.embeddings import embed_texts
-from cloop.llm import chat_completion, chat_with_tools
+from cloop.llm import chat_completion, chat_with_tools, stream_events
 from cloop.settings import Settings, get_settings
 
 
@@ -25,6 +25,7 @@ class _FakeSession:
         self._events = events
         self.tool_results: list[dict[str, Any]] = []
         self.aborted = False
+        self.closed = False
 
     def events(self):
         yield from self._events
@@ -44,7 +45,7 @@ class _FakeSession:
         self.aborted = True
 
     def close(self) -> None:
-        return None
+        self.closed = True
 
 
 class _FakeRuntime:
@@ -131,6 +132,64 @@ def test_chat_with_tools_executes_python_tools(
     ]
     assert session.tool_results[0]["payload"]["action"] == "write_note"
     assert metadata["tool_outputs"][0]["name"] == "write_note"
+
+
+def test_stream_events_aborts_unfinished_bridge_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="openai/gpt-5.4")
+    session = _FakeSession([{"type": "text_delta", "delta": "partial"}])
+    runtime = _FakeRuntime(session)
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    events = list(
+        stream_events(
+            [{"role": "user", "content": "Hello"}],
+            settings=settings,
+        )
+    )
+
+    assert events == [{"type": "text_delta", "delta": "partial"}]
+    assert session.aborted is True
+    assert session.closed is True
+
+
+def test_chat_with_tools_forwards_configured_max_tool_rounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_PI_MODEL="openai/gpt-5.4",
+        CLOOP_PI_MAX_TOOL_ROUNDS="3",
+    )
+    runtime = _FakeRuntime(
+        _FakeSession(
+            [
+                {"type": "text_delta", "delta": "done"},
+                {
+                    "type": "done",
+                    "model": "openai/gpt-5.4",
+                    "provider": "openai",
+                    "api": "openai-responses",
+                    "usage": {},
+                    "stop_reason": "stop",
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    content, metadata, tool_calls = chat_with_tools(
+        [{"role": "user", "content": "write a note"}],
+        tools=[],
+        settings=settings,
+    )
+
+    assert content == "done"
+    assert metadata["model"] == "openai/gpt-5.4"
+    assert tool_calls == []
+    assert runtime.requests[0].max_tool_rounds == 3
 
 
 def test_embed_texts_forward_provider_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

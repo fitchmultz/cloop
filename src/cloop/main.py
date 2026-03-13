@@ -84,8 +84,15 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         if not result["ok"]:
             all_ok = False
 
+    bridge_name: str | None = None
+    bridge_version: str | None = None
+    bridge_protocol: int | None = None
     try:
         bridge = bridge_health(settings)
+        bridge_name = str(bridge.get("bridge")) if bridge.get("bridge") is not None else None
+        bridge_version = str(bridge.get("version")) if bridge.get("version") is not None else None
+        raw_protocol = bridge.get("protocol")
+        bridge_protocol = int(raw_protocol) if raw_protocol is not None else None
         checks["pi_bridge"] = DependencyStatus(
             ok=True,
             latency_ms=float(bridge.get("latency_ms", 0.0)),
@@ -115,6 +122,9 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         chat_model=settings.pi_model,
         organizer_model=settings.pi_organizer_model,
         embed_model=settings.embed_model,
+        bridge_name=bridge_name,
+        bridge_version=bridge_version,
+        bridge_protocol=bridge_protocol,
         vector_mode=settings.vector_search_mode.value,
         vector_backend=backend.value,
         vector_available=vector_available,

@@ -167,3 +167,9 @@ def test_bridge_session_reports_invalid_event_payloads(tmp_path: Path) -> None:
             list(session.events())
     finally:
         runtime.shutdown()
+
+
+def test_bridge_runtime_reports_missing_executable() -> None:
+    runtime = BridgeRuntime(command=["/definitely-missing-node-binary"], agent_dir=None)
+    with pytest.raises(BridgeStartupError, match="Failed to start pi bridge command"):
+        runtime.ensure_started()

@@ -24,12 +24,23 @@ from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
 from starlette.responses import JSONResponse
 
+from .ai_bridge.errors import (
+    BridgeError,
+    BridgeProcessError,
+    BridgeProtocolError,
+    BridgeStartupError,
+    BridgeTimeoutError,
+    BridgeUpstreamError,
+)
 from .constants import (
+    HTTP_BAD_GATEWAY,
     HTTP_BAD_REQUEST,
     HTTP_CONFLICT,
     HTTP_FORBIDDEN,
+    HTTP_GATEWAY_TIMEOUT,
     HTTP_INTERNAL_SERVER_ERROR,
     HTTP_NOT_FOUND,
+    HTTP_SERVICE_UNAVAILABLE,
 )
 from .loops.errors import (
     ClaimExpiredError,
@@ -205,6 +216,46 @@ def error_view_from_exception(exc: Exception) -> AppErrorView:
             message=exc.message,
             details={"detail": exc.detail},
             status_code=HTTP_BAD_REQUEST,
+        )
+    if isinstance(exc, BridgeStartupError | BridgeProcessError):
+        return AppErrorView(
+            error_type="ai_backend_unavailable",
+            code="ai_backend_unavailable",
+            message=str(exc),
+            details={"detail": str(exc)},
+            status_code=HTTP_SERVICE_UNAVAILABLE,
+        )
+    if isinstance(exc, BridgeTimeoutError):
+        return AppErrorView(
+            error_type="ai_backend_timeout",
+            code="ai_backend_timeout",
+            message=str(exc),
+            details={"detail": str(exc)},
+            status_code=HTTP_GATEWAY_TIMEOUT,
+        )
+    if isinstance(exc, BridgeProtocolError):
+        return AppErrorView(
+            error_type="ai_backend_protocol_error",
+            code="ai_backend_protocol_error",
+            message=str(exc),
+            details={"detail": str(exc)},
+            status_code=HTTP_BAD_GATEWAY,
+        )
+    if isinstance(exc, BridgeUpstreamError):
+        return AppErrorView(
+            error_type="ai_backend_error",
+            code=exc.code or "ai_backend_error",
+            message=str(exc),
+            details={"detail": str(exc), "retryable": exc.retryable},
+            status_code=HTTP_SERVICE_UNAVAILABLE if exc.retryable else HTTP_BAD_GATEWAY,
+        )
+    if isinstance(exc, BridgeError):
+        return AppErrorView(
+            error_type="ai_backend_error",
+            code="ai_backend_error",
+            message=str(exc),
+            details={"detail": str(exc)},
+            status_code=HTTP_BAD_GATEWAY,
         )
     if isinstance(exc, HTTPException):
         detail = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}

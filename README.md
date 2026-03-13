@@ -29,6 +29,7 @@ flowchart LR
 ```
 
 - Public architecture summary: [`docs/architecture.md`](docs/architecture.md)
+- AI runtime + pi bridge boundary: [`docs/ai_runtime.md`](docs/ai_runtime.md)
 - Product roadmap: [`docs/roadmap.md`](docs/roadmap.md)
 - Verification checklist: [`docs/verification_checklist.md`](docs/verification_checklist.md)
 
@@ -51,6 +52,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 ## Design and Architecture
 
 - Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
+- Use [docs/ai_runtime.md](docs/ai_runtime.md) for the pi bridge protocol, startup assumptions, and failure semantics.
 - Use [docs/roadmap.md](docs/roadmap.md) as the canonical plan for AI capability and interface-parity work.
 - Use [docs/verification_checklist.md](docs/verification_checklist.md) for setup, validation, and smoke-test commands.
 
@@ -443,6 +445,7 @@ pi --list-models
 ```
 
 Authenticate pi separately from Cloop, for example with the normal `pi` login flow for the providers you use.
+If the bridge reports model unavailability, startup failures, or protocol problems, use [docs/ai_runtime.md](docs/ai_runtime.md) as the troubleshooting reference.
 
 ### Embedding providers
 

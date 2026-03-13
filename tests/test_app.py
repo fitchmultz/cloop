@@ -340,6 +340,9 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert payload["chat_model"] == get_settings().pi_model
     assert payload["organizer_model"] == get_settings().pi_organizer_model
     assert payload["embed_model"] == get_settings().embed_model
+    assert payload["bridge_name"] == "cloop-pi-bridge"
+    assert payload["bridge_version"] == "0.1.0"
+    assert payload["bridge_protocol"] == 1
     assert payload["core_db"] == "core.db"
     assert payload["rag_db"] == "rag.db"
     assert "/" not in payload["core_db"]

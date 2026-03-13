@@ -318,7 +318,12 @@ def test_client(
     monkeypatch.setattr("cloop.routes.rag.stream_events", mock_stream_events)
     monkeypatch.setattr(
         "cloop.main.bridge_health",
-        lambda settings: {"bridge": "cloop-pi-bridge", "version": "0.1.0", "latency_ms": 1.0},
+        lambda settings: {
+            "bridge": "cloop-pi-bridge",
+            "version": "0.1.0",
+            "protocol": 1,
+            "latency_ms": 1.0,
+        },
     )
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding_response)
     return TestClient(app)

@@ -29,6 +29,9 @@ HTTP_NOT_FOUND: int = 404
 HTTP_CONFLICT: int = 409
 HTTP_UNPROCESSABLE_ENTITY: int = 422
 HTTP_INTERNAL_SERVER_ERROR: int = 500
+HTTP_BAD_GATEWAY: int = 502
+HTTP_SERVICE_UNAVAILABLE: int = 503
+HTTP_GATEWAY_TIMEOUT: int = 504
 
 # =============================================================================
 # Scheduler/Prioritization Thresholds

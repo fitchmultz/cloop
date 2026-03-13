@@ -22,6 +22,7 @@ CLOOP_OLLAMA_API_BASE=http://localhost:11434
 ```
 
 Use `pi --list-models` to confirm the selectors available in your authenticated pi installation.
+If bridge startup, auth, or model-availability checks fail, use [`docs/ai_runtime.md`](ai_runtime.md) as the runtime troubleshooting reference.
 
 `CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false` for first-run determinism.
 
@@ -60,6 +61,13 @@ uv run cloop --help
 uv run cloop loop list --status open --limit 5
 ```
 
+Bridge runtime:
+
+```bash
+npm test --prefix src/cloop/pi_bridge
+uv run pytest tests/test_ai_bridge_runtime.py tests/test_llm.py tests/test_llm_failures.py
+```
+
 HTTP server + UI:
 
 ```bash
@@ -67,6 +75,7 @@ uv run uvicorn cloop.main:app --reload
 # open http://127.0.0.1:8000/
 # open http://127.0.0.1:8000/docs
 # open http://127.0.0.1:8000/health
+# confirm bridge_name / bridge_version / bridge_protocol are populated when pi bridge is healthy
 ```
 
 MCP:

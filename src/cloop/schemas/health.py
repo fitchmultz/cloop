@@ -33,6 +33,9 @@ class HealthResponse(BaseModel):
     chat_model: str
     organizer_model: str
     embed_model: str
+    bridge_name: str | None = None
+    bridge_version: str | None = None
+    bridge_protocol: int | None = None
     vector_mode: str
     vector_backend: str
     vector_available: bool

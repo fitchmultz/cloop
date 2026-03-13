@@ -32,6 +32,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from .ai_bridge.errors import BridgeError
 from .error_contract import (
     error_response,
     error_view_from_exception,
@@ -50,6 +51,11 @@ def handle_http_exception(_: Request, exc: HTTPException) -> JSONResponse:
 
 def handle_cloop_error(_: Request, exc: CloopError) -> JSONResponse:
     """Handle all typed Cloop domain exceptions through the shared contract."""
+    return error_response(error_view_from_exception(exc))
+
+
+def handle_bridge_error(_: Request, exc: BridgeError) -> JSONResponse:
+    """Handle bridge/runtime failures through the shared error contract."""
     return error_response(error_view_from_exception(exc))
 
 
@@ -78,5 +84,6 @@ def register_exception_handlers(app) -> None:
     """
     app.add_exception_handler(HTTPException, handle_http_exception)
     app.add_exception_handler(CloopError, handle_cloop_error)
+    app.add_exception_handler(BridgeError, handle_bridge_error)
     app.add_exception_handler(RequestValidationError, handle_validation_exception)
     app.add_exception_handler(Exception, handle_generic_exception)

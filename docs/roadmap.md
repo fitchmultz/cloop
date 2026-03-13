@@ -27,7 +27,7 @@ Legend:
 
 | Capability | HTTP API | Web UI | CLI | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Chat completion | yes | yes | no | no | Web chat currently exposes only a reduced subset of backend chat features. |
+| Chat completion | yes | yes | no | no | Web chat still exposes only a reduced subset of backend chat features. |
 | Chat streaming | yes | yes | no | no | SSE-backed in HTTP and web. |
 | Chat tool calling | yes | partial | no | no | Backend supports tool modes; web hard-codes `tool_mode=none`. |
 | Chat with loop context | yes | yes | no | no | Web defaults this on. |
@@ -42,51 +42,58 @@ Legend:
 
 ## Execution Order
 
-The next work should happen in this order so that the new pi cutover stays stable
-while the missing product surfaces are filled in deliberately.
+The next work should happen in this order so that shared contracts settle before
+new surfaces depend on them.
 
-### Phase 1 — Stabilize the pi bridge cutover
+### Phase 1 — Finish parity for the generative features already in HTTP
 
-Goal: make the new runtime boundary boring, observable, and easy to support.
+Goal: lock the user-facing chat/enrichment contract before expanding into more transports.
 
-- Harden the bridge protocol and request lifecycle:
-  - confirm abort behavior is reliable
-  - confirm tool-round limit behavior is explicit and tested
-  - confirm startup failures are surfaced cleanly when Node, pi, or auth is missing
-- Tighten bridge/history semantics:
-  - reduce synthetic provider/model metadata in replayed assistant history where possible
-  - document current protocol/schema assumptions clearly
-- Keep operational docs honest:
-  - `/health` should remain the quick truth source for bridge readiness
-  - setup docs should continue to reflect the actual pi + Node prerequisites
-- Treat this phase as complete only when the cutover remains green under `make ci`
-  without caveats.
-
-### Phase 2 — Reach parity for the generative features we already have
-
-Goal: expose the existing pi-backed capabilities across the right user surfaces.
-
-- Add `cloop chat` so the CLI can use the same pi-backed chat capability already
-  available in HTTP and the web UI.
-- Expose more chat controls in the web UI for capabilities the backend already supports:
+- Expose more backend chat controls in the web UI for capabilities that already exist:
   - tool mode
   - optional RAG-in-chat
-  - future scoped grounding controls
+  - future scoped grounding controls only after the current toggles are settled
 - Decide and implement the canonical CLI behavior for `cloop loop enrich`:
   - either execute the full synchronous enrichment flow like HTTP and MCP
   - or keep it request-only and document that decision explicitly
+- Make the shared request/response behavior for chat and enrichment boring enough that
+  later CLI and MCP work can reuse it without another round of contract churn.
+
+Why first:
+
+- web UI already rides the HTTP contract, so it is the cheapest place to expose existing capability
+- locking the enrich behavior now prevents CLI and MCP from growing around temporary semantics
+- this phase reduces follow-on churn for every later surface
+
+### Phase 2 — Add CLI parity for shared generative workflows
+
+Goal: make the terminal a first-class interface for the stabilized chat/enrichment flows.
+
+- Add `cloop chat` on top of the same pi-backed chat capability already used by HTTP/web.
+- Carry over the stabilized controls from Phase 1 instead of inventing a CLI-only chat model.
+- Bring `cloop loop enrich` into parity with the chosen canonical enrichment behavior.
+- Keep output/rendering concerns in the CLI layer while reusing the shared orchestration underneath.
+
+Why before MCP:
+
+- CLI is a thinner integration than MCP and is easier to iterate on while contracts are still fresh
+- the same shared orchestration can then be promoted into MCP with less duplication
 
 ### Phase 3 — Add MCP parity where agent workflows benefit most
 
-Goal: give agent clients access to the shared AI/retrieval capabilities that are
-already stable elsewhere.
+Goal: give agent clients access to the shared AI/retrieval capabilities that are already stable elsewhere.
 
 - Add MCP `rag.ask` so agent clients can use knowledge-grounded answering.
 - Add MCP ingest support so agent workflows can refresh the knowledge base.
-- Add MCP memory tools only after the read/write shape is proven useful and
-  deterministic outside raw HTTP.
+- Add MCP chat only if the CLI/web/HTTP contract from the earlier phases proves clean and stable enough to expose directly.
+- Add MCP memory tools only after the read/write shape is proven useful and deterministic outside raw HTTP.
 
-### Phase 4 — Make memory and enrichment workflows truly multi-surface
+Why after CLI:
+
+- MCP is another public contract surface; it should inherit stabilized behavior, not drive it
+- retrieval parity is usually higher leverage for agent clients than immediate chat parity
+
+### Phase 4 — Make memory and clarification workflows truly multi-surface
 
 Goal: stop treating memory and clarification as HTTP/web-only workflows.
 
@@ -99,6 +106,11 @@ Goal: stop treating memory and clarification as HTTP/web-only workflows.
 - Keep suggestion application/rejection behavior aligned across HTTP, web UI,
   CLI, and MCP where that surface genuinely benefits from it.
 
+Why here:
+
+- memory and clarification shape should build on already-stable chat/retrieval transport contracts
+- these workflows are broader than one transport, so they should come after the main AI interfaces settle
+
 ### Phase 5 — Turn internal AI capabilities into explicit product features
 
 Goal: promote the strongest existing internal AI signals into first-class features.
@@ -106,6 +118,10 @@ Goal: promote the strongest existing internal AI signals into first-class featur
 - Semantic loop search using existing loop embedding infrastructure.
 - Bulk enrichment across filtered loop sets.
 - Better duplicate/related-loop review workflows built on the current similarity machinery.
+
+Why after parity work:
+
+- these features are higher-level product bets and should not be built on top of moving cross-surface foundations
 
 ### Phase 6 — Add richer AI-native workflows
 
@@ -116,22 +132,29 @@ Goal: move beyond one-shot actions only after the foundations are stable and sha
 - Multi-step planning/review flows that reduce user effort without hiding
   system state or mutating loops opaquely.
 
+Why last:
+
+- these flows multiply state, UX, and transport complexity
+- they should reuse proven foundations instead of forcing another architectural reset
+
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Bridge hardening session**
-   - tighten protocol edges
-   - improve failure surfacing
-   - add bridge-focused tests
-2. **CLI + web chat parity session**
-   - add `cloop chat`
+1. **Web + HTTP generative parity session**
    - expose backend chat controls in the web UI
+   - settle the request/response semantics that the UI should rely on
+2. **CLI generative parity session**
+   - add `cloop chat`
+   - finalize the canonical `cloop loop enrich` behavior in CLI
 3. **MCP retrieval parity session**
    - add MCP `rag.ask`
    - add MCP ingest
+4. **Memory + clarification parity session**
+   - add direct memory management outside HTTP
+   - align clarification review/apply flows across surfaces
 
-That sequence gives the highest leverage with the lowest architectural risk.
+That sequence gives the highest leverage while minimizing contract churn.
 
 ## Guardrails
 

@@ -1,54 +1,29 @@
 import process from "node:process";
 import readline from "node:readline";
+import { pathToFileURL } from "node:url";
 
 import { Agent } from "@mariozechner/pi-agent-core";
 import { StringEnum, Type } from "@mariozechner/pi-ai";
 import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 
-const PROTOCOL_VERSION = 1;
-const BRIDGE_NAME = "cloop-pi-bridge";
-const BRIDGE_VERSION = "0.1.0";
+export const PROTOCOL_VERSION = 1;
+export const BRIDGE_NAME = "cloop-pi-bridge";
+export const BRIDGE_VERSION = "0.1.0";
 
 const authStorage = AuthStorage.create();
 const modelRegistry = new ModelRegistry(authStorage);
 const sessions = new Map();
 
-function emit(payload) {
-	process.stdout.write(`${JSON.stringify({ protocol: PROTOCOL_VERSION, ...payload })}\n`);
+export function emit(output, payload) {
+	output.write(`${JSON.stringify({ protocol: PROTOCOL_VERSION, ...payload })}\n`);
 }
 
-function logError(message, error) {
+export function logError(errorStream, message, error) {
 	const detail = error instanceof Error ? error.stack ?? error.message : String(error);
-	process.stderr.write(`${message}: ${detail}\n`);
+	errorStream.write(`${message}: ${detail}\n`);
 }
 
-function parseModelSelector(selector) {
-	if (typeof selector !== "string" || selector.trim().length === 0) {
-		throw new Error("Bridge request missing model selector");
-	}
-	if (selector.includes("/")) {
-		const [provider, ...rest] = selector.split("/");
-		const modelId = rest.join("/");
-		if (!provider || !modelId) {
-			throw new Error(`Invalid model selector: ${selector}`);
-		}
-		const model = modelRegistry.find(provider, modelId);
-		if (!model) {
-			throw new Error(`Unsupported or unavailable pi model: ${selector}`);
-		}
-		return model;
-	}
-	const matches = modelRegistry.getAll().filter((model) => model.id === selector);
-	if (matches.length === 1) {
-		return matches[0];
-	}
-	if (matches.length > 1) {
-		throw new Error(`Model selector is ambiguous; use provider/model form: ${selector}`);
-	}
-	throw new Error(`Unsupported or unavailable pi model: ${selector}`);
-}
-
-function defaultUsage() {
+export function defaultUsage() {
 	return {
 		input: 0,
 		output: 0,
@@ -65,7 +40,7 @@ function defaultUsage() {
 	};
 }
 
-function normalizeTextContent(content) {
+export function normalizeTextContent(content) {
 	if (typeof content === "string") {
 		return [{ type: "text", text: content }];
 	}
@@ -75,7 +50,101 @@ function normalizeTextContent(content) {
 	return [{ type: "text", text: "" }];
 }
 
-function parseSystemPrompt(messages) {
+function parseJsonObject(raw) {
+	if (!raw || typeof raw !== "string") {
+		return {};
+	}
+	try {
+		const parsed = JSON.parse(raw);
+		return parsed && typeof parsed === "object" ? parsed : {};
+	} catch {
+		return {};
+	}
+}
+
+function resolveMessageTimestamp(message, fallbackTimestamp) {
+	return typeof message?.timestamp === "number" ? message.timestamp : fallbackTimestamp;
+}
+
+function splitSelector(selector) {
+	if (typeof selector !== "string" || !selector.includes("/")) {
+		return null;
+	}
+	const [provider, ...rest] = selector.split("/");
+	const model = rest.join("/");
+	if (!provider || !model) {
+		return null;
+	}
+	return { provider, model };
+}
+
+function replayAssistantMetadata(message, defaults) {
+	const selector = splitSelector(message?.model);
+	return {
+		provider:
+			typeof message?.provider === "string"
+				? message.provider
+				: selector?.provider || defaults.provider,
+		api: typeof message?.api === "string" ? message.api : defaults.api,
+		model:
+			typeof message?.model === "string" && !message.model.includes("/")
+				? message.model
+				: selector?.model || defaults.model,
+		usage:
+			message?.usage && typeof message.usage === "object" ? message.usage : defaultUsage(),
+		stopReason: typeof message?.stop_reason === "string" ? message.stop_reason : "stop",
+		errorMessage: typeof message?.error_message === "string" ? message.error_message : undefined,
+	};
+}
+
+function assistantBlocksFromMessage(message) {
+	const blocks = [];
+	const content = message?.content;
+	if (typeof content === "string" && content.length > 0) {
+		blocks.push({ type: "text", text: content });
+	} else if (Array.isArray(content)) {
+		for (const block of content) {
+			if (!block || typeof block !== "object") {
+				continue;
+			}
+			if (block.type === "text" && typeof block.text === "string") {
+				blocks.push({ type: "text", text: block.text });
+				continue;
+			}
+			if (block.type === "toolCall" && typeof block.name === "string") {
+				blocks.push({
+					type: "toolCall",
+					id: String(block.id ?? `${block.name}-replay`),
+					name: block.name,
+					arguments:
+						block.arguments && typeof block.arguments === "object" ? block.arguments : {},
+				});
+			}
+		}
+	}
+	const toolCalls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+	for (const toolCall of toolCalls) {
+		const fn = toolCall?.function ?? {};
+		if (!fn.name) {
+			continue;
+		}
+		const args =
+			typeof fn.arguments === "string"
+				? parseJsonObject(fn.arguments)
+				: fn.arguments && typeof fn.arguments === "object"
+					? fn.arguments
+					: {};
+		blocks.push({
+			type: "toolCall",
+			id: String(toolCall.id ?? `${fn.name}-replay`),
+			name: String(fn.name),
+			arguments: args,
+		});
+	}
+	return blocks;
+}
+
+export function parseConversationMessages(messages, defaults) {
 	const systemParts = [];
 	const conversation = [];
 	const baseTimestamp = Date.now();
@@ -89,7 +158,7 @@ function parseSystemPrompt(messages) {
 			}
 			continue;
 		}
-		const timestamp = baseTimestamp + index;
+		const timestamp = resolveMessageTimestamp(message, baseTimestamp + index);
 		if (role === "user") {
 			conversation.push({
 				role: "user",
@@ -99,40 +168,16 @@ function parseSystemPrompt(messages) {
 			continue;
 		}
 		if (role === "assistant") {
-			const blocks = [];
-			const content = message.content;
-			if (typeof content === "string" && content.length > 0) {
-				blocks.push({ type: "text", text: content });
-			}
-			const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-			for (const toolCall of toolCalls) {
-				const fn = toolCall?.function ?? {};
-				if (!fn.name) {
-					continue;
-				}
-				let args = fn.arguments ?? {};
-				if (typeof args === "string") {
-					try {
-						args = JSON.parse(args || "{}");
-					} catch {
-						args = {};
-					}
-				}
-				blocks.push({
-					type: "toolCall",
-					id: String(toolCall.id ?? `${fn.name}-${timestamp}`),
-					name: String(fn.name),
-					arguments: args && typeof args === "object" ? args : {},
-				});
-			}
+			const metadata = replayAssistantMetadata(message, defaults);
 			conversation.push({
 				role: "assistant",
-				content: blocks,
-				api: "openai-completions",
-				provider: "openai",
-				model: "historical-context",
-				usage: defaultUsage(),
-				stopReason: "stop",
+				content: assistantBlocksFromMessage(message),
+				api: metadata.api,
+				provider: metadata.provider,
+				model: metadata.model,
+				usage: metadata.usage,
+				stopReason: metadata.stopReason,
+				errorMessage: metadata.errorMessage,
 				timestamp,
 			});
 			continue;
@@ -143,7 +188,7 @@ function parseSystemPrompt(messages) {
 				toolCallId: String(message.tool_call_id ?? `tool-${timestamp}`),
 				toolName: String(message.name ?? "tool"),
 				content: normalizeTextContent(message.content),
-				isError: false,
+				isError: Boolean(message.is_error),
 				timestamp,
 			});
 			continue;
@@ -156,7 +201,46 @@ function parseSystemPrompt(messages) {
 	};
 }
 
-function translateSchema(schema) {
+export async function parseModelSelector(selector, registry = modelRegistry) {
+	if (typeof selector !== "string" || selector.trim().length === 0) {
+		throw new Error("Bridge request missing model selector");
+	}
+
+	let model;
+	if (selector.includes("/")) {
+		const split = splitSelector(selector);
+		if (!split) {
+			throw new Error(`Invalid model selector: ${selector}`);
+		}
+		model = registry.find(split.provider, split.model);
+		if (!model) {
+			throw new Error(`Unsupported pi model selector: ${selector}`);
+		}
+	} else {
+		const matches = registry.getAll().filter((candidate) => candidate.id === selector);
+		if (matches.length === 1) {
+			model = matches[0];
+		} else if (matches.length > 1) {
+			throw new Error(`Model selector is ambiguous; use provider/model form: ${selector}`);
+		} else {
+			throw new Error(`Unsupported pi model selector: ${selector}`);
+		}
+	}
+
+	const available = await registry.getAvailable();
+	const isAvailable = available.some(
+		(candidate) => candidate.provider === model.provider && candidate.id === model.id,
+	);
+	if (!isAvailable) {
+		throw new Error(
+			`Pi model is not currently available with current auth/config: ${selector}. ` +
+				"Run `pi --list-models` to confirm availability and authenticate pi for the selected provider.",
+		);
+	}
+	return model;
+}
+
+export function translateSchema(schema) {
 	if (!schema || typeof schema !== "object") {
 		throw new Error("Tool schema must be a JSON object");
 	}
@@ -211,7 +295,7 @@ function translateSchema(schema) {
 	throw new Error(`Unsupported tool schema type: ${String(schema.type)}`);
 }
 
-function createTool(session, spec) {
+export function createTool(session, spec, emitEvent = (payload) => emit(process.stdout, payload)) {
 	return {
 		name: spec.name,
 		label: spec.name,
@@ -220,7 +304,7 @@ function createTool(session, spec) {
 		async execute(toolCallId, params) {
 			return await new Promise((resolve, reject) => {
 				session.pendingToolResults.set(toolCallId, { resolve, reject, toolName: spec.name });
-				emit({
+				emitEvent({
 					type: "tool_call",
 					request_id: session.requestId,
 					tool_call_id: toolCallId,
@@ -232,7 +316,7 @@ function createTool(session, spec) {
 	};
 }
 
-function normalizeAssistantMessage(message) {
+export function normalizeAssistantMessage(message) {
 	const text = [];
 	for (const block of message.content ?? []) {
 		if (block.type === "text") {
@@ -242,6 +326,7 @@ function normalizeAssistantMessage(message) {
 	return {
 		text: text.join(""),
 		model: `${message.provider}/${message.model}`,
+		model_id: message.model,
 		provider: message.provider,
 		api: message.api,
 		usage: message.usage,
@@ -249,15 +334,73 @@ function normalizeAssistantMessage(message) {
 	};
 }
 
-async function runSession(session) {
+export function buildBridgeErrorPayload({
+	requestId,
+	timedOut = false,
+	roundLimitExceeded = false,
+	finalMessage = null,
+	error = null,
+}) {
+	if (timedOut) {
+		return {
+			type: "error",
+			request_id: requestId,
+			code: "timeout",
+			message: finalMessage?.errorMessage || "Pi bridge request timed out",
+			retryable: false,
+		};
+	}
+	if (roundLimitExceeded) {
+		return {
+			type: "error",
+			request_id: requestId,
+			code: "tool_round_limit",
+			message:
+				finalMessage?.errorMessage ||
+				"Pi bridge tool round limit exceeded before the model produced a terminal response.",
+			retryable: false,
+		};
+	}
+	if (finalMessage?.stopReason === "aborted") {
+		return {
+			type: "error",
+			request_id: requestId,
+			code: "aborted",
+			message: finalMessage.errorMessage || "Pi bridge request was aborted",
+			retryable: false,
+		};
+	}
+	return {
+		type: "error",
+		request_id: requestId,
+		code: "bridge_error",
+		message:
+			finalMessage?.errorMessage || (error instanceof Error ? error.message : String(error ?? "Pi bridge request failed")),
+		retryable: false,
+	};
+}
+
+export async function runSession(
+	session,
+	{
+		AgentClass = Agent,
+		emitEvent = (payload) => emit(process.stdout, payload),
+		log = (message, error) => logError(process.stderr, message, error),
+		registry = modelRegistry,
+	} = {},
+) {
 	let timedOut = false;
 	let roundLimitExceeded = false;
 	let toolRounds = 0;
 	let timeoutHandle = null;
 	let unsubscribe = () => {};
 	try {
-		const model = parseModelSelector(session.request.model);
-		const normalized = parseSystemPrompt(session.request.messages);
+		const model = await parseModelSelector(session.request.model, registry);
+		const normalized = parseConversationMessages(session.request.messages, {
+			provider: model.provider,
+			api: model.api,
+			model: model.id,
+		});
 		if (normalized.messages.length === 0) {
 			throw new Error("Pi bridge request must include at least one non-system message");
 		}
@@ -265,12 +408,16 @@ async function runSession(session) {
 		if (lastMessage.role === "assistant") {
 			throw new Error("Pi bridge request must end with a user or tool message");
 		}
-		const tools = (session.request.tools ?? []).map((spec) => createTool(session, spec));
+		const tools = (session.request.tools ?? []).map((spec) =>
+			createTool(session, spec, emitEvent),
+		);
 
-		const agent = new Agent();
+		const agent = new AgentClass();
 		agent.setModel(model);
 		agent.setSystemPrompt(normalized.systemPrompt);
-		agent.setThinkingLevel(session.request.thinking_level === "none" ? "off" : session.request.thinking_level);
+		agent.setThinkingLevel(
+			session.request.thinking_level === "none" ? "off" : session.request.thinking_level,
+		);
 		agent.setTools(tools);
 		agent.replaceMessages(normalized.messages);
 		session.agent = agent;
@@ -287,14 +434,14 @@ async function runSession(session) {
 			if (event.type === "message_update") {
 				const assistantEvent = event.assistantMessageEvent;
 				if (assistantEvent.type === "text_delta") {
-					emit({
+					emitEvent({
 						type: "text_delta",
 						request_id: session.requestId,
 						delta: assistantEvent.delta,
 					});
 				}
 				if (assistantEvent.type === "thinking_delta") {
-					emit({
+					emitEvent({
 						type: "thinking_delta",
 						request_id: session.requestId,
 						delta: assistantEvent.delta,
@@ -310,7 +457,7 @@ async function runSession(session) {
 			}
 			if (event.type === "tool_execution_end") {
 				const details = event.result?.details ?? null;
-				emit({
+				emitEvent({
 					type: "tool_result",
 					request_id: session.requestId,
 					tool_call_id: event.toolCallId,
@@ -333,36 +480,27 @@ async function runSession(session) {
 		if (!finalMessage) {
 			throw new Error("Pi bridge finished without an assistant message");
 		}
-		if (timedOut || finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted") {
-			emit({
-				type: "error",
-				request_id: session.requestId,
-				code: timedOut ? "timeout" : roundLimitExceeded ? "tool_round_limit" : "bridge_error",
-				message:
-					finalMessage.errorMessage ||
-					(timedOut
-						? "Pi bridge request timed out"
-						: roundLimitExceeded
-							? "Pi bridge tool round limit exceeded"
-							: "Pi bridge request failed"),
-				retryable: false,
-			});
+		if (timedOut || roundLimitExceeded || finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted") {
+			emitEvent(
+				buildBridgeErrorPayload({
+					requestId: session.requestId,
+					timedOut,
+					roundLimitExceeded,
+					finalMessage,
+				}),
+			);
 			return;
 		}
-		emit({
+		emitEvent({
 			type: "done",
 			request_id: session.requestId,
 			...normalizeAssistantMessage(finalMessage),
 		});
 	} catch (error) {
-		logError(`Bridge session ${session.requestId} failed`, error);
-		emit({
-			type: "error",
-			request_id: session.requestId,
-			code: "bridge_error",
-			message: error instanceof Error ? error.message : String(error),
-			retryable: false,
-		});
+		log(`Bridge session ${session.requestId} failed`, error);
+		emitEvent(
+			buildBridgeErrorPayload({ requestId: session.requestId, error }),
+		);
 	} finally {
 		unsubscribe();
 		if (timeoutHandle) {
@@ -375,7 +513,7 @@ async function runSession(session) {
 	}
 }
 
-function handleStart(message) {
+function handleStart(message, emitEvent) {
 	if (!message.request_id || typeof message.request_id !== "string") {
 		throw new Error("Bridge start message requires request_id");
 	}
@@ -389,7 +527,7 @@ function handleStart(message) {
 		pendingToolResults: new Map(),
 	};
 	sessions.set(message.request_id, session);
-	void runSession(session);
+	void runSession(session, { emitEvent });
 }
 
 function handleToolResult(message) {
@@ -418,18 +556,18 @@ function handleAbort(message) {
 	session.agent.abort();
 }
 
-function handlePing(message) {
-	emit({
+function handlePing(message, emitEvent) {
+	emitEvent({
 		type: "pong",
 		request_id: message.request_id,
 		latency_ms: 0,
 	});
 }
 
-function dispatch(message) {
+function dispatch(message, emitEvent) {
 	switch (message.type) {
 		case "start":
-			handleStart(message);
+			handleStart(message, emitEvent);
 			return;
 		case "tool_result":
 			handleToolResult(message);
@@ -438,59 +576,81 @@ function dispatch(message) {
 			handleAbort(message);
 			return;
 		case "ping":
-			handlePing(message);
+			handlePing(message, emitEvent);
 			return;
 		default:
 			throw new Error(`Unsupported bridge message type: ${message.type}`);
 	}
 }
 
-emit({
-	type: "hello",
-	bridge: BRIDGE_NAME,
-	version: BRIDGE_VERSION,
-});
+export function startBridgeProcess({
+	input = process.stdin,
+	output = process.stdout,
+	errorStream = process.stderr,
+} = {}) {
+	const emitEvent = (payload) => emit(output, payload);
+	const log = (message, error) => logError(errorStream, message, error);
 
-const rl = readline.createInterface({
-	input: process.stdin,
-	crlfDelay: Infinity,
-});
+	emitEvent({
+		type: "hello",
+		bridge: BRIDGE_NAME,
+		version: BRIDGE_VERSION,
+	});
 
-rl.on("line", (line) => {
-	if (!line.trim()) {
-		return;
-	}
-	let message;
-	try {
-		message = JSON.parse(line);
-	} catch (error) {
-		logError("Failed to parse bridge input", error);
-		return;
-	}
-	if (message.protocol !== PROTOCOL_VERSION) {
-		logError("Protocol mismatch", new Error(`Expected ${PROTOCOL_VERSION}, received ${message.protocol}`));
-		return;
-	}
-	try {
-		dispatch(message);
-	} catch (error) {
-		logError("Failed to process bridge message", error);
-		if (message?.request_id) {
-			emit({
-				type: "error",
-				request_id: message.request_id,
-				code: "protocol_error",
-				message: error instanceof Error ? error.message : String(error),
-				retryable: false,
-			});
+	const rl = readline.createInterface({
+		input,
+		crlfDelay: Infinity,
+	});
+
+	rl.on("line", (line) => {
+		if (!line.trim()) {
+			return;
 		}
-	}
-});
-
-rl.on("close", () => {
-	for (const session of sessions.values()) {
-		if (session.agent) {
-			session.agent.abort();
+		let message;
+		try {
+			message = JSON.parse(line);
+		} catch (error) {
+			log("Failed to parse bridge input", error);
+			return;
 		}
+		if (message.protocol !== PROTOCOL_VERSION) {
+			log("Protocol mismatch", new Error(`Expected ${PROTOCOL_VERSION}, received ${message.protocol}`));
+			return;
+		}
+		try {
+			dispatch(message, emitEvent);
+		} catch (error) {
+			log("Failed to process bridge message", error);
+			if (message?.request_id) {
+				emitEvent({
+					type: "error",
+					request_id: message.request_id,
+					code: "protocol_error",
+					message: error instanceof Error ? error.message : String(error),
+					retryable: false,
+				});
+			}
+		}
+	});
+
+	rl.on("close", () => {
+		for (const session of sessions.values()) {
+			if (session.agent) {
+				session.agent.abort();
+			}
+		}
+	});
+
+	return { rl };
+}
+
+export function isMainModule(entryArg = process.argv[1]) {
+	if (!entryArg) {
+		return false;
 	}
-});
+	return import.meta.url === pathToFileURL(entryArg).href;
+}
+
+if (isMainModule()) {
+	startBridgeProcess();
+}
