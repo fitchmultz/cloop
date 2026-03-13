@@ -60,6 +60,7 @@ _ALLOWED_UPDATE_FIELDS = {
     "captured_at_utc",
     "captured_tz_offset_min",
     "closed_at",
+    "due_date",
     "summary",
     "definition_of_done",
     "next_action",
@@ -124,6 +125,7 @@ def _row_to_record(row: sqlite3.Row) -> LoopRecord:
         status=LoopStatus(row["status"]),
         captured_at_utc=parse_utc_datetime(row["captured_at_utc"]),
         captured_tz_offset_min=row["captured_tz_offset_min"],
+        due_date=row["due_date"] if "due_date" in row.keys() and row["due_date"] else None,
         due_at_utc=parse_utc_datetime(row["due_at_utc"]) if row["due_at_utc"] else None,
         snooze_until_utc=(
             parse_utc_datetime(row["snooze_until_utc"]) if row["snooze_until_utc"] else None
@@ -189,18 +191,20 @@ def create_loop(
             status,
             captured_at_utc,
             captured_tz_offset_min,
+            due_date,
             recurrence_rrule,
             recurrence_tz,
             next_due_at_utc,
             recurrence_enabled
         )
-        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             raw_text,
             status.value,
             captured_at_utc,
             captured_tz_offset_min,
+            None,
             recurrence_rrule,
             recurrence_tz,
             next_due_at_utc,
@@ -444,6 +448,7 @@ def insert_loop_from_export(
             status,
             captured_at_utc,
             captured_tz_offset_min,
+            due_date,
             due_at_utc,
             snooze_until_utc,
             time_minutes,
@@ -469,6 +474,7 @@ def insert_loop_from_export(
             :status,
             :captured_at_utc,
             :captured_tz_offset_min,
+            :due_date,
             :due_at_utc,
             :snooze_until_utc,
             :time_minutes,

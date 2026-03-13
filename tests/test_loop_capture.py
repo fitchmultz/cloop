@@ -229,7 +229,7 @@ def test_loop_capture_valid_tz_offset_boundaries(
 
 
 def test_capture_with_due_date(make_test_client) -> None:
-    """Test capture with due_at_utc field."""
+    """Test capture with an exact timestamp due value."""
     client = make_test_client()
     response = client.post(
         "/loops/capture",
@@ -243,6 +243,25 @@ def test_capture_with_due_date(make_test_client) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["due_at_utc"] is not None
+    assert data["due_date"] is None
+
+
+def test_capture_with_date_only_due_date(make_test_client) -> None:
+    """Test capture preserves date-only due semantics explicitly."""
+    client = make_test_client()
+    response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Task with date-only due date",
+            "captured_at": "2026-02-17T10:00:00Z",
+            "client_tz_offset_min": 0,
+            "due_date": "2026-03-15",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["due_date"] == "2026-03-15"
+    assert data["due_at_utc"] == "2026-03-15T23:59:59+00:00"
 
 
 def test_capture_with_all_fields(make_test_client) -> None:

@@ -123,6 +123,7 @@ class LoopRecord:
     status: LoopStatus
     captured_at_utc: datetime
     captured_tz_offset_min: int
+    due_date: str | None
     due_at_utc: datetime | None
     snooze_until_utc: datetime | None
     time_minutes: int | None

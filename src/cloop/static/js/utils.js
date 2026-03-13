@@ -37,7 +37,13 @@ export function formatTime(value) {
   if (Number.isNaN(date.getTime())) {
     return "";
   }
-  return date.toLocaleString();
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 /**
@@ -58,6 +64,98 @@ export function isoFromLocalInput(value) {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function localDateFromIsoDate(value) {
+  const match = String(value ?? "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  return new Date(year, month - 1, day);
+}
+
+export function formatIsoDate(value) {
+  const date = localDateFromIsoDate(value);
+  if (!date) {
+    return "";
+  }
+  return date.toLocaleDateString([], {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
+export function formatDueValue(loop) {
+  if (loop?.due_date) {
+    return formatIsoDate(loop.due_date);
+  }
+  if (loop?.due_at_utc) {
+    return formatTime(loop.due_at_utc);
+  }
+  return "";
+}
+
+export function formatDueLabel(loop) {
+  const formattedValue = formatDueValue(loop);
+  return formattedValue ? `Due ${formattedValue}` : "Set due date";
+}
+
+export function dueDateInputValueFromLoop(loop) {
+  let date = null;
+  if (loop?.due_date) {
+    date = localDateFromIsoDate(loop.due_date);
+  } else if (loop?.due_at_utc) {
+    date = new Date(loop.due_at_utc);
+  }
+
+  if (!date || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return [
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+    String(date.getFullYear()).padStart(4, "0"),
+  ].join("/");
+}
+
+export function localTimeInputValueFromIso(isoValue) {
+  if (!isoValue) {
+    return "";
+  }
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+export function isoFromLocalDateAndTime(isoDate, timeValue) {
+  if (!isoDate || !timeValue) {
+    return null;
+  }
+
+  const dateParts = String(isoDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeParts = String(timeValue).match(/^(\d{2}):(\d{2})$/);
+  if (!dateParts || !timeParts) {
+    return null;
+  }
+
+  const year = Number.parseInt(dateParts[1], 10);
+  const month = Number.parseInt(dateParts[2], 10);
+  const day = Number.parseInt(dateParts[3], 10);
+  const hours = Number.parseInt(timeParts[1], 10);
+  const minutes = Number.parseInt(timeParts[2], 10);
+  const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
   return date.toISOString();
 }
 

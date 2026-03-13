@@ -28,6 +28,7 @@ from typing import Any
 from ..webhooks.service import queue_deliveries
 from . import repo
 from .claim_state import validate_claim_for_update
+from .due_contract import normalize_due_fields
 from .errors import DependencyNotMetError, LoopNotFoundError, TransitionError, ValidationError
 from .metrics import record_transition, record_update
 from .models import (
@@ -91,6 +92,7 @@ _LOCKABLE_FIELDS = {
     "summary",
     "definition_of_done",
     "next_action",
+    "due_date",
     "due_at_utc",
     "snooze_until_utc",
     "time_minutes",
@@ -108,6 +110,7 @@ _REVERSIBLE_UPDATE_FIELD_ALIASES: dict[str, str] = {
     "summary": "summary",
     "definition_of_done": "definition_of_done",
     "next_action": "next_action",
+    "due_date": "due_date",
     "due_at_utc": "due_at_utc",
     "snooze_until_utc": "snooze_until_utc",
     "time_minutes": "time_minutes",
@@ -288,6 +291,7 @@ def _apply_loop_update(
 
     before_state = _capture_update_before_state(record=record, fields=fields)
     mutable_fields = dict(fields)
+    normalize_due_fields(mutable_fields)
     normalized_tags = _extract_normalized_tags(mutable_fields)
     _resolve_project_field(fields=mutable_fields, conn=conn)
 

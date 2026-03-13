@@ -92,6 +92,31 @@ def test_loop_update_invalid_snooze_until_format(
     assert "error" in error_detail
 
 
+def test_loop_update_invalid_due_date_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Test that invalid due_date format returns 400 with clear error."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    response = client.patch(
+        f"/loops/{loop_id}",
+        json={"due_date": "03/15/2026"},
+    )
+    assert response.status_code == 400
+    error_detail = response.json()
+    assert "error" in error_detail
+
+
 # =============================================================================
 # Timezone offset validation tests
 # =============================================================================

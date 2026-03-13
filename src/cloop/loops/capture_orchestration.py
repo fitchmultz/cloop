@@ -106,6 +106,7 @@ class CaptureFieldInputs:
 
     activation_energy: int | None = None
     blocked_reason: str | None = None
+    due_date: str | None = None
     due_at_utc: str | None = None
     next_action: str | None = None
     project: str | None = None
@@ -115,6 +116,8 @@ class CaptureFieldInputs:
     def to_capture_fields(self) -> dict[str, Any]:
         """Build a service capture_fields payload from non-empty inputs."""
         capture_fields: dict[str, Any] = {}
+        if self.due_date:
+            capture_fields["due_date"] = self.due_date
         if self.due_at_utc:
             capture_fields["due_at_utc"] = self.due_at_utc
         if self.next_action:

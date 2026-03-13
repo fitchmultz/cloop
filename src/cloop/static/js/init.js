@@ -32,7 +32,12 @@ import * as comments from './comments.js';
 import * as sse from './sse.js';
 import * as duplicates from './duplicates.js';
 import * as suggestions from './suggestions.js';
-import { formatDateInputValue, parseUserDateInput, snoozeDurationToUtc, toLocalInputValue } from './utils.js';
+import {
+  dueDateInputValueFromLoop,
+  formatDateInputValue,
+  parseUserDateInput,
+  snoozeDurationToUtc,
+} from './utils.js';
 import { selectedLoopIds } from './state.js';
 import { updateBulkActionBar } from './bulk.js';
 
@@ -286,8 +291,7 @@ async function captureLoop(event) {
 
   // Add optional metadata fields (only if non-empty)
   if (parsedDate) {
-    // Preserve the chosen calendar day at end-of-day in UTC.
-    payload.due_at_utc = `${parsedDate.isoDate}T23:59:59Z`;
+    payload.due_date = parsedDate.isoDate;
   }
   if (elements.nextAction.value.trim()) {
     payload.next_action = elements.nextAction.value.trim();
@@ -789,6 +793,23 @@ function setupEventHandlers() {
 // ========================================
 
 function setupLoopCardHandlers(container) {
+  const applyDueUpdateAndMaybeClose = (target, { blurTarget = false } = {}) => {
+    Promise.resolve(loop.applyInlineUpdate(target)).then((shouldClose) => {
+      if (shouldClose === false) {
+        return;
+      }
+      import('./render.js').then((m) => {
+        const card = target.closest(".loop-card");
+        if (card) {
+          m.setDueEditorExpanded(card, false);
+        }
+      });
+      if (blurTarget) {
+        target.blur();
+      }
+    });
+  };
+
   // Checkbox change handler for bulk selection
   container.addEventListener("change", (event) => {
     const checkbox = event.target.closest(".loop-checkbox");
@@ -895,16 +916,17 @@ function setupLoopCardHandlers(container) {
         saveAsTemplate(button.dataset.id);
       } else if (button.dataset.action === "clear-due") {
         const card = button.closest(".loop-card");
-        const dueInput = card?.querySelector('[data-field="due_at_utc"]');
-        if (dueInput) {
-          dueInput.value = "";
-          loop.applyInlineUpdate(dueInput);
+        const dueDateInput = card?.querySelector('[data-field="due_date"]');
+        const dueTimeInput = card?.querySelector('[data-field="due_time"]');
+        if (dueDateInput) {
+          dueDateInput.value = "";
         }
-        import('./render.js').then((m) => {
-          if (card) {
-            m.setDueEditorExpanded(card, false);
-          }
-        });
+        if (dueTimeInput) {
+          dueTimeInput.value = "";
+        }
+        if (dueDateInput) {
+          applyDueUpdateAndMaybeClose(dueDateInput);
+        }
       }
 
       // Handle snooze option clicks
@@ -941,7 +963,7 @@ function setupLoopCardHandlers(container) {
     }
 
     // Handle status and other field changes
-    if (event.target?.dataset?.field) {
+    if (event.target?.dataset?.field && !["due_date", "due_time"].includes(event.target.dataset.field)) {
       loop.applyInlineUpdate(event.target);
     }
   });
@@ -984,18 +1006,12 @@ function setupLoopCardHandlers(container) {
       return;
     }
 
-    if (target?.dataset?.field === "due_at_utc") {
+    if (["due_date", "due_time"].includes(target?.dataset?.field)) {
       const dueField = target.closest("[data-due-field]");
       if (dueField?.contains(event.relatedTarget)) {
         return;
       }
-      loop.applyInlineUpdate(target);
-      import('./render.js').then((m) => {
-        const card = target.closest(".loop-card");
-        if (card) {
-          m.setDueEditorExpanded(card, false);
-        }
-      });
+      applyDueUpdateAndMaybeClose(target);
     }
   });
 
@@ -1004,6 +1020,12 @@ function setupLoopCardHandlers(container) {
     const target = event.target;
     if (target?.dataset?.field === "next_action") {
       import('./render.js').then(m => m.autoResizeTextarea(target));
+    } else if (target?.dataset?.field === "due_date") {
+      const formattedValue = formatDateInputValue(target.value);
+      if (target.value !== formattedValue) {
+        target.value = formattedValue;
+      }
+      target.removeAttribute("aria-invalid");
     }
   });
 
@@ -1051,15 +1073,8 @@ function setupLoopCardHandlers(container) {
       event.preventDefault();
       if (target.dataset.field === "tags_add") {
         loop.appendTagsFromInput(target);
-      } else if (target.dataset.field === "due_at_utc") {
-        loop.applyInlineUpdate(target);
-        import('./render.js').then((m) => {
-          const card = target.closest(".loop-card");
-          if (card) {
-            m.setDueEditorExpanded(card, false);
-          }
-        });
-        target.blur();
+      } else if (["due_date", "due_time"].includes(target.dataset.field)) {
+        applyDueUpdateAndMaybeClose(target, { blurTarget: true });
       } else {
         target.blur();
       }
@@ -1070,10 +1085,24 @@ function setupLoopCardHandlers(container) {
         if (tagsWrap) {
           tagsWrap.classList.remove("editing");
         }
-      } else if (target.dataset.field === "due_at_utc") {
-        target.value = toLocalInputValue(target.dataset.initial);
+      } else if (["due_date", "due_time"].includes(target.dataset.field)) {
+        const card = target.closest(".loop-card");
+        const dueDateInput = card?.querySelector('[data-field="due_date"]');
+        const dueTimeInput = card?.querySelector('[data-field="due_time"]');
+        const loopStub = {
+          due_date: dueDateInput?.dataset.initialDate || "",
+          due_at_utc: dueDateInput?.dataset.initialTimestamp || "",
+        };
+        if (dueDateInput) {
+          dueDateInput.value = dueDateInput.dataset.initialDate
+            ? formatDateInputValue(dueDateInputValueFromLoop(loopStub))
+            : dueDateInputValueFromLoop(loopStub);
+          dueDateInput.removeAttribute("aria-invalid");
+        }
+        if (dueTimeInput) {
+          dueTimeInput.value = dueTimeInput.dataset.initialTime || "";
+        }
         import('./render.js').then((m) => {
-          const card = target.closest(".loop-card");
           if (card) {
             m.setDueEditorExpanded(card, false);
           }

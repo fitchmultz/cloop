@@ -48,6 +48,7 @@ from ..constants import (
     WEBHOOK_DESCRIPTION_MAX,
     WEBHOOK_URL_MAX,
 )
+from ..loops.due_contract import validate_due_date
 from ..loops.models import LoopStatus
 
 if TYPE_CHECKING:
@@ -89,6 +90,10 @@ class LoopCaptureRequest(BaseModel):
     )
 
     # Rich capture metadata (all optional)
+    due_date: str | None = Field(
+        default=None,
+        description="ISO calendar date for date-only due values (YYYY-MM-DD)",
+    )
     due_at_utc: str | None = Field(
         default=None,
         description="ISO8601 due date timestamp",
@@ -126,6 +131,13 @@ class LoopCaptureRequest(BaseModel):
         description="Reason the loop is blocked (if blocked=true)",
     )
 
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def validate_due_date_field(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return validate_due_date(v, "due_date")
+
     @field_validator("due_at_utc", mode="before")
     @classmethod
     def validate_due_at_utc(cls, v: str | None) -> str | None:
@@ -160,6 +172,7 @@ class LoopUpdateRequest(BaseModel):
         default=None, min_length=1, max_length=DEFINITION_OF_DONE_MAX
     )
     next_action: str | None = Field(default=None, min_length=1, max_length=NEXT_ACTION_MAX)
+    due_date: str | None = None
     due_at_utc: str | None = None
     snooze_until_utc: str | None = None
     time_minutes: int | None = Field(default=None, ge=1)
@@ -178,6 +191,13 @@ class LoopUpdateRequest(BaseModel):
         default=None, max_length=TIMEZONE_MAX, description="IANA timezone name"
     )
     recurrence_enabled: bool | None = Field(default=None, description="Enable/disable recurrence")
+
+    @field_validator("due_date", mode="before")
+    @classmethod
+    def validate_due_date_field(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return validate_due_date(v, "due_date")
 
     @field_validator("due_at_utc", mode="before")
     @classmethod
@@ -226,6 +246,7 @@ class LoopBase(BaseModel):
     next_action: str | None = None
     captured_at_utc: str
     captured_tz_offset_min: int
+    due_date: str | None = None
     due_at_utc: str | None = None
     snooze_until_utc: str | None = None
     time_minutes: int | None = None

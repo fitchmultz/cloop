@@ -41,6 +41,7 @@ def loop_record_to_dict(
         "status": record.status.value,
         "captured_at_utc": format_utc_datetime(record.captured_at_utc),
         "captured_tz_offset_min": record.captured_tz_offset_min,
+        "due_date": record.due_date,
         "due_at_utc": format_utc_datetime(record.due_at_utc) if record.due_at_utc else None,
         "snooze_until_utc": (
             format_utc_datetime(record.snooze_until_utc) if record.snooze_until_utc else None

@@ -22,7 +22,12 @@ import * as api from './api.js';
 import * as state from './state.js';
 import * as render from './render.js';
 import * as timer from './timer.js';
-import { escapeHtml, normalizeTags, isoFromLocalInput } from './utils.js';
+import {
+  escapeHtml,
+  isoFromLocalDateAndTime,
+  normalizeTags,
+  parseUserDateInput,
+} from './utils.js';
 
 // DOM Elements
 let inbox, statusEl, queryFilter, statusFilter, tagFilter, viewFilter;
@@ -312,7 +317,8 @@ export async function applyInlineUpdate(target) {
 
   const payload = {};
   const nextInput = card.querySelector('[data-field="next_action"]');
-  const dueInput = card.querySelector('[data-field="due_at_utc"]');
+  const dueDateInput = card.querySelector('[data-field="due_date"]');
+  const dueTimeInput = card.querySelector('[data-field="due_time"]');
   const blockedInput = card.querySelector('[data-field="blocked_reason"]');
   const titleInput = card.querySelector('[data-field="title"]');
 
@@ -332,13 +338,45 @@ export async function applyInlineUpdate(target) {
     }
   }
 
-  if (dueInput) {
-    const dueIso = isoFromLocalInput(dueInput.value);
-    const initialDue = dueInput.dataset.initial || "";
-    if (!dueInput.value && initialDue) {
-      payload.due_at_utc = null;
-    } else if (dueIso && dueIso !== initialDue) {
-      payload.due_at_utc = dueIso;
+  if (dueDateInput) {
+    const rawDueDate = dueDateInput.value.trim();
+    const rawDueTime = dueTimeInput?.value || "";
+    const initialDate = dueDateInput.dataset.initialDate || "";
+    const initialTimestamp = dueDateInput.dataset.initialTimestamp || "";
+    const initialTime = dueTimeInput?.dataset.initialTime || "";
+
+    if (!rawDueDate) {
+      if (initialDate || initialTimestamp) {
+        payload.due_date = null;
+        payload.due_at_utc = null;
+      }
+    } else {
+      const parsedDueDate = parseUserDateInput(rawDueDate);
+      if (!parsedDueDate) {
+        dueDateInput.setAttribute("aria-invalid", "true");
+        statusEl.textContent = "Enter a valid due date as MM/DD/YYYY.";
+        dueDateInput.focus();
+        dueDateInput.select();
+        return false;
+      }
+
+      dueDateInput.value = parsedDueDate.displayValue;
+      dueDateInput.removeAttribute("aria-invalid");
+
+      if (rawDueTime) {
+        const dueIso = isoFromLocalDateAndTime(parsedDueDate.isoDate, rawDueTime);
+        if (!dueIso) {
+          statusEl.textContent = "Enter a valid due time.";
+          dueTimeInput?.focus();
+          return false;
+        }
+        if (dueIso !== initialTimestamp || rawDueTime !== initialTime || initialDate) {
+          payload.due_date = null;
+          payload.due_at_utc = dueIso;
+        }
+      } else if (parsedDueDate.isoDate !== initialDate || initialTime || initialTimestamp) {
+        payload.due_date = parsedDueDate.isoDate;
+      }
     }
   }
 
@@ -356,10 +394,14 @@ export async function applyInlineUpdate(target) {
       if (updated) {
         replaceLoop(updated);
       }
+      return true;
     } catch (error) {
       statusEl.textContent = error.message;
+      return false;
     }
   }
+
+  return true;
 }
 
 /**

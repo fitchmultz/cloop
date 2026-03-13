@@ -18,7 +18,14 @@
  *   - State management (see state.js)
  */
 
-import { escapeHtml, formatTime, toLocalInputValue } from './utils.js';
+import {
+  dueDateInputValueFromLoop,
+  escapeHtml,
+  formatDueLabel,
+  formatDueValue,
+  formatTime,
+  localTimeInputValueFromIso,
+} from './utils.js';
 
 // Status options for dropdown
 const statusOptions = [
@@ -74,27 +81,43 @@ function hasLongMobileCardText(compactCard, capturedText, summary) {
 }
 
 function buildDueEditor(loop) {
-  const dueLabel = loop.due_at_utc ? `Due ${formatTime(loop.due_at_utc)}` : "Set due date";
-  const dueFieldClass = loop.due_at_utc ? "due-field has-value" : "due-field";
+  const dueLabel = formatDueLabel(loop);
+  const hasDueValue = Boolean(loop.due_date || loop.due_at_utc);
+  const dueFieldClass = hasDueValue ? "due-field has-value" : "due-field";
 
   return `
     <div class="${dueFieldClass}" data-due-field>
       <button
         type="button"
-        class="badge due-display ${loop.due_at_utc ? "has-value" : "empty"}"
+        class="badge due-display ${hasDueValue ? "has-value" : "empty"}"
         data-action="edit-due"
         aria-label="${escapeHtml(dueLabel)}"
       >
         ${escapeHtml(dueLabel)}
       </button>
       <div class="due-editor">
-        <input
-          class="badge-input due-input"
-          type="datetime-local"
-          data-field="due_at_utc"
-          placeholder="Due"
-          aria-label="Due date"
-        >
+        <label class="due-editor-label">
+          <span>Due date</span>
+          <input
+            class="badge-input due-input"
+            type="text"
+            data-field="due_date"
+            placeholder="MM/DD/YYYY"
+            inputmode="numeric"
+            autocomplete="off"
+            maxlength="10"
+            aria-label="Due date"
+          >
+        </label>
+        <label class="due-editor-label due-editor-label-time">
+          <span>Time (optional)</span>
+          <input
+            class="badge-input due-time-input"
+            type="time"
+            data-field="due_time"
+            aria-label="Due time"
+          >
+        </label>
         <button type="button" class="secondary due-clear" data-action="clear-due">Clear</button>
       </div>
     </div>
@@ -134,7 +157,8 @@ export function setCompactCardExpanded(card, expanded) {
 
   const disabledSelectors = [
     '[data-field="status"]',
-    '[data-field="due_at_utc"]',
+    '[data-field="due_date"]',
+    '[data-field="due_time"]',
     '[data-recurrence-toggle]',
     '[data-recurrence-schedule]',
   ];
@@ -182,7 +206,8 @@ export function setDueEditorExpanded(card, expanded) {
 
   dueField.classList.toggle("editing", expanded);
   const trigger = dueField.querySelector('[data-action="edit-due"]');
-  const input = dueField.querySelector('[data-field="due_at_utc"]');
+  const dateInput = dueField.querySelector('[data-field="due_date"]');
+  const timeInput = dueField.querySelector('[data-field="due_time"]');
   const clearButton = dueField.querySelector('[data-action="clear-due"]');
 
   if (trigger instanceof HTMLButtonElement) {
@@ -190,15 +215,19 @@ export function setDueEditorExpanded(card, expanded) {
     trigger.tabIndex = expanded ? -1 : 0;
   }
 
-  if (input instanceof HTMLInputElement) {
+  [dateInput, timeInput].forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
     input.disabled = !expanded;
     input.tabIndex = expanded ? 0 : -1;
-    if (expanded) {
-      requestAnimationFrame(() => {
-        input.focus();
-        input.showPicker?.();
-      });
-    }
+  });
+
+  if (dateInput instanceof HTMLInputElement && expanded) {
+    requestAnimationFrame(() => {
+      dateInput.focus();
+      dateInput.select?.();
+    });
   }
 
   if (clearButton instanceof HTMLButtonElement) {
@@ -248,8 +277,8 @@ function buildNextMetaBadges(loop, enrichmentLabel, snoozeIndicatorHtml) {
     `<span class="badge">${escapeHtml(formatLoopStateLabel(loop.status))}</span>`,
   ];
 
-  if (loop.due_at_utc) {
-    meta.push(`<span class="badge next-card-badge-strong">Due ${escapeHtml(formatTime(loop.due_at_utc))}</span>`);
+  if (loop.due_date || loop.due_at_utc) {
+    meta.push(`<span class="badge next-card-badge-strong">Due ${escapeHtml(formatDueValue(loop))}</span>`);
   }
 
   if (loop.total_tracked_minutes) {
@@ -471,7 +500,7 @@ export function renderLoop(loop, options = {}) {
     ? `
       <div class="compact-summary-strip">
         <span class="badge">${loop.status}</span>
-        ${loop.due_at_utc ? `<span class="badge">Due ${formatTime(loop.due_at_utc)}</span>` : ""}
+        ${loop.due_date || loop.due_at_utc ? `<span class="badge">Due ${escapeHtml(formatDueValue(loop))}</span>` : ""}
         ${closed ? `<span class="badge">${closed}</span>` : ""}
         <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
         ${snoozeIndicatorHtml}
@@ -706,7 +735,8 @@ export function renderLoop(loop, options = {}) {
   const titleInput = card.querySelector('[data-field="title"]');
   const tagsInput = card.querySelector('[data-field="tags_add"]');
   const nextInput = card.querySelector('[data-field="next_action"]');
-  const dueInput = card.querySelector('[data-field="due_at_utc"]');
+  const dueDateInput = card.querySelector('[data-field="due_date"]');
+  const dueTimeInput = card.querySelector('[data-field="due_time"]');
   const statusSelect = card.querySelector('[data-field="status"]');
 
   if (titleInput) {
@@ -721,9 +751,14 @@ export function renderLoop(loop, options = {}) {
     nextInput.dataset.initial = loop.next_action || "";
     autoResizeTextarea(nextInput);
   }
-  if (dueInput) {
-    dueInput.value = toLocalInputValue(loop.due_at_utc);
-    dueInput.dataset.initial = loop.due_at_utc || "";
+  if (dueDateInput) {
+    dueDateInput.value = dueDateInputValueFromLoop(loop);
+    dueDateInput.dataset.initialDate = loop.due_date || "";
+    dueDateInput.dataset.initialTimestamp = loop.due_at_utc || "";
+  }
+  if (dueTimeInput) {
+    dueTimeInput.value = loop.due_date ? "" : localTimeInputValueFromIso(loop.due_at_utc);
+    dueTimeInput.dataset.initialTime = loop.due_date ? "" : localTimeInputValueFromIso(loop.due_at_utc);
   }
   if (statusSelect) {
     statusSelect.dataset.initial = loop.status;

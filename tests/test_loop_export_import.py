@@ -42,7 +42,12 @@ def test_export_import_roundtrip(
 
     update = client.patch(
         f"/loops/{loop_id}",
-        json={"title": "Exported", "tags": ["Backup"], "completion_note": "archived"},
+        json={
+            "title": "Exported",
+            "tags": ["Backup"],
+            "completion_note": "archived",
+            "due_date": "2026-03-15",
+        },
     )
     assert update.status_code == 200
 
@@ -51,6 +56,7 @@ def test_export_import_roundtrip(
     export_payload = export_response.json()
     assert export_payload["loops"]
     assert export_payload["loops"][0]["completion_note"] == "archived"
+    assert export_payload["loops"][0]["due_date"] == "2026-03-15"
 
     fresh_dir = tmp_path / "imported"
     fresh_dir.mkdir()
@@ -64,6 +70,7 @@ def test_export_import_roundtrip(
     imported_payload = imported_loops.json()
     assert imported_payload
     assert imported_payload[0]["completion_note"] == "archived"
+    assert imported_payload[0]["due_date"] == "2026-03-15"
 
 
 def test_export_with_status_filter(

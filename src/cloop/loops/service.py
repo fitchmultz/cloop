@@ -34,6 +34,7 @@ from ..schemas.export_import import (
 )
 from ..webhooks.service import queue_deliveries
 from . import repo
+from .due_contract import normalize_due_fields
 from .errors import (
     DependencyCycleError,
     LoopNotFoundError,
@@ -347,6 +348,7 @@ def import_loops(
                 "status": status.value,
                 "captured_at_utc": captured_at,
                 "captured_tz_offset_min": int(item_map.get("captured_tz_offset_min", 0)),
+                "due_date": item_map.get("due_date"),
                 "due_at_utc": item_map.get("due_at_utc"),
                 "snooze_until_utc": item_map.get("snooze_until_utc"),
                 "time_minutes": item_map.get("time_minutes"),
@@ -362,6 +364,7 @@ def import_loops(
                 "updated_at": updated_at,
                 "closed_at": closed_at,
             }
+            normalize_due_fields(payload)
             loop_id = repo.insert_loop_from_export(
                 payload=payload,
                 project_id=project_id,
@@ -382,6 +385,7 @@ def import_loops(
                 "summary",
                 "definition_of_done",
                 "next_action",
+                "due_date",
                 "due_at_utc",
                 "snooze_until_utc",
                 "time_minutes",
@@ -395,6 +399,7 @@ def import_loops(
                     update_fields[field] = item_map[field]
 
             if update_fields:
+                normalize_due_fields(update_fields)
                 repo.update_loop_fields(loop_id=existing_id, fields=update_fields, conn=conn)
 
             # Update tags if provided

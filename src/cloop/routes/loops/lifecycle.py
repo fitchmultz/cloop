@@ -104,6 +104,7 @@ def loop_capture_endpoint(
         field_inputs=CaptureFieldInputs(
             activation_energy=request.activation_energy,
             blocked_reason=request.blocked_reason,
+            due_date=request.due_date,
             due_at_utc=request.due_at_utc,
             next_action=request.next_action,
             project=request.project,

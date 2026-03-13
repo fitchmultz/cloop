@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 32
+SCHEMA_VERSION: int = 33
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -197,6 +197,7 @@ CREATE TABLE loops (
     status TEXT NOT NULL,
     captured_at_utc TEXT NOT NULL,
     captured_tz_offset_min INTEGER NOT NULL,
+    due_date TEXT,
     due_at_utc TEXT,
     snooze_until_utc TEXT,
     time_minutes INTEGER,
@@ -576,6 +577,15 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    33: """
+    ALTER TABLE loops ADD COLUMN due_date TEXT;
+
+    UPDATE loops
+    SET due_date = substr(due_at_utc, 1, 10)
+    WHERE due_at_utc IS NOT NULL
+      AND due_date IS NULL
+      AND (time(due_at_utc) = '23:59:59' OR time(due_at_utc) = '23:59:00');
+    """,
     32: """
     ALTER TABLE loop_events ADD COLUMN source_task_name TEXT;
     ALTER TABLE loop_events ADD COLUMN source_slot_key TEXT;

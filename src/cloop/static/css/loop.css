@@ -584,12 +584,14 @@
 }
 
 .due-field {
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
 
 .due-display {
   cursor: pointer;
+  justify-self: start;
 }
 
 .due-display.empty {
@@ -599,20 +601,70 @@
 
 .due-editor {
   display: none;
-  align-items: center;
-  gap: 6px;
+  width: min(100%, 420px);
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 252, 248, 0.98);
+  border: 1px solid rgba(158, 131, 108, 0.18);
+  box-shadow: 0 12px 24px rgba(63, 32, 13, 0.08);
 }
 
 .due-field.editing .due-editor {
-  display: inline-flex;
+  display: grid;
 }
 
-.due-input {
-  min-width: 210px;
+.due-editor-label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.due-editor-label span {
+  padding-left: 2px;
+}
+
+.due-input,
+.due-time-input {
+  width: 100%;
+  min-width: 0;
 }
 
 .due-clear {
+  justify-self: start;
   padding-inline: 10px;
+}
+
+@media (min-width: 641px) {
+  .due-editor {
+    grid-template-columns: minmax(0, 1.6fr) minmax(150px, 1fr) auto;
+    align-items: end;
+  }
+}
+
+@media (max-width: 640px) {
+  .due-field {
+    width: 100%;
+  }
+
+  .due-display {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .due-editor {
+    width: 100%;
+  }
+
+  .compact-edit-strip .due-field,
+  .loop-state-strip .due-field {
+    flex-basis: 100%;
+  }
 }
 
 /* Tags */
