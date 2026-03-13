@@ -243,6 +243,109 @@ function buildLoopContextBadges(loop) {
   return badges.join("");
 }
 
+function buildNextMetaBadges(loop, enrichmentLabel, snoozeIndicatorHtml) {
+  const meta = [
+    `<span class="badge">${escapeHtml(formatLoopStateLabel(loop.status))}</span>`,
+  ];
+
+  if (loop.due_at_utc) {
+    meta.push(`<span class="badge next-card-badge-strong">Due ${escapeHtml(formatTime(loop.due_at_utc))}</span>`);
+  }
+
+  if (loop.total_tracked_minutes) {
+    meta.push(`<span class="badge">${loop.total_tracked_minutes}m tracked</span>`);
+  } else if (loop.time_minutes) {
+    meta.push(`<span class="badge pending">Est. ${loop.time_minutes}m</span>`);
+  }
+
+  meta.push(`<span class="badge">${escapeHtml(enrichmentLabel)}</span>`);
+
+  if (snoozeIndicatorHtml) {
+    meta.push(snoozeIndicatorHtml);
+  }
+
+  return meta.join("");
+}
+
+function renderNextLoop(loop) {
+  const card = document.createElement("article");
+  const title = loop.title || loop.raw_text;
+  const summary = loop.summary || loop.definition_of_done || "";
+  const nextActionSummary = loop.next_action?.trim() || "Open this loop in Inbox to capture a crisp next action.";
+  const capturedText =
+    loop.raw_text && loop.raw_text.trim() && loop.raw_text.trim() !== title
+      ? loop.raw_text.trim()
+      : "";
+  const contextBadges = buildLoopContextBadges(loop);
+  const enrichmentState = loop.enrichment_state || "idle";
+  const enrichmentLabel =
+    enrichmentState === "pending"
+      ? "Enrichment pending"
+      : enrichmentState === "complete"
+        ? "Enrichment complete"
+        : enrichmentState === "failed"
+          ? "Enrichment failed"
+          : "Enrichment idle";
+  const snoozedUntil = loop.snooze_until_utc;
+  const isSnoozed = snoozedUntil && new Date(snoozedUntil) > new Date();
+  const snoozeIndicatorHtml = isSnoozed
+    ? `<span class="snooze-indicator">Snoozed until ${escapeHtml(formatTime(snoozedUntil))}</span>`
+    : "";
+  const supportingCopy = summary || capturedText;
+  const timerDisplay = loop.timer_display || "";
+  const timerLabel = loop.timer_running ? "Stop focus" : "Start focus";
+
+  card.dataset.loopId = loop.id;
+  card.dataset.status = loop.status;
+  card.dataset.tags = JSON.stringify(loop.tags || []);
+  card.className = "loop-card next-card";
+  card.innerHTML = `
+    <div class="next-card-shell">
+      <div class="next-card-header">
+        <div class="next-card-title-block">
+          <h4 class="next-card-title">${escapeHtml(title)}</h4>
+          ${supportingCopy ? `<p class="next-card-summary">${escapeHtml(supportingCopy)}</p>` : ""}
+        </div>
+        <div class="next-card-stamp">
+          <span>Updated ${escapeHtml(formatTime(loop.updated_at_utc))}</span>
+          ${loop.captured_at_utc ? `<span>Captured ${escapeHtml(formatTime(loop.captured_at_utc))}</span>` : ""}
+        </div>
+      </div>
+      <div class="next-card-meta">
+        ${buildNextMetaBadges(loop, enrichmentLabel, snoozeIndicatorHtml)}
+      </div>
+      <div class="next-card-focus">
+        <span class="inline-label">Do next</span>
+        <p>${escapeHtml(nextActionSummary)}</p>
+      </div>
+      ${contextBadges ? `<div class="loop-context-strip next-card-context">${contextBadges}</div>` : ""}
+      <div class="next-card-actions">
+        <button
+          class="timer-btn next-card-focus-btn ${loop.timer_running ? "running" : ""}"
+          data-action="timer-toggle"
+          data-id="${loop.id}"
+          data-running="${loop.timer_running ? "true" : "false"}"
+          aria-keyshortcuts="T"
+          title="${timerLabel} (T)"
+        >
+          ${loop.timer_running ? "⏹ Stop focus" : "▶ Start focus"}
+        </button>
+        ${timerDisplay ? `<span class="timer-display ${loop.timer_running ? "active" : ""}" data-timer-display="${loop.id}">${escapeHtml(timerDisplay)}</span>` : ""}
+        <button
+          type="button"
+          class="secondary next-card-review-btn"
+          data-action="jump-to-inbox"
+          data-loop-id="${loop.id}"
+        >
+          Review in Inbox
+        </button>
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
 export function renderInboxEmptyState({ query = "", status = "open", tag = "" } = {}) {
   const hasActiveFilters = Boolean(query || tag || !["open", "all"].includes(status));
   const title = hasActiveFilters ? "No loops match this view." : "Inbox is clear.";
@@ -270,7 +373,11 @@ export function renderInboxEmptyState({ query = "", status = "open", tag = "" } 
 /**
  * Render a single loop card
  */
-export function renderLoop(loop) {
+export function renderLoop(loop, options = {}) {
+  if (options.surface === "next") {
+    return renderNextLoop(loop);
+  }
+
   const card = document.createElement("div");
   const compactCard = isCompactLoop(loop);
   card.dataset.loopId = loop.id;
@@ -559,20 +666,35 @@ export function renderLoop(loop) {
           <div class="comments-body" data-comments-body="${loop.id}">
             <div class="comments-list" data-comments-list="${loop.id}"></div>
             <div class="comment-form">
-              <input
-                type="text"
-                class="comment-author-input"
-                data-comment-author="${loop.id}"
-                placeholder="Your name"
-              >
-              <textarea
-                class="comment-textarea"
-                data-comment-body="${loop.id}"
-                placeholder="Add a note or context... (markdown supported)"
-              ></textarea>
-              <button class="comment-submit-btn" data-action="post-comment" data-loop-id="${loop.id}">
-                Post Comment
-              </button>
+              <div class="comment-form-header">
+                <div class="comment-form-title">Add context</div>
+                <p class="comment-form-hint">Capture decisions, blockers, or useful history without crowding the card itself.</p>
+              </div>
+              <div class="comment-form-grid">
+                <label class="comment-field comment-author-field">
+                  <span class="comment-field-label">Author</span>
+                  <input
+                    type="text"
+                    class="comment-author-input"
+                    data-comment-author="${loop.id}"
+                    placeholder="Your name"
+                  >
+                </label>
+                <label class="comment-field comment-body-field">
+                  <span class="comment-field-label">Comment</span>
+                  <textarea
+                    class="comment-textarea"
+                    data-comment-body="${loop.id}"
+                    placeholder="Add a note or context... (markdown supported)"
+                  ></textarea>
+                </label>
+              </div>
+              <div class="comment-form-actions">
+                <span class="comment-form-note">Markdown supported for links, code, and emphasis.</span>
+                <button class="comment-submit-btn" data-action="post-comment" data-loop-id="${loop.id}">
+                  Post Comment
+                </button>
+              </div>
             </div>
           </div>
         </div>

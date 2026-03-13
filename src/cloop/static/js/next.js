@@ -18,12 +18,17 @@ import * as api from './api.js';
 import { renderLoop } from './render.js';
 
 let nextBucketsEl = null;
+let nextHandlersBound = false;
 
 /**
  * Initialize next module
  */
 export function init(elements) {
   nextBucketsEl = elements.nextBuckets;
+  if (nextBucketsEl && !nextHandlersBound) {
+    nextBucketsEl.addEventListener("click", handleNextBucketClick);
+    nextHandlersBound = true;
+  }
 }
 
 /**
@@ -92,10 +97,30 @@ function renderNextBuckets(buckets) {
 
     const list = section.querySelector(".next-bucket-list");
     (bucket.items || []).forEach((item) => {
-      list?.appendChild(renderLoop(item));
+      list?.appendChild(renderLoop(item, { surface: "next" }));
     });
 
     nextBucketsEl.appendChild(section);
+  });
+}
+
+function handleNextBucketClick(event) {
+  const reviewBtn = event.target.closest("[data-action='jump-to-inbox']");
+  if (!reviewBtn) {
+    return;
+  }
+
+  const loopId = reviewBtn.dataset.loopId;
+  const inboxTab = document.querySelector('[data-tab="inbox"]');
+  inboxTab?.click();
+
+  if (!loopId) {
+    return;
+  }
+
+  requestAnimationFrame(() => {
+    const card = document.querySelector(`.loop-card[data-loop-id="${loopId}"]`);
+    card?.scrollIntoView({ block: "center", behavior: "smooth" });
   });
 }
 
