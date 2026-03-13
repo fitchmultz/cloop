@@ -17,6 +17,7 @@
  */
 
 import * as api from './api.js';
+import * as modals from './modals.js';
 import { escapeHtml, formatTime } from './utils.js';
 
 /**
@@ -238,7 +239,15 @@ export function setupCommentHandlers() {
       const loopId = deleteBtn.dataset.loopId;
       const commentId = deleteBtn.dataset.commentId;
 
-      if (confirm("Delete this comment?")) {
+      const confirmed = await modals.confirmDialog({
+        eyebrow: "Comments",
+        title: "Delete Comment",
+        description: "Remove this comment from the thread? Replies will remain visible if they still have content.",
+        confirmLabel: "Delete comment",
+        confirmVariant: "danger",
+      });
+
+      if (confirmed) {
         await deleteComment(loopId, commentId);
       }
       return;

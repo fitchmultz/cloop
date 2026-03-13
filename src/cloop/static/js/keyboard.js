@@ -19,8 +19,8 @@
  */
 
 import * as state from './state.js';
-import { selectedLoopIds, clearLoopSelection, selectAllVisibleLoops, selectLoopRange } from './state.js';
-import { showHelpModal, isModalOpen } from './modals.js';
+import { selectedLoopIds, clearLoopSelection, selectAllVisibleLoops } from './state.js';
+import { showHelpModal, isModalOpen, closeActiveModal } from './modals.js';
 
 let rawText, queryFilter;
 let switchTabFn;
@@ -100,17 +100,7 @@ function handleKeyboardShortcuts(event) {
 
   // Handle Escape key
   if (event.key === "Escape") {
-    if (isModalOpen()) {
-      showHelpModal(false);
-      event.preventDefault();
-      return;
-    }
-
-    // If bulk confirm modal is open, close it
-    const bulkConfirmModal = document.getElementById("bulk-confirm-modal");
-    if (bulkConfirmModal?.classList.contains("visible")) {
-      bulkConfirmModal.classList.remove("visible");
-      state.clearPendingBulkAction();
+    if (isModalOpen() && closeActiveModal()) {
       event.preventDefault();
       return;
     }

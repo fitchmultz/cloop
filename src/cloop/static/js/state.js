@@ -9,7 +9,6 @@
  *   - Selected loops tracking for bulk operations
  *   - Timer state management
  *   - Review mode state
- *   - Pending bulk actions
  *
  * Non-scope:
  *   - API calls (see api.js)
@@ -28,7 +27,6 @@ export const state = {
   reviewMode: 'daily',
   reviewData: null,
   chatMessages: [],
-  pendingBulkAction: null,
   lastClickedLoopId: null,
   focusedLoopId: null,
   notificationPermissionRequested: false,
@@ -214,20 +212,4 @@ export function clearAllTimers() {
     clearInterval(timer.interval_id);
   });
   activeTimers.clear();
-}
-
-// ========================================
-// Pending Bulk Actions
-// ========================================
-
-export function setPendingBulkAction(action) {
-  state.pendingBulkAction = action;
-}
-
-export function getPendingBulkAction() {
-  return state.pendingBulkAction;
-}
-
-export function clearPendingBulkAction() {
-  state.pendingBulkAction = null;
 }

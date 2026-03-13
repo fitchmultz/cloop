@@ -17,9 +17,8 @@
  */
 
 import * as api from './api.js';
-import * as state from './state.js';
+import * as modals from './modals.js';
 import { selectedLoopIds, clearLoopSelection } from './state.js';
-import { snoozeDurationToUtc } from './utils.js';
 
 let statusEl, bulkActionBar;
 
@@ -57,24 +56,6 @@ export function updateBulkActionBar() {
       if (checkbox) checkbox.checked = false;
     }
   });
-}
-
-/**
- * Show bulk confirmation modal
- */
-export function showBulkConfirm(title, message, action) {
-  state.setPendingBulkAction(action);
-  document.getElementById("bulk-confirm-title").textContent = title;
-  document.getElementById("bulk-confirm-message").textContent = message;
-  document.getElementById("bulk-confirm-modal").classList.add("visible");
-}
-
-/**
- * Hide bulk confirmation modal
- */
-export function hideBulkConfirm() {
-  state.clearPendingBulkAction();
-  document.getElementById("bulk-confirm-modal").classList.remove("visible");
 }
 
 /**
@@ -174,54 +155,114 @@ export async function executeBulkAddTags(newTags) {
 /**
  * Handle bulk action button clicks
  */
-export function handleBulkAction(action) {
+export async function handleBulkAction(action) {
   const count = selectedLoopIds.size;
   if (count === 0) return;
 
   switch (action) {
-    case "complete":
-      showBulkConfirm(
-        "Complete Loops",
-        `Mark ${count} loop${count !== 1 ? "s" : ""} as completed?`,
-        () => executeBulkClose("completed")
-      );
+    case "complete": {
+      const confirmed = await modals.confirmDialog({
+        eyebrow: "Bulk action",
+        title: "Complete Loops",
+        description: `Mark ${count} loop${count !== 1 ? "s" : ""} as completed?`,
+        confirmLabel: "Complete loops",
+      });
+      if (confirmed) {
+        executeBulkClose("completed");
+      }
       break;
+    }
 
-    case "drop":
-      showBulkConfirm(
-        "Drop Loops",
-        `Mark ${count} loop${count !== 1 ? "s" : ""} as dropped? This cannot be undone.`,
-        () => executeBulkClose("dropped")
-      );
+    case "drop": {
+      const confirmed = await modals.confirmDialog({
+        eyebrow: "Bulk action",
+        title: "Drop Loops",
+        description: `Mark ${count} loop${count !== 1 ? "s" : ""} as dropped? This cannot be undone.`,
+        confirmLabel: "Drop loops",
+        confirmVariant: "danger",
+      });
+      if (confirmed) {
+        executeBulkClose("dropped");
+      }
       break;
+    }
 
     case "status": {
-      const newStatus = prompt("Enter new status (inbox, actionable, blocked, scheduled):");
-      if (newStatus && ["inbox", "actionable", "blocked", "scheduled"].includes(newStatus.toLowerCase())) {
-        executeBulkStatus(newStatus.toLowerCase());
-      } else if (newStatus) {
-        statusEl.textContent = "Invalid status. Must be one of: inbox, actionable, blocked, scheduled.";
+      const result = await modals.promptDialog({
+        eyebrow: "Bulk action",
+        title: "Change Status",
+        description: `Update ${count} selected loop${count !== 1 ? "s" : ""} to the same status.`,
+        confirmLabel: "Apply status",
+        fields: [{
+          name: "status",
+          label: "New status",
+          type: "select",
+          value: "actionable",
+          options: [
+            { value: "inbox", label: "Inbox" },
+            { value: "actionable", label: "Actionable" },
+            { value: "blocked", label: "Blocked" },
+            { value: "scheduled", label: "Scheduled" },
+          ],
+        }],
+      });
+      if (result?.status) {
+        executeBulkStatus(result.status);
       }
       break;
     }
 
     case "snooze": {
-      const snoozeDate = prompt("Enter snooze date (YYYY-MM-DD HH:MM):");
-      if (snoozeDate) {
-        const date = new Date(snoozeDate);
-        if (!Number.isNaN(date.getTime())) {
-          executeBulkSnooze(date.toISOString());
-        } else {
-          statusEl.textContent = "Invalid date format.";
-        }
+      const result = await modals.promptDialog({
+        eyebrow: "Bulk action",
+        title: "Snooze Loops",
+        description: `Hide ${count} selected loop${count !== 1 ? "s" : ""} until a specific date and time.`,
+        confirmLabel: "Snooze loops",
+        fields: [{
+          name: "snoozeUntil",
+          label: "Snooze until",
+          type: "datetime-local",
+          required: true,
+          helpText: "Uses your local time zone.",
+        }],
+        validate: ({ snoozeUntil }) => {
+          if (!snoozeUntil) {
+            return "Choose a snooze date and time.";
+          }
+          if (Number.isNaN(new Date(snoozeUntil).getTime())) {
+            return "Enter a valid snooze date and time.";
+          }
+          return null;
+        },
+      });
+      if (result?.snoozeUntil) {
+        executeBulkSnooze(new Date(result.snoozeUntil).toISOString());
       }
       break;
     }
 
     case "tags": {
-      const tags = prompt("Enter tags to add (comma-separated):");
-      if (tags) {
-        const tagList = tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
+      const result = await modals.promptDialog({
+        eyebrow: "Bulk action",
+        title: "Add Tags",
+        description: `Add one or more tags to ${count} selected loop${count !== 1 ? "s" : ""}.`,
+        confirmLabel: "Add tags",
+        fields: [{
+          name: "tags",
+          label: "Tags",
+          placeholder: "ops, errands, deep-work",
+          helpText: "Separate tags with commas.",
+          required: true,
+        }],
+        validate: ({ tags }) => {
+          if (!tags) {
+            return "Enter at least one tag.";
+          }
+          return null;
+        },
+      });
+      if (result?.tags) {
+        const tagList = result.tags.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean);
         if (tagList.length > 0) {
           executeBulkAddTags(tagList);
         }

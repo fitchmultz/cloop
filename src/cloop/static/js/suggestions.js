@@ -16,6 +16,7 @@
  */
 
 import * as api from './api.js';
+import * as modals from './modals.js';
 import { escapeHtml } from './utils.js';
 import { refreshLoop } from './loop.js';
 
@@ -159,7 +160,11 @@ export async function applySuggestion(suggestionId, loopId, panel) {
     refreshLoop(loopId);
   } catch (err) {
     console.error("applySuggestion error:", err);
-    alert('Failed to apply: ' + err.message);
+    await modals.alertDialog({
+      title: "Could Not Apply Suggestion",
+      description: err.message,
+      eyebrow: "Suggestions",
+    });
   }
 }
 
@@ -167,7 +172,14 @@ export async function applySuggestion(suggestionId, loopId, panel) {
  * Reject a suggestion
  */
 export async function rejectSuggestion(suggestionId, loopId, panel, badge) {
-  if (!confirm('Reject this suggestion?')) return;
+  const confirmed = await modals.confirmDialog({
+    eyebrow: "Suggestions",
+    title: "Reject Suggestion",
+    description: "Discard this suggestion for the current loop?",
+    confirmLabel: "Reject suggestion",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
 
   try {
     await api.rejectSuggestion(suggestionId);
@@ -179,7 +191,11 @@ export async function rejectSuggestion(suggestionId, loopId, panel, badge) {
     panel.remove();
   } catch (err) {
     console.error("rejectSuggestion error:", err);
-    alert('Failed to reject: ' + err.message);
+    await modals.alertDialog({
+      title: "Could Not Reject Suggestion",
+      description: err.message,
+      eyebrow: "Suggestions",
+    });
   }
 }
 
@@ -233,13 +249,21 @@ async function submitClarificationAnswers(loopId, panel) {
   });
 
   if (answers.length === 0) {
-    alert('Please answer at least one question.');
+    await modals.alertDialog({
+      title: "Add At Least One Answer",
+      description: "The assistant needs at least one clarification response before it can re-enrich this loop.",
+      eyebrow: "Suggestions",
+    });
     return;
   }
 
   try {
     const result = await api.submitClarification(loopId, answers);
-    alert(result.message);
+    await modals.alertDialog({
+      title: "Clarification Submitted",
+      description: result.message,
+      eyebrow: "Suggestions",
+    });
 
     // Trigger re-enrichment
     await api.enrichLoop(loopId);
@@ -248,6 +272,10 @@ async function submitClarificationAnswers(loopId, panel) {
     refreshLoop(loopId);
   } catch (err) {
     console.error("submitClarificationAnswers error:", err);
-    alert('Failed to submit: ' + err.message);
+    await modals.alertDialog({
+      title: "Could Not Submit Clarification",
+      description: err.message,
+      eyebrow: "Suggestions",
+    });
   }
 }

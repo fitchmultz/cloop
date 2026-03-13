@@ -16,6 +16,7 @@
  */
 
 import * as api from './api.js';
+import * as modals from './modals.js';
 import { loadInbox } from './loop.js';
 
 let currentDuplicateLoopId = null;
@@ -81,7 +82,11 @@ export async function openMergeModal(duplicateLoopId, survivingLoopId) {
     document.getElementById('mergeModal').classList.add('visible');
   } catch (err) {
     console.error('Failed to load merge preview:', err);
-    alert(err.message);
+    await modals.alertDialog({
+      title: "Could Not Load Merge Preview",
+      description: err.message,
+      eyebrow: "Duplicates",
+    });
   }
 }
 
@@ -148,7 +153,11 @@ export async function confirmMerge() {
     await loadInbox();
   } catch (err) {
     console.error('Merge failed:', err);
-    alert(err.message);
+    await modals.alertDialog({
+      title: "Merge Failed",
+      description: err.message,
+      eyebrow: "Duplicates",
+    });
   }
 }
 

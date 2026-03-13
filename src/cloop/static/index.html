@@ -400,15 +400,32 @@
       </div>
     </div>
 
-    <!-- Bulk Confirmation Modal -->
-    <div class="bulk-confirm-overlay" id="bulk-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title">
-      <div class="bulk-confirm-modal">
-        <h3 id="bulk-confirm-title">Confirm Action</h3>
-        <p id="bulk-confirm-message">Are you sure you want to proceed?</p>
-        <div class="bulk-confirm-actions">
-          <button class="secondary" data-action="cancel-bulk-confirm">Cancel</button>
-          <button class="bulk-confirm-btn" data-action="confirm-bulk">Confirm</button>
+    <div
+      class="app-dialog-overlay"
+      id="app-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="app-dialog-title"
+      aria-describedby="app-dialog-description"
+      hidden
+    >
+      <div class="app-dialog" tabindex="-1">
+        <div class="app-dialog-header">
+          <div class="app-dialog-heading">
+            <p id="app-dialog-eyebrow" class="app-dialog-eyebrow" hidden></p>
+            <h2 id="app-dialog-title">Dialog</h2>
+          </div>
+          <button class="app-dialog-close" type="button" data-action="close-app-dialog" aria-label="Close dialog">&times;</button>
         </div>
+        <p id="app-dialog-description" class="app-dialog-description" hidden></p>
+        <form id="app-dialog-form" class="app-dialog-form" novalidate>
+          <div id="app-dialog-fields" class="app-dialog-fields"></div>
+          <p id="app-dialog-error" class="app-dialog-error" role="alert" hidden></p>
+          <div class="app-dialog-actions">
+            <button id="app-dialog-cancel" class="secondary" type="button" data-action="cancel-app-dialog">Cancel</button>
+            <button id="app-dialog-confirm" class="app-dialog-confirm" type="submit">Continue</button>
+          </div>
+        </form>
       </div>
     </div>
 

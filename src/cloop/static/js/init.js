@@ -96,6 +96,7 @@ const elements = {
   metricsContent: document.getElementById("metrics-content"),
   bulkActionBar: document.getElementById("bulk-action-bar"),
   helpModal: document.getElementById("help-modal"),
+  appDialog: document.getElementById("app-dialog"),
   offlineBanner: document.getElementById("offline-banner"),
 };
 
@@ -389,11 +390,30 @@ async function populateTemplateDropdown() {
 }
 
 async function saveAsTemplate(loopId) {
-  const name = prompt("Template name:");
-  if (!name) return;
+  const result = await modals.promptDialog({
+    eyebrow: "Template",
+    title: "Save Loop as Template",
+    description: "Create a reusable template from this loop without leaving the inbox.",
+    confirmLabel: "Save template",
+    fields: [{
+      name: "name",
+      label: "Template name",
+      placeholder: "Weekly review setup",
+      required: true,
+      maxLength: 120,
+      autocomplete: "off",
+    }],
+    validate: ({ name }) => {
+      if (!name) {
+        return "Enter a template name.";
+      }
+      return null;
+    },
+  });
+  if (!result?.name) return;
 
   try {
-    const template = await api.saveLoopAsTemplate(loopId, name);
+    const template = await api.saveLoopAsTemplate(loopId, result.name);
     elements.status.textContent = `Template "${template.name}" created!`;
     state.updateState({ templatesCache: null });
     populateTemplateDropdown();
@@ -715,10 +735,29 @@ function setupEventHandlers() {
       elements.status.textContent = "Enter a query first.";
       return;
     }
-    const name = prompt("View name:", "");
-    if (!name?.trim()) return;
+    const result = await modals.promptDialog({
+      eyebrow: "Saved view",
+      title: "Save Current View",
+      description: `Store this query for quick reuse:\n${query}`,
+      confirmLabel: "Save view",
+      fields: [{
+        name: "name",
+        label: "View name",
+        placeholder: "Due today",
+        required: true,
+        maxLength: 120,
+        autocomplete: "off",
+      }],
+      validate: ({ name }) => {
+        if (!name) {
+          return "Enter a view name.";
+        }
+        return null;
+      },
+    });
+    if (!result?.name) return;
     try {
-      await api.saveView(name.trim(), query);
+      await api.saveView(result.name, query);
       elements.status.textContent = "View saved.";
       await api.fetchViews();
     } catch (error) {
@@ -752,25 +791,6 @@ function setupEventHandlers() {
     if (btn) {
       bulk.handleBulkAction(btn.dataset.bulkAction);
       updateBulkActionBar();
-    }
-  });
-
-  // Confirmation modal handlers
-  document.addEventListener("click", (event) => {
-    if (event.target.closest("[data-action='cancel-bulk-confirm']")) {
-      bulk.hideBulkConfirm();
-    }
-    if (event.target.closest("[data-action='confirm-bulk']")) {
-      const action = state.getPendingBulkAction();
-      if (action) action();
-      bulk.hideBulkConfirm();
-    }
-  });
-
-  // Close bulk confirm on overlay click
-  document.getElementById("bulk-confirm-modal")?.addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) {
-      bulk.hideBulkConfirm();
     }
   });
 
@@ -1154,7 +1174,7 @@ function init() {
     ragIngestRecursive: elements.ragIngestRecursive,
     ragIngestStatus: elements.ragIngestStatus,
   });
-  modals.init({ helpModal: elements.helpModal });
+  modals.init({ helpModal: elements.helpModal, appDialog: elements.appDialog });
   keyboard.init(
     { rawText: elements.rawText, queryFilter: elements.queryFilter, status: elements.status },
     {

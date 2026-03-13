@@ -21,7 +21,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = ROOT / "src" / "cloop" / "static" / "index.html"
 BASE_CSS = ROOT / "src" / "cloop" / "static" / "css" / "base.css"
+MODALS_CSS = ROOT / "src" / "cloop" / "static" / "css" / "modals.css"
 RENDER_JS = ROOT / "src" / "cloop" / "static" / "js" / "render.js"
+STATIC_JS_DIR = ROOT / "src" / "cloop" / "static" / "js"
 
 
 def _read(path: Path) -> str:
@@ -44,6 +46,11 @@ def test_status_and_offline_banners_use_live_region_semantics() -> None:
     assert 'id="import-btn" aria-label="Import loops"' in html
     assert 'id="capture-details-toggle"' in html
     assert 'aria-controls="capture-details"' in html
+    assert 'id="app-dialog"' in html
+    assert 'aria-labelledby="app-dialog-title"' in html
+    assert 'aria-describedby="app-dialog-description"' in html
+    assert 'id="app-dialog-form"' in html
+    assert 'id="app-dialog-error"' in html
 
 
 def test_critical_form_controls_have_programmatic_labels() -> None:
@@ -82,6 +89,26 @@ def test_skip_link_and_focus_styles_exist() -> None:
     css = _read(BASE_CSS)
     assert ".skip-link" in css
     assert ":focus-visible" in css
+
+
+def test_modal_styles_support_mobile_safe_dialog_layout() -> None:
+    css = _read(MODALS_CSS)
+    assert ".app-dialog-overlay" in css
+    assert ".app-dialog-actions" in css
+    assert ".app-dialog-input:focus" in css
+    assert "@media (max-width: 640px)" in css
+    assert "align-items: flex-end" in css
+
+
+def test_static_web_ui_does_not_use_native_browser_dialogs() -> None:
+    native_dialog_pattern = re.compile(r"\b(prompt|alert|confirm)\s*\(")
+    offenders: list[str] = []
+
+    for path in STATIC_JS_DIR.glob("*.js"):
+        if native_dialog_pattern.search(_read(path)):
+            offenders.append(path.name)
+
+    assert offenders == []
 
 
 def test_render_templates_have_accessible_labels_for_icon_controls() -> None:
