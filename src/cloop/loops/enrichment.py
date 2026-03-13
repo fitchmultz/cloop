@@ -29,12 +29,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping
 
-import litellm
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import db
-from ..providers import resolve_provider_kwargs
-from ..retry import with_llm_retry
+from ..llm import chat_completion
 from ..settings import Settings, get_settings
 from ..webhooks.service import queue_deliveries
 from . import repo
@@ -521,18 +519,13 @@ def enrich_loop(
     messages = _build_prompt(loop_payload, context=context)
 
     try:
-        provider_kwargs = resolve_provider_kwargs(settings.organizer_model, settings)
-        response = with_llm_retry(litellm.completion, settings)(
-            model=settings.organizer_model,
+        content, _metadata = chat_completion(
             messages=messages,
-            timeout=int(settings.organizer_timeout),
-            **provider_kwargs,
+            settings=settings,
+            model=settings.pi_organizer_model,
+            thinking_level=settings.pi_organizer_thinking_level,
+            timeout_s=settings.pi_organizer_timeout,
         )
-        choices = response.get("choices", [])
-        content = ""
-        if choices:
-            message = choices[0].get("message", {})
-            content = str(message.get("content", ""))
         raw_json = _extract_json(content)
         suggestion = LoopSuggestion.model_validate(raw_json)
     except KeyboardInterrupt:
@@ -608,7 +601,7 @@ def enrich_loop(
         suggestion_id = repo.insert_loop_suggestion(
             loop_id=loop_id,
             suggestion_json=suggestion_payload,
-            model=settings.organizer_model,
+            model=settings.pi_organizer_model,
             conn=conn,
         )
         _, applied_fields = _apply_suggestion(

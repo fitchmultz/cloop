@@ -34,7 +34,7 @@ from cloop.settings import Settings, get_settings
 def _setup_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     settings = get_settings()

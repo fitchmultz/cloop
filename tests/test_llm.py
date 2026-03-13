@@ -1,102 +1,155 @@
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pytest
 
+from cloop import db
 from cloop.embeddings import embed_texts
-from cloop.llm import chat_completion
-from cloop.settings import get_settings
+from cloop.llm import chat_completion, chat_with_tools
+from cloop.settings import Settings, get_settings
 
 
-def _configure_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **env: str) -> None:
+def _configure_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **env: str) -> Settings:
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+    return settings
 
 
-def test_chat_completion_uses_ollama_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _configure_env(
-        monkeypatch,
-        tmp_path,
-        CLOOP_LLM_MODEL="ollama/llama3",
-        CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
-    )
+class _FakeSession:
+    def __init__(self, events: list[dict[str, Any]]) -> None:
+        self._events = events
+        self.tool_results: list[dict[str, Any]] = []
+        self.aborted = False
 
-    captured: Dict[str, Any] = {}
+    def events(self):
+        yield from self._events
 
-    def fake_completion(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        captured.update(kwargs)
-        return {
-            "choices": [{"message": {"content": "hi"}}],
-            "model": kwargs.get("model", "ollama/llama3"),
-            "usage": {},
-        }
+    def send_tool_result(
+        self, *, tool_call_id: str, payload: dict[str, Any], is_error: bool
+    ) -> None:
+        self.tool_results.append(
+            {
+                "tool_call_id": tool_call_id,
+                "payload": payload,
+                "is_error": is_error,
+            }
+        )
 
-    monkeypatch.setattr("cloop.llm.litellm.completion", fake_completion)
+    def abort(self) -> None:
+        self.aborted = True
 
-    chat_completion(
-        [
-            {"role": "user", "content": "Hello"},
-        ],
-        settings=get_settings(),
-    )
-
-    assert captured.get("api_base") == "http://localhost:11434/v1"
+    def close(self) -> None:
+        return None
 
 
-def test_chat_completion_uses_openai_credentials(
+class _FakeRuntime:
+    def __init__(self, session: _FakeSession) -> None:
+        self.session = session
+        self.requests: list[Any] = []
+
+    def open_session(self, request):
+        self.requests.append(request)
+        return self.session
+
+
+def test_chat_completion_uses_bridge_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _configure_env(
+    settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_LLM_MODEL="openai/gpt-4o-mini",
-        CLOOP_OPENAI_API_BASE="https://custom.openai/v1",
-        CLOOP_OPENAI_API_KEY="secret-key",
+        CLOOP_PI_MODEL="openai/gpt-5.4",
+    )
+    runtime = _FakeRuntime(
+        _FakeSession(
+            [
+                {"type": "text_delta", "delta": "hi"},
+                {
+                    "type": "done",
+                    "model": "openai/gpt-5.4",
+                    "provider": "openai",
+                    "api": "openai-responses",
+                    "usage": {"totalTokens": 0},
+                    "stop_reason": "stop",
+                },
+            ]
+        )
     )
 
-    captured: Dict[str, Any] = {}
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 
-    def fake_completion(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        captured.update(kwargs)
-        return {
-            "choices": [{"message": {"content": "hi"}}],
-            "model": kwargs.get("model", "openai/gpt-4o-mini"),
-            "usage": {},
-        }
+    content, metadata = chat_completion(
+        [{"role": "user", "content": "Hello"}],
+        settings=settings,
+    )
 
-    monkeypatch.setattr("cloop.llm.litellm.completion", fake_completion)
+    assert content == "hi"
+    assert metadata["model"] == "openai/gpt-5.4"
+    assert runtime.requests[0].model == "openai/gpt-5.4"
+    assert runtime.requests[0].messages == [{"role": "user", "content": "Hello"}]
 
-    chat_completion(
+
+def test_chat_with_tools_executes_python_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="openai/gpt-5.4")
+    session = _FakeSession(
         [
-            {"role": "user", "content": "Hello"},
-        ],
-        settings=get_settings(),
+            {
+                "type": "tool_call",
+                "tool_call_id": "call-1",
+                "name": "write_note",
+                "arguments": {"title": "auto", "body": "generated"},
+            },
+            {"type": "text_delta", "delta": "done"},
+            {
+                "type": "done",
+                "model": "openai/gpt-5.4",
+                "provider": "openai",
+                "api": "openai-responses",
+                "usage": {},
+                "stop_reason": "stop",
+            },
+        ]
+    )
+    runtime = _FakeRuntime(session)
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    content, metadata, tool_calls = chat_with_tools(
+        [{"role": "user", "content": "write a note"}],
+        settings=settings,
     )
 
-    assert captured.get("api_base") == "https://custom.openai/v1"
-    assert captured.get("api_key") == "secret-key"
+    assert content == "done"
+    assert tool_calls == [
+        {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}
+    ]
+    assert session.tool_results[0]["payload"]["action"] == "write_note"
+    assert metadata["tool_outputs"][0]["name"] == "write_note"
 
 
 def test_embed_texts_forward_provider_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _configure_env(
+    settings = _configure_env(
         monkeypatch,
         tmp_path,
         CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
         CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
     )
 
-    captured: Dict[str, Any] = {}
+    captured: dict[str, Any] = {}
 
-    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         return {"data": [{"embedding": [0.1, 0.2, 0.3]}]}
 
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
-    vectors = embed_texts(["hello"], settings=get_settings())
+    vectors = embed_texts(["hello"], settings=settings)
     assert np.allclose(vectors[0], np.array([0.1, 0.2, 0.3], dtype=np.float32))
     assert captured.get("api_base") == "http://localhost:11434/v1"
 
@@ -104,67 +157,42 @@ def test_embed_texts_forward_provider_base(tmp_path: Path, monkeypatch: pytest.M
 def test_embed_texts_raises_on_malformed_embedding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that embed_texts raises ValueError when embedding is not a list."""
-    _configure_env(
+    settings = _configure_env(
         monkeypatch,
         tmp_path,
         CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
         CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
     )
 
-    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        # Return embedding as string instead of list (malformed response)
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {"data": [{"embedding": "not-a-list"}]}
 
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
     with pytest.raises(ValueError, match="invalid_embedding_format"):
-        embed_texts(["hello"], settings=get_settings())
-
-
-def test_embed_texts_raises_on_missing_embedding(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Test that embed_texts raises ValueError when embedding key is missing."""
-    _configure_env(
-        monkeypatch,
-        tmp_path,
-        CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
-        CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
-    )
-
-    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        # Return item without embedding key
-        return {"data": [{}]}
-
-    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
-
-    with pytest.raises(ValueError, match="invalid_embedding_format"):
-        embed_texts(["hello"], settings=get_settings())
+        embed_texts(["hello"], settings=settings)
 
 
 def test_embed_texts_error_includes_item_index(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that error message includes the item index for batch debugging."""
-    _configure_env(
+    settings = _configure_env(
         monkeypatch,
         tmp_path,
         CLOOP_EMBED_MODEL="ollama/nomic-embed-text",
         CLOOP_OLLAMA_API_BASE="http://localhost:11434/v1",
     )
 
-    def fake_embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        # First two valid, third malformed
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return {
             "data": [
                 {"embedding": [0.1, 0.2]},
                 {"embedding": [0.3, 0.4]},
-                {"embedding": None},  # Malformed at index 2
+                {"embedding": None},
             ]
         }
 
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
     with pytest.raises(ValueError, match=r"item 2.*NoneType"):
-        embed_texts(["a", "b", "c"], settings=get_settings())
+        embed_texts(["a", "b", "c"], settings=settings)

@@ -27,6 +27,7 @@ Entrypoint:
 """
 
 import os
+import shlex
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
@@ -53,6 +54,15 @@ class EmbedStorageMode(StrEnum):
     DUAL = "dual"
 
 
+class PiThinkingLevel(StrEnum):
+    NONE = "none"
+    MINIMAL = "minimal"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    XHIGH = "xhigh"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     # Paths and persistence
@@ -61,11 +71,11 @@ class Settings:
     rag_db_path: Path
 
     # Model and retrieval runtime
-    llm_model: str
+    pi_model: str
     embed_model: str
     default_top_k: int
     chunk_size: int
-    llm_timeout: float
+    pi_timeout: float
     ingest_timeout: float
     embedding_timeout: float
     sqlite_vector_extension: str | None
@@ -73,7 +83,16 @@ class Settings:
     tool_mode_default: ToolMode
     embed_storage_mode: EmbedStorageMode
 
-    # Provider credentials and endpoints
+    # Pi bridge runtime
+    pi_bridge_cmd: str | None
+    pi_agent_dir: str | None
+    pi_thinking_level: PiThinkingLevel
+    pi_organizer_model: str
+    pi_organizer_timeout: float
+    pi_organizer_thinking_level: PiThinkingLevel
+    pi_max_tool_rounds: int
+
+    # Embedding provider credentials and endpoints
     openai_api_base: str | None
     openai_api_key: str | None
     google_api_key: str | None
@@ -83,8 +102,6 @@ class Settings:
 
     # Chat/organizer behavior
     stream_default: bool
-    organizer_model: str
-    organizer_timeout: float
     autopilot_enabled: bool
     autopilot_autoapply_min_confidence: float
     max_file_size_mb: int
@@ -141,6 +158,33 @@ class Settings:
     scheduler_poll_interval_seconds: float
     scheduler_lease_seconds: int
 
+    @property
+    def llm_model(self) -> str:
+        """Backward-compatible alias for the primary pi model selector."""
+        return self.pi_model
+
+    @property
+    def llm_timeout(self) -> float:
+        """Backward-compatible alias for the primary pi timeout."""
+        return self.pi_timeout
+
+    @property
+    def organizer_model(self) -> str:
+        """Backward-compatible alias for the organizer pi model selector."""
+        return self.pi_organizer_model
+
+    @property
+    def organizer_timeout(self) -> float:
+        """Backward-compatible alias for the organizer pi timeout."""
+        return self.pi_organizer_timeout
+
+    def pi_bridge_command(self) -> list[str]:
+        """Resolve the bridge command as an argv list."""
+        if self.pi_bridge_cmd:
+            return shlex.split(self.pi_bridge_cmd)
+        bridge_script = Path(__file__).resolve().parent / "pi_bridge" / "bridge.mjs"
+        return ["node", str(bridge_script)]
+
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
     path = Path(value).expanduser().resolve() if value else default.resolve()
@@ -193,26 +237,33 @@ def get_settings() -> Settings:
         root_dir=root_dir,
         core_db_path=core_db_path,
         rag_db_path=rag_db_path,
-        llm_model=os.getenv("CLOOP_LLM_MODEL", "ollama/llama3"),
+        pi_model=os.getenv("CLOOP_PI_MODEL", "openai/gpt-5.4"),
         embed_model=os.getenv("CLOOP_EMBED_MODEL", "ollama/nomic-embed-text"),
         default_top_k=int(os.getenv("CLOOP_DEFAULT_TOP_K", "5")),
         chunk_size=int(os.getenv("CLOOP_CHUNK_SIZE", "800")),
-        llm_timeout=float(os.getenv("CLOOP_LLM_TIMEOUT", "30.0")),
+        pi_timeout=float(os.getenv("CLOOP_PI_TIMEOUT", "30.0")),
         ingest_timeout=float(os.getenv("CLOOP_INGEST_TIMEOUT", "60.0")),
         embedding_timeout=float(os.getenv("CLOOP_EMBED_TIMEOUT", "30.0")),
         sqlite_vector_extension=os.getenv("CLOOP_SQLITE_VECTOR_EXTENSION"),
         vector_search_mode=_resolve_vector_mode(os.getenv("CLOOP_VECTOR_MODE")),
         tool_mode_default=_resolve_tool_mode(os.getenv("CLOOP_TOOL_MODE")),
         embed_storage_mode=_resolve_embed_storage(os.getenv("CLOOP_EMBED_STORAGE")),
+        pi_bridge_cmd=os.getenv("CLOOP_PI_BRIDGE_CMD"),
+        pi_agent_dir=os.getenv("CLOOP_PI_AGENT_DIR") or os.getenv("PI_CODING_AGENT_DIR"),
+        pi_thinking_level=_resolve_pi_thinking_level(os.getenv("CLOOP_PI_THINKING_LEVEL")),
+        pi_organizer_model=os.getenv("CLOOP_PI_ORGANIZER_MODEL", "google/gemini-3-flash-preview"),
+        pi_organizer_timeout=float(os.getenv("CLOOP_PI_ORGANIZER_TIMEOUT", "20.0")),
+        pi_organizer_thinking_level=_resolve_pi_thinking_level(
+            os.getenv("CLOOP_PI_ORGANIZER_THINKING_LEVEL")
+        ),
+        pi_max_tool_rounds=int(os.getenv("CLOOP_PI_MAX_TOOL_ROUNDS", "1")),
         openai_api_base=os.getenv("CLOOP_OPENAI_API_BASE"),
         openai_api_key=os.getenv("CLOOP_OPENAI_API_KEY"),
-        google_api_key=os.getenv("CLOOP_GOOGLE_API_KEY") or os.getenv("LITELLM_API_KEY"),
+        google_api_key=os.getenv("CLOOP_GOOGLE_API_KEY"),
         ollama_api_base=os.getenv("CLOOP_OLLAMA_API_BASE"),
         lmstudio_api_base=os.getenv("CLOOP_LMSTUDIO_API_BASE"),
         openrouter_api_base=os.getenv("CLOOP_OPENROUTER_API_BASE"),
         stream_default=_resolve_bool(os.getenv("CLOOP_STREAM_DEFAULT")),
-        organizer_model=os.getenv("CLOOP_ORGANIZER_MODEL", "gemini/gemini-3-flash-preview"),
-        organizer_timeout=float(os.getenv("CLOOP_ORGANIZER_TIMEOUT", "20.0")),
         autopilot_enabled=_resolve_bool(os.getenv("CLOOP_AUTOPILOT_ENABLED", "false")),
         autopilot_autoapply_min_confidence=float(
             os.getenv("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE", "0.85")
@@ -316,6 +367,14 @@ def _resolve_embed_storage(raw: str | None) -> EmbedStorageMode:
         raise ValueError(f"Invalid CLOOP_EMBED_STORAGE: {raw}") from exc
 
 
+def _resolve_pi_thinking_level(raw: str | None) -> PiThinkingLevel:
+    value = (raw or PiThinkingLevel.NONE.value).strip().lower()
+    try:
+        return PiThinkingLevel(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid pi thinking level: {raw}") from exc
+
+
 def _resolve_bool(raw: str | None, default: bool = False) -> bool:
     if raw is None:
         return default
@@ -329,10 +388,14 @@ def _validate_settings(settings: Settings) -> Settings:
         and settings.embed_storage_mode is EmbedStorageMode.BLOB
     ):
         raise ValueError("CLOOP_VECTOR_MODE=sqlite requires CLOOP_EMBED_STORAGE of json or dual")
-    if settings.tool_mode_default is ToolMode.LLM and settings.stream_default:
-        raise ValueError("Streaming default cannot be enabled when default tool mode is llm")
     if not 0.0 <= settings.autopilot_autoapply_min_confidence <= 1.0:
         raise ValueError("CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE must be between 0 and 1")
+    if settings.pi_timeout <= 0:
+        raise ValueError("CLOOP_PI_TIMEOUT must be positive")
+    if settings.pi_organizer_timeout <= 0:
+        raise ValueError("CLOOP_PI_ORGANIZER_TIMEOUT must be positive")
+    if settings.pi_max_tool_rounds < 1:
+        raise ValueError("CLOOP_PI_MAX_TOOL_ROUNDS must be at least 1")
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
     if settings.next_candidates_limit < 1:

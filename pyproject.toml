@@ -61,13 +61,20 @@ cloop-scheduler = "cloop.scheduler:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-include-package-data = true
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
+namespaces = false
 
 [tool.setuptools.package-data]
-cloop = ["static/**", "db/migrations/**"]
+cloop = [
+    "static/**",
+    "db/migrations/**",
+    "pi_bridge/bridge.mjs",
+    "pi_bridge/package.json",
+    "pi_bridge/package-lock.json",
+]
 
 [tool.ruff]
 line-length = 100

@@ -27,6 +27,7 @@ from fastapi import Depends, FastAPI
 
 from . import db, web
 from ._version import __version__
+from .ai_bridge import bridge_health, shutdown_bridge_runtime
 from .handlers import register_exception_handlers
 from .rag import _SQL_PY_METRIC, _VECLIKE_METRIC, _select_retrieval_order
 from .routes import chat_router, loops_router, memory_router, rag_router
@@ -38,7 +39,10 @@ from .settings import Settings, get_settings
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     db.init_databases(settings)
-    yield
+    try:
+        yield
+    finally:
+        shutdown_bridge_runtime()
 
 
 app = FastAPI(title="Cloop LLM Service", version=__version__, lifespan=lifespan)
@@ -80,6 +84,17 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         if not result["ok"]:
             all_ok = False
 
+    try:
+        bridge = bridge_health(settings)
+        checks["pi_bridge"] = DependencyStatus(
+            ok=True,
+            latency_ms=float(bridge.get("latency_ms", 0.0)),
+            error=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        checks["pi_bridge"] = DependencyStatus(ok=False, latency_ms=0.0, error=str(exc))
+        all_ok = False
+
     # Get existing configuration info
     backend = db.get_vector_backend()
     vector_available = db.vector_extension_available()
@@ -96,7 +111,10 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
 
     return HealthResponse(
         ok=all_ok,  # Now based on actual dependency health
-        model=settings.llm_model,
+        ai_backend="pi",
+        chat_model=settings.pi_model,
+        organizer_model=settings.pi_organizer_model,
+        embed_model=settings.embed_model,
         vector_mode=settings.vector_search_mode.value,
         vector_backend=backend.value,
         vector_available=vector_available,

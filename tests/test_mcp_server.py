@@ -51,8 +51,8 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Configure isolated database for testing."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()
@@ -653,21 +653,14 @@ def test_loop_enrich_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     )
 
     # Mock the litellm.completion call
-    mock_response = {
-        "choices": [
-            {
-                "message": {
-                    "content": (
-                        '{"title": "Team Offsite Planning", '
-                        '"summary": "Organize team offsite", '
-                        '"confidence": {"title": 0.9}}'
-                    )
-                }
-            }
-        ]
-    }
+    mock_response = (
+        '{"title": "Team Offsite Planning", '
+        '"summary": "Organize team offsite", '
+        '"confidence": {"title": 0.9}}',
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
 
-    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         result = loop_enrich(loop_id=created["id"])
 
     assert "loop_id" in result
@@ -695,10 +688,10 @@ def test_loop_enrich_invalid_json_response(tmp_path: Path, monkeypatch: pytest.M
     )
 
     # Mock invalid JSON response
-    mock_response = {"choices": [{"message": {"content": "not valid json"}}]}
+    mock_response = ("not valid json", {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}})
 
     with pytest.raises(ToolError, match="Invalid response"):
-        with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+        with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
             loop_enrich(loop_id=created["id"])
 
 
@@ -712,11 +705,12 @@ def test_loop_enrich_sets_pending_state(tmp_path: Path, monkeypatch: pytest.Monk
         client_tz_offset_min=0,
     )
 
-    mock_response = {
-        "choices": [{"message": {"content": '{"title": "Test", "confidence": {"title": 0.9}}'}}]
-    }
+    mock_response = (
+        '{"title": "Test", "confidence": {"title": 0.9}}',
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
 
-    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         loop_enrich(loop_id=created["id"])
 
     result = loop_list(status="inbox")

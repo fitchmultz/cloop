@@ -47,13 +47,14 @@ def test_sqlite_requires_json_or_dual(monkeypatch: pytest.MonkeyPatch) -> None:
         get_settings()
 
 
-def test_stream_default_disallowed_with_llm_tool_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_stream_default_allowed_with_llm_tool_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_DATA_DIR", os.getcwd())
     monkeypatch.setenv("CLOOP_TOOL_MODE", "llm")
     monkeypatch.setenv("CLOOP_STREAM_DEFAULT", "true")
     get_settings.cache_clear()
-    with pytest.raises(ValueError):
-        get_settings()
+    settings = get_settings()
+    assert settings.tool_mode_default is ToolMode.LLM
+    assert settings.stream_default is True
 
 
 def test_defaults_disable_background_automation(
@@ -98,19 +99,19 @@ def test_root_dir_dotenv_wins_over_cwd_dotenv(
     root_dir = tmp_path / "configured-root"
     repo_dir.mkdir()
     root_dir.mkdir()
-    (repo_dir / ".env").write_text("CLOOP_LLM_MODEL=from-cwd\n", encoding="utf-8")
-    (root_dir / ".env").write_text("CLOOP_LLM_MODEL=from-root\n", encoding="utf-8")
+    (repo_dir / ".env").write_text("CLOOP_PI_MODEL=from-cwd\n", encoding="utf-8")
+    (root_dir / ".env").write_text("CLOOP_PI_MODEL=from-root\n", encoding="utf-8")
 
     monkeypatch.chdir(repo_dir)
     monkeypatch.setenv("CLOOP_ROOT_DIR", str(root_dir))
-    monkeypatch.delenv("CLOOP_LLM_MODEL", raising=False)
+    monkeypatch.delenv("CLOOP_PI_MODEL", raising=False)
     monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
     settings_module.get_settings.cache_clear()
 
     settings = settings_module.get_settings()
 
     assert settings.root_dir == root_dir.resolve()
-    assert settings.llm_model == "from-root"
+    assert settings.pi_model == "from-root"
 
 
 def test_cwd_dotenv_used_when_root_dir_not_set(
@@ -121,15 +122,15 @@ def test_cwd_dotenv_used_when_root_dir_not_set(
 
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    (repo_dir / ".env").write_text("CLOOP_LLM_MODEL=from-cwd\n", encoding="utf-8")
+    (repo_dir / ".env").write_text("CLOOP_PI_MODEL=from-cwd\n", encoding="utf-8")
 
     monkeypatch.chdir(repo_dir)
     monkeypatch.delenv("CLOOP_ROOT_DIR", raising=False)
-    monkeypatch.delenv("CLOOP_LLM_MODEL", raising=False)
+    monkeypatch.delenv("CLOOP_PI_MODEL", raising=False)
     monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
     settings_module.get_settings.cache_clear()
 
     settings = settings_module.get_settings()
 
     assert settings.root_dir == repo_dir.resolve()
-    assert settings.llm_model == "from-cwd"
+    assert settings.pi_model == "from-cwd"

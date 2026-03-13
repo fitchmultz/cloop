@@ -336,7 +336,10 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
-    assert payload["model"] == "mock-llm"
+    assert payload["ai_backend"] == "pi"
+    assert payload["chat_model"] == get_settings().pi_model
+    assert payload["organizer_model"] == get_settings().pi_organizer_model
+    assert payload["embed_model"] == get_settings().embed_model
     assert payload["core_db"] == "core.db"
     assert payload["rag_db"] == "rag.db"
     assert "/" not in payload["core_db"]
@@ -354,6 +357,7 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert "checks" in payload
     assert payload["checks"]["core_db"]["ok"] is True
     assert payload["checks"]["rag_db"]["ok"] is True
+    assert payload["checks"]["pi_bridge"]["ok"] is True
     assert payload["checks"]["core_db"]["latency_ms"] >= 0
     assert payload["checks"]["rag_db"]["latency_ms"] >= 0
     assert payload["checks"]["core_db"]["error"] is None
@@ -407,7 +411,7 @@ def test_health_endpoint_with_broken_core_db(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_CORE_DB_PATH", str(broken_db_path))
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     get_settings.cache_clear()
@@ -687,30 +691,27 @@ def test_generic_exception_never_exposes_sensitive_data(
         )
 
 
-def test_mock_responses_match_litellm_format(
+def test_mock_responses_match_bridge_contract(
     mock_completion_response: Dict[str, Any],
     mock_tool_call_response: Dict[str, Any],
     mock_tool_final_response: Dict[str, Any],
 ) -> None:
-    """Verify all mock responses have correct litellm.completion() format.
+    """Verify all mock responses match the bridge-backed LLM contract.
 
-    This test ensures our mocks stay aligned with the actual API contract,
-    preventing silent breakage if litellm response format changes.
+    This keeps shared fixtures aligned with the tuple/metadata contract the
+    route layer now consumes after the pi cutover.
     """
     for response in [mock_completion_response, mock_tool_final_response]:
-        assert "choices" in response
-        assert isinstance(response["choices"], list)
-        assert len(response["choices"]) >= 1
-        assert "message" in response["choices"][0]
-        assert "content" in response["choices"][0]["message"]
-        assert "model" in response
-        assert "usage" in response
+        assert "message" in response
+        assert isinstance(response["message"], str)
+        assert "metadata" in response
+        assert response["metadata"]["model"].startswith("mock-llm")
+        assert "usage" in response["metadata"]
 
-    assert "tool_calls" in mock_tool_call_response["choices"][0]["message"]
-    tool_call = mock_tool_call_response["choices"][0]["message"]["tool_calls"][0]
-    assert tool_call["type"] == "function"
-    assert "name" in tool_call["function"]
-    assert "arguments" in tool_call["function"]
+    assert "tool_calls" in mock_tool_call_response
+    tool_call = mock_tool_call_response["tool_calls"][0]
+    assert tool_call["name"] == "write_note"
+    assert tool_call["arguments"]["title"] == "auto"
 
 
 def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -874,22 +875,27 @@ def test_chat_streaming_ui_flow(test_client: TestClient, tmp_data_dir: Path) -> 
         assert "event: token" in body or "event: done" in body
 
 
-def test_chat_streaming_with_llm_tool_mode_returns_400(
+def test_chat_streaming_with_llm_tool_mode_streams_successfully(
     test_client: TestClient, tmp_data_dir: Path
 ) -> None:
-    """Streaming with tool_mode='llm' must return 400 error."""
+    """Streaming with tool_mode='llm' should work through the bridge-backed agent loop."""
     payload = {
         "messages": [{"role": "user", "content": "Stream with tools"}],
         "tool_mode": "llm",
     }
 
-    response = test_client.post("/chat?stream=true", json=payload)
-    assert response.status_code == 400
-    error_data = response.json()
-    assert "error" in error_data
-    assert "message" in error_data["error"]
-    assert "Streaming not supported" in error_data["error"]["message"]
-    assert "llm tool_mode" in error_data["error"]["message"]
+    with test_client.stream("POST", "/chat?stream=true", json=payload) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events = _read_sse(response)
+
+    tokens = [event[1]["token"] for event in events if event[0] == "token"]
+    assert tokens
+    done_events = [event for event in events if event[0] == "done"]
+    assert done_events
+    final_payload = done_events[-1][1]
+    assert final_payload["message"] == "".join(tokens)
+    assert final_payload["model"] == "mock-llm"
 
 
 def test_rag_returns_sources_for_ui(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -1509,6 +1515,8 @@ def test_chat_loop_context_injected_when_enabled(
         or "Standard" in loop_context
         or "High Leverage" in loop_context
     )
+    assert "Actionable task for context test" in loop_context
+    assert "Next action: Do something" in loop_context
 
 
 def test_chat_injects_grounding_guidance_when_loop_context_enabled(

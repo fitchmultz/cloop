@@ -1,0 +1,2 @@
+prune src/cloop/pi_bridge/node_modules
+prune src/cloop/pi_bridge/test

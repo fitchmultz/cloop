@@ -20,7 +20,6 @@ Supports:
 
 import json
 import sqlite3
-import time
 from collections.abc import Iterator
 from typing import Annotated, Any, Dict, List
 
@@ -33,7 +32,7 @@ from ..llm import (
     chat_completion,
     chat_with_tools,
     estimate_tokens,
-    stream_completion,
+    stream_events,
 )
 from ..loops.due import effective_due_iso
 from ..loops.errors import CloopError
@@ -42,7 +41,7 @@ from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
 from ..settings import Settings, ToolMode, get_settings
 from ..sse import format_sse_event
 from ..storage import interaction_store, memory_store
-from ..tools import TOOL_SPECS
+from ..tools import get_agent_bridge_tools, get_tool_definition
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -51,13 +50,11 @@ SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
 
 def handle_tool_call(tool_call, settings: Settings) -> Dict[str, Any]:
     """Execute a manual tool call."""
-    from ..tools import EXECUTORS
-
-    executor = EXECUTORS.get(tool_call.name)
-    if executor is None:
+    tool_definition = get_tool_definition(tool_call.name)
+    if tool_definition is None or not tool_definition.manual_exposed:
         raise HTTPException(status_code=400, detail=f"Unsupported tool: {tool_call.name}")
     try:
-        return executor(**tool_call.arguments)
+        return tool_definition.executor(**tool_call.arguments)
     except CloopError:
         raise
     except ValueError as exc:
@@ -146,6 +143,9 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
             due = effective_due_iso(loop)
             lines.append(f"- {title}")
+            next_action = loop.get("next_action")
+            if next_action:
+                lines.append(f"  Next action: {next_action}")
             if due:
                 lines.append(f"  Due: {due}")
 
@@ -156,6 +156,9 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
             reason = loop.get("blocked_reason", "waiting on dependency")
             lines.append(f"- {title} ({reason})")
+            next_action = loop.get("next_action")
+            if next_action:
+                lines.append(f"  Next action: {next_action}")
 
     # Quick wins section
     quick_wins = buckets.get("quick_wins", [])
@@ -165,6 +168,9 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
             mins = loop.get("time_minutes", "?")
             lines.append(f"- {title} (~{mins} min)")
+            next_action = loop.get("next_action")
+            if next_action:
+                lines.append(f"  Next action: {next_action}")
 
     # High leverage section
     high_leverage = buckets.get("high_leverage", [])
@@ -173,6 +179,9 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
         for loop in high_leverage[:3]:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
             lines.append(f"- {title}")
+            next_action = loop.get("next_action")
+            if next_action:
+                lines.append(f"  Next action: {next_action}")
 
     # Standard/other actionable items
     standard = buckets.get("standard", [])
@@ -181,6 +190,9 @@ def _build_loop_context_snapshot(settings: Settings) -> str:
         for loop in standard[:3]:
             title = loop.get("title") or loop.get("raw_text", "")[:60]
             lines.append(f"- {title}")
+            next_action = loop.get("next_action")
+            if next_action:
+                lines.append(f"  Next action: {next_action}")
 
     result = "\n".join(lines)
     return result if result != "## Current Loop Context" else ""
@@ -340,8 +352,6 @@ def chat_endpoint(
 
     token_estimate = estimate_tokens(messages)
     stream_enabled = stream if stream is not None else settings.stream_default
-    if stream_enabled and tool_mode is ToolMode.LLM:
-        raise HTTPException(status_code=400, detail="Streaming not supported for llm tool_mode")
 
     context_snapshot = _interaction_context(settings)
     if memory_context:
@@ -354,24 +364,50 @@ def chat_endpoint(
     if stream_enabled:
         request_payload = request.model_dump()
         request_payload["stream"] = True
+        active_tools = get_agent_bridge_tools() if tool_mode is ToolMode.LLM else None
+        streamed_tool_result: list[Dict[str, Any] | None] = [tool_result]
 
         def event_stream() -> Iterator[str]:
-            start = time.monotonic()
             tokens: List[str] = []
-            for token in stream_completion(messages, settings=settings):
-                if not token:
-                    continue
-                tokens.append(token)
-                yield format_sse_event("token", {"token": token})
-            final_message = "".join(tokens)
             metadata: _InteractionMetadata = {
-                "model": settings.llm_model,
-                "latency_ms": (time.monotonic() - start) * 1000,
+                "model": settings.pi_model,
+                "latency_ms": 0.0,
                 "usage": {},
             }
+            for event in stream_events(
+                messages,
+                settings=settings,
+                tools=active_tools,
+                max_tool_rounds=settings.pi_max_tool_rounds,
+            ):
+                event_type = event["type"]
+                if event_type == "text_delta":
+                    token = str(event.get("delta", ""))
+                    if not token:
+                        continue
+                    tokens.append(token)
+                    yield format_sse_event("token", {"token": token})
+                elif event_type == "tool_call":
+                    tool_calls.append(
+                        {
+                            "name": event.get("name"),
+                            "arguments": event.get("arguments") or {},
+                        }
+                    )
+                elif event_type == "tool_result":
+                    output = event.get("output")
+                    if isinstance(output, dict) and streamed_tool_result[0] is None:
+                        streamed_tool_result[0] = output
+                elif event_type == "done":
+                    metadata = {
+                        "model": str(event.get("model") or settings.pi_model),
+                        "latency_ms": float(event.get("latency_ms", 0.0)),
+                        "usage": dict(event.get("usage") or {}),
+                    }
+            final_message = "".join(tokens)
             response_payload = {
                 "message": final_message,
-                "tool_result": tool_result,
+                "tool_result": streamed_tool_result[0],
                 "metadata": metadata,
                 "tool_calls": tool_calls,
                 "context": context_snapshot,
@@ -395,7 +431,7 @@ def chat_endpoint(
                 {
                     "message": final_message,
                     "model": metadata["model"],
-                    "tool_result": tool_result,
+                    "tool_result": streamed_tool_result[0],
                     "tool_calls": tool_calls,
                 },
             )
@@ -404,11 +440,19 @@ def chat_endpoint(
 
     if tool_mode is ToolMode.LLM:
         try:
-            content, metadata, tool_calls = chat_with_tools(messages, TOOL_SPECS, settings=settings)
+            content, metadata, tool_calls = chat_with_tools(
+                messages,
+                get_agent_bridge_tools(),
+                settings=settings,
+            )
         except ToolCallError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         outputs = metadata.get("tool_outputs") or []
-        tool_result = outputs[0] if outputs else None
+        if outputs:
+            first_output = outputs[0]
+            tool_result = (
+                first_output.get("output") if isinstance(first_output, dict) else first_output
+            )
     else:
         content, metadata = chat_completion(messages, settings=settings)
 

@@ -20,8 +20,8 @@ from typing import Any, Dict, Iterable, List, Sequence, cast
 import litellm
 import numpy as np
 
-from .providers import resolve_provider_kwargs
-from .retry import with_llm_retry
+from .embedding_providers import resolve_embedding_provider_kwargs
+from .litellm_retry import with_litellm_retry
 from .settings import Settings, get_settings
 
 
@@ -33,10 +33,10 @@ def embed_texts(
     if not texts:
         return []
     settings = settings or get_settings()
-    provider_kwargs = resolve_provider_kwargs(settings.embed_model, settings)
+    provider_kwargs = resolve_embedding_provider_kwargs(settings.embed_model, settings)
     response = cast(
         Dict[str, Any],
-        with_llm_retry(litellm.embedding, settings)(
+        with_litellm_retry(litellm.embedding, settings)(
             model=settings.embed_model,
             input=list(texts),
             timeout=int(settings.embedding_timeout),

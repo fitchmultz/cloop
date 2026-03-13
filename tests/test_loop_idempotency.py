@@ -364,11 +364,12 @@ def test_loop_enrich_idempotency_replay(
 
     headers = {"Idempotency-Key": "enrich-key"}
 
-    mock_response = {
-        "choices": [{"message": {"content": '{"title": "Test", "confidence": {"title": 0.9}}'}}]
-    }
+    mock_response = (
+        '{"title": "Test", "confidence": {"title": 0.9}}',
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
 
-    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         response1 = client.post(f"/loops/{loop_id}/enrich", headers=headers)
         assert response1.status_code == 200
 

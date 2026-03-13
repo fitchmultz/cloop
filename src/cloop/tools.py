@@ -26,9 +26,11 @@ import json
 import logging
 import sqlite3
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol
 
 from . import db
+from .ai_bridge.protocol import BridgeToolSpec
 from .constants import MEMORY_CONTENT_MAX, MEMORY_KEY_MAX, NOTE_BODY_MAX, TITLE_MAX
 from .loops import read_service
 from .loops.errors import (
@@ -48,6 +50,35 @@ logger = logging.getLogger(__name__)
 
 class ToolExecutor(Protocol):
     def __call__(self, **kwargs: Any) -> Dict[str, Any]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ToolDefinition:
+    """Canonical transport-neutral tool registration."""
+
+    name: str
+    description: str
+    input_schema: Dict[str, Any]
+    executor: ToolExecutor
+    manual_exposed: bool = True
+    agent_exposed: bool = True
+
+    def as_openai_tool_spec(self) -> Dict[str, Any]:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.input_schema,
+            },
+        }
+
+    def as_bridge_tool_spec(self) -> BridgeToolSpec:
+        return BridgeToolSpec(
+            name=self.name,
+            description=self.description,
+            input_schema=self.input_schema,
+        )
 
 
 def _require_fields(payload: Dict[str, Any], *fields: str) -> None:
@@ -531,7 +562,7 @@ def execute_memory_delete(**kwargs: Any) -> Dict[str, Any]:
 # ============================================================================
 
 
-TOOL_SPECS: List[Dict[str, Any]] = [
+_RAW_TOOL_SPECS: List[Dict[str, Any]] = [
     # Note tools
     {
         "type": "function",
@@ -914,7 +945,7 @@ TOOL_SPECS: List[Dict[str, Any]] = [
 ]
 
 
-EXECUTORS: Dict[str, ToolExecutor] = {
+_EXECUTORS: Dict[str, ToolExecutor] = {
     # Note tools
     "write_note": execute_write_note,
     "read_note": execute_read_note,
@@ -937,6 +968,74 @@ EXECUTORS: Dict[str, ToolExecutor] = {
     "memory_update": execute_memory_update,
     "memory_delete": execute_memory_delete,
 }
+
+_TOOL_EXPOSURE_OVERRIDES: Dict[str, Dict[str, bool]] = {
+    "loop_enrich": {"manual_exposed": True, "agent_exposed": False},
+}
+
+
+def _closed_object_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Close object schemas for stricter validation across providers."""
+    normalized = dict(schema)
+    schema_type = normalized.get("type")
+    if schema_type == "object":
+        properties = normalized.get("properties") or {}
+        normalized["properties"] = {
+            key: _closed_object_schema(value) if isinstance(value, dict) else value
+            for key, value in properties.items()
+        }
+        normalized.setdefault("additionalProperties", False)
+    elif schema_type == "array":
+        items = normalized.get("items")
+        if isinstance(items, dict):
+            normalized["items"] = _closed_object_schema(items)
+    return normalized
+
+
+def _build_tool_registry() -> tuple[ToolDefinition, ...]:
+    definitions: list[ToolDefinition] = []
+    for spec in _RAW_TOOL_SPECS:
+        function_spec = spec.get("function") or {}
+        name = str(function_spec.get("name", ""))
+        if not name:
+            continue
+        executor = _EXECUTORS.get(name)
+        if executor is None:
+            raise RuntimeError(f"Missing executor for tool {name}")
+        overrides = _TOOL_EXPOSURE_OVERRIDES.get(name, {})
+        definitions.append(
+            ToolDefinition(
+                name=name,
+                description=str(function_spec.get("description", "")),
+                input_schema=_closed_object_schema(
+                    dict(function_spec.get("parameters") or {"type": "object", "properties": {}})
+                ),
+                executor=executor,
+                manual_exposed=overrides.get("manual_exposed", True),
+                agent_exposed=overrides.get("agent_exposed", True),
+            )
+        )
+    return tuple(definitions)
+
+
+TOOL_DEFINITIONS: tuple[ToolDefinition, ...] = _build_tool_registry()
+TOOL_SPECS: List[Dict[str, Any]] = [tool.as_openai_tool_spec() for tool in TOOL_DEFINITIONS]
+AGENT_TOOL_SPECS: List[Dict[str, Any]] = [
+    tool.as_openai_tool_spec() for tool in TOOL_DEFINITIONS if tool.agent_exposed
+]
+MANUAL_TOOL_NAMES = frozenset(tool.name for tool in TOOL_DEFINITIONS if tool.manual_exposed)
+EXECUTORS: Dict[str, ToolExecutor] = {tool.name: tool.executor for tool in TOOL_DEFINITIONS}
+
+
+def get_tool_definition(name: str) -> ToolDefinition | None:
+    for tool in TOOL_DEFINITIONS:
+        if tool.name == name:
+            return tool
+    return None
+
+
+def get_agent_bridge_tools() -> list[BridgeToolSpec]:
+    return [tool.as_bridge_tool_spec() for tool in TOOL_DEFINITIONS if tool.agent_exposed]
 
 
 def normalize_tool_arguments(raw: str | Dict[str, Any]) -> Dict[str, Any]:

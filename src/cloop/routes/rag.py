@@ -16,7 +16,6 @@ Endpoints:
 - GET /ask: Ask questions against the knowledge base
 """
 
-import time
 from collections.abc import Iterator
 from typing import Annotated, Any, Dict, List
 
@@ -24,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from .. import db
-from ..llm import stream_completion
+from ..llm import stream_events
 from ..loops.errors import CloopError
 from ..rag import (
     NO_KNOWLEDGE_MESSAGE,
@@ -115,7 +114,7 @@ def ask_endpoint(
                     "done",
                     {
                         "answer": NO_KNOWLEDGE_MESSAGE,
-                        "model": settings.llm_model,
+                        "model": settings.pi_model,
                         "chunks": [],
                     },
                 )
@@ -129,19 +128,26 @@ def ask_endpoint(
             request_payload["scope"] = scope
 
         def event_stream() -> Iterator[str]:
-            start = time.monotonic()
             tokens: List[str] = []
-            for token in stream_completion(prepared.messages, settings=settings):
-                if not token:
-                    continue
-                tokens.append(token)
-                yield format_sse_event("token", {"token": token})
-            final_answer = "".join(tokens)
             metadata: _InteractionMetadata = {
-                "model": settings.llm_model,
-                "latency_ms": (time.monotonic() - start) * 1000,
+                "model": settings.pi_model,
+                "latency_ms": 0.0,
                 "usage": {},
             }
+            for event in stream_events(prepared.messages, settings=settings):
+                if event["type"] == "text_delta":
+                    token = str(event.get("delta", ""))
+                    if not token:
+                        continue
+                    tokens.append(token)
+                    yield format_sse_event("token", {"token": token})
+                elif event["type"] == "done":
+                    metadata = {
+                        "model": str(event.get("model") or settings.pi_model),
+                        "latency_ms": float(event.get("latency_ms", 0.0)),
+                        "usage": dict(event.get("usage") or {}),
+                    }
+            final_answer = "".join(tokens)
             response_payload = {
                 "answer": final_answer,
                 "metadata": metadata,

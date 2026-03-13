@@ -29,7 +29,10 @@ class HealthResponse(BaseModel):
     """Response from /health endpoint showing service status."""
 
     ok: bool
-    model: str
+    ai_backend: str
+    chat_model: str
+    organizer_model: str
+    embed_model: str
     vector_mode: str
     vector_backend: str
     vector_available: bool

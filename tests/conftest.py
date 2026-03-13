@@ -14,7 +14,14 @@ from fastapi.testclient import TestClient
 
 from cloop import db
 from cloop.main import app
-from cloop.settings import EmbedStorageMode, Settings, ToolMode, VectorSearchMode, get_settings
+from cloop.settings import (
+    EmbedStorageMode,
+    PiThinkingLevel,
+    Settings,
+    ToolMode,
+    VectorSearchMode,
+    get_settings,
+)
 
 STREAM_TOKENS = ["Answer ", "segment"]
 
@@ -42,17 +49,24 @@ def test_settings() -> Callable[..., Settings]:
             "root_dir": Path.cwd(),
             "core_db_path": Path("./data/core.db"),
             "rag_db_path": Path("./data/rag.db"),
-            "llm_model": "ollama/llama3",
+            "pi_model": "mock-llm",
             "embed_model": "ollama/nomic-embed-text",
             "default_top_k": 5,
             "chunk_size": 800,
-            "llm_timeout": 30.0,
+            "pi_timeout": 30.0,
             "ingest_timeout": 60.0,
             "embedding_timeout": 30.0,
             "sqlite_vector_extension": None,
             "vector_search_mode": VectorSearchMode.PYTHON,
             "tool_mode_default": ToolMode.MANUAL,
             "embed_storage_mode": EmbedStorageMode.DUAL,
+            "pi_bridge_cmd": "node ./src/cloop/pi_bridge/bridge.mjs",
+            "pi_agent_dir": None,
+            "pi_thinking_level": PiThinkingLevel.NONE,
+            "pi_organizer_model": "google/gemini-3-flash-preview",
+            "pi_organizer_timeout": 20.0,
+            "pi_organizer_thinking_level": PiThinkingLevel.NONE,
+            "pi_max_tool_rounds": 1,
             "openai_api_base": None,
             "openai_api_key": None,
             "google_api_key": None,
@@ -60,8 +74,6 @@ def test_settings() -> Callable[..., Settings]:
             "lmstudio_api_base": None,
             "openrouter_api_base": None,
             "stream_default": False,
-            "organizer_model": "gemini/gemini-3-flash-preview",
-            "organizer_timeout": 20.0,
             "autopilot_enabled": False,
             "autopilot_autoapply_min_confidence": 0.85,
             "max_file_size_mb": 50,
@@ -129,7 +141,7 @@ def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     pytest automatically cleans up tmp_path after the test session completes.
     """
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
@@ -169,7 +181,7 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
         target_dir = data_dir or tmp_path
         monkeypatch.setenv("CLOOP_DATA_DIR", str(target_dir))
         monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-        monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+        monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
         monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
         monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
         get_settings.cache_clear()
@@ -181,67 +193,40 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
 
 @pytest.fixture
 def mock_completion_response() -> Dict[str, Any]:
-    """Return a simple mock LLM completion response.
-
-    This is the default response when no tools are involved.
-    Matches litellm.completion() response format:
-    - choices[0].message.content: the text response
-    - model: model identifier
-    - usage: token usage dict
-    """
+    """Return a simple mock bridge-backed completion payload."""
     return {
-        "choices": [{"message": {"content": "mock-response"}}],
-        "model": "mock-llm",
-        "usage": {"total_tokens": 0},
+        "message": "mock-response",
+        "metadata": {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
     }
 
 
 @pytest.fixture
 def mock_tool_call_response() -> Dict[str, Any]:
-    """Return a mock LLM response with a tool call.
-
-    Simulates the first pass of tool-enabled chat where the LLM
-    decides to call a tool. The mock always calls 'write_note'.
-
-    Matches litellm.completion() tool call format:
-    - choices[0].message.tool_calls: list of tool call objects
-    - Each tool call has: id, type, function.name, function.arguments
-    """
+    """Return a mock bridge-backed tool run."""
     return {
-        "choices": [
-            {
-                "message": {
-                    "tool_calls": [
-                        {
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": "write_note",
-                                "arguments": '{"title": "auto", "body": "generated"}',
-                            },
-                        }
-                    ]
+        "message": "tool-mode-final",
+        "metadata": {
+            "model": "mock-llm-tool",
+            "latency_ms": 0.0,
+            "usage": {},
+            "tool_outputs": [
+                {
+                    "name": "write_note",
+                    "output": {"action": "write_note", "note": {"id": 1}},
+                    "is_error": False,
                 }
-            }
-        ],
-        "model": "mock-llm-tool",
-        "usage": {"total_tokens": 0},
+            ],
+        },
+        "tool_calls": [{"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}],
     }
 
 
 @pytest.fixture
 def mock_tool_final_response() -> Dict[str, Any]:
-    """Return a mock LLM response after tool execution.
-
-    Simulates the second pass of tool-enabled chat where the LLM
-    has received tool results and produces a final response.
-
-    This response is triggered when messages contain a 'role': 'tool' entry.
-    """
+    """Return a compatibility-shaped final tool response for legacy contract checks."""
     return {
-        "choices": [{"message": {"content": "tool-mode-final"}}],
-        "model": "mock-llm-tool",
-        "usage": {"total_tokens": 0},
+        "message": "tool-mode-final",
+        "metadata": {"model": "mock-llm-tool", "latency_ms": 0.0, "usage": {}},
     }
 
 
@@ -266,16 +251,18 @@ def mock_embedding_response() -> Any:
 
 
 @pytest.fixture
-def mock_stream_completion() -> Any:
-    """Factory fixture returning a mock streaming completion function.
+def mock_stream_events() -> Any:
+    """Factory fixture returning a mock bridge event stream."""
 
-    Returns a function that yields predefined tokens (STREAM_TOKENS).
-    Mimics litellm streaming completion behavior for testing SSE endpoints.
-    """
-
-    def _stream(*args: Any, **kwargs: Any) -> Iterator[str]:
+    def _stream(*args: Any, **kwargs: Any) -> Iterator[Dict[str, Any]]:
         for token in STREAM_TOKENS:
-            yield token
+            yield {"type": "text_delta", "delta": token}
+        yield {
+            "type": "done",
+            "model": "mock-llm",
+            "latency_ms": 1.0,
+            "usage": {},
+        }
 
     return _stream
 
@@ -284,38 +271,18 @@ def mock_stream_completion() -> Any:
 def mock_completion(
     mock_completion_response: Dict[str, Any],
     mock_tool_call_response: Dict[str, Any],
-    mock_tool_final_response: Dict[str, Any],
 ) -> Any:
-    """Factory fixture returning a mock completion function with conditional logic.
+    """Factory fixture returning a bridge-backed completion shim."""
 
-    This fixture centralizes the conditional mock behavior previously embedded
-    in make_client. It simulates litellm.completion() with three return paths:
-
-    1. **Tool final response**: When messages contain 'role': 'tool', returns
-       mock_tool_final_response. This simulates the LLM's response after
-       executing tool calls and receiving results.
-
-    2. **Tool call response**: When 'tools' kwarg is provided but no tool
-       messages exist, returns mock_tool_call_response. This simulates the
-       LLM deciding to call a tool.
-
-    3. **Simple response**: When no tools are involved, returns
-       mock_completion_response. This is the standard chat response.
-
-    This mimics the real chat_with_tools() flow in src/cloop/llm.py which
-    makes two completion calls when tools are used.
-    """
-
-    def _completion(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-        messages: List[Dict[str, Any]] = kwargs.get("messages") or []
-        tools = kwargs.get("tools")
-
+    def _completion(messages: List[Dict[str, Any]], *args: Any, **kwargs: Any):
+        tools = kwargs.get("tools") or (args[0] if args else None)
         if tools:
-            if any(message.get("role") == "tool" for message in messages):
-                return mock_tool_final_response
-            return mock_tool_call_response
-
-        return mock_completion_response
+            return (
+                mock_tool_call_response["message"],
+                mock_tool_call_response["metadata"],
+                mock_tool_call_response["tool_calls"],
+            )
+        return mock_completion_response["message"], mock_completion_response["metadata"]
 
     return _completion
 
@@ -326,24 +293,32 @@ def test_client(
     monkeypatch: pytest.MonkeyPatch,
     mock_completion: Any,
     mock_embedding_response: Any,
-    mock_stream_completion: Any,
+    mock_stream_events: Any,
 ) -> TestClient:
     """Create a TestClient with all LLM/embedding mocks configured.
 
     This fixture:
     1. Sets up a temporary data directory
     2. Disables autopilot to avoid background enrichment
-    3. Patches litellm.completion and litellm.embedding
-    4. Patches stream_completion in all modules that import it
+    3. Patches bridge-backed chat functions and embedding calls
+    4. Patches bridge health and streaming helpers in importing modules
     5. Returns a TestClient ready for API testing
     """
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
     get_settings.cache_clear()
 
-    monkeypatch.setattr("cloop.llm.litellm.completion", mock_completion)
+    monkeypatch.setattr("cloop.llm.chat_completion", mock_completion)
+    monkeypatch.setattr("cloop.routes.chat.chat_completion", mock_completion)
+    monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", mock_completion)
+    monkeypatch.setattr("cloop.llm.chat_with_tools", mock_completion)
+    monkeypatch.setattr("cloop.routes.chat.chat_with_tools", mock_completion)
+    monkeypatch.setattr("cloop.llm.stream_events", mock_stream_events)
+    monkeypatch.setattr("cloop.routes.chat.stream_events", mock_stream_events)
+    monkeypatch.setattr("cloop.routes.rag.stream_events", mock_stream_events)
+    monkeypatch.setattr(
+        "cloop.main.bridge_health",
+        lambda settings: {"bridge": "cloop-pi-bridge", "version": "0.1.0", "latency_ms": 1.0},
+    )
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding_response)
-    monkeypatch.setattr("cloop.llm.stream_completion", mock_stream_completion)
-    monkeypatch.setattr("cloop.routes.chat.stream_completion", mock_stream_completion)
-    monkeypatch.setattr("cloop.routes.rag.stream_completion", mock_stream_completion)
     return TestClient(app)

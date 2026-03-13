@@ -253,7 +253,7 @@ def test_parse_json_list_raises_on_malformed_json(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -292,7 +292,7 @@ def test_parse_json_dict_raises_on_malformed_json(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -331,7 +331,7 @@ def test_parse_json_list_truncates_long_value_in_error(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -385,7 +385,7 @@ def test_request_enrichment_raises_for_nonexistent_loop(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -411,7 +411,7 @@ def test_gather_enrichment_context_returns_structure(
     """_gather_enrichment_context returns EnrichmentContext with expected fields."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -501,7 +501,7 @@ def test_context_gathering_gracefully_degrades(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -596,7 +596,7 @@ def test_enrichment_persists_clarification_questions(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -615,26 +615,21 @@ def test_enrichment_persists_clarification_questions(
     conn.commit()
 
     # Mock LLM to return clarification questions
-    mock_response = {
-        "choices": [
+    mock_response = (
+        json.dumps(
             {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "title": "Plan quarterly review",
-                            "needs_clarification": [
-                                "When is the deadline?",
-                                "Who should attend?",
-                            ],
-                            "confidence": {"title": 0.9},
-                        }
-                    )
-                }
+                "title": "Plan quarterly review",
+                "needs_clarification": [
+                    "When is the deadline?",
+                    "Who should attend?",
+                ],
+                "confidence": {"title": 0.9},
             }
-        ]
-    }
+        ),
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
 
-    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         result = loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
 
     # Verify clarifications were persisted
@@ -661,7 +656,7 @@ def test_enrichment_deduplicates_clarification_questions(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -678,27 +673,22 @@ def test_enrichment_deduplicates_clarification_questions(
     )
     conn.commit()
 
-    mock_response = {
-        "choices": [
+    mock_response = (
+        json.dumps(
             {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "title": "Plan quarterly review",
-                            "needs_clarification": ["When is the deadline?"],
-                            "confidence": {"title": 0.9},
-                        }
-                    )
-                }
+                "title": "Plan quarterly review",
+                "needs_clarification": ["When is the deadline?"],
+                "confidence": {"title": 0.9},
             }
-        ]
-    }
+        ),
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
 
     # Run enrichment twice with same question
-    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
 
-    with patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
 
     # Should only have one clarification row
@@ -721,7 +711,7 @@ def test_enrichment_skips_embedding_phase_on_valueerror_without_traceback(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "true")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -738,25 +728,20 @@ def test_enrichment_skips_embedding_phase_on_valueerror_without_traceback(
     )
     conn.commit()
 
-    mock_response = {
-        "choices": [
+    mock_response = (
+        json.dumps(
             {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "title": "Validated title",
-                            "confidence": {"title": 0.9},
-                        }
-                    )
-                }
+                "title": "Validated title",
+                "confidence": {"title": 0.9},
             }
-        ]
-    }
+        ),
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
 
     caplog.set_level(logging.WARNING)
 
     with (
-        patch("cloop.loops.enrichment.litellm.completion", return_value=mock_response),
+        patch("cloop.loops.enrichment.chat_completion", return_value=mock_response),
         patch(
             "cloop.loops.enrichment.upsert_loop_embedding",
             side_effect=ValueError("ollama/... requires CLOOP_OLLAMA_API_BASE"),
@@ -786,7 +771,7 @@ def test_enrichment_marks_failed_on_organizer_provider_misconfiguration(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "openai/gpt-4o-mini")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "openai/gpt-4o-mini")
     monkeypatch.delenv("CLOOP_OPENAI_API_KEY", raising=False)
     get_settings.cache_clear()
     settings = get_settings()
@@ -804,7 +789,12 @@ def test_enrichment_marks_failed_on_organizer_provider_misconfiguration(
     )
     conn.commit()
 
-    with pytest.raises(ValueError, match="OpenAI model requires CLOOP_OPENAI_API_KEY"):
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("Organizer model misconfigured")),
+    )
+
+    with pytest.raises(ValueError, match="Organizer model misconfigured"):
         loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
 
     state_row = conn.execute(
@@ -832,7 +822,7 @@ def test_suggest_links_creates_related_links(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)

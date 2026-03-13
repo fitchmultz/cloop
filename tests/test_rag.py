@@ -47,7 +47,7 @@ def make_settings(tmp_path: Path, *, vector_mode: VectorSearchMode) -> Settings:
 def test_sqlite_vector_mode_matches_python(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     settings_sqlite = make_settings(tmp_path, vector_mode=VectorSearchMode.SQLITE)
 
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
 
     def fake_embed_texts(

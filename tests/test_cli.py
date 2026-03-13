@@ -53,7 +53,7 @@ def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     """Create isolated settings with temp database."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     settings = get_settings()
@@ -123,7 +123,7 @@ def _run_cli_subprocess(tmp_path: Path, *args: str) -> subprocess.CompletedProce
     env = os.environ.copy()
     env["CLOOP_DATA_DIR"] = str(tmp_path)
     env["CLOOP_AUTOPILOT_ENABLED"] = "false"
-    env["CLOOP_LLM_MODEL"] = "mock-llm"
+    env["CLOOP_PI_MODEL"] = "mock-llm"
     env["CLOOP_EMBED_MODEL"] = "mock-embed"
     return subprocess.run(
         ["uv", "run", "python", "-m", "cloop.cli", *args],
@@ -504,9 +504,9 @@ def test_capture_command_with_autopilot(
     """Test capture command when autopilot is enabled."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "true")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
-    monkeypatch.setenv("CLOOP_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)
@@ -653,7 +653,7 @@ def test_main_ingest_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     """Test main() with ingest command."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -677,7 +677,7 @@ def test_main_ask_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsy
     """Test main() with ask command (no knowledge)."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -698,7 +698,7 @@ def test_main_capture_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
     """Test main() with capture command."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -714,7 +714,7 @@ def test_main_inbox_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap
     """Test main() with inbox command."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -730,7 +730,7 @@ def test_main_next_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caps
     """Test main() with next command."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1038,7 +1038,7 @@ def test_main_ask_with_empty_question(
     """Test main() with ask command and empty question."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1744,7 +1744,7 @@ def test_export_import_roundtrip(
     # Create loops in primary database
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "primary"))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1775,7 +1775,7 @@ def test_export_with_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     """Test export command with filters."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1797,7 +1797,7 @@ def test_import_dry_run_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap
     """Test import command with --dry-run flag."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1822,7 +1822,7 @@ def test_import_conflict_policy_skip_cli(
     """Test import command with --conflict-policy skip."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1862,7 +1862,7 @@ def test_capture_update_close_workflow(
     """Test full capture -> update -> close workflow via main()."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1901,7 +1901,7 @@ def test_capture_snooze_get_workflow(
     """Test capture -> snooze -> get workflow via main()."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
@@ -1928,7 +1928,7 @@ def test_full_lifecycle_workflow(
     """Test complete lifecycle: capture -> list -> update -> status -> close."""
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_LLM_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     get_settings.cache_clear()
     db.init_databases(get_settings())
