@@ -29,6 +29,7 @@ flowchart LR
 ```
 
 - Public architecture summary: [`docs/architecture.md`](docs/architecture.md)
+- Product roadmap: [`docs/roadmap.md`](docs/roadmap.md)
 - Verification checklist: [`docs/verification_checklist.md`](docs/verification_checklist.md)
 
 ## Why “Closed Loop”?
@@ -50,11 +51,12 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 ## Design and Architecture
 
 - Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
+- Use [docs/roadmap.md](docs/roadmap.md) as the canonical plan for AI capability and interface-parity work.
 - Use [docs/verification_checklist.md](docs/verification_checklist.md) for setup, validation, and smoke-test commands.
 
 ## Features
 
-- **Local chat**: Talk to an LLM using local runtimes (Ollama / LM Studio) or hosted providers.
+- **Pi-powered chat**: Route all generative chat/tool calls through a local pi bridge while keeping Python in control of app state and tools.
 - **Private RAG**: Recursively ingest files → chunk → embed → store in SQLite → retrieve relevant context.
 - **No heavy infrastructure**: Pure Python + SQLite; optional SQLite vector extensions if you have them.
 - **CLI + API**: Use it from the terminal or run a local HTTP server.
@@ -90,30 +92,34 @@ Cloop’s role is to keep the **context** and make retrieval effortless, so “n
 ### Prerequisites
 
 - Python 3.14+
+- Node 20+
 - `uv` (recommended): https://docs.astral.sh/uv/
+- `pi` installed and authenticated for the models you plan to use
 
 ### Setup
 
 ```bash
 uv sync --all-groups --all-extras
+npm ci --prefix src/cloop/pi_bridge
 cp .env.example .env
 ```
 
-Then edit `.env` to point at your model runtime (see Configuration).
+Then edit `.env` to point at your pi and embedding configuration (see Configuration).
 
 ### Minimal local-only configuration (recommended first run)
 
 If you want the shortest path to a running local instance, start with:
 
 ```dotenv
-CLOOP_LLM_MODEL=ollama/llama3
+CLOOP_PI_MODEL=openai/gpt-5.4
+CLOOP_PI_ORGANIZER_MODEL=google/gemini-3-flash-preview
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 CLOOP_AUTOPILOT_ENABLED=false
 CLOOP_SCHEDULER_ENABLED=false
 ```
 
-This keeps setup predictable while you validate core capture/search/chat flows.
+This keeps the generative path on pi while embeddings stay local on Ollama.
 
 When you do enable scheduling, run it as a separate process:
 
@@ -325,7 +331,7 @@ Endpoints:
 - `POST /chat`: chat completion (optionally with tools); `?stream=true` for SSE streaming.
 - `POST /ingest`: ingest local files/folders into `rag.db`.
 - `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
-- `GET /health`: shows current model + storage configuration.
+- `GET /health`: shows the active pi backend, chat/organizer models, embedding model, and bridge readiness.
 - `POST /loops/capture`: capture a loop (write-first).
 - `GET /loops`: list loops (default `status=open`).
 - `GET /loops/{id}`: fetch a loop.
@@ -418,36 +424,37 @@ Select multiple loops (Shift+Click for range, Ctrl+A for all) to:
 
 Cloop reads configuration from environment variables (a `.env` file works well).
 
-### Choose your models
+### Pi models
 
-- `CLOOP_LLM_MODEL`: chat model (default: `ollama/llama3`)
+- `CLOOP_PI_MODEL`: primary chat model selector in `provider/model` form (default: `openai/gpt-5.4`)
+- `CLOOP_PI_ORGANIZER_MODEL`: organizer/enrichment model selector (default: `google/gemini-3-flash-preview`)
+- `CLOOP_PI_THINKING_LEVEL`: chat thinking level (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
+- `CLOOP_PI_ORGANIZER_THINKING_LEVEL`: organizer thinking level
+- `CLOOP_PI_TIMEOUT`: chat timeout in seconds (default: `30.0`)
+- `CLOOP_PI_ORGANIZER_TIMEOUT`: organizer timeout in seconds (default: `20.0`)
+- `CLOOP_PI_BRIDGE_CMD`: optional override for the Node bridge command
+- `CLOOP_PI_AGENT_DIR`: optional override for pi auth/model config (`PI_CODING_AGENT_DIR` is also honored)
+- `CLOOP_PI_MAX_TOOL_ROUNDS`: max bridge-mediated tool rounds per request (default: `1`)
+
+Check available models with:
+
+```bash
+pi --list-models
+```
+
+Authenticate pi separately from Cloop, for example with the normal `pi` login flow for the providers you use.
+
+### Embedding providers
+
+Embeddings remain on LiteLLM-compatible providers during this cutover.
+
 - `CLOOP_EMBED_MODEL`: embedding model used for RAG (default: `ollama/nomic-embed-text`)
-- `CLOOP_ORGANIZER_MODEL`: organizer model used for loop enrichment (default: `gemini/gemini-3-flash-preview`)
-
-### Local models (recommended)
-
-Ollama:
-
-- `CLOOP_OLLAMA_API_BASE` (required when using `ollama/...`, e.g. `http://localhost:11434`)
-
-LM Studio:
-
-- `CLOOP_LMSTUDIO_API_BASE` (e.g. `http://localhost:1234/v1`)
-
-### Hosted providers
-
-OpenAI-compatible:
-
-- `CLOOP_OPENAI_API_KEY` (required for `CLOOP_LLM_MODEL` values like `gpt-...` / `openai/...`)
-- `CLOOP_OPENAI_API_BASE` (optional; for compatible gateways)
-
-Gemini:
-
-- `CLOOP_GOOGLE_API_KEY` (required for `gemini/...` organizer models)
-
-OpenRouter:
-
-- `CLOOP_OPENROUTER_API_BASE` (optional; for OpenRouter routing)
+- `CLOOP_OLLAMA_API_BASE`: required when embeddings use `ollama/...`
+- `CLOOP_LMSTUDIO_API_BASE`: optional when embeddings use `lmstudio/...`
+- `CLOOP_OPENAI_API_KEY`: required when embeddings use `openai/...`, `gpt-*`, or `o1-*`
+- `CLOOP_OPENAI_API_BASE`: optional custom base URL for OpenAI-compatible embeddings
+- `CLOOP_GOOGLE_API_KEY`: required when embeddings use `gemini/...` or `google/...`
+- `CLOOP_OPENROUTER_API_BASE`: optional base URL when embeddings use `openrouter/...`
 
 ### Where your data lives
 
@@ -467,9 +474,9 @@ OpenRouter:
 
 - `CLOOP_TOOL_MODE`: `manual`, `llm`, or `none` (default: `manual`)
   - `manual`: you must send a `tool_call` to `/chat` (e.g., `read_note`, `write_note`)
-  - `llm`: the model can call tools automatically
+  - `llm`: the pi bridge runs the tool loop and proxies tool execution back into Python
   - `none`: tools disabled
-- `CLOOP_STREAM_DEFAULT`: set to `true` to stream by default (note: streaming is disallowed when tool mode is `llm`)
+- `CLOOP_STREAM_DEFAULT`: set to `true` to stream by default
 
 #### Note Discovery Tools
 
@@ -491,7 +498,6 @@ Both operations return:
 
 ### Organizer autopilot
 
-- `CLOOP_ORGANIZER_TIMEOUT`: organizer request timeout (default: `20.0`)
 - `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `false`)
 - `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
 - `CLOOP_SCHEDULER_ENABLED`: enable the dedicated review/nudge scheduler process (default: `false`)

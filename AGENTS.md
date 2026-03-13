@@ -13,6 +13,8 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Topic | Location |
 |-------|----------|
 | Configuration | `src/cloop/settings.py` |
+| Generative AI bridge runtime | `src/cloop/ai_bridge/`, `src/cloop/pi_bridge/` |
+| Embedding-provider resolution | `src/cloop/embedding_providers.py`, `src/cloop/litellm_retry.py`, `src/cloop/embeddings.py` |
 | API routes | `src/cloop/routes/*.py` |
 | Schemas | `src/cloop/schemas/*.py` |
 | Loop management | `src/cloop/loops/` |
@@ -23,8 +25,9 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
 | Design/Architecture | `docs/architecture.md` |
+| Product roadmap | `docs/roadmap.md` |
 | Repo templates/workflows | `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/*` |
-| Public docs | `docs/architecture.md`, `docs/ci_strategy.md`, `docs/verification_checklist.md`, `docs/release.md` |
+| Public docs | `docs/architecture.md`, `docs/roadmap.md`, `docs/ci_strategy.md`, `docs/verification_checklist.md`, `docs/release.md` |
 
 ## User Preferences
 
@@ -68,8 +71,10 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **RAG ask orchestration**: shared retrieval + prompt + answer shaping now lives in `src/cloop/rag/ask_orchestration.py`; keep HTTP `/ask` and CLI `ask` aligned through that service layer instead of forking behavior by transport.
 - **CLI runtime**: loop-adjacent CLI handlers should centralize connection handling, expected exception mapping, and output/render orchestration through `src/cloop/cli_package/_runtime.py` instead of open-coding `with db.core_connection(...)` and per-command stderr/exit-code trees.
 - **MCP runtime**: keep FastMCP decorator/error-wrapping helpers in `src/cloop/mcp_tools/_runtime.py`; `src/cloop/mcp_server.py` should stay focused on server assembly.
+- **Generative runtime boundary**: pi owns chat/organizer generation through the local bridge (`src/cloop/ai_bridge/`, `src/cloop/pi_bridge/`), but Python remains the source of truth for loop state, tool execution, routing, and storage.
+- **Embedding split**: embeddings stay on the LiteLLM-compatible path (`embedding_providers.py`, `litellm_retry.py`, `embeddings.py`) even after the pi cutover; do not mix generative bridge assumptions into embedding code.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
-- **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
+- **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.
 - **Keyboard shortcut UX**: loop-card actions keep keyboard shortcuts via `aria-keyshortcuts` and button tooltips; avoid visible single-letter suffix badges inside action labels.
 - **Loop card composition**: keep cards separated into identity, planning/context, operations, and footer zones; preserve visual grouping before adding more inline controls.
 - **Loop card density**: completed, dropped, and stale loops should render in a compact treatment so active work stays spacious while historical items consume less vertical space.

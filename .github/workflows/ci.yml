@@ -31,6 +31,13 @@ jobs:
         with:
           python-version: "3.14"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/cloop/pi_bridge/package-lock.json
+
       - name: Install dependencies
         run: uv sync --locked --all-groups --all-extras
 
@@ -59,6 +66,13 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/cloop/pi_bridge/package-lock.json
 
       - name: Install dependencies
         run: uv sync --locked --all-groups --all-extras

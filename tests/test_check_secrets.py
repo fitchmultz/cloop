@@ -89,7 +89,7 @@ def test_scan_text_for_secrets_detects_private_key_block() -> None:
 def test_scan_text_for_secrets_skips_clean_content() -> None:
     module = _load_check_secrets_module()
     findings = module.scan_text_for_secrets(
-        "CLOOP_LLM_MODEL=ollama/llama3",
+        "CLOOP_PI_MODEL=ollama/llama3",
         "clean.env",
     )
 

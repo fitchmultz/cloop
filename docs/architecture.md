@@ -49,7 +49,8 @@ flowchart LR
 
 ### Retrieval + generation
 - `src/cloop/rag/*`: ingestion, chunking, embeddings, vector search order, and retrieval composition.
-- `src/cloop/llm.py`, `providers.py`, `embeddings.py`: model/provider interaction and resilience policies.
+- `src/cloop/llm.py`, `src/cloop/ai_bridge/*`, `src/cloop/pi_bridge/*`: pi-backed generative runtime, bridge protocol, and Node bridge implementation.
+- `src/cloop/embeddings.py`, `src/cloop/embedding_providers.py`: embeddings-only LiteLLM path and provider resolution.
 
 ### Real-time/eventing
 - `src/cloop/sse.py`: server-sent events fan-out for loop events.
@@ -69,7 +70,7 @@ flowchart LR
 1. Client ingests documents (`/ingest`) and asks (`/ask`).
 2. RAG module loads/chunks/embeds and stores vectors in `rag.db`.
 3. Retrieval selects candidate chunks and assembles source context.
-4. LLM response is generated with explicit source payload.
+4. The Python app sends request-scoped messages to the local pi bridge and returns the generated answer with explicit source payload.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.
@@ -98,7 +99,7 @@ flowchart LR
 
 ## 5) Operational notes
 
-- **Health:** `GET /health` reports model/storage mode and dependency signals.
+- **Health:** `GET /health` reports pi bridge readiness, chat/organizer model selectors, embedding model, and storage mode.
 - **Scheduler runtime:** run `cloop-scheduler` separately from the FastAPI app when scheduler automation is enabled.
 - **Local CI gate:** `make ci` (quality, tests, packaging checks).
 - **Fast dev gate:** `make check-fast` (quality + fast tests).

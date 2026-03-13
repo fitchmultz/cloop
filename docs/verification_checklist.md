@@ -8,16 +8,20 @@ Use this checklist to validate the repository on a fresh machine.
 git clone https://github.com/fitchmultz/cloop.git
 cd cloop
 uv sync --all-groups --all-extras
+npm ci --prefix src/cloop/pi_bridge
 cp .env.example .env
 ```
 
 For a minimal local-only run, set these in `.env`:
 
 ```dotenv
-CLOOP_LLM_MODEL=ollama/llama3
+CLOOP_PI_MODEL=openai/gpt-5.4
+CLOOP_PI_ORGANIZER_MODEL=google/gemini-3-flash-preview
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 ```
+
+Use `pi --list-models` to confirm the selectors available in your authenticated pi installation.
 
 `CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false` for first-run determinism.
 

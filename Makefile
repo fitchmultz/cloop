@@ -1,6 +1,7 @@
-.PHONY: help lock-check sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.PHONY: help lock-check bridge-lock-check bridge-test sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
 
 UV_RUN := uv run --locked
+NPM_BRIDGE := npm --prefix src/cloop/pi_bridge
 
 help:
 	@printf "%s\n" \
@@ -9,6 +10,8 @@ help:
 		"Targets:" \
 		"  sync            Sync (upgrade) all deps via uv" \
 		"  lock-check      Verify uv.lock matches pyproject metadata" \
+		"  bridge-lock-check Verify pi bridge package-lock + installability" \
+		"  bridge-test     Run Node bridge tests" \
 		"  fmt             Format code with ruff" \
 		"  fmt-check       Check formatting (no changes)" \
 		"  lint            Lint with ruff" \
@@ -40,6 +43,13 @@ sync:
 lock-check:
 	uv lock --check
 
+bridge-lock-check:
+	test -f src/cloop/pi_bridge/package-lock.json
+	$(NPM_BRIDGE) ci
+
+bridge-test: bridge-lock-check
+	$(NPM_BRIDGE) test
+
 fmt:
 	$(UV_RUN) ruff format .
 
@@ -70,7 +80,7 @@ changelog-check:
 type:
 	$(UV_RUN) ty check
 
-quality: lock-check fmt-check lint env-sync header-check secrets-check version-check changelog-check type
+quality: lock-check bridge-lock-check fmt-check lint env-sync header-check secrets-check version-check changelog-check type
 
 test:
 	$(UV_RUN) pytest -m "not performance"
@@ -91,15 +101,15 @@ test-cov:
 	$(UV_RUN) pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
 
 dist:
-	rm -rf dist build
+	rm -rf dist build src/cloop.egg-info
 	$(UV_RUN) python -m build --sdist --wheel
 
 dist-check: dist
 	$(UV_RUN) twine check dist/*
 
-check-fast: quality test-fast
+check-fast: quality bridge-test test-fast
 
-check-full: quality test dist-check
+check-full: quality bridge-test test dist-check
 
 check: check-full
 
