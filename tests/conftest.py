@@ -63,7 +63,7 @@ def test_settings() -> Callable[..., Settings]:
             "pi_bridge_cmd": "node ./src/cloop/pi_bridge/bridge.mjs",
             "pi_agent_dir": None,
             "pi_thinking_level": PiThinkingLevel.NONE,
-            "pi_organizer_model": "google/gemini-3-flash-preview",
+            "pi_organizer_model": "mock-organizer",
             "pi_organizer_timeout": 20.0,
             "pi_organizer_thinking_level": PiThinkingLevel.NONE,
             "pi_max_tool_rounds": 1,

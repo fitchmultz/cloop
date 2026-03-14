@@ -27,6 +27,10 @@ Canonical code locations:
 
 This is an intentional boundary: Cloop reuses pi for generic generative plumbing, but keeps loop lifecycle, SQLite persistence, RAG retrieval, and MCP semantics in Python.
 
+Cloop does not implement provider-specific auth or billing policy for generative calls.
+It passes the configured `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` selector strings
+through to pi, and pi remains responsible for provider resolution, auth, and runtime behavior.
+
 ## 2) Runtime prerequisites
 
 The bridge depends on local runtime prerequisites, not hosted infrastructure:
@@ -51,6 +55,8 @@ Before blaming Cloop, confirm pi can actually see the configured model selectors
 pi --list-models
 ```
 
+The project defaults both selectors to `zai/glm-5` in `settings.py` / `.env.example` today,
+but users may point them at any selector that pi reports as available.
 If `CLOOP_PI_MODEL` or `CLOOP_PI_ORGANIZER_MODEL` is not available in that list for your current auth/config, bridge startup or request execution will fail by design.
 
 ## 3) Bridge process lifecycle

@@ -35,6 +35,9 @@ from pathlib import Path
 
 _DOTENV_LOADED = False
 
+DEFAULT_PI_MODEL = "zai/glm-5"
+DEFAULT_PI_ORGANIZER_MODEL = DEFAULT_PI_MODEL
+
 
 class VectorSearchMode(StrEnum):
     PYTHON = "python"
@@ -237,7 +240,7 @@ def get_settings() -> Settings:
         root_dir=root_dir,
         core_db_path=core_db_path,
         rag_db_path=rag_db_path,
-        pi_model=os.getenv("CLOOP_PI_MODEL", "openai/gpt-5.4"),
+        pi_model=os.getenv("CLOOP_PI_MODEL", DEFAULT_PI_MODEL),
         embed_model=os.getenv("CLOOP_EMBED_MODEL", "ollama/nomic-embed-text"),
         default_top_k=int(os.getenv("CLOOP_DEFAULT_TOP_K", "5")),
         chunk_size=int(os.getenv("CLOOP_CHUNK_SIZE", "800")),
@@ -251,7 +254,7 @@ def get_settings() -> Settings:
         pi_bridge_cmd=os.getenv("CLOOP_PI_BRIDGE_CMD"),
         pi_agent_dir=os.getenv("CLOOP_PI_AGENT_DIR") or os.getenv("PI_CODING_AGENT_DIR"),
         pi_thinking_level=_resolve_pi_thinking_level(os.getenv("CLOOP_PI_THINKING_LEVEL")),
-        pi_organizer_model=os.getenv("CLOOP_PI_ORGANIZER_MODEL", "google/gemini-3-flash-preview"),
+        pi_organizer_model=os.getenv("CLOOP_PI_ORGANIZER_MODEL", DEFAULT_PI_ORGANIZER_MODEL),
         pi_organizer_timeout=float(os.getenv("CLOOP_PI_ORGANIZER_TIMEOUT", "20.0")),
         pi_organizer_thinking_level=_resolve_pi_thinking_level(
             os.getenv("CLOOP_PI_ORGANIZER_THINKING_LEVEL")

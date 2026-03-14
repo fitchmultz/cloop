@@ -22,7 +22,7 @@ def _write_bridge_script(tmp_path: Path, body: str) -> Path:
 def _start_request() -> BridgeStartRequest:
     return BridgeStartRequest(
         request_id="req-1",
-        model="openai/gpt-5.4",
+        model="zai/glm-5",
         messages=[{"role": "user", "content": "hello"}],
         thinking_level="none",
         timeout_ms=1_000,

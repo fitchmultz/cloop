@@ -76,6 +76,25 @@ def test_defaults_disable_background_automation(
     assert settings.scheduler_enabled is False
 
 
+def test_default_pi_selectors_match_project_preference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Primary and organizer pi defaults should stay aligned with project preference."""
+    import cloop.settings as settings_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("CLOOP_PI_MODEL", raising=False)
+    monkeypatch.delenv("CLOOP_PI_ORGANIZER_MODEL", raising=False)
+
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    settings = settings_module.get_settings()
+    assert settings.pi_model == "zai/glm-5"
+    assert settings.pi_organizer_model == "zai/glm-5"
+
+
 def test_negative_priority_weight_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Negative priority weights should raise ValueError."""
     import cloop.settings as settings_module

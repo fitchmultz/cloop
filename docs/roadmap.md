@@ -11,6 +11,7 @@ surface when the underlying capability is already shared.
 Current product goals:
 
 - Keep the core generative runtime centered on pi.
+- Default pi model selectors to the user's preferred provider/model combinations when Cloop needs an explicit selector, while still allowing any pi-supported provider/model combination.
 - Keep embeddings separate where that remains the best fit.
 - Prefer shared service-layer implementations over surface-specific forks.
 - Improve feature symmetry across HTTP, web UI, CLI, and MCP when the capability
@@ -44,7 +45,7 @@ Legend:
 ## Execution Order
 
 The next work should happen in this order so that the newly stabilized shared chat,
-enrichment, review, and direct-memory contracts can propagate outward without rework.
+enrichment, review, direct-memory, and pi-selector defaults can propagate outward without rework.
 
 ### Phase 1 — Add richer conversational loop refinement
 
@@ -71,6 +72,19 @@ Why next:
 
 - These workflows compound transport, state, and trust concerns.
 - They should sit on top of already-proven saved review and refinement primitives rather than force another architectural reset.
+
+### Phase 3 — Deepen transport ergonomics for shared AI workflows
+
+Goal: polish the newest shared review/chat/RAG capabilities after the next higher-leverage workflow layers land.
+
+- Better guided web UI affordances on top of saved review sessions and conversational refinement.
+- Richer MCP ergonomics and examples for the newest shared review and grounded-chat operators.
+- Documentation/examples that make the shared pi-selector and review-workflow model obvious for operators.
+
+Why last:
+
+- This work benefits from stabilized workflow primitives and defaults first.
+- It is easier to polish transports after the next shared orchestration contracts settle.
 
 ## Immediate Next Sessions
 

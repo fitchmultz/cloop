@@ -64,7 +64,7 @@ def test_chat_completion_uses_bridge_request(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="openai/gpt-5.4",
+        CLOOP_PI_MODEL="zai/glm-5",
     )
     runtime = _FakeRuntime(
         _FakeSession(
@@ -72,9 +72,9 @@ def test_chat_completion_uses_bridge_request(
                 {"type": "text_delta", "delta": "hi"},
                 {
                     "type": "done",
-                    "model": "openai/gpt-5.4",
-                    "provider": "openai",
-                    "api": "openai-responses",
+                    "model": "zai/glm-5",
+                    "provider": "zai",
+                    "api": "zai-chat",
                     "usage": {"totalTokens": 0},
                     "stop_reason": "stop",
                 },
@@ -90,15 +90,15 @@ def test_chat_completion_uses_bridge_request(
     )
 
     assert content == "hi"
-    assert metadata["model"] == "openai/gpt-5.4"
-    assert runtime.requests[0].model == "openai/gpt-5.4"
+    assert metadata["model"] == "zai/glm-5"
+    assert runtime.requests[0].model == "zai/glm-5"
     assert runtime.requests[0].messages == [{"role": "user", "content": "Hello"}]
 
 
 def test_chat_with_tools_executes_python_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="openai/gpt-5.4")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
     session = _FakeSession(
         [
             {
@@ -110,9 +110,9 @@ def test_chat_with_tools_executes_python_tools(
             {"type": "text_delta", "delta": "done"},
             {
                 "type": "done",
-                "model": "openai/gpt-5.4",
-                "provider": "openai",
-                "api": "openai-responses",
+                "model": "zai/glm-5",
+                "provider": "zai",
+                "api": "zai-chat",
                 "usage": {},
                 "stop_reason": "stop",
             },
@@ -137,7 +137,7 @@ def test_chat_with_tools_executes_python_tools(
 def test_stream_events_aborts_unfinished_bridge_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="openai/gpt-5.4")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
     session = _FakeSession([{"type": "text_delta", "delta": "partial"}])
     runtime = _FakeRuntime(session)
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
@@ -160,7 +160,7 @@ def test_chat_with_tools_forwards_configured_max_tool_rounds(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="openai/gpt-5.4",
+        CLOOP_PI_MODEL="zai/glm-5",
         CLOOP_PI_MAX_TOOL_ROUNDS="3",
     )
     runtime = _FakeRuntime(
@@ -169,9 +169,9 @@ def test_chat_with_tools_forwards_configured_max_tool_rounds(
                 {"type": "text_delta", "delta": "done"},
                 {
                     "type": "done",
-                    "model": "openai/gpt-5.4",
-                    "provider": "openai",
-                    "api": "openai-responses",
+                    "model": "zai/glm-5",
+                    "provider": "zai",
+                    "api": "zai-chat",
                     "usage": {},
                     "stop_reason": "stop",
                 },
@@ -187,7 +187,7 @@ def test_chat_with_tools_forwards_configured_max_tool_rounds(
     )
 
     assert content == "done"
-    assert metadata["model"] == "openai/gpt-5.4"
+    assert metadata["model"] == "zai/glm-5"
     assert tool_calls == []
     assert runtime.requests[0].max_tool_rounds == 3
 

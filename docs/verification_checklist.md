@@ -15,11 +15,16 @@ cp .env.example .env
 For a minimal local-only run, set these in `.env`:
 
 ```dotenv
-CLOOP_PI_MODEL=openai/gpt-5.4
-CLOOP_PI_ORGANIZER_MODEL=google/gemini-3-flash-preview
+CLOOP_PI_MODEL=zai/glm-5
+CLOOP_PI_ORGANIZER_MODEL=zai/glm-5
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 ```
+
+Cloop passes `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` straight through to pi.
+If you prefer a different selector, common project-preferred alternatives are
+`kimi-coding/k2p5` and `openai-codex/gpt-5.4`, but any selector available from
+`pi --list-models` is valid.
 
 Use `pi --list-models` to confirm the selectors available in your authenticated pi installation.
 If bridge startup, auth, or model-availability checks fail, use [`docs/ai_runtime.md`](ai_runtime.md) as the runtime troubleshooting reference.

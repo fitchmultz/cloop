@@ -145,7 +145,7 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 			{
 				role: "assistant",
 				content: "selector fallback",
-				model: "openai/gpt-5.4",
+				model: "zai/glm-5",
 			},
 			{
 				role: "assistant",
@@ -171,9 +171,9 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 	assert.equal(parsed.messages[1].api, "anthropic-messages");
 	assert.equal(parsed.messages[1].model, "claude-3-7-sonnet");
 	assert.deepEqual(parsed.messages[1].usage, { input: 11, output: 7 });
-	assert.equal(parsed.messages[2].provider, "openai");
+	assert.equal(parsed.messages[2].provider, "zai");
 	assert.equal(parsed.messages[2].api, "google-genai");
-	assert.equal(parsed.messages[2].model, "gpt-5.4");
+	assert.equal(parsed.messages[2].model, "glm-5");
 	assert.equal(parsed.messages[3].provider, "google");
 	assert.equal(parsed.messages[3].api, "google-genai");
 	assert.equal(parsed.messages[3].model, "gemini-3-flash-preview");
@@ -214,12 +214,12 @@ test("buildBridgeErrorPayload returns explicit timeout and tool round limit erro
 test("parseModelSelector rejects unavailable models with pi guidance", async () => {
 	const registry = {
 		find(provider, model) {
-			return provider === "openai" && model === "gpt-5.4"
-				? { provider, id: model, api: "openai-responses" }
+			return provider === "zai" && model === "glm-5"
+				? { provider, id: model, api: "zai-chat" }
 				: null;
 		},
 		getAll() {
-			return [{ provider: "openai", id: "gpt-5.4", api: "openai-responses" }];
+			return [{ provider: "zai", id: "glm-5", api: "zai-chat" }];
 		},
 		async getAvailable() {
 			return [];
@@ -227,7 +227,7 @@ test("parseModelSelector rejects unavailable models with pi guidance", async () 
 	};
 
 	await assert.rejects(
-		parseModelSelector("openai/gpt-5.4", registry),
+		parseModelSelector("zai/glm-5", registry),
 		/not currently available|pi --list-models/i,
 	);
 });

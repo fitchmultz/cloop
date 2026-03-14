@@ -117,8 +117,8 @@ Then edit `.env` to point at your pi and embedding configuration (see Configurat
 If you want the shortest path to a running local instance, start with:
 
 ```dotenv
-CLOOP_PI_MODEL=openai/gpt-5.4
-CLOOP_PI_ORGANIZER_MODEL=google/gemini-3-flash-preview
+CLOOP_PI_MODEL=zai/glm-5
+CLOOP_PI_ORGANIZER_MODEL=zai/glm-5
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 CLOOP_AUTOPILOT_ENABLED=false
@@ -126,6 +126,9 @@ CLOOP_SCHEDULER_ENABLED=false
 ```
 
 This keeps the generative path on pi while embeddings stay local on Ollama.
+If you prefer a different pi selector, common project-preferred alternatives are
+`kimi-coding/k2p5` and `openai-codex/gpt-5.4`, but any selector that `pi --list-models`
+shows as available is valid.
 
 When you do enable scheduling, run it as a separate process:
 
@@ -575,8 +578,8 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 
 ### Pi models
 
-- `CLOOP_PI_MODEL`: primary chat model selector in `provider/model` form (default: `openai/gpt-5.4`)
-- `CLOOP_PI_ORGANIZER_MODEL`: organizer/enrichment model selector (default: `google/gemini-3-flash-preview`)
+- `CLOOP_PI_MODEL`: primary chat model selector in `provider/model` form (default: `zai/glm-5`)
+- `CLOOP_PI_ORGANIZER_MODEL`: organizer/enrichment model selector (default: `zai/glm-5`)
 - `CLOOP_PI_THINKING_LEVEL`: chat thinking level (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 - `CLOOP_PI_ORGANIZER_THINKING_LEVEL`: organizer thinking level
 - `CLOOP_PI_TIMEOUT`: chat timeout in seconds (default: `30.0`)
@@ -584,6 +587,11 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 - `CLOOP_PI_BRIDGE_CMD`: optional override for the Node bridge command
 - `CLOOP_PI_AGENT_DIR`: optional override for pi auth/model config (`PI_CODING_AGENT_DIR` is also honored)
 - `CLOOP_PI_MAX_TOOL_ROUNDS`: max bridge-mediated tool rounds per request (default: `1`)
+
+Cloop does not implement provider-specific auth or billing logic for chat/organizer calls;
+it passes these selector strings straight through to pi. The current project-preferred
+explicit selectors are `zai/glm-5`, `kimi-coding/k2p5`, and `openai-codex/gpt-5.4`,
+but you can use any provider/model combination that pi supports.
 
 Check available models with:
 
@@ -605,6 +613,9 @@ Embeddings remain on LiteLLM-compatible providers during this cutover.
 - `CLOOP_OPENAI_API_BASE`: optional custom base URL for OpenAI-compatible embeddings
 - `CLOOP_GOOGLE_API_KEY`: required when embeddings use `gemini/...` or `google/...`
 - `CLOOP_OPENROUTER_API_BASE`: optional base URL when embeddings use `openrouter/...`
+
+These embedding credentials are separate from the pi chat/organizer runtime.
+Cloop does not use `CLOOP_OPENAI_API_KEY` or `CLOOP_GOOGLE_API_KEY` to authenticate pi chat requests.
 
 ### Where your data lives
 
