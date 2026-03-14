@@ -151,6 +151,13 @@ Retrieve the most relevant chunks for a question:
 uv run cloop ask "What does the onboarding process say about PTO?" --k 5
 ```
 
+Run grounded chat from the terminal using the shared `/chat` contract:
+
+```bash
+uv run cloop chat "What should I focus on today?" --include-loop-context --include-memory-context
+uv run cloop chat "Where is the onboarding checklist?" --include-rag-context --rag-scope onboarding
+```
+
 Capture a loop and manage your tasks:
 
 ```bash
@@ -164,6 +171,7 @@ uv run cloop next
 Notes:
 
 - `cloop ask` prints JSON including the generated `answer`, retrieved `chunks`, and `sources`.
+- `cloop chat` reuses the shared grounded chat contract from the HTTP `/chat` endpoint and supports `text` or `json` output.
 - The HTTP `/ask` endpoint returns the same answer-oriented payload, with optional SSE streaming.
 - Loop lifecycle and utility commands support `--format json|table` (default: `json`).
 
@@ -173,6 +181,36 @@ If you want a quick end-to-end repo validation path, use:
 - [docs/verification_checklist.md](docs/verification_checklist.md)
 
 ## CLI Reference
+
+### Chat Commands
+
+```bash
+# One-shot chat
+cloop chat <prompt> [--format text|json]
+
+# Add loop + memory grounding
+cloop chat <prompt> --include-loop-context --include-memory-context
+
+# Add document grounding
+cloop chat <prompt> --include-rag-context [--rag-k N] [--rag-scope SCOPE]
+
+# Stream token output
+cloop chat <prompt> --stream
+
+# Continue from a transcript file
+cloop chat [<prompt>] --messages-file transcript.json
+
+# Read the prompt from stdin explicitly
+printf 'What should I do next?\n' | cloop chat -
+
+# Manual tool call
+cloop chat <prompt> --tool TOOL_NAME [--tool-arg KEY=VALUE ...]
+```
+
+Notes:
+- `cloop chat` uses the same request/response model as the HTTP `/chat` endpoint.
+- `--format text` is the default for conversational use; `--format json` emits the full structured response payload.
+- `--tool` implies manual tool mode; otherwise CLI chat defaults to `tool_mode=none` unless you pass `--tool-mode` explicitly.
 
 ### Loop Lifecycle Commands
 

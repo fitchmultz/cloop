@@ -309,12 +309,12 @@ def test_client(
     get_settings.cache_clear()
 
     monkeypatch.setattr("cloop.llm.chat_completion", mock_completion)
-    monkeypatch.setattr("cloop.routes.chat.chat_completion", mock_completion)
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", mock_completion)
     monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", mock_completion)
     monkeypatch.setattr("cloop.llm.chat_with_tools", mock_completion)
-    monkeypatch.setattr("cloop.routes.chat.chat_with_tools", mock_completion)
+    monkeypatch.setattr("cloop.chat_execution.chat_with_tools", mock_completion)
     monkeypatch.setattr("cloop.llm.stream_events", mock_stream_events)
-    monkeypatch.setattr("cloop.routes.chat.stream_events", mock_stream_events)
+    monkeypatch.setattr("cloop.chat_execution.stream_events", mock_stream_events)
     monkeypatch.setattr("cloop.routes.rag.stream_events", mock_stream_events)
     monkeypatch.setattr(
         "cloop.main.bridge_health",

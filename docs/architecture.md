@@ -49,6 +49,8 @@ flowchart LR
 
 ### Retrieval + generation
 - `src/cloop/rag/*`: ingestion, chunking, embeddings, vector search order, and retrieval composition.
+- `src/cloop/chat_orchestration.py`: shared grounded chat request preparation (loop, memory, and RAG context assembly).
+- `src/cloop/chat_execution.py`: shared chat execution contract used by HTTP and CLI for tool handling, response shaping, streaming, and interaction logging.
 - `src/cloop/llm.py`, `src/cloop/ai_bridge/*`, `src/cloop/pi_bridge/*`: pi-backed generative runtime, bridge protocol, and Node bridge implementation.
 - `src/cloop/embeddings.py`, `src/cloop/embedding_providers.py`: embeddings-only LiteLLM path and provider resolution.
 - `docs/ai_runtime.md`: operational reference for the bridge boundary, protocol, health semantics, and failure modes.
@@ -72,6 +74,12 @@ flowchart LR
 2. RAG module loads/chunks/embeds and stores vectors in `rag.db`.
 3. Retrieval selects candidate chunks and assembles source context.
 4. The Python app sends request-scoped messages to the local pi bridge and returns the generated answer with explicit source payload.
+
+### Grounded chat (HTTP + CLI)
+1. HTTP `/chat` and `cloop chat` both build the same `ChatRequest`-shaped payload.
+2. `src/cloop/chat_orchestration.py` resolves effective options and builds loop/memory/RAG grounding.
+3. `src/cloop/chat_execution.py` runs manual tools or bridge-backed chat/tool loops and shapes the canonical response.
+4. Transport-specific layers only handle formatting (JSON/SSE/text), not chat semantics.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.

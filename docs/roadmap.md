@@ -27,12 +27,12 @@ Legend:
 
 | Capability | HTTP API | Web UI | CLI | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Chat completion | yes | yes | no | no | Web chat now exposes the core backend grounding/tool controls. |
-| Chat streaming | yes | yes | no | no | SSE-backed in HTTP and web. |
-| Chat tool calling | yes | yes | no | no | Web can now opt into `tool_mode=llm`. |
-| Chat with loop context | yes | yes | no | no | Web defaults this on. |
-| Chat with memory context | yes | yes | no | no | Web defaults this on. |
-| Chat with RAG context | yes | yes | no | no | Web can now opt into document grounding and scope it. |
+| Chat completion | yes | yes | yes | no | CLI chat now reuses the shared grounded execution contract already used by HTTP/web. |
+| Chat streaming | yes | yes | yes | no | HTTP/web use SSE; CLI streams token output directly to stdout. |
+| Chat tool calling | yes | yes | yes | no | CLI supports both `tool_mode=llm` and explicit manual tools. |
+| Chat with loop context | yes | yes | yes | no | Shared chat execution supports the same loop grounding controls across HTTP/web/CLI. |
+| Chat with memory context | yes | yes | yes | no | CLI now exposes memory grounding with the same request controls. |
+| Chat with RAG context | yes | yes | yes | no | CLI can reuse document grounding and scope filters from the shared chat contract. |
 | RAG ask | yes | yes | yes | no | Shared retrieval/generation path exists. |
 | RAG ingest | yes | yes | yes | no | Embeddings-only, not generative AI. |
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
@@ -42,81 +42,76 @@ Legend:
 
 ## Execution Order
 
-The next work should happen in this order so that shared contracts settle before
-new surfaces depend on them.
+The next work should happen in this order so that the newly stabilized shared chat
+and enrichment contracts can propagate outward without rework.
 
-### Phase 1 — Finish parity for the remaining generative contract gaps
+### Phase 1 — Add MCP parity for the highest-leverage shared AI workflows
 
-Goal: lock the last unstable chat/enrichment semantics before expanding into more transports.
+Goal: give agent clients the same high-value retrieval and grounded-chat capabilities
+that are now stable across HTTP/web/CLI, without letting MCP invent a separate
+contract.
 
-- Keep the shared chat request/response contract stable now that web and HTTP both expose grounding/tool controls.
-- Treat the explicit loop-enrich contract as settled: HTTP, web, CLI, MCP, and manual tool calls now reuse the same synchronous enrichment orchestration.
-- Avoid transport-specific drift while CLI and MCP inherit the stabilized behavior.
+- Add MCP `rag.ask` on top of the existing shared retrieval/answer path.
+- Add MCP ingest support so agent workflows can refresh the knowledge base.
+- Add MCP chat only if it can reuse the same shared chat execution contract cleanly,
+  including metadata, grounding options, and tool behavior.
+- Keep MCP transport details thin; shared orchestration should continue to own the
+  request/response semantics.
 
 Why first:
 
-- the web + HTTP chat contract is now broad enough that new transports should reuse it rather than reshape it
-- locking the enrich behavior now prevents CLI and MCP from growing around temporary semantics
-- this phase reduces follow-on churn for every later surface
+- MCP is now the most obvious parity gap in the AI surface table.
+- Retrieval parity is usually the highest-leverage AI capability for agent clients.
+- Chat should only reach MCP after HTTP/web/CLI have already proven the shared
+  contract and output semantics.
 
-### Phase 2 — Add CLI parity for shared generative workflows
+### Phase 2 — Make clarification and suggestion workflows truly multi-surface
 
-Goal: make the terminal a first-class interface for the stabilized chat/enrichment flows.
+Goal: stop treating enrichment as triggerable everywhere but reviewable only in a
+subset of surfaces.
 
-- Add `cloop chat` on top of the same pi-backed chat capability already used by HTTP/web.
-- Carry over the stabilized controls from Phase 1 instead of inventing a CLI-only chat model.
-- Keep output/rendering concerns in the CLI layer while reusing the shared orchestration underneath.
+- Add clarification review/completion flows outside HTTP/web.
+- Align suggestion listing, inspection, apply, and reject behavior across CLI and MCP.
+- Keep enrichment-result payloads and follow-up actions grounded in the same loop
+  suggestion data model instead of transport-specific wrappers.
 
-Why before MCP:
+Why second:
 
-- CLI is a thinner integration than MCP and is easier to iterate on while contracts are still fresh
-- the same shared orchestration can then be promoted into MCP with less duplication
+- The explicit enrich trigger contract is now stable, so the next churn-reducing
+  step is to stabilize what users can do with the resulting suggestions.
+- Clarification parity depends on the enrichment payload shape that is now settled.
 
-### Phase 3 — Add MCP parity where agent workflows benefit most
+### Phase 3 — Add direct memory management beyond raw HTTP
 
-Goal: give agent clients access to the shared AI/retrieval capabilities that are already stable elsewhere.
+Goal: expose memory as a first-class capability in the interfaces where grounded chat
+already benefits from it.
 
-- Add MCP `rag.ask` so agent clients can use knowledge-grounded answering.
-- Add MCP ingest support so agent workflows can refresh the knowledge base.
-- Add MCP chat only if the CLI/web/HTTP contract from the earlier phases proves clean and stable enough to expose directly.
-- Add MCP memory tools only after the read/write shape is proven useful and deterministic outside raw HTTP.
-
-Why after CLI:
-
-- MCP is another public contract surface; it should inherit stabilized behavior, not drive it
-- retrieval parity is usually higher leverage for agent clients than immediate chat parity
-
-### Phase 4 — Make memory and clarification workflows truly multi-surface
-
-Goal: stop treating memory and clarification as HTTP/web-only workflows.
-
-- Add direct memory management outside raw HTTP:
-  - web UI memory surface
-  - CLI memory commands
-  - MCP memory tools (if still justified after Phase 3)
-- Add clarification workflow parity so enrichment is not just triggerable from
-  multiple surfaces but also reviewable and completable from them.
-- Keep suggestion application/rejection behavior aligned across HTTP, web UI,
-  CLI, and MCP where that surface genuinely benefits from it.
+- Add a web UI memory surface.
+- Add CLI memory commands with deterministic CRUD semantics.
+- Add MCP memory tools only if the read/write contract remains narrow and useful.
+- Keep chat grounding on top of shared memory storage rather than introducing
+  transport-owned memory state.
 
 Why here:
 
-- memory and clarification shape should build on already-stable chat/retrieval transport contracts
-- these workflows are broader than one transport, so they should come after the main AI interfaces settle
+- Memory already matters for grounded chat, but direct management should come after
+  the main chat/retrieval contracts are settled in every transport that needs them.
+- This sequencing avoids adding more moving parts before MCP retrieval/chat parity is done.
 
-### Phase 5 — Turn internal AI capabilities into explicit product features
+### Phase 4 — Turn internal AI capabilities into explicit product features
 
 Goal: promote the strongest existing internal AI signals into first-class features.
 
-- Semantic loop search using existing loop embedding infrastructure.
+- Semantic loop search using the existing loop embedding infrastructure.
 - Bulk enrichment across filtered loop sets.
 - Better duplicate/related-loop review workflows built on the current similarity machinery.
 
 Why after parity work:
 
-- these features are higher-level product bets and should not be built on top of moving cross-surface foundations
+- These are product bets built on top of already-shared infrastructure.
+- They should not land while core transport contracts are still expanding.
 
-### Phase 6 — Add richer AI-native workflows
+### Phase 5 — Add richer AI-native workflows
 
 Goal: move beyond one-shot actions only after the foundations are stable and shared.
 
@@ -127,24 +122,31 @@ Goal: move beyond one-shot actions only after the foundations are stable and sha
 
 Why last:
 
-- these flows multiply state, UX, and transport complexity
-- they should reuse proven foundations instead of forcing another architectural reset
+- These flows multiply state, UX, and transport complexity.
+- They should reuse proven foundations instead of forcing another architectural reset.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **CLI generative parity session**
-   - add `cloop chat`
-   - reuse the stabilized chat contract rather than inventing CLI-only semantics
-2. **MCP retrieval parity session**
+1. **MCP retrieval parity session**
    - add MCP `rag.ask`
    - add MCP ingest
-3. **Memory + clarification parity session**
-   - add direct memory management outside HTTP
-   - align clarification review/apply flows across surfaces
-4. **Productized AI features session**
-   - promote semantic search / duplicate review / bulk enrichment into explicit product features
+   - keep both on shared retrieval orchestration
+2. **MCP grounded chat session**
+   - expose MCP chat only if it can reuse `chat_execution` directly
+   - keep metadata, grounding, and tool behavior identical to the shared contract
+3. **Clarification + suggestion parity session**
+   - add CLI/MCP clarification review flows
+   - align suggestion list/show/apply/reject behavior everywhere it matters
+4. **Memory management parity session**
+   - add web UI memory management
+   - add CLI memory commands
+   - add MCP memory tools only if the contract stays narrow and deterministic
+5. **Productized AI features session**
+   - semantic search
+   - duplicate/related review improvements
+   - bulk enrichment workflows
 
 That sequence gives the highest leverage while minimizing contract churn.
 
@@ -152,8 +154,8 @@ That sequence gives the highest leverage while minimizing contract churn.
 
 - Do not add an AI surface to an interface unless the workflow is actually useful there.
 - Prefer service-layer reuse over interface-specific prompt or tool logic.
-- Treat HTTP as the canonical behavior contract, then expose that behavior cleanly
-  in web, CLI, and MCP where appropriate.
+- Treat shared execution/orchestration modules as the canonical behavior contract,
+  then expose that behavior cleanly in HTTP, web, CLI, and MCP where appropriate.
 - Preserve clear failure modes and deterministic escape hatches for every AI-backed workflow.
 - Keep pi focused on generative runtime concerns; loop state, scheduling, storage,
   and deterministic domain logic remain Cloop-owned.

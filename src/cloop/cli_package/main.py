@@ -38,6 +38,7 @@ from .backup_commands import (
     backup_rotate_command,
     backup_verify_command,
 )
+from .chat_commands import chat_command
 from .loop_bulk_commands import (
     loop_bulk_close_command,
     loop_bulk_snooze_command,
@@ -91,6 +92,7 @@ from .loop_view_commands import (
 
 # Import parser builders
 from .parsers.backup import add_backup_parser
+from .parsers.chat import add_chat_parser
 from .parsers.loop import add_loop_parser
 from .parsers.loop_misc_parsers import (
     add_capture_parser,
@@ -134,6 +136,10 @@ Examples:
   cloop loop search "due:between:2026-02-20..2026-02-28"
   cloop loop search "project:ClientAlpha blocked"
   cloop loop search "status:open groceries"
+
+  # Grounded chat
+  cloop chat "What should I focus on today?" --include-loop-context --include-memory-context
+  cloop chat "Where is the onboarding checklist?" --include-rag-context --rag-scope onboarding
 
   # Saved views
   cloop loop view create --name "Today's tasks" --query "status:open due:today"
@@ -186,6 +192,7 @@ Exit codes:
 
     add_ingest_parser(subparsers)
     add_ask_parser(subparsers)
+    add_chat_parser(subparsers)
     add_capture_parser(subparsers)
     add_inbox_parser(subparsers)
     add_next_parser(subparsers)
@@ -216,6 +223,8 @@ def main(argv: List[str] | None = None) -> int:
         return ingest_command(args, settings)
     if args.command == "ask":
         return ask_command(args, settings)
+    if args.command == "chat":
+        return chat_command(args, settings)
     if args.command == "capture":
         return capture_command(args, settings)
     if args.command == "inbox":

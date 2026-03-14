@@ -59,6 +59,7 @@ CLI:
 ```bash
 uv run cloop --help
 uv run cloop loop list --status open --limit 5
+uv run cloop chat "What should I focus on today?" --include-loop-context --no-stream
 ```
 
 Bridge runtime:

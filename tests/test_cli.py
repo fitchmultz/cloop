@@ -1,9 +1,11 @@
 """Tests for the CLI module."""
 
+import io
 import json
 import os
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, List
@@ -13,6 +15,7 @@ import pytest
 
 from cloop import db
 from cloop.cli_package._runtime import run_cli_action
+from cloop.cli_package.chat_commands import chat_command
 from cloop.cli_package.loop_core_commands import (
     capture_command,
     inbox_command,
@@ -35,6 +38,7 @@ cli = SimpleNamespace(
     build_parser=build_parser,
     main=main,
     _ask_command=ask_command,
+    _chat_command=chat_command,
     _capture_command=capture_command,
     _import_command=import_command,
     _inbox_command=inbox_command,
@@ -83,6 +87,43 @@ def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)
 
 
+def _mock_chat_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock shared chat execution for CLI chat tests."""
+
+    def fake_chat_completion(
+        messages: List[dict[str, Any]], *, settings: Settings
+    ) -> tuple[str, dict[str, Any]]:
+        return "mock-response", {"model": settings.llm_model, "latency_ms": 12.5, "usage": {}}
+
+    def fake_chat_with_tools(
+        messages: List[dict[str, Any]], tools: Any, *, settings: Settings
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        return (
+            "tool-mode-final",
+            {
+                "model": f"{settings.llm_model}-tool",
+                "latency_ms": 8.0,
+                "usage": {},
+                "tool_outputs": [{"output": {"action": "write_note", "ok": True}}],
+            },
+            [{"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}],
+        )
+
+    def fake_stream_events(*args: Any, **kwargs: Any):
+        for token in ["mock", " ", "stream"]:
+            yield {"type": "text_delta", "delta": token}
+        yield {
+            "type": "done",
+            "model": "mock-llm",
+            "latency_ms": 1.0,
+            "usage": {},
+        }
+
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
+    monkeypatch.setattr("cloop.chat_execution.chat_with_tools", fake_chat_with_tools)
+    monkeypatch.setattr("cloop.chat_execution.stream_events", fake_stream_events)
+
+
 def test_run_cli_action_uses_shared_domain_error_mapping(capsys: Any) -> None:
     """CLI runtime should map domain exceptions through the shared error contract."""
 
@@ -118,18 +159,26 @@ def _get_last_json(capsys: Any) -> Any:
     return json.loads(captured.out)
 
 
-def _run_cli_subprocess(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _run_cli_subprocess(
+    tmp_path: Path,
+    *args: str,
+    input_text: str | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     """Run CLI in a subprocess with isolated test settings."""
     env = os.environ.copy()
     env["CLOOP_DATA_DIR"] = str(tmp_path)
     env["CLOOP_AUTOPILOT_ENABLED"] = "false"
     env["CLOOP_PI_MODEL"] = "mock-llm"
     env["CLOOP_EMBED_MODEL"] = "mock-embed"
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["uv", "run", "python", "-m", "cloop.cli", *args],
         check=False,
         capture_output=True,
         text=True,
+        input=input_text,
         env=env,
     )
 
@@ -185,6 +234,62 @@ def test_build_parser_ask_with_scope() -> None:
     parser = cli.build_parser()
     args = parser.parse_args(["ask", "question", "--scope", "doc:123"])
     assert args.scope == "doc:123"
+
+
+def test_build_parser_chat_command() -> None:
+    """Test chat argument parsing."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["chat", "Hello there"])
+    assert args.command == "chat"
+    assert args.prompt == "Hello there"
+    assert args.format == "text"
+    assert args.tool_mode is None
+    assert args.stream is None
+
+
+def test_build_parser_chat_with_full_option_set() -> None:
+    """Test chat parser with grounding, tool, and transcript options."""
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "chat",
+            "--messages-file",
+            "transcript.json",
+            "--system-message",
+            "Stay concise",
+            "--tool",
+            "loop_create",
+            "--tool-arg",
+            'raw_text="Pay rent"',
+            "--include-loop-context",
+            "--include-memory-context",
+            "--memory-limit",
+            "7",
+            "--include-rag-context",
+            "--rag-k",
+            "3",
+            "--rag-scope",
+            "project-alpha",
+            "--stream",
+            "--format",
+            "json",
+            "What changed?",
+        ]
+    )
+    assert args.command == "chat"
+    assert args.messages_file == "transcript.json"
+    assert args.system_message == "Stay concise"
+    assert args.tool == "loop_create"
+    assert args.tool_arg == ['raw_text="Pay rent"']
+    assert args.include_loop_context is True
+    assert args.include_memory_context is True
+    assert args.memory_limit == 7
+    assert args.include_rag_context is True
+    assert args.rag_k == 3
+    assert args.rag_scope == "project-alpha"
+    assert args.stream is True
+    assert args.format == "json"
+    assert args.prompt == "What changed?"
 
 
 def test_build_parser_capture_command() -> None:
@@ -279,6 +384,16 @@ def test_ask_help_describes_answer_payload(tmp_path: Path) -> None:
     assert "generate an answer" in result.stdout
 
 
+def test_chat_help_describes_grounded_contract(tmp_path: Path) -> None:
+    """Rendered chat help should explain the grounded shared chat contract."""
+    result = _run_cli_subprocess(tmp_path, "chat", "--help")
+
+    assert result.returncode == 0
+    assert "same grounded request/response contract" in result.stdout
+    assert "--messages-file" in result.stdout
+    assert "--include-loop-context" in result.stdout
+
+
 def test_next_help_describes_total_limit(tmp_path: Path) -> None:
     """Rendered next help should describe the real total bucket cap."""
     result = _run_cli_subprocess(tmp_path, "next", "--help")
@@ -369,6 +484,159 @@ def test_ask_command_with_results(
     # Verify embedding_blob is stripped
     for chunk in output["chunks"]:
         assert "embedding_blob" not in chunk
+
+
+def test_chat_command_json_response_and_interaction_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Chat CLI should emit the canonical JSON response and log the interaction."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "chat",
+            "What should I focus on today?",
+            "--include-loop-context",
+            "--include-memory-context",
+            "--format",
+            "json",
+        ]
+    )
+
+    exit_code = cli._chat_command(args, settings)
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["message"] == "mock-response"
+    assert output["model"] == "mock-llm"
+    assert output["options"]["tool_mode"] == "none"
+    assert output["options"]["include_loop_context"] is True
+    assert output["options"]["include_memory_context"] is True
+
+    with db.core_connection(settings) as conn:
+        row = conn.execute(
+            "SELECT endpoint, request_payload FROM interactions ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["endpoint"] == "/cli/chat"
+    request_payload = json.loads(row["request_payload"])
+    assert request_payload["effective_options"]["tool_mode"] == "none"
+
+
+def test_chat_command_streams_text_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Text chat mode should stream token deltas directly to stdout."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["chat", "Hello", "--stream"])
+
+    exit_code = cli._chat_command(args, settings)
+
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert captured.out == "mock stream\n"
+    assert captured.err == ""
+
+
+def test_chat_command_manual_tool_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """CLI chat can execute explicit manual tools and return the canonical payload."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "chat",
+            "Create a loop",
+            "--tool",
+            "loop_create",
+            "--tool-arg",
+            'raw_text="Pay rent"',
+            "--format",
+            "json",
+        ]
+    )
+
+    exit_code = cli._chat_command(args, settings)
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["message"] == "mock-response"
+    assert output["tool_result"]["action"] == "loop_create"
+    assert output["tool_result"]["loop"]["raw_text"] == "Pay rent"
+    assert output["options"]["tool_mode"] == "manual"
+
+
+def test_chat_command_reads_prompt_from_stdin_with_dash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """CLI chat should support explicit stdin prompt input via '-'"""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+    monkeypatch.setattr(sys, "stdin", io.StringIO("Prompt from stdin\n"))
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["chat", "-", "--format", "json"])
+
+    exit_code = cli._chat_command(args, settings)
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["message"] == "mock-response"
+    assert output["options"]["tool_mode"] == "none"
+
+
+def test_chat_command_messages_file_appends_new_user_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """CLI chat should allow a saved transcript plus a new one-shot user prompt."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    transcript = tmp_path / "transcript.json"
+    transcript.write_text(
+        json.dumps(
+            [
+                {"role": "system", "content": "Existing context"},
+                {"role": "assistant", "content": "Prior answer"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "chat",
+            "What changed?",
+            "--messages-file",
+            str(transcript),
+            "--format",
+            "json",
+        ]
+    )
+
+    exit_code = cli._chat_command(args, settings)
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["message"] == "mock-response"
+
+    with db.core_connection(settings) as conn:
+        row = conn.execute(
+            "SELECT request_payload FROM interactions ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    request_payload = json.loads(row["request_payload"])
+    assert request_payload["messages"][0]["content"] == "Existing context"
+    assert request_payload["messages"][-1]["content"] == "What changed?"
 
 
 def test_capture_command_default_status(
@@ -692,6 +960,23 @@ def test_main_ask_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsy
     exit_code = cli.main(["ask", "question"])
 
     assert exit_code == 1
+
+
+def test_main_chat_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
+    """Test main() with chat command."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+    get_settings.cache_clear()
+    db.init_databases(get_settings())
+    _mock_chat_runtime(monkeypatch)
+
+    exit_code = cli.main(["chat", "Hello", "--format", "json"])
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["message"] == "mock-response"
 
 
 def test_main_capture_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:

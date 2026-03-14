@@ -1647,7 +1647,7 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
         captured["messages"] = messages
         return "grounded-response", {"latency_ms": 1.0, "model": "mock-llm", "usage": {}}
 
-    monkeypatch.setattr("cloop.routes.chat.chat_completion", fake_chat_completion)
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
 
     response = test_client.post(
         "/chat",
@@ -1696,7 +1696,7 @@ def test_chat_logging_tolerates_non_json_usage_objects(
             "usage": UsageLike(),
         }
 
-    monkeypatch.setattr("cloop.routes.chat.chat_completion", fake_chat_completion)
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
 
     response = test_client.post(
         "/chat",

@@ -45,7 +45,7 @@ def test_chat_bridge_failures_use_typed_error_contract(
     def mock_failure(*args, **kwargs):
         raise exc
 
-    monkeypatch.setattr("cloop.routes.chat.chat_completion", mock_failure)
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", mock_failure)
 
     response = client.post(
         "/chat",
@@ -66,7 +66,7 @@ def test_chat_untyped_runtime_error_returns_500(
     def mock_failure(*args, **kwargs):
         raise RuntimeError("unexpected bridge wrapper failure")
 
-    monkeypatch.setattr("cloop.routes.chat.chat_completion", mock_failure)
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", mock_failure)
 
     response = client.post(
         "/chat",
