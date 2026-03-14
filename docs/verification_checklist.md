@@ -62,6 +62,7 @@ uv run cloop loop list --status open --limit 5
 uv run cloop loop semantic-search "buy groceries before the weekend" --status all
 uv run cloop loop relationship queue --status all
 uv run cloop loop relationship review --loop 1 --status all
+uv run cloop loop bulk enrich --query "status:open" --dry-run
 uv run cloop chat "What should I focus on today?" --include-loop-context --no-stream
 uv run cloop memory create "User prefers dark mode" --category preference --priority 40
 uv run cloop memory search "dark mode"

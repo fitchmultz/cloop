@@ -723,6 +723,9 @@ Examples:
   # Snooze matched loops until tomorrow
   cloop loop bulk snooze --query "status:scheduled" --until "1d"
 
+  # Re-enrich the current open backlog
+  cloop loop bulk enrich --query "status:open"
+
   # Transactional mode (rollback on any failure)
   cloop loop bulk close --query "status:inbox" --transactional
 
@@ -870,3 +873,35 @@ Examples:
         help="Skip confirmation prompt",
     )
     add_format_option(snooze_parser)
+
+    # bulk enrich
+    enrich_parser = bulk_subparsers.add_parser(
+        "enrich",
+        help="Bulk enrich matched loops",
+        description="Run explicit AI enrichment across loops matching a DSL query",
+    )
+    enrich_parser.add_argument(
+        "--query",
+        "-q",
+        required=True,
+        help="DSL query to select target loops",
+    )
+    enrich_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview targets without applying changes",
+    )
+    enrich_parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Max loops to affect (default: 100)",
+    )
+    enrich_parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        dest="confirm",
+        help="Skip confirmation prompt",
+    )
+    add_format_option(enrich_parser)

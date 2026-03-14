@@ -396,6 +396,34 @@ export async function bulkUpdateLoops(updates, transactional = false) {
   return response.json();
 }
 
+export async function bulkEnrichLoops(items) {
+  const response = await fetch("/loops/bulk/enrich", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Bulk enrich failed"));
+  }
+  return response.json();
+}
+
+export async function bulkEnrichQuery(query, options = {}) {
+  const response = await fetch("/loops/bulk/query/enrich", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      query,
+      dry_run: Boolean(options.dryRun),
+      limit: Number(options.limit ?? 100),
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Bulk enrich query failed"));
+  }
+  return response.json();
+}
+
 // ========================================
 // Next/Review Operations
 // ========================================

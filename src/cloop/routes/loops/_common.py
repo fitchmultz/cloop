@@ -36,6 +36,8 @@ from ...loops.errors import (
     ValidationError,
 )
 from ...schemas.loops import (
+    BulkEnrichmentResultItem,
+    BulkEnrichResponse,
     BulkResultItem,
     ClarificationResponse,
     ClarificationSubmitResponse,
@@ -46,6 +48,7 @@ from ...schemas.loops import (
     LoopTemplateResponse,
     LoopViewResponse,
     LoopWithDependenciesResponse,
+    QueryBulkEnrichResponse,
     SuggestionListResponse,
     SuggestionResponse,
     TimerStatusResponse,
@@ -275,6 +278,49 @@ def build_bulk_result_items(results: Sequence[Mapping[str, Any]]) -> list[BulkRe
         )
         for result in results
     ]
+
+
+def build_bulk_enrichment_result_items(
+    results: Sequence[Mapping[str, Any]],
+) -> list[BulkEnrichmentResultItem]:
+    """Convert service bulk-enrichment results into response envelopes."""
+    return [
+        BulkEnrichmentResultItem(
+            index=result["index"],
+            loop_id=result["loop_id"],
+            ok=result["ok"],
+            loop=build_loop_response(result["loop"]) if result.get("loop") else None,
+            suggestion_id=result.get("suggestion_id"),
+            applied_fields=list(result.get("applied_fields") or []),
+            needs_clarification=list(result.get("needs_clarification") or []),
+            error=result.get("error"),
+        )
+        for result in results
+    ]
+
+
+def build_bulk_enrich_response(result: Mapping[str, Any]) -> BulkEnrichResponse:
+    """Convert a bulk-enrichment payload into the route response model."""
+    return BulkEnrichResponse(
+        ok=result["ok"],
+        results=build_bulk_enrichment_result_items(result.get("results", [])),
+        succeeded=result["succeeded"],
+        failed=result["failed"],
+    )
+
+
+def build_query_bulk_enrich_response(result: Mapping[str, Any]) -> QueryBulkEnrichResponse:
+    """Convert a query-driven bulk-enrichment payload into the route response model."""
+    return QueryBulkEnrichResponse(
+        query=result["query"],
+        dry_run=result["dry_run"],
+        ok=result["ok"],
+        matched_count=result["matched_count"],
+        limited=result.get("limited", False),
+        results=build_bulk_enrichment_result_items(result.get("results", [])),
+        succeeded=result["succeeded"],
+        failed=result["failed"],
+    )
 
 
 def build_query_bulk_preview_response(result: Mapping[str, Any]) -> dict[str, Any]:

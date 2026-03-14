@@ -65,6 +65,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **Persistent memory**: Direct memory CRUD/search across HTTP, web, CLI, and MCP, all backed by the shared `memory_management` contract in `core.db`.
 - **Semantic loop search**: Query loops by meaning across HTTP, the web Inbox, CLI, and MCP using the shared `read_service` + `loops/similarity.py` contract with on-demand embedding backfill.
 - **Relationship review**: Review semantically similar loops as duplicate vs related work across HTTP, the web Review tab, CLI, and MCP via the shared `loops/relationship_review.py` contract.
+- **Bulk enrichment workflows**: Preview and re-run explicit enrichment across filtered loop sets from HTTP, the web Review tab, the Inbox bulk action bar, CLI, and MCP via the shared `loops/enrichment_orchestration.py` contract.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
 - **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
@@ -293,6 +294,9 @@ cloop loop close <id> [--dropped] [--note TEXT] [--format json|table]
 # Run AI enrichment synchronously and return the updated loop + suggestion metadata
 cloop loop enrich <id> [--format json|table]
 
+# Preview or run bulk enrichment across a filtered loop set
+cloop loop bulk enrich --query "status:open" [--dry-run] [--limit 25] [--yes] [--format json|table]
+
 # Snooze a loop
 cloop loop snooze <id> <duration> [--format json|table]
 # Duration examples: 30m, 1h, 2d, 1w, or ISO8601 timestamp
@@ -312,6 +316,7 @@ Notes:
 - `cloop loop semantic-search` returns ranked loop payloads plus `semantic_score` and indexing metadata in JSON mode.
 - Semantic search backfills missing or stale loop embeddings on demand, so older loops become searchable without a one-off migration step.
 - `cloop loop relationship *` reuses the shared semantic similarity + relationship review contract, so duplicate/related classification and review-state persistence stay aligned with HTTP, web, and MCP.
+- `cloop loop bulk enrich` reuses the shared enrichment orchestration contract, so filtered target selection, result envelopes, and follow-up suggestion/clarification behavior stay aligned with HTTP, web, and MCP.
 
 ### Utility Commands
 
@@ -451,6 +456,8 @@ Endpoints:
 - `PATCH /loops/{id}`: update loop fields.
 - `POST /loops/{id}/close`: close a loop (completed or dropped).
 - `POST /loops/{id}/enrich`: run synchronous enrichment for a loop and return the updated loop plus suggestion metadata.
+- `POST /loops/bulk/enrich`: run explicit enrichment for a selected set of loops.
+- `POST /loops/bulk/query/enrich`: preview or run explicit enrichment across a DSL-selected loop set.
 - `GET /loops/{id}/suggestions`: list suggestions for a loop, including linked clarification rows.
 - `GET /loops/suggestions/pending`: list unresolved suggestions across loops.
 - `GET /loops/suggestions/{suggestion_id}`: fetch one suggestion with parsed payload and linked clarifications.
@@ -491,7 +498,7 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 | **Chat** (3) | LLM conversation with configurable loop, memory, document, and tool grounding |
 | **Memory** (4) | Durable memory CRUD/search powered by the shared direct-memory contract |
 | **RAG** (5) | Query your knowledge base |
-| **Review** (6) | Duplicate/related relationship review plus daily/weekly review cohorts |
+| **Review** (6) | Bulk enrichment, duplicate/related relationship review, plus daily/weekly review cohorts |
 | **Metrics** (7) | Loop health statistics |
 
 ### Quick Capture
@@ -506,8 +513,9 @@ Captures are persisted immediately with offline sync support. Semantic Inbox sea
 
 ### Review Cohorts
 
-The Review tab now has two review layers:
+The Review tab now has three review layers:
 
+- **Bulk enrichment**: a DSL-driven preview-and-run workflow for re-enriching a filtered loop set without leaving the review workspace.
 - **Duplicate & related-loop review**: a semantic-review queue with per-loop candidate previews, confirm/dismiss decisions, and duplicate merge entrypoints.
 - **Daily/weekly cohorts**: deterministic hygiene buckets for stale, blocked, and under-specified loops.
 
@@ -772,10 +780,11 @@ uv run cloop-mcp
 Exposed tools include `chat.complete`, `loop.create`, `loop.update`, `loop.close`, `loop.get`,
 `loop.next`, `loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.semantic_search`,
 `loop.relationship_review`, `loop.relationship_queue`, `loop.relationship_confirm`,
-`loop.relationship_dismiss`, `loop.snooze`, `loop.enrich`, `memory.list`, `memory.search`,
-`memory.get`, `memory.create`, `memory.update`, `memory.delete`, `suggestion.list`,
-`suggestion.get`, `suggestion.apply`, `suggestion.reject`, `clarification.list`,
-`clarification.answer`, `clarification.answer_many`, `project.list`, `rag.ask`, and `rag.ingest`.
+`loop.relationship_dismiss`, `loop.snooze`, `loop.enrich`, `loop.bulk_enrich`,
+`loop.bulk_enrich_query`, `memory.list`, `memory.search`, `memory.get`, `memory.create`,
+`memory.update`, `memory.delete`, `suggestion.list`, `suggestion.get`, `suggestion.apply`,
+`suggestion.reject`, `clarification.list`, `clarification.answer`, `clarification.answer_many`,
+`project.list`, `rag.ask`, and `rag.ingest`.
 
 `chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
 endpoint and `cloop chat`, so tool behavior, grounding options, metadata, sources, and
@@ -790,6 +799,10 @@ and `cloop loop semantic-search`, so ranking logic, on-demand embedding refresh,
 `loop.relationship_*` reuses the shared `src/cloop/loops/relationship_review.py` contract as HTTP,
 the web Review tab, and `cloop loop relationship *`, so duplicate-vs-related classification, queueing,
 and confirm/dismiss persistence stay aligned everywhere.
+
+`loop.bulk_enrich*` reuses the shared `src/cloop/loops/enrichment_orchestration.py` contract as HTTP,
+the web Review tab, the Inbox bulk `Enrich` action, and `cloop loop bulk enrich`, so filtered target
+selection, result envelopes, and follow-up suggestion/clarification behavior stay aligned everywhere.
 
 `suggestion.*` and `clarification.*` reuse the shared enrichment-review service contract as the HTTP,
 web, and CLI surfaces, so suggestion payloads, linked clarification rows, and clarification-answer

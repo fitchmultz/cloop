@@ -775,6 +775,23 @@ class BulkSnoozeRequest(BaseModel):
     transactional: bool = Field(default=False, description="Rollback all on any failure")
 
 
+class BulkEnrichItem(BaseModel):
+    """Single item in a bulk enrich request."""
+
+    loop_id: int
+
+
+class BulkEnrichRequest(BaseModel):
+    """Request for bulk loop enrichment."""
+
+    items: List[BulkEnrichItem] = Field(
+        ...,
+        min_length=1,
+        max_length=BULK_OPERATION_MAX_ITEMS,
+        description=f"List of loops to enrich (max {BULK_OPERATION_MAX_ITEMS} items)",
+    )
+
+
 class BulkResultItem(BaseModel):
     """Result for a single item in bulk operation."""
 
@@ -783,6 +800,14 @@ class BulkResultItem(BaseModel):
     ok: bool
     loop: LoopResponse | None = None
     error: Dict[str, Any] | None = None
+
+
+class BulkEnrichmentResultItem(BulkResultItem):
+    """Result for one loop inside a bulk enrichment run."""
+
+    suggestion_id: int | None = None
+    applied_fields: List[str] = Field(default_factory=list)
+    needs_clarification: List[str] = Field(default_factory=list)
 
 
 class BulkUpdateResponse(BaseModel):
@@ -811,6 +836,15 @@ class BulkSnoozeResponse(BaseModel):
     ok: bool
     transactional: bool
     results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+class BulkEnrichResponse(BaseModel):
+    """Response for bulk enrichment operation."""
+
+    ok: bool
+    results: List[BulkEnrichmentResultItem]
     succeeded: int
     failed: int
 
@@ -879,6 +913,24 @@ class QueryBulkSnoozeRequest(BaseModel):
         return validate_iso8601_timestamp(v, "snooze_until_utc")
 
 
+class QueryBulkEnrichRequest(BaseModel):
+    """Bulk enrich targeting loops by DSL query."""
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=SEARCH_QUERY_MAX,
+        description="DSL query to select target loops",
+    )
+    dry_run: bool = Field(default=False, description="Preview targets without applying changes")
+    limit: int = Field(
+        default=100,
+        ge=1,
+        le=BULK_OPERATION_MAX_ITEMS,
+        description="Max loops to affect",
+    )
+
+
 class QueryBulkPreviewResponse(BaseModel):
     """Response for dry-run preview of query-based bulk operation."""
 
@@ -927,6 +979,19 @@ class QueryBulkSnoozeResponse(BaseModel):
     matched_count: int
     limited: bool
     results: List[BulkResultItem]
+    succeeded: int
+    failed: int
+
+
+class QueryBulkEnrichResponse(BaseModel):
+    """Response for query-based bulk enrichment."""
+
+    query: str
+    dry_run: bool
+    ok: bool
+    matched_count: int
+    limited: bool
+    results: List[BulkEnrichmentResultItem]
     succeeded: int
     failed: int
 

@@ -47,14 +47,14 @@ enrichment, review, and direct-memory contracts can propagate outward without re
 
 ### Phase 1 — Productize shared AI-assisted loop operations
 
-Goal: turn the next strongest shared loop primitives into explicit operator workflows.
+Goal: extend the newly shared review + enrichment contracts into durable operator workflows.
 
-- Bulk enrichment across filtered loop sets.
 - Saved review actions that can apply consistent duplicate/related decisions or enrichment follow-ups across a review session without transport-specific glue.
+- Session-level operator views that preserve filtered worklists while you apply review decisions or enrichment follow-ups.
 
 Why here:
 
-- Relationship review and semantic search are now shared, so the next highest-leverage work is batching and session-level operator flow on top of those stabilized contracts.
+- Bulk enrichment across filtered loop sets is now shared, so the next highest-leverage work is preserving operator context while users step through relationship and enrichment queues.
 - These features extend already-centralized behavior instead of creating fresh AI/runtime seams.
 
 ### Phase 2 — Add richer conversational loop refinement
@@ -86,8 +86,8 @@ Why last:
 If work is being planned session-by-session, the best short sequence is:
 
 1. **Shared operator workflows session**
-   - bulk enrichment workflows
    - saved review actions for relationship/enrichment queues
+   - session-preserving filtered review worklists
 2. **Conversational refinement session**
    - conversational clarification/enrichment loops
    - guided relationship/enrichment review walkthroughs

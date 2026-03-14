@@ -1,7 +1,9 @@
 """Tests for query-driven bulk loop operations."""
 
+import json
 import sqlite3
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -53,6 +55,92 @@ def client_with_loops(tmp_path, monkeypatch):
         created.append(resp.json())
 
     return client, created
+
+
+def _bulk_enrichment_mock_response(title: str, question: str | None = None):
+    payload: dict[str, object] = {
+        "title": title,
+        "summary": f"Summary for {title}",
+        "confidence": {
+            "title": 0.95,
+            "summary": 0.92,
+        },
+    }
+    if question is not None:
+        payload["needs_clarification"] = [question]
+    return (
+        json.dumps(payload),
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
+
+
+class TestBulkEnrich:
+    def test_bulk_enrich_selected_loops(self, client_with_loops):
+        client, created = client_with_loops
+        responses = [
+            _bulk_enrichment_mock_response("Enriched Task A", "When should this ship?"),
+            _bulk_enrichment_mock_response("Enriched Task B"),
+        ]
+
+        with patch("cloop.loops.enrichment.chat_completion", side_effect=responses):
+            resp = client.post(
+                "/loops/bulk/enrich",
+                json={
+                    "items": [
+                        {"loop_id": created[0]["id"]},
+                        {"loop_id": created[1]["id"]},
+                    ]
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["succeeded"] == 2
+        assert len(data["results"]) == 2
+        assert data["results"][0]["loop"]["enrichment_state"] == "complete"
+        assert data["results"][0]["needs_clarification"] == ["When should this ship?"]
+
+    def test_query_bulk_enrich_dry_run_returns_preview(self, client_with_loops):
+        client, _ = client_with_loops
+        resp = client.post(
+            "/loops/bulk/query/enrich",
+            json={
+                "query": "status:actionable tag:old",
+                "dry_run": True,
+                "limit": 10,
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert data["matched_count"] == 2
+        assert len(data["targets"]) == 2
+
+    def test_query_bulk_enrich_runs_for_matched_loops(self, client_with_loops):
+        client, _ = client_with_loops
+        responses = [
+            _bulk_enrichment_mock_response("Enriched Task A"),
+            _bulk_enrichment_mock_response("Enriched Task B", "What is blocked?"),
+        ]
+
+        with patch("cloop.loops.enrichment.chat_completion", side_effect=responses):
+            resp = client.post(
+                "/loops/bulk/query/enrich",
+                json={
+                    "query": "status:actionable tag:old",
+                    "dry_run": False,
+                    "limit": 10,
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is False
+        assert data["ok"] is True
+        assert data["matched_count"] == 2
+        assert data["succeeded"] == 2
+        assert data["results"][1]["needs_clarification"] == ["What is blocked?"]
 
 
 class TestQueryBulkUpdate:

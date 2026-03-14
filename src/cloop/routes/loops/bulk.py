@@ -7,7 +7,8 @@ Responsibilities:
     - Bulk update fields on multiple loops
     - Bulk close loops with configurable status (completed/dropped)
     - Bulk snooze loops with scheduled wake times
-    - Support transactional mode (all-or-nothing) for bulk operations
+    - Bulk enrich explicitly selected loops or DSL-selected loop sets
+    - Support transactional mode (all-or-nothing) for applicable bulk operations
     - Return per-item success/failure status
 
 Non-scope:
@@ -19,21 +20,32 @@ Endpoints:
 - POST /bulk/update: Bulk update multiple loops
 - POST /bulk/close: Bulk close multiple loops
 - POST /bulk/snooze: Bulk snooze multiple loops
+- POST /bulk/enrich: Bulk enrich explicitly selected loops
+- POST /bulk/query/enrich: Bulk enrich query-selected loops
 """
 
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 from ... import db
 from ...loops import bulk as loop_bulk
+from ...loops.enrichment_orchestration import (
+    orchestrate_bulk_loop_enrichment,
+    orchestrate_query_bulk_loop_enrichment,
+)
 from ...schemas.loops import (
     BulkCloseRequest,
     BulkCloseResponse,
+    BulkEnrichRequest,
+    BulkEnrichResponse,
     BulkSnoozeRequest,
     BulkSnoozeResponse,
     BulkUpdateRequest,
     BulkUpdateResponse,
     QueryBulkCloseRequest,
     QueryBulkCloseResponse,
+    QueryBulkEnrichRequest,
+    QueryBulkEnrichResponse,
     QueryBulkPreviewResponse,
     QueryBulkSnoozeRequest,
     QueryBulkSnoozeResponse,
@@ -41,9 +53,13 @@ from ...schemas.loops import (
     QueryBulkUpdateResponse,
 )
 from ._common import (
+    IdempotencyKeyHeader,
     SettingsDep,
+    build_bulk_enrich_response,
     build_bulk_result_items,
+    build_query_bulk_enrich_response,
     build_query_bulk_preview_response,
+    run_idempotent_loop_route,
 )
 
 router = APIRouter()
@@ -85,6 +101,11 @@ def _serialize_bulk_snooze_request(request: BulkSnoozeRequest) -> list[dict[str,
         }
         for item in request.items
     ]
+
+
+def _serialize_bulk_enrich_request(request: BulkEnrichRequest) -> list[int]:
+    """Convert bulk enrich request items into loop ID lists."""
+    return [item.loop_id for item in request.items]
 
 
 @router.post("/bulk/update", response_model=BulkUpdateResponse)
@@ -151,6 +172,32 @@ def bulk_snooze_endpoint(
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
+
+
+@router.post("/bulk/enrich", response_model=BulkEnrichResponse)
+def bulk_enrich_endpoint(
+    request: BulkEnrichRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> BulkEnrichResponse | JSONResponse:
+    """Bulk enrich multiple explicitly selected loops."""
+    loop_ids = _serialize_bulk_enrich_request(request)
+    payload = {"loop_ids": loop_ids}
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="POST",
+        path="/loops/bulk/enrich",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: orchestrate_bulk_loop_enrichment(
+            loop_ids=loop_ids,
+            conn=conn,
+            settings=settings,
+        ).to_payload(),
+    )
+    if isinstance(result, JSONResponse):
+        return result
+    return build_bulk_enrich_response(result)
 
 
 @router.post("/bulk/query/update", response_model=None)
@@ -248,3 +295,45 @@ def query_bulk_snooze_endpoint(
         succeeded=result["succeeded"],
         failed=result["failed"],
     )
+
+
+@router.post("/bulk/query/enrich", response_model=None)
+def query_bulk_enrich_endpoint(
+    request: QueryBulkEnrichRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> QueryBulkEnrichResponse | QueryBulkPreviewResponse | JSONResponse:
+    """Bulk enrich loops matching DSL query."""
+    if request.dry_run:
+        with db.core_connection(settings) as conn:
+            result = orchestrate_query_bulk_loop_enrichment(
+                query=request.query,
+                limit=request.limit,
+                dry_run=True,
+                conn=conn,
+                settings=settings,
+            )
+        return QueryBulkPreviewResponse(**build_query_bulk_preview_response(result))
+
+    payload = {
+        "query": request.query,
+        "limit": request.limit,
+        "dry_run": False,
+    }
+    result = run_idempotent_loop_route(
+        settings=settings,
+        method="POST",
+        path="/loops/bulk/query/enrich",
+        idempotency_key=idempotency_key,
+        payload=payload,
+        execute=lambda conn: orchestrate_query_bulk_loop_enrichment(
+            query=request.query,
+            limit=request.limit,
+            dry_run=False,
+            conn=conn,
+            settings=settings,
+        ),
+    )
+    if isinstance(result, JSONResponse):
+        return result
+    return build_query_bulk_enrich_response(result)

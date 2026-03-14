@@ -21,6 +21,8 @@ from re import match as re_match
 from typing import Any, Callable
 
 from ..loops import bulk as loop_bulk
+from ..loops.enrichment_orchestration import orchestrate_query_bulk_loop_enrichment
+from ..loops.errors import ValidationError
 from ..loops.models import format_utc_datetime, utc_now, validate_iso8601_timestamp
 from ..settings import Settings
 from ._runtime import cli_error, error_handler, fail_cli, run_cli_action, run_cli_db_action
@@ -82,7 +84,11 @@ def _execute_bulk_operation(
                 error_handler(
                     ValueError,
                     lambda exc: cli_error(str(exc), exit_code=2),
-                )
+                ),
+                error_handler(
+                    ValidationError,
+                    lambda exc: cli_error(exc.message, exit_code=2),
+                ),
             ],
         )
 
@@ -100,7 +106,11 @@ def _execute_bulk_operation(
             error_handler(
                 ValueError,
                 lambda exc: cli_error(str(exc), exit_code=2),
-            )
+            ),
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(exc.message, exit_code=2),
+            ),
         ],
     )
     if preview_exit != 0:
@@ -131,7 +141,11 @@ def _execute_bulk_operation(
             error_handler(
                 ValueError,
                 lambda exc: cli_error(str(exc), exit_code=2),
-            )
+            ),
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(exc.message, exit_code=2),
+            ),
         ],
         success_exit_code=0,
     )
@@ -238,4 +252,28 @@ def loop_bulk_snooze_command(args: Any, settings: Settings) -> int:
         ),
         preview_summary=f"Dry-run complete. Would snooze until: {snooze_until}",
         confirm_message=lambda matched_count: f"Snooze {matched_count} loop(s)?",
+    )
+
+
+def loop_bulk_enrich_command(args: Any, settings: Settings) -> int:
+    """Handle 'loop bulk enrich' command."""
+    return _execute_bulk_operation(
+        args=args,
+        settings=settings,
+        preview_operation=lambda conn: orchestrate_query_bulk_loop_enrichment(
+            query=args.query,
+            limit=args.limit,
+            dry_run=True,
+            conn=conn,
+            settings=settings,
+        ),
+        apply_operation=lambda conn: orchestrate_query_bulk_loop_enrichment(
+            query=args.query,
+            limit=args.limit,
+            dry_run=False,
+            conn=conn,
+            settings=settings,
+        ),
+        preview_summary="Dry-run complete. Run without --dry-run to enrich the matched loops.",
+        confirm_message=lambda matched_count: f"Enrich {matched_count} loop(s)?",
     )

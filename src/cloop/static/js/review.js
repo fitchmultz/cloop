@@ -17,6 +17,7 @@
  */
 
 import * as api from './api.js';
+import * as modals from './modals.js';
 import * as state from './state.js';
 import { escapeHtml } from './utils.js';
 import { loadInbox } from './loop.js';
@@ -28,6 +29,13 @@ let reviewRelationshipStatus;
 let reviewRelationshipKind;
 let reviewRelationshipRefresh;
 let reviewStatus;
+let reviewBulkEnrichQuery;
+let reviewBulkEnrichLimit;
+let reviewBulkEnrichPreview;
+let reviewBulkEnrichRun;
+let reviewBulkEnrichStatus;
+let reviewBulkEnrichPreviewResults;
+let reviewBulkEnrichRunResults;
 
 const COHORT_CONFIG = {
   stale: { icon: "🕰️", title: "Stale Loops" },
@@ -43,6 +51,13 @@ export function init(elements) {
   reviewRelationshipKind = elements.reviewRelationshipKind;
   reviewRelationshipRefresh = elements.reviewRelationshipRefresh;
   reviewStatus = elements.reviewStatus;
+  reviewBulkEnrichQuery = elements.reviewBulkEnrichQuery;
+  reviewBulkEnrichLimit = elements.reviewBulkEnrichLimit;
+  reviewBulkEnrichPreview = elements.reviewBulkEnrichPreview;
+  reviewBulkEnrichRun = elements.reviewBulkEnrichRun;
+  reviewBulkEnrichStatus = elements.reviewBulkEnrichStatus;
+  reviewBulkEnrichPreviewResults = elements.reviewBulkEnrichPreviewResults;
+  reviewBulkEnrichRunResults = elements.reviewBulkEnrichRunResults;
 
   reviewRelationshipQueue?.addEventListener('click', handleRelationshipQueueClick);
   reviewRelationshipStatus?.addEventListener('change', () => {
@@ -53,6 +68,12 @@ export function init(elements) {
   });
   reviewRelationshipRefresh?.addEventListener('click', () => {
     void loadRelationshipReviewQueue();
+  });
+  reviewBulkEnrichPreview?.addEventListener('click', () => {
+    void previewBulkEnrichment();
+  });
+  reviewBulkEnrichRun?.addEventListener('click', () => {
+    void runBulkEnrichment();
   });
 }
 
@@ -263,6 +284,139 @@ export function renderRelationshipReviewQueue() {
   queue.items.forEach((item) => {
     reviewRelationshipQueue.appendChild(renderRelationshipQueueItem(item));
   });
+}
+
+function getBulkEnrichmentLimit() {
+  const limit = Number.parseInt(reviewBulkEnrichLimit?.value || '25', 10);
+  if (!Number.isFinite(limit) || limit < 1) {
+    return 25;
+  }
+  return Math.min(limit, 100);
+}
+
+function renderBulkEnrichmentLoopList(targets = []) {
+  if (!targets.length) {
+    return '<div class="cohort-empty">No loops matched this query.</div>';
+  }
+
+  return `
+    <div class="bulk-enrichment-target-list">
+      ${targets.map((loop) => `
+        <article class="bulk-enrichment-target-card">
+          <div class="bulk-enrichment-target-meta">
+            <span class="support-eyebrow">Loop #${loop.id}</span>
+            <span class="cohort-count">${escapeHtml(loop.status)}</span>
+          </div>
+          <h3>${escapeHtml(loop.title || loop.raw_text || 'Untitled')}</h3>
+          <p>${escapeHtml(loop.summary || loop.raw_text || '')}</p>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderBulkEnrichmentResultList(results = []) {
+  if (!results.length) {
+    return '<div class="cohort-empty">No loops were enriched in this run.</div>';
+  }
+
+  return `
+    <div class="bulk-enrichment-target-list">
+      ${results.map((item) => `
+        <article class="bulk-enrichment-target-card ${item.ok ? 'is-success' : 'is-error'}">
+          <div class="bulk-enrichment-target-meta">
+            <span class="support-eyebrow">Loop #${item.loop_id}</span>
+            <span class="cohort-count ${item.ok ? '' : 'alert'}">${item.ok ? 'enriched' : 'failed'}</span>
+          </div>
+          <h3>${escapeHtml(item.loop?.title || item.loop?.raw_text || `Loop #${item.loop_id}`)}</h3>
+          ${item.ok ? `
+            <p>${escapeHtml(item.loop?.summary || item.loop?.raw_text || 'Enrichment completed.')}</p>
+            <div class="bulk-enrichment-result-meta">
+              <span>Suggestion #${item.suggestion_id ?? '—'}</span>
+              <span>Applied: ${escapeHtml((item.applied_fields || []).join(', ') || 'none')}</span>
+              <span>Clarifications: ${item.needs_clarification?.length || 0}</span>
+            </div>
+          ` : `
+            <p>${escapeHtml(item.error?.message || 'Enrichment failed.')}</p>
+          `}
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function previewBulkEnrichment() {
+  if (!reviewBulkEnrichQuery || !reviewBulkEnrichPreviewResults || !reviewBulkEnrichStatus) {
+    return;
+  }
+
+  const query = reviewBulkEnrichQuery.value.trim();
+  if (!query) {
+    reviewBulkEnrichStatus.textContent = 'Enter a DSL query before previewing bulk enrichment.';
+    return;
+  }
+
+  reviewBulkEnrichStatus.textContent = 'Previewing bulk enrichment targets…';
+  reviewBulkEnrichPreviewResults.innerHTML = '<div class="cohort-loading">Loading preview…</div>';
+  if (reviewBulkEnrichRunResults) {
+    reviewBulkEnrichRunResults.innerHTML = '';
+  }
+
+  try {
+    const result = await api.bulkEnrichQuery(query, { dryRun: true, limit: getBulkEnrichmentLimit() });
+    state.updateState({ reviewBulkEnrichmentPreview: result });
+    reviewBulkEnrichPreviewResults.innerHTML = renderBulkEnrichmentLoopList(result.targets || []);
+    reviewBulkEnrichStatus.textContent = result.targets?.length
+      ? `Preview matched ${result.matched_count} loop${result.matched_count !== 1 ? 's' : ''}.`
+      : 'No loops matched this query.';
+  } catch (err) {
+    console.error('previewBulkEnrichment error:', err);
+    reviewBulkEnrichPreviewResults.innerHTML = '<div class="cohort-empty">Error loading bulk enrichment preview.</div>';
+    reviewBulkEnrichStatus.textContent = err.message || 'Bulk enrichment preview failed.';
+  }
+}
+
+async function runBulkEnrichment() {
+  if (!reviewBulkEnrichQuery || !reviewBulkEnrichRunResults || !reviewBulkEnrichStatus) {
+    return;
+  }
+
+  const query = reviewBulkEnrichQuery.value.trim();
+  if (!query) {
+    reviewBulkEnrichStatus.textContent = 'Enter a DSL query before running bulk enrichment.';
+    return;
+  }
+
+  const preview = state.state.reviewBulkEnrichmentPreview;
+  const previewCount = preview?.query === query ? Number(preview.matched_count || 0) : null;
+  const confirmed = await modals.confirmDialog({
+    eyebrow: 'Bulk enrichment',
+    title: 'Enrich filtered loop set',
+    description: previewCount !== null
+      ? `Run explicit enrichment across ${previewCount} matched loop${previewCount !== 1 ? 's' : ''}?`
+      : 'Run explicit enrichment across the loops matched by this query?',
+    confirmLabel: 'Enrich loops',
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  reviewBulkEnrichStatus.textContent = 'Running bulk enrichment…';
+  reviewBulkEnrichRunResults.innerHTML = '<div class="cohort-loading">Running enrichment…</div>';
+
+  try {
+    const result = await api.bulkEnrichQuery(query, { dryRun: false, limit: getBulkEnrichmentLimit() });
+    state.updateState({ reviewBulkEnrichmentResult: result });
+    reviewBulkEnrichRunResults.innerHTML = renderBulkEnrichmentResultList(result.results || []);
+    reviewBulkEnrichStatus.textContent = result.failed
+      ? `Bulk enrichment finished: ${result.succeeded} succeeded, ${result.failed} failed.`
+      : `Bulk enrichment finished: ${result.succeeded} loop${result.succeeded !== 1 ? 's' : ''} enriched.`;
+    await Promise.all([loadInbox(), loadRelationshipReviewQueue()]);
+  } catch (err) {
+    console.error('runBulkEnrichment error:', err);
+    reviewBulkEnrichRunResults.innerHTML = '<div class="cohort-empty">Bulk enrichment failed.</div>';
+    reviewBulkEnrichStatus.textContent = err.message || 'Bulk enrichment failed.';
+  }
 }
 
 export function setReviewMode(mode) {

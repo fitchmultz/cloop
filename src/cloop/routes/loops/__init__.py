@@ -16,7 +16,7 @@ Modules:
 - claims: Loop claim management (exclusive access leases)
 - events: Event history and undo operations
 - webhooks: Webhook subscription management
-- bulk: Bulk operations (update, close, snooze)
+- bulk: Bulk operations (update, close, snooze, enrich)
 - timers: Time tracking sessions
 - comments: Threaded comments on loops
 - duplicates: Duplicate detection and merge operations

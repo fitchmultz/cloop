@@ -7,7 +7,7 @@
  * Responsibilities:
  *   - Selection state management
  *   - Bulk action bar UI
- *   - Bulk operations (complete, drop, snooze, status, tags)
+ *   - Bulk operations (complete, drop, snooze, status, tags, enrich)
  *   - Confirmation modals for bulk actions
  *
  * Non-scope:
@@ -18,6 +18,7 @@
 
 import * as api from './api.js';
 import * as modals from './modals.js';
+import { loadInbox } from './loop.js';
 import { selectedLoopIds, clearLoopSelection } from './state.js';
 
 let statusEl, bulkActionBar;
@@ -153,6 +154,30 @@ export async function executeBulkAddTags(newTags) {
 }
 
 /**
+ * Execute bulk enrich for selected loops
+ */
+export async function executeBulkEnrich() {
+  const loopIds = Array.from(selectedLoopIds);
+  const items = loopIds.map((id) => ({ loop_id: id }));
+
+  statusEl.textContent = `Enriching ${items.length} loops...`;
+
+  try {
+    const result = await api.bulkEnrichLoops(items);
+    const clarificationCount = result.results.filter((item) => item.ok && item.needs_clarification?.length).length;
+    statusEl.textContent = clarificationCount > 0
+      ? `Enriched ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}; ${clarificationCount} need clarification.`
+      : `Enriched ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
+    clearLoopSelection();
+    updateBulkActionBar();
+    await loadInbox();
+  } catch (error) {
+    console.error("Bulk enrich error:", error);
+    statusEl.textContent = error.message;
+  }
+}
+
+/**
  * Handle bulk action button clicks
  */
 export async function handleBulkAction(action) {
@@ -266,6 +291,19 @@ export async function handleBulkAction(action) {
         if (tagList.length > 0) {
           executeBulkAddTags(tagList);
         }
+      }
+      break;
+    }
+
+    case "enrich": {
+      const confirmed = await modals.confirmDialog({
+        eyebrow: "Bulk action",
+        title: "Enrich Loops",
+        description: `Run AI enrichment for ${count} selected loop${count !== 1 ? "s" : ""}?`,
+        confirmLabel: "Enrich loops",
+      });
+      if (confirmed) {
+        executeBulkEnrich();
       }
       break;
     }

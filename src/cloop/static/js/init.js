@@ -127,6 +127,13 @@ const elements = {
   reviewRelationshipKind: document.getElementById("review-relationship-kind"),
   reviewRelationshipRefresh: document.getElementById("review-relationship-refresh"),
   reviewStatus: document.getElementById("review-status"),
+  reviewBulkEnrichQuery: document.getElementById("review-bulk-enrich-query"),
+  reviewBulkEnrichLimit: document.getElementById("review-bulk-enrich-limit"),
+  reviewBulkEnrichPreview: document.getElementById("review-bulk-enrich-preview"),
+  reviewBulkEnrichRun: document.getElementById("review-bulk-enrich-run"),
+  reviewBulkEnrichStatus: document.getElementById("review-bulk-enrich-status"),
+  reviewBulkEnrichPreviewResults: document.getElementById("review-bulk-enrich-preview-results"),
+  reviewBulkEnrichRunResults: document.getElementById("review-bulk-enrich-run-results"),
   metricsContent: document.getElementById("metrics-content"),
   bulkActionBar: document.getElementById("bulk-action-bar"),
   helpModal: document.getElementById("help-modal"),
@@ -1230,6 +1237,13 @@ function init() {
     reviewRelationshipKind: elements.reviewRelationshipKind,
     reviewRelationshipRefresh: elements.reviewRelationshipRefresh,
     reviewStatus: elements.reviewStatus,
+    reviewBulkEnrichQuery: elements.reviewBulkEnrichQuery,
+    reviewBulkEnrichLimit: elements.reviewBulkEnrichLimit,
+    reviewBulkEnrichPreview: elements.reviewBulkEnrichPreview,
+    reviewBulkEnrichRun: elements.reviewBulkEnrichRun,
+    reviewBulkEnrichStatus: elements.reviewBulkEnrichStatus,
+    reviewBulkEnrichPreviewResults: elements.reviewBulkEnrichPreviewResults,
+    reviewBulkEnrichRunResults: elements.reviewBulkEnrichRunResults,
   });
   next.init({ nextBuckets: elements.nextBuckets });
   chat.init({

@@ -38,6 +38,8 @@ export const state = {
   reviewMode: 'daily',
   reviewData: null,
   relationshipReviewQueue: null,
+  reviewBulkEnrichmentPreview: null,
+  reviewBulkEnrichmentResult: null,
   chatMessages: [],
   chatPreferences: { ...DEFAULT_CHAT_PREFERENCES },
   lastClickedLoopId: null,

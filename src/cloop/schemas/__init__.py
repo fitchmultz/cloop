@@ -20,6 +20,8 @@ from .chat import (
 )
 from .health import HealthResponse
 from .loops import (
+    BulkEnrichRequest,
+    BulkEnrichResponse,
     LoopBase,
     LoopCaptureRequest,
     LoopCloseRequest,
@@ -35,6 +37,8 @@ from .loops import (
     LoopSemanticSearchResponse,
     LoopStatusRequest,
     LoopUpdateRequest,
+    QueryBulkEnrichRequest,
+    QueryBulkEnrichResponse,
     RelationshipDecisionRequest,
     RelationshipDecisionResponse,
     RelationshipReviewCandidateResponse,
@@ -60,6 +64,8 @@ __all__ = [
     "ToolCall",
     "_InteractionMetadata",
     "HealthResponse",
+    "BulkEnrichRequest",
+    "BulkEnrichResponse",
     "LoopBase",
     "LoopCaptureRequest",
     "LoopCloseRequest",
@@ -75,6 +81,8 @@ __all__ = [
     "LoopSemanticSearchResponse",
     "LoopStatusRequest",
     "LoopUpdateRequest",
+    "QueryBulkEnrichRequest",
+    "QueryBulkEnrichResponse",
     "RelationshipDecisionRequest",
     "RelationshipDecisionResponse",
     "RelationshipReviewCandidateResponse",

@@ -1998,6 +1998,62 @@ def test_loop_enrich_command_not_found(
     assert "not found" in captured.err
 
 
+def test_loop_bulk_enrich_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Query-selected bulk enrichment should run through the shared CLI workflow."""
+    from unittest.mock import patch
+
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    cli._capture_command(parser.parse_args(["capture", "Task A", "--actionable"]), settings)
+    capsys.readouterr()
+    cli._capture_command(parser.parse_args(["capture", "Task B", "--actionable"]), settings)
+    capsys.readouterr()
+
+    responses = [
+        (
+            json.dumps(
+                {
+                    "title": "Enriched Task A",
+                    "confidence": {"title": 0.95},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+        (
+            json.dumps(
+                {
+                    "title": "Enriched Task B",
+                    "needs_clarification": ["What is the deadline?"],
+                    "confidence": {"title": 0.95},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    ]
+
+    with patch("cloop.loops.enrichment.chat_completion", side_effect=responses):
+        exit_code = cli.main(
+            [
+                "loop",
+                "bulk",
+                "enrich",
+                "--query",
+                "status:actionable",
+                "--yes",
+            ]
+        )
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["ok"] is True
+    assert output["matched_count"] == 2
+    assert output["succeeded"] == 2
+    assert output["results"][1]["needs_clarification"] == ["What is the deadline?"]
+
+
 def test_suggestion_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     """Suggestion CLI commands should review and resolve shared suggestion records."""
     from cloop.loops import repo

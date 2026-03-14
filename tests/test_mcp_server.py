@@ -23,7 +23,13 @@ from cloop import db
 from cloop.mcp_server import mcp
 from cloop.mcp_tools._runtime import to_tool_error
 from cloop.mcp_tools.chat_tools import chat_complete
-from cloop.mcp_tools.loop_bulk import loop_bulk_close, loop_bulk_snooze, loop_bulk_update
+from cloop.mcp_tools.loop_bulk import (
+    loop_bulk_close,
+    loop_bulk_enrich,
+    loop_bulk_enrich_query,
+    loop_bulk_snooze,
+    loop_bulk_update,
+)
 from cloop.mcp_tools.loop_claims import (
     loop_claim,
     loop_force_release_claim,
@@ -2200,6 +2206,86 @@ def test_loop_bulk_snooze_transactional_rollback(
     check = loop_list(status="inbox")
     assert len(check["items"]) == 1
     assert check["items"][0]["snooze_until_utc"] is None
+
+
+def test_loop_bulk_enrich_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP bulk_enrich should enrich explicitly selected loops."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    first = loop_create(
+        raw_text="Bulk enrich A",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+    second = loop_create(
+        raw_text="Bulk enrich B",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+
+    responses = [
+        (
+            '{"title":"Enriched A","confidence":{"title":0.95}}',
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+        (
+            '{"title":"Enriched B","needs_clarification":["What is next?"],'
+            '"confidence":{"title":0.95}}',
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    ]
+
+    with patch("cloop.loops.enrichment.chat_completion", side_effect=responses):
+        result = loop_bulk_enrich(loop_ids=[first["id"], second["id"]])
+
+    assert result["ok"] is True
+    assert result["succeeded"] == 2
+    assert result["results"][1]["needs_clarification"] == ["What is next?"]
+
+
+def test_loop_bulk_enrich_query_preview_and_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MCP bulk_enrich_query should preview and execute query-selected enrichments."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    loop_create(
+        raw_text="Query enrich A",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+    loop_create(
+        raw_text="Query enrich B",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+
+    preview = loop_bulk_enrich_query(query="status:actionable", dry_run=True, limit=10)
+    assert preview["dry_run"] is True
+    assert preview["matched_count"] == 2
+
+    responses = [
+        (
+            '{"title":"Query Enriched A","confidence":{"title":0.95}}',
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+        (
+            '{"title":"Query Enriched B","confidence":{"title":0.95}}',
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    ]
+
+    with patch("cloop.loops.enrichment.chat_completion", side_effect=responses):
+        result = loop_bulk_enrich_query(query="status:actionable", dry_run=False, limit=10)
+
+    assert result["dry_run"] is False
+    assert result["ok"] is True
+    assert result["matched_count"] == 2
+    assert result["succeeded"] == 2
 
 
 def test_loop_bulk_update_idempotency_replay(

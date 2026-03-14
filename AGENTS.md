@@ -16,6 +16,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Generative AI bridge runtime | `src/cloop/ai_bridge/`, `src/cloop/pi_bridge/` |
 | Shared grounded chat preparation/execution | `src/cloop/chat_orchestration.py`, `src/cloop/chat_execution.py` |
 | Shared RAG ask/ingest execution | `src/cloop/rag_execution.py`, `src/cloop/rag/ask_orchestration.py` |
+| Shared enrichment orchestration | `src/cloop/loops/enrichment_orchestration.py` |
 | Shared enrichment review flows | `src/cloop/loops/enrichment_review.py` |
 | Shared relationship review flows | `src/cloop/loops/relationship_review.py` |
 | Shared direct memory management | `src/cloop/memory_management.py`, `src/cloop/storage/memory_store.py` |
@@ -56,6 +57,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Loops**: State machine transitions in `loops/service.py` (inbox → actionable/blocked/scheduled → completed/dropped)
 - **Loop reads**: canonical query/read entrypoints live in `src/cloop/loops/read_service.py`; HTTP, CLI, MCP, and tool read paths should import that module directly instead of routing basic reads through `loops/service.py`.
 - **Saved views + templates**: canonical owners are `src/cloop/loops/views.py` and `src/cloop/loops/template_management.py`; avoid reintroducing generic service wrappers for those concerns.
+- **Bulk enrichment**: selected-loop and query-driven enrichment preview/execution now belong in `src/cloop/loops/enrichment_orchestration.py`; HTTP, CLI, MCP, and web flows should reuse that module instead of open-coding loop-by-loop enrichment loops or query-target selection.
 - **Scheduler**: `src/cloop/scheduler.py` is a dedicated process entrypoint (`cloop-scheduler`), not an app-lifespan background task.
 - **SSE**: Streaming utilities in `sse.py` for real-time responses
 - **SQLite in tests**: `with sqlite3.connect(...)` does **not** close connections; use `contextlib.closing(sqlite3.connect(...))` or explicit `conn.close()` in fixtures/finalizers.

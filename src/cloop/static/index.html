@@ -474,6 +474,38 @@
     <!-- Review Tab -->
     <main class="workspace-main review-main" id="review-main">
       <div class="workspace-primary review-workspace-primary">
+        <section class="panel review-panel bulk-enrichment-panel">
+          <div class="review-header bulk-enrichment-header">
+            <div>
+              <p class="support-eyebrow">Operator workflow</p>
+              <h2>Bulk enrichment across filtered loops</h2>
+              <p class="support-copy">Preview a DSL-selected loop set, then re-run explicit enrichment across that slice without jumping surface-by-surface.</p>
+            </div>
+            <div class="review-controls-row bulk-enrichment-actions">
+              <button class="secondary" type="button" id="review-bulk-enrich-preview">Preview</button>
+              <button type="button" id="review-bulk-enrich-run">Enrich matched loops</button>
+            </div>
+          </div>
+          <div class="bulk-enrichment-form">
+            <label class="bulk-enrichment-field" for="review-bulk-enrich-query">
+              <span>DSL query</span>
+              <input
+                type="text"
+                id="review-bulk-enrich-query"
+                value="status:open"
+                placeholder="status:open tag:deep-work"
+                autocomplete="off"
+              >
+            </label>
+            <label class="bulk-enrichment-field bulk-enrichment-limit-field" for="review-bulk-enrich-limit">
+              <span>Limit</span>
+              <input type="number" id="review-bulk-enrich-limit" min="1" max="100" step="1" value="25">
+            </label>
+          </div>
+          <p id="review-bulk-enrich-status" class="support-status" role="status" aria-live="polite">Preview a filtered loop set before running a shared enrichment pass.</p>
+          <div id="review-bulk-enrich-preview-results" class="bulk-enrichment-results"></div>
+          <div id="review-bulk-enrich-run-results" class="bulk-enrichment-results"></div>
+        </section>
         <section class="panel review-panel relationship-review-panel">
           <div class="review-header relationship-review-header">
             <div>
@@ -575,6 +607,7 @@
         <button class="bulk-btn" data-bulk-action="drop" title="Drop selected">Drop</button>
         <button class="bulk-btn" data-bulk-action="status" title="Change status">Status</button>
         <button class="bulk-btn" data-bulk-action="snooze" title="Snooze selected">Snooze</button>
+        <button class="bulk-btn" data-bulk-action="enrich" title="Enrich selected">Enrich</button>
         <button class="bulk-btn" data-bulk-action="tags" title="Add tags">+ Tags</button>
         <button class="bulk-btn bulk-btn-cancel" data-bulk-action="clear">Cancel</button>
       </div>

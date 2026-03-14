@@ -110,6 +110,12 @@ flowchart LR
 3. `src/cloop/loops/read_service.py` + `src/cloop/loops/similarity.py` remain the only owners of embedding source text, source-hash upkeep, and similarity scoring.
 4. Relationship decisions persist in `loop_links` with explicit `link_state` (`active`, `dismissed`, `resolved`) so review outcomes survive later suggestion refreshes.
 
+### Bulk enrichment (HTTP + Web + CLI + MCP)
+1. Explicit bulk enrichment now routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.
+2. `src/cloop/loops/enrichment_orchestration.py` owns selected-loop bulk execution, query-target preview, and query-driven bulk enrichment for filtered loop sets.
+3. HTTP `/loops/bulk/enrich` and `/loops/bulk/query/enrich`, the Review tab bulk-enrichment panel, the Inbox bulk `Enrich` action, `cloop loop bulk enrich`, and MCP `loop.bulk_enrich*` all reuse that shared contract.
+4. Prompt construction, suggestion persistence, clarification generation, and relationship-sync follow-up still remain owned by `src/cloop/loops/enrichment.py`; bulk orchestration layers on top instead of forking enrichment behavior.
+
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.
 2. Optional idempotency key (`request_id`) guards repeated mutations.

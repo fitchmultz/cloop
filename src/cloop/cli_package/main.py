@@ -41,6 +41,7 @@ from .backup_commands import (
 from .chat_commands import chat_command
 from .loop_bulk_commands import (
     loop_bulk_close_command,
+    loop_bulk_enrich_command,
     loop_bulk_snooze_command,
     loop_bulk_update_command,
 )
@@ -337,6 +338,8 @@ def main(argv: List[str] | None = None) -> int:
                 return loop_bulk_close_command(args, settings)
             if args.bulk_action == "snooze":
                 return loop_bulk_snooze_command(args, settings)
+            if args.bulk_action == "enrich":
+                return loop_bulk_enrich_command(args, settings)
             parser.error(f"Unknown bulk action: {args.bulk_action}")
         parser.error(f"Unknown loop command: {args.loop_command}")
 
