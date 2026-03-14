@@ -27,12 +27,12 @@ Legend:
 
 | Capability | HTTP API | Web UI | CLI | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Chat completion | yes | yes | yes | no | CLI chat now reuses the shared grounded execution contract already used by HTTP/web. |
-| Chat streaming | yes | yes | yes | no | HTTP/web use SSE; CLI streams token output directly to stdout. |
-| Chat tool calling | yes | yes | yes | no | CLI supports both `tool_mode=llm` and explicit manual tools. |
-| Chat with loop context | yes | yes | yes | no | Shared chat execution supports the same loop grounding controls across HTTP/web/CLI. |
-| Chat with memory context | yes | yes | yes | no | CLI now exposes memory grounding with the same request controls. |
-| Chat with RAG context | yes | yes | yes | no | CLI can reuse document grounding and scope filters from the shared chat contract. |
+| Chat completion | yes | yes | yes | yes | HTTP, CLI, and MCP now reuse the shared grounded chat execution contract. |
+| Chat streaming | yes | yes | yes | no | HTTP/web use SSE; CLI streams token output directly to stdout. MCP currently exposes the non-streaming chat contract only. |
+| Chat tool calling | yes | yes | yes | yes | MCP chat now supports both `tool_mode=llm` and explicit manual tools through shared execution. |
+| Chat with loop context | yes | yes | yes | yes | Loop grounding now shares one chat contract across HTTP/web/CLI/MCP. |
+| Chat with memory context | yes | yes | yes | yes | Memory grounding now shares one chat contract across HTTP/web/CLI/MCP. |
+| Chat with RAG context | yes | yes | yes | yes | Document grounding and scope filters now flow through the same shared chat contract everywhere except streaming. |
 | RAG ask | yes | yes | yes | yes | HTTP, CLI, and MCP now reuse the shared `rag_execution` contract on top of shared ask orchestration. |
 | RAG ingest | yes | yes | yes | yes | HTTP, CLI, and MCP now share ingest execution and bookkeeping (`files`, `chunks`, `files_skipped`, `failed_files`). |
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
@@ -45,24 +45,7 @@ Legend:
 The next work should happen in this order so that the newly stabilized shared chat
 and enrichment contracts can propagate outward without rework.
 
-### Phase 1 — Add grounded chat parity to MCP
-
-Goal: finish the remaining high-value MCP AI gap by exposing grounded chat only
-through the already-stabilized shared chat execution contract.
-
-- Add MCP chat only if it can reuse `src/cloop/chat_execution.py` directly.
-- Keep MCP grounding options, tool behavior, metadata, and response shaping aligned
-  with the shared HTTP/CLI chat contract.
-- Avoid introducing MCP-only chat wrappers, prompts, or tool-loop behavior.
-
-Why first:
-
-- MCP retrieval parity is now done, so grounded chat is the next obvious AI gap.
-- HTTP/web/CLI have already proven the shared chat contract and execution behavior.
-- Closing the last major MCP generative gap before clarification/memory work reduces
-  future contract churn.
-
-### Phase 2 — Make clarification and suggestion workflows truly multi-surface
+### Phase 1 — Make clarification and suggestion workflows truly multi-surface
 
 Goal: stop treating enrichment as triggerable everywhere but reviewable only in a
 subset of surfaces.
@@ -72,13 +55,13 @@ subset of surfaces.
 - Keep enrichment-result payloads and follow-up actions grounded in the same loop
   suggestion data model instead of transport-specific wrappers.
 
-Why second:
+Why first:
 
 - The explicit enrich trigger contract is now stable, so the next churn-reducing
   step is to stabilize what users can do with the resulting suggestions.
 - Clarification parity depends on the enrichment payload shape that is now settled.
 
-### Phase 3 — Add direct memory management beyond raw HTTP
+### Phase 2 — Add direct memory management beyond raw HTTP
 
 Goal: expose memory as a first-class capability in the interfaces where grounded chat
 already benefits from it.
@@ -93,9 +76,9 @@ Why here:
 
 - Memory already matters for grounded chat, but direct management should come after
   the main chat/retrieval contracts are settled in every transport that needs them.
-- This sequencing avoids adding more moving parts before MCP chat parity is done.
+- This sequencing avoids adding more moving parts before broader suggestion/memory UX parity is done.
 
-### Phase 4 — Turn internal AI capabilities into explicit product features
+### Phase 3 — Turn internal AI capabilities into explicit product features
 
 Goal: promote the strongest existing internal AI signals into first-class features.
 
@@ -108,7 +91,7 @@ Why after parity work:
 - These are product bets built on top of already-shared infrastructure.
 - They should not land while core transport contracts are still expanding.
 
-### Phase 5 — Add richer AI-native workflows
+### Phase 4 — Add richer AI-native workflows
 
 Goal: move beyond one-shot actions only after the foundations are stable and shared.
 
@@ -126,21 +109,18 @@ Why last:
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **MCP grounded chat session**
-   - expose MCP chat only if it can reuse `chat_execution` directly
-   - keep metadata, grounding, and tool behavior identical to the shared contract
-2. **Clarification + suggestion parity session**
+1. **Clarification + suggestion parity session**
    - add CLI/MCP clarification review flows
    - align suggestion list/show/apply/reject behavior everywhere it matters
-3. **Memory management parity session**
+2. **Memory management parity session**
    - add web UI memory management
    - add CLI memory commands
    - add MCP memory tools only if the contract stays narrow and deterministic
-4. **Productized AI features session**
+3. **Productized AI features session**
    - semantic search
    - duplicate/related review improvements
    - bulk enrichment workflows
-5. **Richer AI-native workflows session**
+4. **Richer AI-native workflows session**
    - conversational clarification/enrichment loops
    - multi-step planning/review flows on top of the stabilized shared contracts
 

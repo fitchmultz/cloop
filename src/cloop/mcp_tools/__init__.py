@@ -1,9 +1,10 @@
-"""MCP tool modules for loop and retrieval operations.
+"""MCP tool modules for loop, chat, and retrieval operations.
 
 This package contains domain-separated MCP tool implementations.
 Each module registers its tools with the central FastMCP instance.
 """
 
+from .chat_tools import register_chat_tools
 from .loop_bulk import register_loop_bulk_tools
 from .loop_claims import register_loop_claim_tools
 from .loop_core import register_loop_core_tools
@@ -14,6 +15,7 @@ from .loop_views import register_loop_view_tools
 from .rag_tools import register_rag_tools
 
 __all__ = [
+    "register_chat_tools",
     "register_loop_bulk_tools",
     "register_loop_claim_tools",
     "register_loop_core_tools",

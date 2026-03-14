@@ -51,7 +51,7 @@ flowchart LR
 - `src/cloop/rag/*`: ingestion, chunking, embeddings, vector search order, and retrieval composition.
 - `src/cloop/rag_execution.py`: shared RAG ingest/ask execution contract used by HTTP, CLI, and MCP for validation, response shaping, streaming, and interaction logging.
 - `src/cloop/chat_orchestration.py`: shared grounded chat request preparation (loop, memory, and RAG context assembly).
-- `src/cloop/chat_execution.py`: shared chat execution contract used by HTTP and CLI for tool handling, response shaping, streaming, and interaction logging.
+- `src/cloop/chat_execution.py`: shared chat execution contract used by HTTP, CLI, and MCP for tool handling, response shaping, streaming, and interaction logging.
 - `src/cloop/llm.py`, `src/cloop/ai_bridge/*`, `src/cloop/pi_bridge/*`: pi-backed generative runtime, bridge protocol, and Node bridge implementation.
 - `src/cloop/embeddings.py`, `src/cloop/embedding_providers.py`: embeddings-only LiteLLM path and provider resolution.
 - `docs/ai_runtime.md`: operational reference for the bridge boundary, protocol, health semantics, and failure modes.
@@ -76,11 +76,11 @@ flowchart LR
 3. RAG modules load/chunk/embed/store content in `rag.db`, or retrieve candidate chunks and assemble source context.
 4. When knowledge is available, the Python app sends request-scoped messages to the local pi bridge and returns the generated answer with explicit source payload.
 
-### Grounded chat (HTTP + CLI)
-1. HTTP `/chat` and `cloop chat` both build the same `ChatRequest`-shaped payload.
+### Grounded chat (HTTP + CLI + MCP)
+1. HTTP `/chat`, `cloop chat`, and MCP `chat.complete` all build the same `ChatRequest`-shaped payload.
 2. `src/cloop/chat_orchestration.py` resolves effective options and builds loop/memory/RAG grounding.
 3. `src/cloop/chat_execution.py` runs manual tools or bridge-backed chat/tool loops and shapes the canonical response.
-4. Transport-specific layers only handle formatting (JSON/SSE/text), not chat semantics.
+4. Surface-specific layers only handle transport details (HTTP JSON/SSE, CLI text rendering, or MCP tool registration), not chat semantics.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.
@@ -119,9 +119,9 @@ flowchart LR
 
 The MCP server is a meaningful part of the project, not a sidecar demo.
 
-- It exposes loop operations plus a narrow retrieval surface through domain-specific tools.
+- It exposes loop operations plus narrow grounded-chat and retrieval surfaces through domain-specific tools.
 - It reuses the same shared execution and service/repository logic as the API and CLI.
-- It avoids giving agents raw SQL or overly broad host access for common loop and knowledge workflows.
+- It avoids giving agents raw SQL or overly broad host access for common loop, chat, and knowledge workflows.
 
 That makes Cloop a practical example of agent-tool integration in a real application, not just a standalone chat/RAG demo.
 

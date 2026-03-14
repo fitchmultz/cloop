@@ -1,16 +1,17 @@
 """Tests for the MCP server module.
 
-This module tests MCP tool functions that expose loop operations
-to external AI agents via the Model Context Protocol.
+This module tests MCP tool functions that expose loop, chat, and retrieval
+operations to external AI agents via the Model Context Protocol.
 """
 
 from __future__ import annotations
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import numpy as np
@@ -19,7 +20,9 @@ from conftest import _now_iso
 from mcp.server.fastmcp.exceptions import ToolError
 
 from cloop import db
+from cloop.mcp_server import mcp
 from cloop.mcp_tools._runtime import to_tool_error
+from cloop.mcp_tools.chat_tools import chat_complete
 from cloop.mcp_tools.loop_bulk import loop_bulk_close, loop_bulk_snooze, loop_bulk_update
 from cloop.mcp_tools.loop_claims import (
     loop_claim,
@@ -47,7 +50,8 @@ from cloop.mcp_tools.loop_read import (
 from cloop.mcp_tools.loop_templates import project_list
 from cloop.mcp_tools.rag_tools import rag_ask, rag_ingest
 from cloop.rag import NO_KNOWLEDGE_MESSAGE
-from cloop.settings import Settings, get_settings
+from cloop.schemas.chat import ChatMessage, ToolCall
+from cloop.settings import Settings, ToolMode, get_settings
 
 
 def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -81,6 +85,50 @@ def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
         return "mock-response", {"model": settings.llm_model, "latency_ms": 9.0}
 
     monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)
+
+
+def _mock_chat_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock shared chat execution for MCP chat tests."""
+
+    def fake_chat_completion(
+        messages: list[dict[str, Any]], *, settings: Settings
+    ) -> tuple[str, dict[str, Any]]:
+        return "mock-response", {
+            "model": settings.pi_model,
+            "latency_ms": 12.5,
+            "usage": {},
+            "provider": "pi",
+            "api": "chat.completions",
+            "stop_reason": "stop",
+        }
+
+    def fake_chat_with_tools(
+        messages: list[dict[str, Any]], tools: Any, *, settings: Settings
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        return (
+            "tool-mode-final",
+            {
+                "model": f"{settings.pi_model}-tool",
+                "latency_ms": 8.0,
+                "usage": {},
+                "provider": "pi",
+                "api": "responses",
+                "stop_reason": "tool_result",
+                "tool_outputs": [{"output": {"action": "write_note", "ok": True}}],
+            },
+            [{"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}],
+        )
+
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
+    monkeypatch.setattr("cloop.chat_execution.chat_with_tools", fake_chat_with_tools)
+
+
+def _user_message(content: str) -> ChatMessage:
+    return ChatMessage(role="user", content=content)
+
+
+def _manual_tool_call(name: str, arguments: dict[str, Any]) -> ToolCall:
+    return ToolCall(name=name, arguments=arguments)
 
 
 # =============================================================================
@@ -3147,3 +3195,211 @@ def test_rag_ask_rejects_non_positive_top_k(
 
     with pytest.raises(ToolError, match="top_k must be positive"):
         rag_ask(question="test", top_k=0)
+
+
+# =============================================================================
+# chat.complete tests
+# =============================================================================
+
+
+def test_mcp_server_registers_chat_complete_tool() -> None:
+    """The MCP server should register the grounded chat tool."""
+    tools = asyncio.run(mcp.list_tools())
+    tool_names = {tool.name for tool in tools}
+
+    assert "chat.complete" in tool_names
+
+
+def test_chat_complete_returns_shared_chat_response_with_grounding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should reuse the shared chat contract and grounding behavior."""
+    from cloop.storage import memory_store
+
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_embeddings(monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    created = loop_create(
+        raw_text="Prepare launch checklist",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+    loop_update(
+        loop_id=created["id"],
+        fields={"next_action": "Review launch checklist"},
+    )
+    memory_store.create_memory_entry(
+        key="tone",
+        content="Prefer concise answers",
+        category="preference",
+        settings=get_settings(),
+    )
+
+    doc = tmp_path / "playbook.txt"
+    doc.write_text("The launch checklist lives in the ops playbook.", encoding="utf-8")
+    rag_ingest(paths=[str(doc)])
+
+    result = chat_complete(
+        messages=[_user_message("Where is the launch checklist?")],
+        tool_mode=ToolMode.NONE,
+        include_loop_context=True,
+        include_memory_context=True,
+        include_rag_context=True,
+        rag_k=3,
+        rag_scope="playbook.txt",
+    )
+
+    assert result["message"] == "mock-response"
+    assert result["model"] == "mock-llm"
+    assert result["metadata"]["provider"] == "pi"
+    assert result["metadata"]["api"] == "chat.completions"
+    assert result["options"] == {
+        "tool_mode": "none",
+        "include_loop_context": True,
+        "include_memory_context": True,
+        "memory_limit": 10,
+        "include_rag_context": True,
+        "rag_k": 3,
+        "rag_scope": "playbook.txt",
+    }
+    assert result["context"]["loop_context_applied"] is True
+    assert result["context"]["memory_context_applied"] is True
+    assert result["context"]["memory_entries_used"] >= 1
+    assert result["context"]["rag_context_applied"] is True
+    assert result["context"]["rag_chunks_used"] >= 1
+    assert result["sources"]
+    assert any(
+        "playbook.txt" in (source.get("document_path") or "") for source in result["sources"]
+    )
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT request_payload, response_payload, tool_calls FROM interactions "
+            "WHERE endpoint = '/mcp/chat.complete' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert '"include_loop_context": true' in row["request_payload"]
+    assert '"message": "mock-response"' in row["response_payload"]
+    assert row["tool_calls"] == "[]"
+
+
+def test_chat_complete_manual_tool_mode_runs_shared_manual_tool_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should support manual tools through the shared chat execution layer."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    result = chat_complete(
+        messages=[_user_message("Create a note for me.")],
+        tool_mode=ToolMode.MANUAL,
+        tool_call=_manual_tool_call(
+            "write_note",
+            {"title": "todo", "body": "remember to test"},
+        ),
+    )
+
+    assert result["message"] == "mock-response"
+    assert result["tool_calls"] == []
+    assert result["tool_result"]["action"] == "write_note"
+    assert result["tool_result"]["note"]["title"] == "todo"
+    assert result["options"]["tool_mode"] == "manual"
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT tool_calls, response_payload FROM interactions "
+            "WHERE endpoint = '/mcp/chat.complete' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["tool_calls"] == "[]"
+    assert '"action": "write_note"' in row["response_payload"]
+
+
+def test_chat_complete_llm_tool_mode_returns_shared_tool_call_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should reuse bridge-led tool calling via shared chat execution."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    result = chat_complete(
+        messages=[_user_message("Please file a note.")],
+        tool_mode=ToolMode.LLM,
+    )
+
+    assert result["message"] == "tool-mode-final"
+    assert result["tool_calls"] == [
+        {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}
+    ]
+    assert result["tool_result"] == {"action": "write_note", "ok": True}
+    assert result["model"] == "mock-llm-tool"
+    assert result["metadata"]["api"] == "responses"
+    assert result["options"]["tool_mode"] == "llm"
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT tool_calls FROM interactions "
+            "WHERE endpoint = '/mcp/chat.complete' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert "write_note" in row["tool_calls"]
+
+
+def test_chat_complete_rejects_unsupported_manual_tool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should surface shared manual-tool validation errors as ToolError."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="Unsupported tool"):
+        chat_complete(
+            messages=[_user_message("Bad tool")],
+            tool_mode=ToolMode.MANUAL,
+            tool_call=_manual_tool_call("nonexistent_tool", {}),
+        )
+
+
+def test_chat_complete_rejects_invalid_manual_tool_arguments(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should preserve shared manual-tool argument validation."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="Invalid raw_text"):
+        chat_complete(
+            messages=[_user_message("Create a loop")],
+            tool_mode=ToolMode.MANUAL,
+            tool_call=_manual_tool_call("loop_create", {}),
+        )
+
+
+def test_chat_complete_rejects_tool_call_outside_manual_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should reject tool_call payloads outside manual mode."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="tool_call is only supported in manual mode"):
+        chat_complete(
+            messages=[_user_message("Bad tool mode")],
+            tool_mode=ToolMode.NONE,
+            tool_call=_manual_tool_call(
+                "write_note",
+                {"title": "todo", "body": "remember to test"},
+            ),
+        )
+
+
+def test_chat_complete_rejects_invalid_tool_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should preserve shared tool-mode validation."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="Input should be 'manual', 'llm' or 'none'"):
+        chat_complete(
+            messages=[_user_message("Hello")],
+            tool_mode=cast(Any, "unsupported"),
+        )
