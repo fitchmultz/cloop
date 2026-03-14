@@ -38,6 +38,16 @@ export const state = {
   reviewMode: 'daily',
   reviewData: null,
   relationshipReviewQueue: null,
+  reviewRelationshipActions: [],
+  reviewRelationshipSessions: [],
+  reviewRelationshipSessionSnapshot: null,
+  reviewRelationshipSessionId: null,
+  reviewRelationshipActionId: null,
+  reviewEnrichmentActions: [],
+  reviewEnrichmentSessions: [],
+  reviewEnrichmentSessionSnapshot: null,
+  reviewEnrichmentSessionId: null,
+  reviewEnrichmentActionId: null,
   reviewBulkEnrichmentPreview: null,
   reviewBulkEnrichmentResult: null,
   chatMessages: [],
@@ -198,8 +208,23 @@ export function hydrateStateFromStorage() {
     if (typeof persisted.activeTab === "string") {
       state.activeTab = persisted.activeTab;
     }
+    if (typeof persisted.reviewMode === "string") {
+      state.reviewMode = persisted.reviewMode;
+    }
     state.chatMessages = normalizeChatMessages(persisted.chatMessages);
     state.chatPreferences = normalizeChatPreferences(persisted.chatPreferences);
+    state.reviewRelationshipSessionId = Number.isInteger(persisted.reviewRelationshipSessionId)
+      ? persisted.reviewRelationshipSessionId
+      : null;
+    state.reviewRelationshipActionId = Number.isInteger(persisted.reviewRelationshipActionId)
+      ? persisted.reviewRelationshipActionId
+      : null;
+    state.reviewEnrichmentSessionId = Number.isInteger(persisted.reviewEnrichmentSessionId)
+      ? persisted.reviewEnrichmentSessionId
+      : null;
+    state.reviewEnrichmentActionId = Number.isInteger(persisted.reviewEnrichmentActionId)
+      ? persisted.reviewEnrichmentActionId
+      : null;
   } catch {
     // Ignore malformed persisted state and continue with in-memory defaults.
   }
@@ -213,6 +238,11 @@ export function persistStateToStorage() {
   try {
     window.localStorage.setItem(CLIENT_STATE_STORAGE_KEY, JSON.stringify({
       activeTab: state.activeTab,
+      reviewMode: state.reviewMode,
+      reviewRelationshipSessionId: state.reviewRelationshipSessionId,
+      reviewRelationshipActionId: state.reviewRelationshipActionId,
+      reviewEnrichmentSessionId: state.reviewEnrichmentSessionId,
+      reviewEnrichmentActionId: state.reviewEnrichmentActionId,
       chatMessages: state.chatMessages,
       chatPreferences: state.chatPreferences,
     }));

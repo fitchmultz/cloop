@@ -341,31 +341,21 @@ def review_loop_relationships(
     }
 
 
-@typingx.validate_io()
-def list_relationship_review_queue(
+def _list_relationship_review_queue_for_records(
     *,
-    statuses: list[LoopStatus] | None,
+    records: list[LoopRecord],
     relationship_kind: str,
     limit: int,
     candidate_limit: int,
     conn: sqlite3.Connection,
-    settings: Settings | None = None,
+    settings: Settings,
 ) -> dict[str, Any]:
-    """List loops that currently have pending duplicate/related review work."""
     if relationship_kind not in {"all", "duplicate", "related"}:
         raise ValidationError("relationship_kind", "must be all, duplicate, or related")
     if limit < 1:
         raise ValidationError("limit", "must be positive")
     if candidate_limit < 1:
         raise ValidationError("candidate_limit", "must be positive")
-
-    settings = settings or get_settings()
-    if statuses is None:
-        records = repo.list_all_loops(conn=conn)
-    elif not statuses:
-        records = []
-    else:
-        records = repo.list_loops_by_statuses(statuses=statuses, conn=conn)
 
     indexed_count = similarity.ensure_loop_embeddings(
         loop_ids=[record.id for record in records],
@@ -503,6 +493,57 @@ def list_relationship_review_queue(
         "loop_count": len(items),
         "items": items[:limit],
     }
+
+
+@typingx.validate_io()
+def list_relationship_review_queue(
+    *,
+    statuses: list[LoopStatus] | None,
+    relationship_kind: str,
+    limit: int,
+    candidate_limit: int,
+    conn: sqlite3.Connection,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """List loops that currently have pending duplicate/related review work."""
+    settings = settings or get_settings()
+    if statuses is None:
+        records = repo.list_all_loops(conn=conn)
+    elif not statuses:
+        records = []
+    else:
+        records = repo.list_loops_by_statuses(statuses=statuses, conn=conn)
+    return _list_relationship_review_queue_for_records(
+        records=records,
+        relationship_kind=relationship_kind,
+        limit=limit,
+        candidate_limit=candidate_limit,
+        conn=conn,
+        settings=settings,
+    )
+
+
+@typingx.validate_io()
+def list_relationship_review_queue_for_query(
+    *,
+    query: str,
+    relationship_kind: str,
+    limit: int,
+    candidate_limit: int,
+    conn: sqlite3.Connection,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """List loops with pending relationship-review work within a DSL query scope."""
+    settings = settings or get_settings()
+    records = repo.search_loops_by_query(query=query, limit=None, conn=conn)
+    return _list_relationship_review_queue_for_records(
+        records=records,
+        relationship_kind=relationship_kind,
+        limit=limit,
+        candidate_limit=candidate_limit,
+        conn=conn,
+        settings=settings,
+    )
 
 
 def _set_bidirectional_relationship_state(

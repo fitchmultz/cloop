@@ -126,8 +126,34 @@ from .parsers.loop_misc_parsers import (
 )
 from .parsers.memory import add_memory_parser
 from .parsers.rag import add_ask_parser, add_ingest_parser
+from .parsers.review import add_review_parser
 from .parsers.template import add_template_parser
 from .rag_commands import ask_command, ingest_command
+from .review_commands import (
+    enrichment_review_action_create_command,
+    enrichment_review_action_delete_command,
+    enrichment_review_action_get_command,
+    enrichment_review_action_list_command,
+    enrichment_review_action_update_command,
+    enrichment_review_session_answer_clarifications_command,
+    enrichment_review_session_apply_action_command,
+    enrichment_review_session_create_command,
+    enrichment_review_session_delete_command,
+    enrichment_review_session_get_command,
+    enrichment_review_session_list_command,
+    enrichment_review_session_update_command,
+    relationship_review_action_create_command,
+    relationship_review_action_delete_command,
+    relationship_review_action_get_command,
+    relationship_review_action_list_command,
+    relationship_review_action_update_command,
+    relationship_review_session_apply_action_command,
+    relationship_review_session_create_command,
+    relationship_review_session_delete_command,
+    relationship_review_session_get_command,
+    relationship_review_session_list_command,
+    relationship_review_session_update_command,
+)
 from .template_commands import (
     template_create_command,
     template_delete_command,
@@ -233,6 +259,7 @@ Exit codes:
     add_backup_parser(subparsers)
     add_suggestion_parser(subparsers)
     add_clarification_parser(subparsers)
+    add_review_parser(subparsers)
     add_memory_parser(subparsers)
 
     return parser
@@ -399,6 +426,76 @@ def main(argv: List[str] | None = None) -> int:
         if args.clarification_cmd == "answer-many":
             return clarification_answer_many_command(args, settings)
         parser.error(f"Unknown clarification command: {args.clarification_cmd}")
+        return 2
+
+    if args.command == "review":
+        if args.review_command == "relationship-action":
+            if args.review_relationship_action_command == "create":
+                return relationship_review_action_create_command(args, settings)
+            if args.review_relationship_action_command == "list":
+                return relationship_review_action_list_command(args, settings)
+            if args.review_relationship_action_command == "get":
+                return relationship_review_action_get_command(args, settings)
+            if args.review_relationship_action_command == "update":
+                return relationship_review_action_update_command(args, settings)
+            if args.review_relationship_action_command == "delete":
+                return relationship_review_action_delete_command(args, settings)
+            parser.error(
+                f"Unknown relationship-action command: {args.review_relationship_action_command}"
+            )
+            return 2
+        if args.review_command == "relationship-session":
+            if args.review_relationship_session_command == "create":
+                return relationship_review_session_create_command(args, settings)
+            if args.review_relationship_session_command == "list":
+                return relationship_review_session_list_command(args, settings)
+            if args.review_relationship_session_command == "get":
+                return relationship_review_session_get_command(args, settings)
+            if args.review_relationship_session_command == "update":
+                return relationship_review_session_update_command(args, settings)
+            if args.review_relationship_session_command == "delete":
+                return relationship_review_session_delete_command(args, settings)
+            if args.review_relationship_session_command == "apply-action":
+                return relationship_review_session_apply_action_command(args, settings)
+            parser.error(
+                f"Unknown relationship-session command: {args.review_relationship_session_command}"
+            )
+            return 2
+        if args.review_command == "enrichment-action":
+            if args.review_enrichment_action_command == "create":
+                return enrichment_review_action_create_command(args, settings)
+            if args.review_enrichment_action_command == "list":
+                return enrichment_review_action_list_command(args, settings)
+            if args.review_enrichment_action_command == "get":
+                return enrichment_review_action_get_command(args, settings)
+            if args.review_enrichment_action_command == "update":
+                return enrichment_review_action_update_command(args, settings)
+            if args.review_enrichment_action_command == "delete":
+                return enrichment_review_action_delete_command(args, settings)
+            parser.error(
+                f"Unknown enrichment-action command: {args.review_enrichment_action_command}"
+            )
+            return 2
+        if args.review_command == "enrichment-session":
+            if args.review_enrichment_session_command == "create":
+                return enrichment_review_session_create_command(args, settings)
+            if args.review_enrichment_session_command == "list":
+                return enrichment_review_session_list_command(args, settings)
+            if args.review_enrichment_session_command == "get":
+                return enrichment_review_session_get_command(args, settings)
+            if args.review_enrichment_session_command == "update":
+                return enrichment_review_session_update_command(args, settings)
+            if args.review_enrichment_session_command == "delete":
+                return enrichment_review_session_delete_command(args, settings)
+            if args.review_enrichment_session_command == "apply-action":
+                return enrichment_review_session_apply_action_command(args, settings)
+            if args.review_enrichment_session_command == "answer-clarifications":
+                return enrichment_review_session_answer_clarifications_command(args, settings)
+            parser.error(
+                f"Unknown enrichment-session command: {args.review_enrichment_session_command}"
+            )
+            return 2
+        parser.error(f"Unknown review command: {args.review_command}")
         return 2
 
     if args.command == "memory":

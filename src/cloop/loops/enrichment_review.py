@@ -36,6 +36,24 @@ from .errors import (
     SuggestionNotFoundError,
     ValidationError,
 )
+from .serialization import enrich_loop_records_batch
+
+SUGGESTION_APPLYABLE_FIELDS = frozenset(
+    {
+        "title",
+        "summary",
+        "definition_of_done",
+        "next_action",
+        "due_at",
+        "snooze_until",
+        "activation_energy",
+        "time_minutes",
+        "urgency",
+        "importance",
+        "project",
+        "tags",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +201,12 @@ def apply_suggestion(
 
     if fields:
         apply_set = set(fields)
+        invalid_fields = sorted(apply_set.difference(SUGGESTION_APPLYABLE_FIELDS))
+        if invalid_fields:
+            raise ValidationError(
+                "fields",
+                f"unsupported suggestion fields: {', '.join(invalid_fields)}",
+            )
     else:
         apply_set = {
             field
@@ -275,6 +299,120 @@ def list_loop_clarifications(
     if not loop:
         raise LoopNotFoundError(loop_id)
     return repo.list_loop_clarifications(loop_id=loop_id, conn=conn)
+
+
+@typingx.validate_io()
+def list_enrichment_review_queue(
+    *,
+    query: str,
+    pending_kind: str,
+    limit: int,
+    suggestion_limit: int,
+    clarification_limit: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """List loops with pending enrichment suggestions or clarifications."""
+    if pending_kind not in {"all", "suggestions", "clarifications"}:
+        raise ValidationError(
+            "pending_kind",
+            "must be all, suggestions, or clarifications",
+        )
+    if limit < 1:
+        raise ValidationError("limit", "must be positive")
+    if suggestion_limit < 1:
+        raise ValidationError("suggestion_limit", "must be positive")
+    if clarification_limit < 1:
+        raise ValidationError("clarification_limit", "must be positive")
+
+    records = repo.search_loops_by_query(query=query, limit=None, conn=conn)
+    if not records:
+        return {
+            "query": query,
+            "pending_kind": pending_kind,
+            "limit": limit,
+            "suggestion_limit": suggestion_limit,
+            "clarification_limit": clarification_limit,
+            "loop_count": 0,
+            "items": [],
+        }
+
+    loop_ids = [record.id for record in records]
+    payload_by_id = {
+        int(payload["id"]): payload for payload in enrich_loop_records_batch(records, conn=conn)
+    }
+    pending_clarifications = repo.list_unanswered_clarifications_for_loops(
+        loop_ids=loop_ids, conn=conn
+    )
+    clarifications_by_loop: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for clarification in pending_clarifications:
+        clarifications_by_loop[int(clarification["loop_id"])].append(dict(clarification))
+
+    clarifications_by_loop_question: dict[int, dict[str, list[dict[str, Any]]]] = {}
+    for loop_id, clarifications in clarifications_by_loop.items():
+        clarifications_by_loop_question[loop_id] = _question_map_for_clarifications(clarifications)
+
+    suggestions_by_loop: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for suggestion in repo.list_pending_suggestions_for_loops(loop_ids=loop_ids, conn=conn):
+        inflated = _inflate_suggestion(
+            suggestion=suggestion,
+            clarifications_by_question=clarifications_by_loop_question.get(
+                int(suggestion["loop_id"]),
+                {},
+            ),
+        )
+        suggestions_by_loop[int(suggestion["loop_id"])].append(inflated)
+
+    items: list[dict[str, Any]] = []
+    for record in records:
+        loop_payload = payload_by_id.get(record.id)
+        if loop_payload is None:
+            continue
+        loop_suggestions = suggestions_by_loop.get(record.id, [])
+        loop_clarifications = clarifications_by_loop.get(record.id, [])
+        if pending_kind == "suggestions":
+            has_pending = bool(loop_suggestions)
+        elif pending_kind == "clarifications":
+            has_pending = bool(loop_clarifications)
+        else:
+            has_pending = bool(loop_suggestions or loop_clarifications)
+        if not has_pending:
+            continue
+
+        newest_pending_at = max(
+            [str(item["created_at"]) for item in loop_suggestions]
+            + [str(item["created_at"]) for item in loop_clarifications]
+            or [""],
+        )
+        items.append(
+            {
+                "loop": loop_payload,
+                "pending_suggestion_count": len(loop_suggestions),
+                "pending_clarification_count": len(loop_clarifications),
+                "newest_pending_at": newest_pending_at,
+                "pending_suggestions": loop_suggestions[:suggestion_limit],
+                "pending_clarifications": loop_clarifications[:clarification_limit],
+            }
+        )
+
+    items.sort(
+        key=lambda item: (
+            item["pending_clarification_count"],
+            item["pending_suggestion_count"],
+            str(item["newest_pending_at"]),
+            str(item["loop"]["updated_at_utc"]),
+            int(item["loop"]["id"]),
+        ),
+        reverse=True,
+    )
+    return {
+        "query": query,
+        "pending_kind": pending_kind,
+        "limit": limit,
+        "suggestion_limit": suggestion_limit,
+        "clarification_limit": clarification_limit,
+        "loop_count": len(items),
+        "items": items[:limit],
+    }
 
 
 def _validate_clarification_answers(

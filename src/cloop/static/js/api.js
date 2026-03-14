@@ -492,6 +492,186 @@ export async function dismissLoopRelationship(loopId, candidateLoopId, relations
   return response.json();
 }
 
+async function requestJson(path, options = {}, fallbackMessage = "Request failed") {
+  const init = { ...options };
+  if (init.body !== undefined && init.body !== null && !(init.body instanceof FormData)) {
+    init.headers = {
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    };
+    init.body = JSON.stringify(init.body);
+  }
+
+  const response = await fetch(path, init);
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, fallbackMessage));
+  }
+  if (response.status === 204) {
+    return null;
+  }
+  return response.json();
+}
+
+export async function fetchRelationshipReviewActions() {
+  return requestJson("/loops/review/relationship/actions", {}, "Failed to load relationship review actions");
+}
+
+export async function createRelationshipReviewAction(payload) {
+  return requestJson(
+    "/loops/review/relationship/actions",
+    { method: "POST", body: payload },
+    "Failed to create relationship review action",
+  );
+}
+
+export async function updateRelationshipReviewAction(actionId, payload) {
+  return requestJson(
+    `/loops/review/relationship/actions/${actionId}`,
+    { method: "PATCH", body: payload },
+    "Failed to update relationship review action",
+  );
+}
+
+export async function deleteRelationshipReviewAction(actionId) {
+  return requestJson(
+    `/loops/review/relationship/actions/${actionId}`,
+    { method: "DELETE" },
+    "Failed to delete relationship review action",
+  );
+}
+
+export async function fetchRelationshipReviewSessions() {
+  return requestJson(
+    "/loops/review/relationship/sessions",
+    {},
+    "Failed to load relationship review sessions",
+  );
+}
+
+export async function createRelationshipReviewSession(payload) {
+  return requestJson(
+    "/loops/review/relationship/sessions",
+    { method: "POST", body: payload },
+    "Failed to create relationship review session",
+  );
+}
+
+export async function fetchRelationshipReviewSession(sessionId) {
+  return requestJson(
+    `/loops/review/relationship/sessions/${sessionId}`,
+    {},
+    "Failed to load relationship review session",
+  );
+}
+
+export async function updateRelationshipReviewSession(sessionId, payload) {
+  return requestJson(
+    `/loops/review/relationship/sessions/${sessionId}`,
+    { method: "PATCH", body: payload },
+    "Failed to update relationship review session",
+  );
+}
+
+export async function deleteRelationshipReviewSession(sessionId) {
+  return requestJson(
+    `/loops/review/relationship/sessions/${sessionId}`,
+    { method: "DELETE" },
+    "Failed to delete relationship review session",
+  );
+}
+
+export async function runRelationshipReviewSessionAction(sessionId, payload) {
+  return requestJson(
+    `/loops/review/relationship/sessions/${sessionId}/action`,
+    { method: "POST", body: payload },
+    "Failed to run relationship review action",
+  );
+}
+
+export async function fetchEnrichmentReviewActions() {
+  return requestJson("/loops/review/enrichment/actions", {}, "Failed to load enrichment review actions");
+}
+
+export async function createEnrichmentReviewAction(payload) {
+  return requestJson(
+    "/loops/review/enrichment/actions",
+    { method: "POST", body: payload },
+    "Failed to create enrichment review action",
+  );
+}
+
+export async function updateEnrichmentReviewAction(actionId, payload) {
+  return requestJson(
+    `/loops/review/enrichment/actions/${actionId}`,
+    { method: "PATCH", body: payload },
+    "Failed to update enrichment review action",
+  );
+}
+
+export async function deleteEnrichmentReviewAction(actionId) {
+  return requestJson(
+    `/loops/review/enrichment/actions/${actionId}`,
+    { method: "DELETE" },
+    "Failed to delete enrichment review action",
+  );
+}
+
+export async function fetchEnrichmentReviewSessions() {
+  return requestJson(
+    "/loops/review/enrichment/sessions",
+    {},
+    "Failed to load enrichment review sessions",
+  );
+}
+
+export async function createEnrichmentReviewSession(payload) {
+  return requestJson(
+    "/loops/review/enrichment/sessions",
+    { method: "POST", body: payload },
+    "Failed to create enrichment review session",
+  );
+}
+
+export async function fetchEnrichmentReviewSession(sessionId) {
+  return requestJson(
+    `/loops/review/enrichment/sessions/${sessionId}`,
+    {},
+    "Failed to load enrichment review session",
+  );
+}
+
+export async function updateEnrichmentReviewSession(sessionId, payload) {
+  return requestJson(
+    `/loops/review/enrichment/sessions/${sessionId}`,
+    { method: "PATCH", body: payload },
+    "Failed to update enrichment review session",
+  );
+}
+
+export async function deleteEnrichmentReviewSession(sessionId) {
+  return requestJson(
+    `/loops/review/enrichment/sessions/${sessionId}`,
+    { method: "DELETE" },
+    "Failed to delete enrichment review session",
+  );
+}
+
+export async function runEnrichmentReviewSessionAction(sessionId, payload) {
+  return requestJson(
+    `/loops/review/enrichment/sessions/${sessionId}/action`,
+    { method: "POST", body: payload },
+    "Failed to run enrichment review action",
+  );
+}
+
+export async function answerEnrichmentReviewSessionClarifications(sessionId, payload) {
+  return requestJson(
+    `/loops/review/enrichment/sessions/${sessionId}/clarifications/answer`,
+    { method: "POST", body: payload },
+    "Failed to answer enrichment clarifications",
+  );
+}
+
 // ========================================
 // Metrics
 // ========================================

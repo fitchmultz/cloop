@@ -65,6 +65,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **Persistent memory**: Direct memory CRUD/search across HTTP, web, CLI, and MCP, all backed by the shared `memory_management` contract in `core.db`.
 - **Semantic loop search**: Query loops by meaning across HTTP, the web Inbox, CLI, and MCP using the shared `read_service` + `loops/similarity.py` contract with on-demand embedding backfill.
 - **Relationship review**: Review semantically similar loops as duplicate vs related work across HTTP, the web Review tab, CLI, and MCP via the shared `loops/relationship_review.py` contract.
+- **Saved review workflows**: Persist reusable review actions plus filtered relationship/enrichment review sessions across HTTP, the web Review tab, CLI, and MCP via the shared `loops/review_workflows.py` contract.
 - **Bulk enrichment workflows**: Preview and re-run explicit enrichment across filtered loop sets from HTTP, the web Review tab, the Inbox bulk action bar, CLI, and MCP via the shared `loops/enrichment_orchestration.py` contract.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
@@ -310,6 +311,11 @@ cloop loop relationship queue [--kind all|duplicate|related] [--status open|all|
 # Confirm or dismiss a relationship decision
 cloop loop relationship confirm --loop <id> --candidate <id> --type related|duplicate
 cloop loop relationship dismiss --loop <id> --candidate <id> --type related|duplicate
+
+# Save reusable relationship-review actions and filtered sessions
+cloop review relationship-action create --name dismiss-suggested --action dismiss --relationship-type suggested
+cloop review relationship-session create --name duplicate-pass --query "status:open" --kind duplicate
+cloop review relationship-session apply-action --session 1 --loop 10 --candidate 11 --candidate-type duplicate --action-id 2
 ```
 
 Notes:
@@ -337,6 +343,12 @@ cloop suggestion reject <suggestion-id> [--format json|table]
 cloop clarification list --loop-id <loop-id> [--format json|table]
 cloop clarification answer <clarification-id> --loop-id <loop-id> --answer "Friday"
 cloop clarification answer-many --loop-id <loop-id> --item 12=Friday --item 13=Finance
+
+# Save reusable enrichment-review actions and filtered sessions
+cloop review enrichment-action create --name apply-title --action apply --fields title
+cloop review enrichment-session create --name follow-up-pass --query "status:open" --pending-kind all
+cloop review enrichment-session apply-action --session 1 --suggestion 15 --action-id 3
+cloop review enrichment-session answer-clarifications --session 1 --loop 10 --item 21=Friday
 
 # Export loops
 cloop export [--output FILE] [--format json|table]
@@ -498,7 +510,7 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 | **Chat** (3) | LLM conversation with configurable loop, memory, document, and tool grounding |
 | **Memory** (4) | Durable memory CRUD/search powered by the shared direct-memory contract |
 | **RAG** (5) | Query your knowledge base |
-| **Review** (6) | Bulk enrichment, duplicate/related relationship review, plus daily/weekly review cohorts |
+| **Review** (6) | Bulk enrichment, saved relationship/enrichment review sessions, plus daily/weekly review cohorts |
 | **Metrics** (7) | Loop health statistics |
 
 ### Quick Capture
@@ -513,10 +525,11 @@ Captures are persisted immediately with offline sync support. Semantic Inbox sea
 
 ### Review Cohorts
 
-The Review tab now has three review layers:
+The Review tab now has four review layers:
 
 - **Bulk enrichment**: a DSL-driven preview-and-run workflow for re-enriching a filtered loop set without leaving the review workspace.
-- **Duplicate & related-loop review**: a semantic-review queue with per-loop candidate previews, confirm/dismiss decisions, and duplicate merge entrypoints.
+- **Saved relationship-review sessions**: filtered duplicate/related review queues with preserved cursor state, saved decision presets, inline confirm/dismiss flows, and duplicate merge entrypoints.
+- **Saved enrichment-review sessions**: filtered suggestion/clarification queues with preserved cursor state, saved apply/reject presets, clarification answer capture, and quick re-enrichment.
 - **Daily/weekly cohorts**: deterministic hygiene buckets for stale, blocked, and under-specified loops.
 
 The cohort section groups loops needing attention:

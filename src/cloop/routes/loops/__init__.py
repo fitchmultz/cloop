@@ -10,6 +10,7 @@ Modules:
 - import_export: Loop import/export endpoints
 - metrics: Workflow metrics endpoints
 - suggestions_clarifications: Suggestion and clarification endpoints
+- review_workflows: Saved review actions and session-preserving review workflows
 - dependencies: Loop dependency management (blockers, dependents)
 - views: Saved views for filtered queries
 - templates: Loop templates for pre-filled capture
@@ -43,6 +44,7 @@ from .metrics import router as metrics_router
 from .push import router as push_router
 from .query import router as query_router
 from .relationships import router as relationships_router
+from .review_workflows import router as review_workflows_router
 from .suggestions_clarifications import router as suggestions_clarifications_router
 from .templates import router as templates_router
 from .timers import router as timers_router
@@ -68,10 +70,11 @@ router.include_router(views_router)
 # 4. Templates - static paths: /templates/*
 router.include_router(templates_router)
 
-# 5. Query / export / metrics / suggestion endpoints - static paths first
+# 5. Query / export / metrics / suggestion / review-session endpoints - static paths first
 router.include_router(query_router)
 router.include_router(import_export_router)
 router.include_router(metrics_router)
+router.include_router(review_workflows_router)
 router.include_router(suggestions_clarifications_router)
 router.include_router(claims_router)
 

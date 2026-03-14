@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from .models import TimeSession
 
 logger = logging.getLogger(__name__)
+_UNSET: object = object()
 
 
 _ALLOWED_UPDATE_FIELDS = {
@@ -777,6 +778,28 @@ def list_pending_suggestions(
     return [dict(row) for row in rows]
 
 
+def list_pending_suggestions_for_loops(
+    *,
+    loop_ids: Sequence[int],
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Get unresolved suggestions for multiple loops in one query."""
+    if not loop_ids:
+        return []
+    placeholders = ", ".join("?" for _ in loop_ids)
+    rows = conn.execute(
+        f"""
+        SELECT id, loop_id, suggestion_json, model, created_at,
+               resolution, resolved_at, resolved_fields_json
+        FROM loop_suggestions
+        WHERE resolution IS NULL AND loop_id IN ({placeholders})
+        ORDER BY created_at DESC
+        """,
+        list(loop_ids),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def resolve_loop_suggestion(
     *,
     suggestion_id: int,
@@ -875,6 +898,27 @@ def list_loop_clarifications_for_loops(
         FROM loop_clarifications
         WHERE loop_id IN ({placeholders})
         ORDER BY loop_id ASC, answered_at IS NULL DESC, created_at ASC
+        """,
+        list(loop_ids),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def list_unanswered_clarifications_for_loops(
+    *,
+    loop_ids: Sequence[int],
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List unanswered clarifications for multiple loops in one query."""
+    if not loop_ids:
+        return []
+    placeholders = ", ".join("?" for _ in loop_ids)
+    rows = conn.execute(
+        f"""
+        SELECT id, loop_id, question, answer, answered_at, created_at
+        FROM loop_clarifications
+        WHERE loop_id IN ({placeholders}) AND answer IS NULL
+        ORDER BY loop_id ASC, created_at ASC
         """,
         list(loop_ids),
     ).fetchall()
@@ -1356,8 +1400,8 @@ def upsert_loop_embedding(
 def search_loops_by_query(
     *,
     query: str,
-    limit: int,
-    offset: int,
+    limit: int | None,
+    offset: int = 0,
     conn: sqlite3.Connection,
 ) -> list[LoopRecord]:
     """Search loops using the DSL query language.
@@ -1366,7 +1410,7 @@ def search_loops_by_query(
 
     Args:
         query: DSL query string (e.g., 'status:inbox tag:work due:today')
-        limit: Maximum number of results
+        limit: Maximum number of results, or None for all matches
         offset: Pagination offset
         conn: Database connection
 
@@ -1388,10 +1432,13 @@ def search_loops_by_query(
         LEFT JOIN tags ON tags.id = loop_tags.tag_id
         {where_sql}
         ORDER BY loops.updated_at DESC, loops.captured_at_utc DESC, loops.id DESC
-        LIMIT ? OFFSET ?
     """
 
-    rows = conn.execute(sql, [*params, limit, offset]).fetchall()
+    if limit is not None:
+        sql += "\n        LIMIT ? OFFSET ?"
+        params = [*params, limit, offset]
+
+    rows = conn.execute(sql, params).fetchall()
     return [_row_to_record(row) for row in rows]
 
 
@@ -2970,3 +3017,205 @@ def get_nudge_states_batch(
         )
         result[state.loop_id] = state
     return result
+
+
+def create_review_action_preset(
+    *,
+    name: str,
+    review_kind: str,
+    action_type: str,
+    config_json: Mapping[str, Any],
+    description: str | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Create a persisted review action preset."""
+    cursor = conn.execute(
+        """
+        INSERT INTO review_action_presets (name, review_kind, action_type, config_json, description)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (name, review_kind, action_type, json.dumps(dict(config_json)), description),
+    )
+    row = conn.execute(
+        "SELECT * FROM review_action_presets WHERE id = ?",
+        (cursor.lastrowid,),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError("review_action_preset_insert_failed")
+    return dict(row)
+
+
+def list_review_action_presets(
+    *,
+    review_kind: str | None,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List review action presets, optionally filtered by review kind."""
+    params: list[Any] = []
+    where_clause = ""
+    if review_kind is not None:
+        where_clause = "WHERE review_kind = ?"
+        params.append(review_kind)
+    rows = conn.execute(
+        f"""
+        SELECT *
+        FROM review_action_presets
+        {where_clause}
+        ORDER BY review_kind ASC, name ASC, id ASC
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_review_action_preset(
+    *,
+    action_preset_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Get one review action preset."""
+    row = conn.execute(
+        "SELECT * FROM review_action_presets WHERE id = ?",
+        (action_preset_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_review_action_preset(
+    *,
+    action_preset_id: int,
+    name: str | None = None,
+    action_type: str | None = None,
+    config_json: Mapping[str, Any] | None = None,
+    description: str | None = None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Update one review action preset and return the updated row."""
+    updates: list[str] = []
+    params: list[Any] = []
+    if name is not None:
+        updates.append("name = ?")
+        params.append(name)
+    if action_type is not None:
+        updates.append("action_type = ?")
+        params.append(action_type)
+    if config_json is not None:
+        updates.append("config_json = ?")
+        params.append(json.dumps(dict(config_json)))
+    if description is not None:
+        updates.append("description = ?")
+        params.append(description)
+    if not updates:
+        return get_review_action_preset(action_preset_id=action_preset_id, conn=conn)
+    params.append(action_preset_id)
+    conn.execute(
+        f"""
+        UPDATE review_action_presets
+        SET {", ".join(updates)}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        params,
+    )
+    return get_review_action_preset(action_preset_id=action_preset_id, conn=conn)
+
+
+def delete_review_action_preset(*, action_preset_id: int, conn: sqlite3.Connection) -> bool:
+    """Delete one review action preset."""
+    cursor = conn.execute("DELETE FROM review_action_presets WHERE id = ?", (action_preset_id,))
+    return cursor.rowcount > 0
+
+
+def create_review_session(
+    *,
+    name: str,
+    review_kind: str,
+    query: str,
+    options_json: Mapping[str, Any],
+    current_loop_id: int | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Create a persisted review session."""
+    cursor = conn.execute(
+        """
+        INSERT INTO review_sessions (name, review_kind, query, options_json, current_loop_id)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (name, review_kind, query, json.dumps(dict(options_json)), current_loop_id),
+    )
+    row = conn.execute("SELECT * FROM review_sessions WHERE id = ?", (cursor.lastrowid,)).fetchone()
+    if row is None:
+        raise RuntimeError("review_session_insert_failed")
+    return dict(row)
+
+
+def list_review_sessions(
+    *,
+    review_kind: str | None,
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List review sessions, optionally filtered by review kind."""
+    params: list[Any] = []
+    where_clause = ""
+    if review_kind is not None:
+        where_clause = "WHERE review_kind = ?"
+        params.append(review_kind)
+    rows = conn.execute(
+        f"""
+        SELECT *
+        FROM review_sessions
+        {where_clause}
+        ORDER BY review_kind ASC, updated_at DESC, id DESC
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_review_session(*, session_id: int, conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Get one review session."""
+    row = conn.execute("SELECT * FROM review_sessions WHERE id = ?", (session_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_review_session(
+    *,
+    session_id: int,
+    name: str | None = None,
+    query: str | None = None,
+    options_json: Mapping[str, Any] | None = None,
+    current_loop_id: int | None | object = _UNSET,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Update one review session and return the updated row."""
+    updates: list[str] = []
+    params: list[Any] = []
+    if name is not None:
+        updates.append("name = ?")
+        params.append(name)
+    if query is not None:
+        updates.append("query = ?")
+        params.append(query)
+    if options_json is not None:
+        updates.append("options_json = ?")
+        params.append(json.dumps(dict(options_json)))
+    if current_loop_id is not _UNSET:
+        updates.append("current_loop_id = ?")
+        params.append(current_loop_id)
+    if not updates:
+        return get_review_session(session_id=session_id, conn=conn)
+    params.append(session_id)
+    conn.execute(
+        f"""
+        UPDATE review_sessions
+        SET {", ".join(updates)}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        params,
+    )
+    return get_review_session(session_id=session_id, conn=conn)
+
+
+def delete_review_session(*, session_id: int, conn: sqlite3.Connection) -> bool:
+    """Delete one review session."""
+    cursor = conn.execute("DELETE FROM review_sessions WHERE id = ?", (session_id,))
+    return cursor.rowcount > 0

@@ -3473,6 +3473,29 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "clarification.list" in tool_names
     assert "clarification.answer" in tool_names
     assert "clarification.answer_many" in tool_names
+    assert "review.relationship_action.create" in tool_names
+    assert "review.relationship_action.list" in tool_names
+    assert "review.relationship_action.get" in tool_names
+    assert "review.relationship_action.update" in tool_names
+    assert "review.relationship_action.delete" in tool_names
+    assert "review.relationship_session.create" in tool_names
+    assert "review.relationship_session.list" in tool_names
+    assert "review.relationship_session.get" in tool_names
+    assert "review.relationship_session.update" in tool_names
+    assert "review.relationship_session.delete" in tool_names
+    assert "review.relationship_session.apply_action" in tool_names
+    assert "review.enrichment_action.create" in tool_names
+    assert "review.enrichment_action.list" in tool_names
+    assert "review.enrichment_action.get" in tool_names
+    assert "review.enrichment_action.update" in tool_names
+    assert "review.enrichment_action.delete" in tool_names
+    assert "review.enrichment_session.create" in tool_names
+    assert "review.enrichment_session.list" in tool_names
+    assert "review.enrichment_session.get" in tool_names
+    assert "review.enrichment_session.update" in tool_names
+    assert "review.enrichment_session.delete" in tool_names
+    assert "review.enrichment_session.apply_action" in tool_names
+    assert "review.enrichment_session.answer_clarifications" in tool_names
 
 
 def test_memory_tools_support_direct_crud_and_search(

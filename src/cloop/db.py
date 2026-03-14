@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 36
+SCHEMA_VERSION: int = 37
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -343,6 +343,36 @@ CREATE TABLE loop_views (
 );
 
 CREATE INDEX idx_loop_views_name ON loop_views(name);
+
+CREATE TABLE review_action_presets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
+    action_type TEXT NOT NULL,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_review_action_presets_kind_name
+    ON review_action_presets(review_kind, name);
+
+CREATE TABLE review_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
+    query TEXT NOT NULL,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    current_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_review_sessions_kind_name
+    ON review_sessions(review_kind, name);
+CREATE INDEX idx_review_sessions_current_loop
+    ON review_sessions(current_loop_id) WHERE current_loop_id IS NOT NULL;
 
 CREATE TABLE webhook_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -585,6 +615,38 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    37: """
+    CREATE TABLE review_action_presets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
+        action_type TEXT NOT NULL,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        description TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_review_action_presets_kind_name
+        ON review_action_presets(review_kind, name);
+
+    CREATE TABLE review_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
+        query TEXT NOT NULL,
+        options_json TEXT NOT NULL DEFAULT '{}',
+        current_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_review_sessions_kind_name
+        ON review_sessions(review_kind, name);
+    CREATE INDEX idx_review_sessions_current_loop
+        ON review_sessions(current_loop_id)
+        WHERE current_loop_id IS NOT NULL;
+    """,
     36: """
     ALTER TABLE loop_links ADD COLUMN link_state TEXT NOT NULL DEFAULT 'active';
     ALTER TABLE loop_links ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;

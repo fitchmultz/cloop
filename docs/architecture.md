@@ -46,6 +46,7 @@ flowchart LR
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
 - `src/cloop/loops/enrichment_review.py`: shared suggestion/clarification review contract used by HTTP, web, CLI, and MCP after enrichment runs.
 - `src/cloop/loops/relationship_review.py`: shared duplicate/related-loop review contract used by HTTP, web, CLI, and MCP on top of semantic similarity.
+- `src/cloop/loops/review_workflows.py`: shared saved review-action + saved review-session contract used by HTTP, web, CLI, and MCP for session-preserving filtered relationship/enrichment review.
 - `src/cloop/memory_management.py`: shared direct memory-management contract used by HTTP, web, CLI, MCP, and memory tool executors.
 - `src/cloop/loops/read_service.py`, `src/cloop/loops/similarity.py`: shared semantic-loop search contract plus canonical loop-embedding/source-hash maintenance for on-demand backfill.
 - `src/cloop/loops/prioritization.py`, `review.py`, `timers.py`, `claims.py`: specialized loop behavior.
@@ -109,6 +110,12 @@ flowchart LR
 2. `src/cloop/loops/relationship_review.py` owns duplicate-vs-related classification, cross-loop review queues, confirm/dismiss decisions, and merge-resolution state updates.
 3. `src/cloop/loops/read_service.py` + `src/cloop/loops/similarity.py` remain the only owners of embedding source text, source-hash upkeep, and similarity scoring.
 4. Relationship decisions persist in `loop_links` with explicit `link_state` (`active`, `dismissed`, `resolved`) so review outcomes survive later suggestion refreshes.
+
+### Saved review workflows (HTTP + Web + CLI + MCP)
+1. HTTP `/loops/review/*`, the Review tab session workspaces, `cloop review *`, and MCP `review.*` all call `src/cloop/loops/review_workflows.py`.
+2. `src/cloop/loops/review_workflows.py` owns saved review-action presets, saved review-session persistence, filtered worklist snapshots, cursor preservation, and session-scoped relationship/enrichment action execution.
+3. Relationship session snapshots delegate candidate generation back to `src/cloop/loops/relationship_review.py`, and enrichment session snapshots delegate suggestion/clarification hydration back to `src/cloop/loops/enrichment_review.py`.
+4. The web Review tab should treat saved sessions as the source of truth for current worklist state instead of rebuilding ad-hoc queue filters client-side.
 
 ### Bulk enrichment (HTTP + Web + CLI + MCP)
 1. Explicit bulk enrichment now routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.

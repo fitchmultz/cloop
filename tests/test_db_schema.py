@@ -93,6 +93,23 @@ def test_idempotency_keys_table_exists(tmp_path: Path, monkeypatch: pytest.Monke
     assert row is not None
 
 
+def test_review_workflow_tables_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Saved review actions and sessions should have durable schema tables."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        table_names = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?)",
+                ("review_action_presets", "review_sessions"),
+            ).fetchall()
+        }
+
+    assert table_names == {"review_action_presets", "review_sessions"}
+
+
 def test_idempotency_keys_table_has_unique_constraint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

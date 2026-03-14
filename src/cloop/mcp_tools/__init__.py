@@ -15,6 +15,7 @@ from .loop_templates import register_loop_template_tools
 from .loop_views import register_loop_view_tools
 from .memory_tools import register_memory_tools
 from .rag_tools import register_rag_tools
+from .review_workflows import register_review_workflow_tools
 from .suggestion_tools import register_suggestion_tools
 
 __all__ = [
@@ -29,5 +30,6 @@ __all__ = [
     "register_loop_view_tools",
     "register_memory_tools",
     "register_rag_tools",
+    "register_review_workflow_tools",
     "register_suggestion_tools",
 ]

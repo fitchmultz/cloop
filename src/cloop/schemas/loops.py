@@ -1151,10 +1151,6 @@ class LoopCommentListResponse(BaseModel):
     total_count: int
 
 
-# Resolve forward references
-LoopCommentResponse.model_rebuild()
-
-
 # ============================================================================
 # Loop Metrics Schemas
 # ============================================================================
@@ -1333,6 +1329,233 @@ class LoopRelationshipReviewQueueResponse(BaseModel):
     items: List[LoopRelationshipReviewQueueItemResponse]
 
 
+class RelationshipReviewActionCreateRequest(BaseModel):
+    """Create a saved relationship-review action."""
+
+    name: str = Field(..., min_length=1, max_length=VIEW_NAME_MAX)
+    action_type: Literal["confirm", "dismiss"]
+    relationship_type: Literal["suggested", "related", "duplicate"] = "suggested"
+    description: str | None = Field(default=None, max_length=VIEW_DESCRIPTION_MAX)
+
+
+class RelationshipReviewActionUpdateRequest(BaseModel):
+    """Update a saved relationship-review action."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=VIEW_NAME_MAX)
+    action_type: Literal["confirm", "dismiss"] | None = None
+    relationship_type: Literal["suggested", "related", "duplicate"] | None = None
+    description: str | None = Field(default=None, max_length=VIEW_DESCRIPTION_MAX)
+
+
+class RelationshipReviewActionResponse(BaseModel):
+    """Saved relationship-review action response."""
+
+    id: int
+    name: str
+    review_kind: Literal["relationship"] = "relationship"
+    action_type: Literal["confirm", "dismiss"]
+    relationship_type: Literal["suggested", "related", "duplicate"]
+    description: str | None = None
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class RelationshipReviewSessionCreateRequest(BaseModel):
+    """Create a saved relationship-review session."""
+
+    name: str = Field(..., min_length=1, max_length=VIEW_NAME_MAX)
+    query: str = Field(..., min_length=1, max_length=SEARCH_QUERY_MAX)
+    relationship_kind: Literal["all", "duplicate", "related"] = "all"
+    candidate_limit: int = Field(default=3, ge=1, le=20)
+    item_limit: int = Field(default=25, ge=1, le=100)
+    current_loop_id: int | None = None
+
+
+class RelationshipReviewSessionUpdateRequest(BaseModel):
+    """Update a saved relationship-review session."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=VIEW_NAME_MAX)
+    query: str | None = Field(default=None, min_length=1, max_length=SEARCH_QUERY_MAX)
+    relationship_kind: Literal["all", "duplicate", "related"] | None = None
+    candidate_limit: int | None = Field(default=None, ge=1, le=20)
+    item_limit: int | None = Field(default=None, ge=1, le=100)
+    current_loop_id: int | None = None
+
+
+class RelationshipReviewSessionResponse(BaseModel):
+    """Saved relationship-review session metadata."""
+
+    id: int
+    name: str
+    review_kind: Literal["relationship"] = "relationship"
+    query: str
+    relationship_kind: Literal["all", "duplicate", "related"]
+    candidate_limit: int
+    item_limit: int
+    current_loop_id: int | None = None
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class RelationshipReviewSessionSnapshotResponse(BaseModel):
+    """Session snapshot for relationship review."""
+
+    session: RelationshipReviewSessionResponse
+    loop_count: int
+    current_index: int | None = None
+    current_item: LoopRelationshipReviewQueueItemResponse | None = None
+    items: List[LoopRelationshipReviewQueueItemResponse]
+
+
+class RelationshipReviewSessionActionRequest(BaseModel):
+    """Run a relationship-review action inside a saved session."""
+
+    loop_id: int
+    candidate_loop_id: int
+    candidate_relationship_type: Literal["related", "duplicate"]
+    action_preset_id: int | None = None
+    action_type: Literal["confirm", "dismiss"] | None = None
+    relationship_type: Literal["suggested", "related", "duplicate"] | None = None
+
+
+class RelationshipReviewSessionActionResponse(BaseModel):
+    """Result of a relationship-review session action."""
+
+    result: "RelationshipDecisionResponse"
+    snapshot: RelationshipReviewSessionSnapshotResponse
+
+
+class EnrichmentReviewQueueItemResponse(BaseModel):
+    """One loop with pending enrichment follow-up work."""
+
+    loop: LoopResponse
+    pending_suggestion_count: int
+    pending_clarification_count: int
+    newest_pending_at: str
+    pending_suggestions: List["SuggestionResponse"]
+    pending_clarifications: List["ClarificationResponse"]
+
+
+class EnrichmentReviewActionCreateRequest(BaseModel):
+    """Create a saved enrichment-review action."""
+
+    name: str = Field(..., min_length=1, max_length=VIEW_NAME_MAX)
+    action_type: Literal["apply", "reject"]
+    fields: List[str] | None = None
+    description: str | None = Field(default=None, max_length=VIEW_DESCRIPTION_MAX)
+
+
+class EnrichmentReviewActionUpdateRequest(BaseModel):
+    """Update a saved enrichment-review action."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=VIEW_NAME_MAX)
+    action_type: Literal["apply", "reject"] | None = None
+    fields: List[str] | None = None
+    description: str | None = Field(default=None, max_length=VIEW_DESCRIPTION_MAX)
+
+
+class EnrichmentReviewActionResponse(BaseModel):
+    """Saved enrichment-review action response."""
+
+    id: int
+    name: str
+    review_kind: Literal["enrichment"] = "enrichment"
+    action_type: Literal["apply", "reject"]
+    fields: List[str] | None = None
+    description: str | None = None
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class EnrichmentReviewSessionCreateRequest(BaseModel):
+    """Create a saved enrichment-review session."""
+
+    name: str = Field(..., min_length=1, max_length=VIEW_NAME_MAX)
+    query: str = Field(..., min_length=1, max_length=SEARCH_QUERY_MAX)
+    pending_kind: Literal["all", "suggestions", "clarifications"] = "all"
+    suggestion_limit: int = Field(default=3, ge=1, le=20)
+    clarification_limit: int = Field(default=3, ge=1, le=20)
+    item_limit: int = Field(default=25, ge=1, le=100)
+    current_loop_id: int | None = None
+
+
+class EnrichmentReviewSessionUpdateRequest(BaseModel):
+    """Update a saved enrichment-review session."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=VIEW_NAME_MAX)
+    query: str | None = Field(default=None, min_length=1, max_length=SEARCH_QUERY_MAX)
+    pending_kind: Literal["all", "suggestions", "clarifications"] | None = None
+    suggestion_limit: int | None = Field(default=None, ge=1, le=20)
+    clarification_limit: int | None = Field(default=None, ge=1, le=20)
+    item_limit: int | None = Field(default=None, ge=1, le=100)
+    current_loop_id: int | None = None
+
+
+class EnrichmentReviewSessionResponse(BaseModel):
+    """Saved enrichment-review session metadata."""
+
+    id: int
+    name: str
+    review_kind: Literal["enrichment"] = "enrichment"
+    query: str
+    pending_kind: Literal["all", "suggestions", "clarifications"]
+    suggestion_limit: int
+    clarification_limit: int
+    item_limit: int
+    current_loop_id: int | None = None
+    created_at_utc: str
+    updated_at_utc: str
+
+
+class EnrichmentReviewSessionSnapshotResponse(BaseModel):
+    """Session snapshot for enrichment review."""
+
+    session: EnrichmentReviewSessionResponse
+    loop_count: int
+    current_index: int | None = None
+    current_item: EnrichmentReviewQueueItemResponse | None = None
+    items: List[EnrichmentReviewQueueItemResponse]
+
+
+class EnrichmentReviewSessionActionRequest(BaseModel):
+    """Run an enrichment-review action inside a saved session."""
+
+    suggestion_id: int
+    action_preset_id: int | None = None
+    action_type: Literal["apply", "reject"] | None = None
+    fields: List[str] | None = None
+
+
+class EnrichmentReviewActionResultResponse(BaseModel):
+    """Normalized result of applying or rejecting a suggestion."""
+
+    suggestion_id: int
+    resolution: str
+    loop: LoopResponse | None = None
+    applied_fields: List[str] = Field(default_factory=list)
+
+
+class EnrichmentReviewSessionActionResponse(BaseModel):
+    """Result of an enrichment-review session action."""
+
+    result: EnrichmentReviewActionResultResponse
+    snapshot: EnrichmentReviewSessionSnapshotResponse
+
+
+class EnrichmentReviewSessionClarificationRequest(BaseModel):
+    """Answer clarifications inside a saved enrichment session."""
+
+    loop_id: int
+    answers: List["ClarificationSubmitRequest"]
+
+
+class EnrichmentReviewSessionClarificationResponse(BaseModel):
+    """Result of answering clarifications inside a saved enrichment session."""
+
+    result: "ClarificationSubmitResponse"
+    snapshot: EnrichmentReviewSessionSnapshotResponse
+
+
 class RelationshipDecisionRequest(BaseModel):
     """Confirm or dismiss one relationship candidate."""
 
@@ -1434,3 +1657,11 @@ class ClarificationSubmitResponse(BaseModel):
     clarifications: List[ClarificationResponse]
     superseded_suggestion_ids: List[int] = Field(default_factory=list)
     message: str = "Clarifications recorded. Re-enrich to generate an updated suggestion."
+
+
+# Resolve forward references
+LoopCommentResponse.model_rebuild()
+RelationshipReviewSessionActionResponse.model_rebuild()
+EnrichmentReviewQueueItemResponse.model_rebuild()
+EnrichmentReviewSessionClarificationRequest.model_rebuild()
+EnrichmentReviewSessionClarificationResponse.model_rebuild()

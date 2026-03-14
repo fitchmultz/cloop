@@ -42,13 +42,25 @@ from ...schemas.loops import (
     ClarificationResponse,
     ClarificationSubmitResponse,
     DependencyInfo,
+    EnrichmentReviewActionResponse,
+    EnrichmentReviewActionResultResponse,
+    EnrichmentReviewQueueItemResponse,
+    EnrichmentReviewSessionActionResponse,
+    EnrichmentReviewSessionClarificationResponse,
+    EnrichmentReviewSessionResponse,
+    EnrichmentReviewSessionSnapshotResponse,
     LoopCommentResponse,
     LoopEnrichmentResponse,
+    LoopRelationshipReviewQueueItemResponse,
     LoopResponse,
     LoopTemplateResponse,
     LoopViewResponse,
     LoopWithDependenciesResponse,
     QueryBulkEnrichResponse,
+    RelationshipReviewActionResponse,
+    RelationshipReviewSessionActionResponse,
+    RelationshipReviewSessionResponse,
+    RelationshipReviewSessionSnapshotResponse,
     SuggestionListResponse,
     SuggestionResponse,
     TimerStatusResponse,
@@ -226,6 +238,134 @@ def build_suggestion_list_response(
     return SuggestionListResponse(
         suggestions=[build_suggestion_response(suggestion) for suggestion in suggestions],
         count=len(suggestions),
+    )
+
+
+def build_relationship_review_action_response(
+    action: Mapping[str, Any],
+) -> RelationshipReviewActionResponse:
+    """Convert a relationship review action payload into the response model."""
+    return RelationshipReviewActionResponse(**action)
+
+
+def build_relationship_review_session_response(
+    session: Mapping[str, Any],
+) -> RelationshipReviewSessionResponse:
+    """Convert a relationship review session payload into the response model."""
+    return RelationshipReviewSessionResponse(**session)
+
+
+def build_relationship_review_session_snapshot_response(
+    snapshot: Mapping[str, Any],
+) -> RelationshipReviewSessionSnapshotResponse:
+    """Convert a relationship session snapshot payload into the response model."""
+    return RelationshipReviewSessionSnapshotResponse(
+        session=build_relationship_review_session_response(snapshot["session"]),
+        loop_count=int(snapshot["loop_count"]),
+        current_index=snapshot.get("current_index"),
+        current_item=(
+            LoopRelationshipReviewQueueItemResponse.model_validate(snapshot["current_item"])
+            if snapshot.get("current_item") is not None
+            else None
+        ),
+        items=[
+            LoopRelationshipReviewQueueItemResponse.model_validate(item)
+            for item in snapshot.get("items", [])
+        ],
+    )
+
+
+def build_relationship_review_session_action_response(
+    payload: Mapping[str, Any],
+) -> RelationshipReviewSessionActionResponse:
+    """Convert a relationship session action payload into the response model."""
+    return RelationshipReviewSessionActionResponse(
+        result=payload["result"],
+        snapshot=build_relationship_review_session_snapshot_response(payload["snapshot"]),
+    )
+
+
+def build_enrichment_review_queue_item_response(
+    item: Mapping[str, Any],
+) -> EnrichmentReviewQueueItemResponse:
+    """Convert one enrichment review queue item into the response model."""
+    return EnrichmentReviewQueueItemResponse(
+        loop=build_loop_response(item["loop"]),
+        pending_suggestion_count=int(item["pending_suggestion_count"]),
+        pending_clarification_count=int(item["pending_clarification_count"]),
+        newest_pending_at=str(item["newest_pending_at"]),
+        pending_suggestions=[
+            build_suggestion_response(suggestion)
+            for suggestion in item.get("pending_suggestions", [])
+        ],
+        pending_clarifications=build_clarification_responses(
+            item.get("pending_clarifications", [])
+        ),
+    )
+
+
+def build_enrichment_review_action_response(
+    action: Mapping[str, Any],
+) -> EnrichmentReviewActionResponse:
+    """Convert an enrichment review action payload into the response model."""
+    return EnrichmentReviewActionResponse(**action)
+
+
+def build_enrichment_review_action_result_response(
+    result: Mapping[str, Any],
+) -> EnrichmentReviewActionResultResponse:
+    """Convert an enrichment review action result into the response model."""
+    return EnrichmentReviewActionResultResponse(
+        suggestion_id=int(result["suggestion_id"]),
+        resolution=str(result["resolution"]),
+        loop=build_loop_response(result["loop"]) if result.get("loop") else None,
+        applied_fields=list(result.get("applied_fields") or []),
+    )
+
+
+def build_enrichment_review_session_response(
+    session: Mapping[str, Any],
+) -> EnrichmentReviewSessionResponse:
+    """Convert an enrichment review session payload into the response model."""
+    return EnrichmentReviewSessionResponse(**session)
+
+
+def build_enrichment_review_session_snapshot_response(
+    snapshot: Mapping[str, Any],
+) -> EnrichmentReviewSessionSnapshotResponse:
+    """Convert an enrichment session snapshot payload into the response model."""
+    return EnrichmentReviewSessionSnapshotResponse(
+        session=build_enrichment_review_session_response(snapshot["session"]),
+        loop_count=int(snapshot["loop_count"]),
+        current_index=snapshot.get("current_index"),
+        current_item=(
+            build_enrichment_review_queue_item_response(snapshot["current_item"])
+            if snapshot.get("current_item") is not None
+            else None
+        ),
+        items=[
+            build_enrichment_review_queue_item_response(item) for item in snapshot.get("items", [])
+        ],
+    )
+
+
+def build_enrichment_review_session_action_response(
+    payload: Mapping[str, Any],
+) -> EnrichmentReviewSessionActionResponse:
+    """Convert an enrichment session action payload into the response model."""
+    return EnrichmentReviewSessionActionResponse(
+        result=build_enrichment_review_action_result_response(payload["result"]),
+        snapshot=build_enrichment_review_session_snapshot_response(payload["snapshot"]),
+    )
+
+
+def build_enrichment_review_session_clarification_response(
+    payload: Mapping[str, Any],
+) -> EnrichmentReviewSessionClarificationResponse:
+    """Convert an enrichment session clarification payload into the response model."""
+    return EnrichmentReviewSessionClarificationResponse(
+        result=build_clarification_submit_response(payload["result"]),
+        snapshot=build_enrichment_review_session_snapshot_response(payload["snapshot"]),
     )
 
 

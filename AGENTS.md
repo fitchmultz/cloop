@@ -19,6 +19,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Shared enrichment orchestration | `src/cloop/loops/enrichment_orchestration.py` |
 | Shared enrichment review flows | `src/cloop/loops/enrichment_review.py` |
 | Shared relationship review flows | `src/cloop/loops/relationship_review.py` |
+| Shared saved review actions + sessions | `src/cloop/loops/review_workflows.py` |
 | Shared direct memory management | `src/cloop/memory_management.py`, `src/cloop/storage/memory_store.py` |
 | Shared semantic loop search + similarity indexing | `src/cloop/loops/read_service.py`, `src/cloop/loops/similarity.py` |
 | Embedding-provider resolution | `src/cloop/embedding_providers.py`, `src/cloop/litellm_retry.py`, `src/cloop/embeddings.py` |
@@ -81,6 +82,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Direct memory orchestration**: direct memory list/search/get/create/update/delete now belong in `src/cloop/memory_management.py`; HTTP routes, web UI, CLI, MCP, and memory tool executors should reuse that module instead of talking to `storage/memory_store.py` directly or inventing transport-specific memory validation.
 - **Semantic loop search orchestration**: first-class semantic loop search belongs in `src/cloop/loops/read_service.py::semantic_search_loops`, while canonical loop embedding source text/hash upkeep belongs in `src/cloop/loops/similarity.py`; HTTP, web UI, CLI, and MCP should reuse that contract instead of embedding/scoring loops in transport code.
 - **Relationship review orchestration**: duplicate/related review, queueing, confirm/dismiss decisions, and merge-resolution state now belong in `src/cloop/loops/relationship_review.py`; HTTP routes, web UI, CLI, and MCP should reuse that module instead of inventing transport-specific similarity or relationship-state logic.
+- **Saved review workflows**: durable review action presets, filtered review sessions, cursor preservation, and session-scoped relationship/enrichment review execution now belong in `src/cloop/loops/review_workflows.py`; transports should reuse `/loops/review/*`, `cloop review *`, and `review.*` instead of rebuilding ad-hoc queue state.
 - **RAG execution orchestration**: shared retrieval ingest/ask execution and interaction logging now live in `src/cloop/rag_execution.py`, while retrieval + prompt + answer shaping live in `src/cloop/rag/ask_orchestration.py`; HTTP, CLI, and MCP retrieval flows should reuse those modules instead of forking behavior by transport.
 - **Chat execution orchestration**: shared grounded chat preparation lives in `src/cloop/chat_orchestration.py`, and shared execution/logging lives in `src/cloop/chat_execution.py`; HTTP, CLI, and MCP chat flows should reuse those modules instead of rebuilding tool handling, response shaping, or interaction logging per transport.
 - **CLI runtime**: loop-adjacent CLI handlers should centralize connection handling, expected exception mapping, and output/render orchestration through `src/cloop/cli_package/_runtime.py` instead of open-coding `with db.core_connection(...)` and per-command stderr/exit-code trees.

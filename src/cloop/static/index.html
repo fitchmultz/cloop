@@ -510,32 +510,85 @@
           <div class="review-header relationship-review-header">
             <div>
               <p class="support-eyebrow">Similarity review</p>
-              <h2>Duplicate & related-loop review</h2>
-              <p class="support-copy">Review semantically similar loops, confirm real relationships, dismiss noisy matches, or merge duplicates into the better surviving loop.</p>
+              <h2>Saved duplicate & related review sessions</h2>
+              <p class="support-copy">Create filtered review sessions that preserve your place while you step through duplicate and related-loop decisions, with reusable action presets for consistent handling.</p>
             </div>
-            <div class="review-controls-row">
-              <label for="review-relationship-status">scope:</label>
-              <select id="review-relationship-status">
-                <option value="open" selected>open</option>
-                <option value="inbox">inbox</option>
-                <option value="actionable">actionable</option>
-                <option value="blocked">blocked</option>
-                <option value="scheduled">scheduled</option>
-                <option value="completed">completed</option>
-                <option value="dropped">dropped</option>
-                <option value="all">all</option>
-              </select>
-              <label for="review-relationship-kind">kind:</label>
-              <select id="review-relationship-kind">
-                <option value="all" selected>all</option>
-                <option value="duplicate">duplicates</option>
-                <option value="related">related</option>
-              </select>
-              <button class="secondary" type="button" id="review-relationship-refresh">Refresh</button>
+            <div class="review-session-toolbar">
+              <label class="review-session-select-field" for="review-relationship-session-select">
+                <span>Session</span>
+                <select id="review-relationship-session-select">
+                  <option value="">No saved session</option>
+                </select>
+              </label>
+              <div class="review-session-toolbar-actions">
+                <button class="secondary" type="button" id="review-relationship-session-new">New session</button>
+                <button class="secondary" type="button" id="review-relationship-session-edit">Edit</button>
+                <button class="secondary" type="button" id="review-relationship-session-delete">Delete</button>
+                <button class="secondary" type="button" id="review-relationship-session-refresh">Refresh</button>
+              </div>
             </div>
           </div>
-          <p id="review-status" class="support-status" role="status" aria-live="polite">Loading review workspace…</p>
-          <div id="review-relationship-queue" class="review-relationship-queue"></div>
+          <div class="review-action-toolbar">
+            <label class="review-session-select-field" for="review-relationship-action-select">
+              <span>Saved action</span>
+              <select id="review-relationship-action-select">
+                <option value="">No saved action</option>
+              </select>
+            </label>
+            <div class="review-session-toolbar-actions">
+              <button class="secondary" type="button" id="review-relationship-action-new">New action</button>
+              <button class="secondary" type="button" id="review-relationship-action-edit">Edit</button>
+              <button class="secondary" type="button" id="review-relationship-action-delete">Delete</button>
+            </div>
+          </div>
+          <p id="review-relationship-session-status" class="support-status" role="status" aria-live="polite">Create a saved relationship-review session to preserve your filtered worklist.</p>
+          <div id="review-relationship-session-summary" class="review-session-summary"></div>
+          <div class="review-session-workspace">
+            <div id="review-relationship-session-list" class="review-session-list"></div>
+            <div id="review-relationship-session-detail" class="review-session-detail"></div>
+          </div>
+        </section>
+        <section class="panel review-panel enrichment-review-panel">
+          <div class="review-header enrichment-review-header">
+            <div>
+              <p class="support-eyebrow">Enrichment follow-up</p>
+              <h2>Saved suggestion & clarification review sessions</h2>
+              <p class="support-copy">Preserve filtered enrichment worklists while you apply saved suggestion actions, answer clarifications, and keep your follow-up queue anchored to a real session.</p>
+            </div>
+            <div class="review-session-toolbar">
+              <label class="review-session-select-field" for="review-enrichment-session-select">
+                <span>Session</span>
+                <select id="review-enrichment-session-select">
+                  <option value="">No saved session</option>
+                </select>
+              </label>
+              <div class="review-session-toolbar-actions">
+                <button class="secondary" type="button" id="review-enrichment-session-new">New session</button>
+                <button class="secondary" type="button" id="review-enrichment-session-edit">Edit</button>
+                <button class="secondary" type="button" id="review-enrichment-session-delete">Delete</button>
+                <button class="secondary" type="button" id="review-enrichment-session-refresh">Refresh</button>
+              </div>
+            </div>
+          </div>
+          <div class="review-action-toolbar">
+            <label class="review-session-select-field" for="review-enrichment-action-select">
+              <span>Saved action</span>
+              <select id="review-enrichment-action-select">
+                <option value="">No saved action</option>
+              </select>
+            </label>
+            <div class="review-session-toolbar-actions">
+              <button class="secondary" type="button" id="review-enrichment-action-new">New action</button>
+              <button class="secondary" type="button" id="review-enrichment-action-edit">Edit</button>
+              <button class="secondary" type="button" id="review-enrichment-action-delete">Delete</button>
+            </div>
+          </div>
+          <p id="review-enrichment-session-status" class="support-status" role="status" aria-live="polite">Create a saved enrichment-review session to step through pending suggestions and clarifications.</p>
+          <div id="review-enrichment-session-summary" class="review-session-summary"></div>
+          <div class="review-session-workspace">
+            <div id="review-enrichment-session-list" class="review-session-list"></div>
+            <div id="review-enrichment-session-detail" class="review-session-detail"></div>
+          </div>
         </section>
         <section class="panel review-panel">
           <div class="review-header">
