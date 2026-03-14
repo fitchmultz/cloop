@@ -726,7 +726,7 @@ def test_generic_exception_sanitized_response(
     def mock_ingest_paths(*args: Any, **kwargs: Any) -> dict[str, Any]:
         raise RuntimeError("Simulated ingestion failure with /secret/path")
 
-    monkeypatch.setattr("cloop.routes.rag.ingest_paths", mock_ingest_paths)
+    monkeypatch.setattr("cloop.rag_execution.ingest_paths", mock_ingest_paths)
     client = TestClient(app, raise_server_exceptions=False)
 
     doc = tmp_path / "test.txt"
@@ -777,7 +777,7 @@ def test_generic_exception_never_exposes_sensitive_data(
         def mock_fail(*args: Any, _pattern: str = pattern, **kwargs: Any) -> dict[str, Any]:
             raise RuntimeError(f"Error involving {_pattern}")
 
-        monkeypatch.setattr("cloop.routes.rag.ingest_paths", mock_fail)
+        monkeypatch.setattr("cloop.rag_execution.ingest_paths", mock_fail)
         client = TestClient(app, raise_server_exceptions=False)
 
         doc = tmp_path / "test.txt"

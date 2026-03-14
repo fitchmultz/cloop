@@ -55,6 +55,7 @@ class IngestResponse(BaseModel):
 
     files: int
     chunks: int
+    files_skipped: int = 0
     failed_files: List[FailedFileInfo] = Field(default_factory=list)
 
 

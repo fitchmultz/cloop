@@ -85,6 +85,8 @@ MCP:
 uv run cloop-mcp
 ```
 
+Confirm your MCP client discovers both retrieval tools (`rag.ask`, `rag.ingest`) and the loop tool set.
+
 ## 4) CI workflow intent check
 
 - PR-fast workflow: `.github/workflows/ci.yml`

@@ -6,51 +6,36 @@ Purpose:
 Responsibilities:
     - POST /ingest: Ingest documents into knowledge base
     - GET /ask: Ask questions against the knowledge base
+    - Map HTTP transport concerns onto the shared RAG execution contract
+    - Format streaming ask responses as Server-Sent Events
 
 Non-scope:
     - Document loading (see rag/loaders.py)
     - Search algorithms (see rag/search.py)
+    - Shared ask/ingest execution semantics (see rag_execution.py)
 
 Endpoints:
 - POST /ingest: Ingest documents into knowledge base
 - GET /ask: Ask questions against the knowledge base
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterator
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from .. import db
-from ..llm import stream_events
 from ..loops.errors import CloopError
-from ..rag import (
-    NO_KNOWLEDGE_MESSAGE,
-    answer_prepared_question,
-    ingest_paths,
-    prepare_ask_context,
-)
-from ..schemas.chat import _InteractionMetadata
+from ..rag_execution import execute_ask_request, execute_ingest_request, stream_ask_request
 from ..schemas.rag import AskResponse, IngestMode, IngestRequest, IngestResponse
 from ..settings import Settings, get_settings
 from ..sse import format_sse_event
-from ..storage import interaction_store
 
 router = APIRouter(tags=["rag"])
 
 SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
-
-
-def _interaction_context(settings: Settings) -> Dict[str, str]:
-    """Build interaction context for logging."""
-    backend = db.get_vector_backend()
-    return {
-        "embed_model": settings.embed_model,
-        "vector_search_mode": settings.vector_search_mode.value,
-        "embed_storage_mode": settings.embed_storage_mode.value,
-        "vector_backend": backend.value,
-    }
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -58,25 +43,20 @@ def ingest_endpoint(
     request: IngestRequest,
     settings: SettingsDep,
 ) -> IngestResponse:
-    if not request.paths:
-        raise HTTPException(status_code=400, detail="paths cannot be empty")
     mode = (request.mode or IngestMode.ADD).value
     recursive = True if request.recursive is None else bool(request.recursive)
     try:
-        result = ingest_paths(request.paths, mode=mode, recursive=recursive, settings=settings)
+        result = execute_ingest_request(
+            paths=request.paths,
+            mode=mode,
+            recursive=recursive,
+            force_rehash=False,
+            settings=settings,
+            endpoint="/ingest",
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    interaction_store.record_interaction(
-        endpoint="/ingest",
-        request_payload=request.model_dump(),
-        response_payload=result,
-        model=settings.embed_model,
-        latency_ms=None,
-        token_estimate=None,
-        tool_calls=[],
-        settings=settings,
-    )
-    return IngestResponse(**result)
+    return result.response
 
 
 @router.get("/ask", response_model=AskResponse)
@@ -90,118 +70,35 @@ def ask_endpoint(
         Query(description="Restrict retrieval by path substring or doc:ID"),
     ] = None,
 ) -> Any:
-    top_k = k or settings.default_top_k
-    if top_k <= 0:
-        raise HTTPException(status_code=400, detail="k must be positive")
-
-    context_snapshot = _interaction_context(settings)
+    top_k = settings.default_top_k if k is None else k
     stream_enabled = stream if stream is not None else settings.stream_default
+
     try:
-        prepared = prepare_ask_context(
+        if stream_enabled:
+
+            def event_stream() -> Iterator[str]:
+                for event in stream_ask_request(
+                    question=q,
+                    top_k=top_k,
+                    scope=scope,
+                    settings=settings,
+                    endpoint="/ask",
+                ):
+                    if event.type == "text_delta":
+                        yield format_sse_event("token", event.payload)
+                    elif event.type == "done":
+                        yield format_sse_event("done", event.payload)
+
+            return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+        result = execute_ask_request(
             question=q,
             top_k=top_k,
             scope=scope,
             settings=settings,
+            endpoint="/ask",
         )
-    except (RuntimeError, CloopError) as exc:
+    except (RuntimeError, ValueError, CloopError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if not prepared.has_knowledge:
-        if stream_enabled:
-
-            def empty_stream() -> Iterator[str]:
-                yield format_sse_event(
-                    "done",
-                    {
-                        "answer": NO_KNOWLEDGE_MESSAGE,
-                        "model": settings.pi_model,
-                        "chunks": [],
-                    },
-                )
-
-            return StreamingResponse(empty_stream(), media_type="text/event-stream")
-        return AskResponse(answer=NO_KNOWLEDGE_MESSAGE, chunks=[])
-
-    if stream_enabled:
-        request_payload = {"q": q, "k": top_k, "stream": True}
-        if scope:
-            request_payload["scope"] = scope
-
-        def event_stream() -> Iterator[str]:
-            tokens: List[str] = []
-            metadata: _InteractionMetadata = {
-                "model": settings.pi_model,
-                "latency_ms": 0.0,
-                "usage": {},
-            }
-            for event in stream_events(prepared.messages, settings=settings):
-                if event["type"] == "text_delta":
-                    token = str(event.get("delta", ""))
-                    if not token:
-                        continue
-                    tokens.append(token)
-                    yield format_sse_event("token", {"token": token})
-                elif event["type"] == "done":
-                    metadata = {
-                        "model": str(event.get("model") or settings.pi_model),
-                        "latency_ms": float(event.get("latency_ms", 0.0)),
-                        "usage": dict(event.get("usage") or {}),
-                    }
-            final_answer = "".join(tokens)
-            response_payload = {
-                "answer": final_answer,
-                "metadata": metadata,
-                "sources": prepared.sources,
-                "context": context_snapshot,
-            }
-            interaction_store.record_interaction(
-                endpoint="/ask",
-                request_payload=request_payload,
-                response_payload=response_payload,
-                model=metadata["model"],
-                latency_ms=metadata["latency_ms"],
-                token_estimate=prepared.token_estimate,
-                selected_chunks=prepared.chunks,
-                tool_calls=[],
-                settings=settings,
-            )
-            yield format_sse_event(
-                "done",
-                {
-                    "answer": final_answer,
-                    "model": metadata["model"],
-                    "chunks": prepared.chunks,
-                    "sources": prepared.sources,
-                },
-            )
-
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-    answer = answer_prepared_question(prepared=prepared, settings=settings)
-
-    interaction_store.record_interaction(
-        endpoint="/ask",
-        request_payload={
-            key: value
-            for key, value in {"q": q, "k": top_k, "scope": scope}.items()
-            if value is not None
-        },
-        response_payload={
-            "answer": answer.answer,
-            "sources": answer.sources,
-            "context": context_snapshot,
-        },
-        model=answer.model,
-        latency_ms=answer.latency_ms,
-        token_estimate=answer.token_estimate,
-        selected_chunks=answer.chunks,
-        tool_calls=[],
-        settings=settings,
-    )
-
-    return AskResponse(
-        answer=answer.answer,
-        chunks=answer.chunks,
-        model=answer.model,
-        sources=answer.sources,
-    )
+    return result.response

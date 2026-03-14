@@ -1,4 +1,4 @@
-"""MCP tool modules for loop operations.
+"""MCP tool modules for loop and retrieval operations.
 
 This package contains domain-separated MCP tool implementations.
 Each module registers its tools with the central FastMCP instance.
@@ -11,6 +11,7 @@ from .loop_dependencies import register_loop_dependency_tools
 from .loop_read import register_loop_read_tools
 from .loop_templates import register_loop_template_tools
 from .loop_views import register_loop_view_tools
+from .rag_tools import register_rag_tools
 
 __all__ = [
     "register_loop_bulk_tools",
@@ -20,4 +21,5 @@ __all__ = [
     "register_loop_read_tools",
     "register_loop_template_tools",
     "register_loop_view_tools",
+    "register_rag_tools",
 ]

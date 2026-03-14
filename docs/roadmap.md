@@ -33,8 +33,8 @@ Legend:
 | Chat with loop context | yes | yes | yes | no | Shared chat execution supports the same loop grounding controls across HTTP/web/CLI. |
 | Chat with memory context | yes | yes | yes | no | CLI now exposes memory grounding with the same request controls. |
 | Chat with RAG context | yes | yes | yes | no | CLI can reuse document grounding and scope filters from the shared chat contract. |
-| RAG ask | yes | yes | yes | no | Shared retrieval/generation path exists. |
-| RAG ingest | yes | yes | yes | no | Embeddings-only, not generative AI. |
+| RAG ask | yes | yes | yes | yes | HTTP, CLI, and MCP now reuse the shared `rag_execution` contract on top of shared ask orchestration. |
+| RAG ingest | yes | yes | yes | yes | HTTP, CLI, and MCP now share ingest execution and bookkeeping (`files`, `chunks`, `files_skipped`, `failed_files`). |
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
 | Suggestions and clarifications | yes | yes | partial | no | Web + HTTP are strongest; CLI has suggestion commands but not full clarification parity. |
 | Memory CRUD | yes | no | no | no | Memory exists as chat context substrate but is only directly managed over HTTP. |
@@ -45,25 +45,22 @@ Legend:
 The next work should happen in this order so that the newly stabilized shared chat
 and enrichment contracts can propagate outward without rework.
 
-### Phase 1 — Add MCP parity for the highest-leverage shared AI workflows
+### Phase 1 — Add grounded chat parity to MCP
 
-Goal: give agent clients the same high-value retrieval and grounded-chat capabilities
-that are now stable across HTTP/web/CLI, without letting MCP invent a separate
-contract.
+Goal: finish the remaining high-value MCP AI gap by exposing grounded chat only
+through the already-stabilized shared chat execution contract.
 
-- Add MCP `rag.ask` on top of the existing shared retrieval/answer path.
-- Add MCP ingest support so agent workflows can refresh the knowledge base.
-- Add MCP chat only if it can reuse the same shared chat execution contract cleanly,
-  including metadata, grounding options, and tool behavior.
-- Keep MCP transport details thin; shared orchestration should continue to own the
-  request/response semantics.
+- Add MCP chat only if it can reuse `src/cloop/chat_execution.py` directly.
+- Keep MCP grounding options, tool behavior, metadata, and response shaping aligned
+  with the shared HTTP/CLI chat contract.
+- Avoid introducing MCP-only chat wrappers, prompts, or tool-loop behavior.
 
 Why first:
 
-- MCP is now the most obvious parity gap in the AI surface table.
-- Retrieval parity is usually the highest-leverage AI capability for agent clients.
-- Chat should only reach MCP after HTTP/web/CLI have already proven the shared
-  contract and output semantics.
+- MCP retrieval parity is now done, so grounded chat is the next obvious AI gap.
+- HTTP/web/CLI have already proven the shared chat contract and execution behavior.
+- Closing the last major MCP generative gap before clarification/memory work reduces
+  future contract churn.
 
 ### Phase 2 — Make clarification and suggestion workflows truly multi-surface
 
@@ -96,7 +93,7 @@ Why here:
 
 - Memory already matters for grounded chat, but direct management should come after
   the main chat/retrieval contracts are settled in every transport that needs them.
-- This sequencing avoids adding more moving parts before MCP retrieval/chat parity is done.
+- This sequencing avoids adding more moving parts before MCP chat parity is done.
 
 ### Phase 4 — Turn internal AI capabilities into explicit product features
 
@@ -129,24 +126,23 @@ Why last:
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **MCP retrieval parity session**
-   - add MCP `rag.ask`
-   - add MCP ingest
-   - keep both on shared retrieval orchestration
-2. **MCP grounded chat session**
+1. **MCP grounded chat session**
    - expose MCP chat only if it can reuse `chat_execution` directly
    - keep metadata, grounding, and tool behavior identical to the shared contract
-3. **Clarification + suggestion parity session**
+2. **Clarification + suggestion parity session**
    - add CLI/MCP clarification review flows
    - align suggestion list/show/apply/reject behavior everywhere it matters
-4. **Memory management parity session**
+3. **Memory management parity session**
    - add web UI memory management
    - add CLI memory commands
    - add MCP memory tools only if the contract stays narrow and deterministic
-5. **Productized AI features session**
+4. **Productized AI features session**
    - semantic search
    - duplicate/related review improvements
    - bulk enrichment workflows
+5. **Richer AI-native workflows session**
+   - conversational clarification/enrichment loops
+   - multi-step planning/review flows on top of the stabilized shared contracts
 
 That sequence gives the highest leverage while minimizing contract churn.
 

@@ -435,6 +435,16 @@ def test_ingest_command_success(
     output = _get_last_json(capsys)
     assert output["files"] == 1
     assert output["chunks"] >= 1
+    assert output["files_skipped"] == 0
+
+    with db.core_connection(settings) as conn:
+        row = conn.execute(
+            "SELECT endpoint, request_payload FROM interactions ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["endpoint"] == "/cli/ingest"
+    request_payload = json.loads(row["request_payload"])
+    assert request_payload["paths"] == [str(doc)]
 
 
 def test_ask_command_no_knowledge(
@@ -484,6 +494,15 @@ def test_ask_command_with_results(
     # Verify embedding_blob is stripped
     for chunk in output["chunks"]:
         assert "embedding_blob" not in chunk
+
+    with db.core_connection(settings) as conn:
+        row = conn.execute(
+            "SELECT endpoint, request_payload FROM interactions ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["endpoint"] == "/cli/ask"
+    request_payload = json.loads(row["request_payload"])
+    assert request_payload["question"] == "web framework"
 
 
 def test_chat_command_json_response_and_interaction_log(

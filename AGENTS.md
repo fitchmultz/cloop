@@ -15,6 +15,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Configuration | `src/cloop/settings.py` |
 | Generative AI bridge runtime | `src/cloop/ai_bridge/`, `src/cloop/pi_bridge/` |
 | Shared grounded chat preparation/execution | `src/cloop/chat_orchestration.py`, `src/cloop/chat_execution.py` |
+| Shared RAG ask/ingest execution | `src/cloop/rag_execution.py`, `src/cloop/rag/ask_orchestration.py` |
 | Embedding-provider resolution | `src/cloop/embedding_providers.py`, `src/cloop/litellm_retry.py`, `src/cloop/embeddings.py` |
 | API routes | `src/cloop/routes/*.py` |
 | Schemas | `src/cloop/schemas/*.py` |
@@ -69,7 +70,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Bulk mutations**: `src/cloop/loops/bulk.py` should delegate single-item update/close/snooze behavior to the shared mutation helpers in `src/cloop/loops/write_ops.py`; do not fork those business rules back into bulk-specific copies.
 - **Storage ownership**: notes, memory, interaction logging, idempotency, and scheduler state belong under `src/cloop/storage/*`; `src/cloop/db.py` should stay infra-only.
 - **Capture orchestration**: shared capture/template/recurrence/enrichment setup lives in `src/cloop/loops/capture_orchestration.py`; HTTP, CLI, and MCP capture entrypoints should delegate there instead of maintaining parallel capture flows.
-- **RAG ask orchestration**: shared retrieval + prompt + answer shaping now lives in `src/cloop/rag/ask_orchestration.py`; keep HTTP `/ask` and CLI `ask` aligned through that service layer instead of forking behavior by transport.
+- **RAG execution orchestration**: shared retrieval ingest/ask execution and interaction logging now live in `src/cloop/rag_execution.py`, while retrieval + prompt + answer shaping live in `src/cloop/rag/ask_orchestration.py`; HTTP, CLI, and MCP retrieval flows should reuse those modules instead of forking behavior by transport.
 - **Chat execution orchestration**: shared grounded chat preparation lives in `src/cloop/chat_orchestration.py`, and shared execution/logging lives in `src/cloop/chat_execution.py`; HTTP and CLI chat flows should reuse those modules instead of rebuilding tool handling, response shaping, or interaction logging per transport.
 - **CLI runtime**: loop-adjacent CLI handlers should centralize connection handling, expected exception mapping, and output/render orchestration through `src/cloop/cli_package/_runtime.py` instead of open-coding `with db.core_connection(...)` and per-command stderr/exit-code trees.
 - **MCP runtime**: keep FastMCP decorator/error-wrapping helpers in `src/cloop/mcp_tools/_runtime.py`; `src/cloop/mcp_server.py` should stay focused on server assembly.

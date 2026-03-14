@@ -67,7 +67,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
 - **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
 - **Next 5**: Deterministic prioritization for actionable loops.
-- **MCP tools**: A purpose-built MCP server that exposes loop operations only.
+- **MCP tools**: A purpose-built MCP server that exposes loop operations plus RAG ingest/ask retrieval tools.
 
 Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 
@@ -682,7 +682,10 @@ uv run cloop-mcp
 
 Exposed tools include `loop.create`, `loop.update`, `loop.close`, `loop.get`, `loop.next`,
 `loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.snooze`, `loop.enrich`,
-and `project.list`.
+`project.list`, `rag.ask`, and `rag.ingest`.
+
+`rag.ask` and `rag.ingest` reuse the same shared retrieval execution contract as the HTTP and CLI surfaces,
+so answer/source semantics and ingest bookkeeping stay aligned.
 
 ## CI and test strategy
 

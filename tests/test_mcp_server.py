@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import numpy as np
 import pytest
 from conftest import _now_iso
 from mcp.server.fastmcp.exceptions import ToolError
@@ -44,7 +45,9 @@ from cloop.mcp_tools.loop_read import (
     loop_tags,
 )
 from cloop.mcp_tools.loop_templates import project_list
-from cloop.settings import get_settings
+from cloop.mcp_tools.rag_tools import rag_ask, rag_ingest
+from cloop.rag import NO_KNOWLEDGE_MESSAGE
+from cloop.settings import Settings, get_settings
 
 
 def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -57,6 +60,27 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()
     db.init_databases(get_settings())
+
+
+def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock embedding calls for MCP RAG tests."""
+
+    def fake_embed(chunks: list[str], *, settings: Settings | None = None) -> list[np.ndarray]:
+        return [np.ones(3, dtype=np.float32) * (index + 1) for index, _ in enumerate(chunks)]
+
+    monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
+    monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+
+def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock non-streaming RAG answer generation for MCP tests."""
+
+    def fake_chat_completion(
+        messages: list[dict[str, Any]], *, settings: Settings
+    ) -> tuple[str, dict[str, Any]]:
+        return "mock-response", {"model": settings.llm_model, "latency_ms": 9.0}
+
+    monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)
 
 
 # =============================================================================
@@ -3028,3 +3052,98 @@ def test_loop_tags_excludes_empty_tags(tmp_path: Path, monkeypatch: pytest.Monke
     result = loop_tags()
 
     assert result == ["tagged"]
+
+
+# =============================================================================
+# rag.ask / rag.ingest tests
+# =============================================================================
+
+
+def test_rag_ingest_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """rag.ingest should index supported files and report skipped counts."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_embeddings(monkeypatch)
+
+    doc = tmp_path / "knowledge.txt"
+    doc.write_text("FastAPI helps build APIs quickly.", encoding="utf-8")
+
+    result = rag_ingest(paths=[str(doc)])
+
+    assert result["files"] == 1
+    assert result["chunks"] >= 1
+    assert result["files_skipped"] == 0
+    assert result["failed_files"] == []
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT endpoint, request_payload FROM interactions "
+            "WHERE endpoint = '/mcp/rag.ingest' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert row["endpoint"] == "/mcp/rag.ingest"
+
+
+def test_rag_ingest_rejects_empty_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """rag.ingest should reject empty path lists."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="paths cannot be empty"):
+        rag_ingest(paths=[])
+
+
+def test_rag_ask_without_knowledge_returns_shared_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """rag.ask should return the shared no-knowledge payload instead of failing."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_embeddings(monkeypatch)
+
+    result = rag_ask(question="What do I know?")
+
+    assert result["answer"] == NO_KNOWLEDGE_MESSAGE
+    assert result["chunks"] == []
+    assert result["sources"] == []
+    assert result["model"] is None
+
+
+def test_rag_ask_returns_answer_chunks_and_sources(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """rag.ask should reuse the shared ask contract and log the MCP interaction."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_embeddings(monkeypatch)
+    _mock_rag_answer(monkeypatch)
+
+    doc = tmp_path / "faq.txt"
+    doc.write_text("FastAPI is a modern web framework.", encoding="utf-8")
+    rag_ingest(paths=[str(doc)])
+
+    result = rag_ask(question="What is FastAPI?", top_k=5)
+
+    assert result["answer"] == "mock-response"
+    assert result["model"] == "mock-llm"
+    assert result["chunks"]
+    assert result["sources"]
+    for chunk in result["chunks"]:
+        assert "embedding_blob" not in chunk
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT response_payload, selected_chunks FROM interactions "
+            "WHERE endpoint = '/mcp/rag.ask' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    response_payload = row["response_payload"]
+    selected_chunks = row["selected_chunks"]
+    assert "mock-response" in response_payload
+    assert "faq.txt" in selected_chunks
+
+
+def test_rag_ask_rejects_non_positive_top_k(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """rag.ask should reject non-positive retrieval limits."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="top_k must be positive"):
+        rag_ask(question="test", top_k=0)

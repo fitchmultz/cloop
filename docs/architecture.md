@@ -49,6 +49,7 @@ flowchart LR
 
 ### Retrieval + generation
 - `src/cloop/rag/*`: ingestion, chunking, embeddings, vector search order, and retrieval composition.
+- `src/cloop/rag_execution.py`: shared RAG ingest/ask execution contract used by HTTP, CLI, and MCP for validation, response shaping, streaming, and interaction logging.
 - `src/cloop/chat_orchestration.py`: shared grounded chat request preparation (loop, memory, and RAG context assembly).
 - `src/cloop/chat_execution.py`: shared chat execution contract used by HTTP and CLI for tool handling, response shaping, streaming, and interaction logging.
 - `src/cloop/llm.py`, `src/cloop/ai_bridge/*`, `src/cloop/pi_bridge/*`: pi-backed generative runtime, bridge protocol, and Node bridge implementation.
@@ -69,11 +70,11 @@ flowchart LR
 4. Event is emitted to SSE subscribers and webhook pipeline.
 5. API returns created loop record.
 
-### Ask with RAG
-1. Client ingests documents (`/ingest`) and asks (`/ask`).
-2. RAG module loads/chunks/embeds and stores vectors in `rag.db`.
-3. Retrieval selects candidate chunks and assembles source context.
-4. The Python app sends request-scoped messages to the local pi bridge and returns the generated answer with explicit source payload.
+### Ask with RAG (HTTP + CLI + MCP)
+1. Any transport invokes the shared RAG execution contract with ingest or ask inputs.
+2. `src/cloop/rag_execution.py` validates the request, delegates retrieval preparation to `src/cloop/rag/ask_orchestration.py`, and records interaction logs.
+3. RAG modules load/chunk/embed/store content in `rag.db`, or retrieve candidate chunks and assemble source context.
+4. When knowledge is available, the Python app sends request-scoped messages to the local pi bridge and returns the generated answer with explicit source payload.
 
 ### Grounded chat (HTTP + CLI)
 1. HTTP `/chat` and `cloop chat` both build the same `ChatRequest`-shaped payload.
@@ -118,9 +119,9 @@ flowchart LR
 
 The MCP server is a meaningful part of the project, not a sidecar demo.
 
-- It exposes loop operations through a narrow domain-specific tool boundary.
-- It reuses the same service/repository logic as the API and CLI.
-- It avoids giving agents raw SQL or overly broad host access for common loop workflows.
+- It exposes loop operations plus a narrow retrieval surface through domain-specific tools.
+- It reuses the same shared execution and service/repository logic as the API and CLI.
+- It avoids giving agents raw SQL or overly broad host access for common loop and knowledge workflows.
 
 That makes Cloop a practical example of agent-tool integration in a real application, not just a standalone chat/RAG demo.
 
