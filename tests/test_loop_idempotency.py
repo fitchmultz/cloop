@@ -347,7 +347,7 @@ def test_loop_import_idempotency_replay(
 def test_loop_enrich_idempotency_replay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
-    """Idempotency key works for enrich endpoint."""
+    """Idempotency key replays the stored enrich result without rerunning it."""
     from unittest.mock import patch
 
     client = make_test_client()
@@ -369,12 +369,16 @@ def test_loop_enrich_idempotency_replay(
         {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
     )
 
-    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response) as enrich_mock:
         response1 = client.post(f"/loops/{loop_id}/enrich", headers=headers)
         assert response1.status_code == 200
 
         response2 = client.post(f"/loops/{loop_id}/enrich", headers=headers)
         assert response2.status_code == 200
+
+    assert enrich_mock.call_count == 1
+    assert response1.json() == response2.json()
+    assert response1.json()["loop"]["enrichment_state"] == "complete"
 
 
 def test_idempotency_expiry_allows_new_request(

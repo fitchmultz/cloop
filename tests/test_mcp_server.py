@@ -656,17 +656,19 @@ def test_loop_enrich_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     mock_response = (
         '{"title": "Team Offsite Planning", '
         '"summary": "Organize team offsite", '
-        '"confidence": {"title": 0.9}}',
+        '"confidence": {"title": 0.9, "summary": 0.9}}',
         {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
     )
 
     with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
         result = loop_enrich(loop_id=created["id"])
 
-    assert "loop_id" in result
+    assert "loop" in result
     assert "suggestion_id" in result
     assert "applied_fields" in result
-    assert result["loop_id"] == created["id"]
+    assert result["loop"]["id"] == created["id"]
+    assert result["loop"]["raw_text"] == "Plan the team offsite for next month"
+    assert result["loop"]["enrichment_state"] == "complete"
 
 
 def test_loop_enrich_loop_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -711,7 +713,9 @@ def test_loop_enrich_sets_pending_state(tmp_path: Path, monkeypatch: pytest.Monk
     )
 
     with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
-        loop_enrich(loop_id=created["id"])
+        enrich_result = loop_enrich(loop_id=created["id"])
+
+    assert enrich_result["loop"]["enrichment_state"] == "complete"
 
     result = loop_list(status="inbox")
     assert len(result["items"]) == 1
@@ -1372,10 +1376,25 @@ def test_loop_enrich_idempotency_replay(tmp_path: Path, monkeypatch: pytest.Monk
         client_tz_offset_min=0,
     )
     loop_id = created["id"]
-    mock_response = {"id": loop_id, "status": "inbox", "title": "Enriched"}
+
+    class FakeEnrichmentResult:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def to_payload(self) -> dict[str, Any]:
+            return self.payload
+
+    mock_response = FakeEnrichmentResult(
+        {
+            "loop": {"id": loop_id, "status": "inbox", "raw_text": "enrich replay"},
+            "suggestion_id": 42,
+            "applied_fields": [],
+            "needs_clarification": [],
+        }
+    )
 
     with patch(
-        "cloop.mcp_tools.loop_read.loop_enrichment.enrich_loop",
+        "cloop.mcp_tools.loop_read.orchestrate_loop_enrichment",
         return_value=mock_response,
     ) as enrich_mock:
         result1 = loop_enrich(loop_id=loop_id, request_id="mcp-enrich-key")
@@ -1400,8 +1419,25 @@ def test_loop_enrich_idempotency_conflict(tmp_path: Path, monkeypatch: pytest.Mo
         client_tz_offset_min=0,
     )
 
-    mock_response = {"id": created1["id"], "status": "inbox", "title": "Enriched"}
-    with patch("cloop.mcp_tools.loop_read.loop_enrichment.enrich_loop", return_value=mock_response):
+    class FakeEnrichmentResult:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def to_payload(self) -> dict[str, Any]:
+            return self.payload
+
+    mock_response = FakeEnrichmentResult(
+        {
+            "loop": {"id": created1["id"], "status": "inbox", "raw_text": "enrich conflict 1"},
+            "suggestion_id": 99,
+            "applied_fields": [],
+            "needs_clarification": [],
+        }
+    )
+    with patch(
+        "cloop.mcp_tools.loop_read.orchestrate_loop_enrichment",
+        return_value=mock_response,
+    ):
         loop_enrich(loop_id=created1["id"], request_id="mcp-enrich-conflict-key")
         with pytest.raises(ToolError, match="Idempotency conflict"):
             loop_enrich(loop_id=created2["id"], request_id="mcp-enrich-conflict-key")

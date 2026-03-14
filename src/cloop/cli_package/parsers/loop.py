@@ -298,7 +298,10 @@ Examples:
 
 def _add_enrich_parser(loop_subparsers: Any) -> None:
     """Add 'loop enrich' parser."""
-    enrich_parser = loop_subparsers.add_parser("enrich", help="Request AI enrichment")
+    enrich_parser = loop_subparsers.add_parser(
+        "enrich",
+        help="Run AI enrichment for a loop",
+    )
     enrich_parser.add_argument("id", type=int, help="Loop ID")
     add_format_option(enrich_parser)
 

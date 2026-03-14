@@ -35,7 +35,7 @@ Legend:
 | Chat with RAG context | yes | yes | no | no | Web can now opt into document grounding and scope it. |
 | RAG ask | yes | yes | yes | no | Shared retrieval/generation path exists. |
 | RAG ingest | yes | yes | yes | no | Embeddings-only, not generative AI. |
-| Loop enrichment | yes | yes | partial | yes | CLI currently requests enrichment but does not execute the full synchronous flow. |
+| Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
 | Suggestions and clarifications | yes | yes | partial | no | Web + HTTP are strongest; CLI has suggestion commands but not full clarification parity. |
 | Memory CRUD | yes | no | no | no | Memory exists as chat context substrate but is only directly managed over HTTP. |
 | Semantic loop similarity | partial | partial | no | no | Used internally for duplicates/related context, not yet a first-class cross-surface feature. |
@@ -49,10 +49,8 @@ new surfaces depend on them.
 
 Goal: lock the last unstable chat/enrichment semantics before expanding into more transports.
 
-- Decide and implement the canonical CLI behavior for `cloop loop enrich`:
-  - either execute the full synchronous enrichment flow like the shared service-layer behavior
-  - or keep it request-only and document that decision explicitly
 - Keep the shared chat request/response contract stable now that web and HTTP both expose grounding/tool controls.
+- Treat the explicit loop-enrich contract as settled: HTTP, web, CLI, MCP, and manual tool calls now reuse the same synchronous enrichment orchestration.
 - Avoid transport-specific drift while CLI and MCP inherit the stabilized behavior.
 
 Why first:
@@ -67,7 +65,6 @@ Goal: make the terminal a first-class interface for the stabilized chat/enrichme
 
 - Add `cloop chat` on top of the same pi-backed chat capability already used by HTTP/web.
 - Carry over the stabilized controls from Phase 1 instead of inventing a CLI-only chat model.
-- Bring `cloop loop enrich` into parity with the chosen canonical enrichment behavior.
 - Keep output/rendering concerns in the CLI layer while reusing the shared orchestration underneath.
 
 Why before MCP:
@@ -139,7 +136,7 @@ If work is being planned session-by-session, the best short sequence is:
 
 1. **CLI generative parity session**
    - add `cloop chat`
-   - finalize the canonical `cloop loop enrich` behavior in CLI
+   - reuse the stabilized chat contract rather than inventing CLI-only semantics
 2. **MCP retrieval parity session**
    - add MCP `rag.ask`
    - add MCP ingest

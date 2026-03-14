@@ -30,10 +30,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ..constants import DEFAULT_LOOP_LIST_LIMIT
-from ..loops import enrichment as loop_enrichment
 from ..loops import events as loop_event_ops
 from ..loops import read_service
 from ..loops import service as loop_service
+from ..loops.enrichment_orchestration import orchestrate_loop_enrichment
 from ..loops.models import LoopStatus, validate_iso8601_timestamp
 from ._mutation import run_idempotent_tool_mutation
 from ._runtime import with_mcp_error_handling
@@ -147,20 +147,18 @@ def loop_snooze(
 
 @with_mcp_error_handling
 def loop_enrich(loop_id: int, request_id: str | None = None) -> dict[str, Any]:
-    """Trigger AI enrichment for a loop.
+    """Run the canonical synchronous enrichment flow for a loop.
 
-    Requests and executes AI enrichment to extract structured data from
-    the loop's raw_text. Enrichment may populate: summary, next_action,
-    time_minutes, tags, project suggestion, and due date.
-
-    This is a synchronous operation that performs the enrichment immediately.
+    The result includes the updated loop snapshot plus the suggestion metadata
+    generated during enrichment.
 
     Args:
         loop_id: The unique identifier of the loop to enrich.
         request_id: Optional idempotency key for safe retries.
 
     Returns:
-        The enriched loop record with updated fields.
+        Dict with `loop`, `suggestion_id`, `applied_fields`, and
+        `needs_clarification`.
 
     Raises:
         ToolError: If loop not found or enrichment fails.
@@ -289,9 +287,12 @@ def loop_tags() -> list[str]:
 
 
 def _execute_enrichment(*, loop_id: int, conn: Any, settings: Any) -> dict[str, Any]:
-    """Run the full loop enrichment flow inside the shared mutation helper."""
-    loop_service.request_enrichment(loop_id=loop_id, conn=conn)
-    return loop_enrichment.enrich_loop(loop_id=loop_id, conn=conn, settings=settings)
+    """Run the shared explicit enrichment flow inside the mutation helper."""
+    return orchestrate_loop_enrichment(
+        loop_id=loop_id,
+        conn=conn,
+        settings=settings,
+    ).to_payload()
 
 
 def register_loop_read_tools(mcp: "FastMCP") -> None:

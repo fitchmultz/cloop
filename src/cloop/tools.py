@@ -441,8 +441,7 @@ def execute_loop_snooze(**kwargs: Any) -> Dict[str, Any]:
 
 def execute_loop_enrich(**kwargs: Any) -> Dict[str, Any]:
     """Trigger AI enrichment for a loop."""
-    from .loops import enrichment as loop_enrichment
-    from .loops import service as loop_service
+    from .loops.enrichment_orchestration import orchestrate_loop_enrichment
 
     loop_id = _require_loop_id(kwargs, operation="loop_enrich")
 
@@ -450,17 +449,20 @@ def execute_loop_enrich(**kwargs: Any) -> Dict[str, Any]:
         operation="loop_enrich",
         loop_id=loop_id,
         wrap_field="fields",
-        action=lambda conn, settings: (
-            loop_service.request_enrichment(loop_id=loop_id, conn=conn),
-            loop_enrichment.enrich_loop(
-                loop_id=loop_id,
-                conn=conn,
-                settings=settings,
-            ),
-        )[1],
+        action=lambda conn, settings: orchestrate_loop_enrichment(
+            loop_id=loop_id,
+            conn=conn,
+            settings=settings,
+        ).to_payload(),
     )
 
-    return {"action": "loop_enrich", "loop": result}
+    return {
+        "action": "loop_enrich",
+        "loop": result["loop"],
+        "suggestion_id": result["suggestion_id"],
+        "applied_fields": result.get("applied_fields", []),
+        "needs_clarification": result.get("needs_clarification", []),
+    }
 
 
 def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:

@@ -629,6 +629,52 @@ def test_loop_enrich_not_found_returns_404(test_client: TestClient, tmp_data_dir
     assert data["error"]["type"] == "not_found"
 
 
+def test_loop_enrich_returns_updated_loop_and_metadata(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    from unittest.mock import patch
+
+    create_response = test_client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "Plan offsite",
+            "captured_at": "2026-02-19T10:00:00Z",
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    mock_response = (
+        json.dumps(
+            {
+                "title": "Plan team offsite",
+                "summary": "Prepare logistics and attendee plan",
+                "next_action": "Draft venue shortlist",
+                "confidence": {
+                    "title": 0.95,
+                    "summary": 0.95,
+                    "next_action": 0.95,
+                },
+                "needs_clarification": ["What is the budget?"],
+            }
+        ),
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
+
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
+        response = test_client.post(f"/loops/{loop_id}/enrich")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["suggestion_id"] > 0
+    assert data["needs_clarification"] == ["What is the budget?"]
+    assert data["applied_fields"] == []
+    assert data["loop"]["id"] == loop_id
+    assert data["loop"]["raw_text"] == "Plan offsite"
+    assert data["loop"]["enrichment_state"] == "complete"
+
+
 def test_loop_capture_invalid_timestamp_returns_validation_error(
     test_client: TestClient, tmp_data_dir: Path
 ) -> None:

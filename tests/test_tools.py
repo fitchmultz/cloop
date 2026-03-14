@@ -578,11 +578,17 @@ class TestLoopExecutorParity:
         loop_id = created["loop"]["id"]
 
         def fake_enrich_loop(*, loop_id: int, conn, settings):
-            return loop_service.update_loop(
+            loop_service.update_loop(
                 loop_id=loop_id,
                 fields={"summary": "Enriched summary", "next_action": "Do enriched work"},
                 conn=conn,
             )
+            return {
+                "loop_id": loop_id,
+                "suggestion_id": 123,
+                "applied_fields": ["summary", "next_action"],
+                "needs_clarification": [],
+            }
 
         monkeypatch.setattr("cloop.loops.enrichment.enrich_loop", fake_enrich_loop)
 
@@ -591,6 +597,8 @@ class TestLoopExecutorParity:
         with db.core_connection(settings) as conn:
             canonical = read_service.get_loop(loop_id=loop_id, conn=conn)
 
+        assert result["suggestion_id"] == 123
+        assert result["applied_fields"] == ["summary", "next_action"]
         assert result["loop"]["summary"] == canonical["summary"] == "Enriched summary"
         assert result["loop"]["next_action"] == canonical["next_action"] == "Do enriched work"
 

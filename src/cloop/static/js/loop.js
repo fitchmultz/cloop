@@ -499,14 +499,19 @@ export async function confirmComplete(loopId, note) {
 }
 
 /**
- * Request enrichment for a loop
+ * Run enrichment for a loop and refresh the rendered card immediately.
  */
 export async function enrichLoop(loopId) {
-  statusEl.textContent = "Enrichment requested...";
+  statusEl.textContent = "Enriching loop...";
   try {
-    const loop = await api.enrichLoop(loopId);
-    replaceLoop(loop);
-    statusEl.textContent = "Enrichment running...";
+    const result = await api.enrichLoop(loopId);
+    replaceLoop(result.loop);
+    const clarificationCount = Array.isArray(result.needs_clarification)
+      ? result.needs_clarification.length
+      : 0;
+    statusEl.textContent = clarificationCount
+      ? `Enrichment complete. ${clarificationCount} clarification question${clarificationCount === 1 ? '' : 's'} added.`
+      : 'Enrichment complete.';
   } catch (error) {
     statusEl.textContent = error.message;
   }

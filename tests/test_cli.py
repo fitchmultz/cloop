@@ -1465,16 +1465,42 @@ def test_loop_close_command_dropped(
 
 def test_loop_enrich_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     """Test loop enrich command."""
+    from unittest.mock import patch
+
     settings = _make_settings(tmp_path, monkeypatch)
     parser = cli.build_parser()
 
     cli._capture_command(parser.parse_args(["capture", "Test"]), settings)
     capsys.readouterr()
 
-    exit_code = cli.main(["loop", "enrich", "1"])
+    mock_response = (
+        json.dumps(
+            {
+                "title": "Enriched Test",
+                "summary": "Summarized test task",
+                "next_action": "Do the test thing",
+                "confidence": {
+                    "title": 0.95,
+                    "summary": 0.95,
+                    "next_action": 0.95,
+                },
+                "needs_clarification": ["What is the deadline?"],
+            }
+        ),
+        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+    )
+
+    with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
+        exit_code = cli.main(["loop", "enrich", "1"])
+
     assert exit_code == 0
     output = _get_last_json(capsys)
-    assert output["enrichment_state"] == "pending"
+    assert output["suggestion_id"] > 0
+    assert output["needs_clarification"] == ["What is the deadline?"]
+    assert output["applied_fields"] == []
+    assert output["loop"]["id"] == 1
+    assert output["loop"]["raw_text"] == "Test"
+    assert output["loop"]["enrichment_state"] == "complete"
 
 
 def test_loop_enrich_command_not_found(

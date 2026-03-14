@@ -39,6 +39,7 @@ from ...schemas.loops import (
     BulkResultItem,
     DependencyInfo,
     LoopCommentResponse,
+    LoopEnrichmentResponse,
     LoopResponse,
     LoopTemplateResponse,
     LoopViewResponse,
@@ -144,6 +145,16 @@ def build_loop_response(loop: Mapping[str, Any]) -> LoopResponse:
 def build_loop_responses(loops: Sequence[Mapping[str, Any]]) -> list[LoopResponse]:
     """Convert multiple loop payloads into route response models."""
     return [build_loop_response(loop) for loop in loops]
+
+
+def build_loop_enrichment_response(result: Mapping[str, Any]) -> LoopEnrichmentResponse:
+    """Convert an enrichment payload into the route response model."""
+    return LoopEnrichmentResponse(
+        loop=build_loop_response(result["loop"]),
+        suggestion_id=result["suggestion_id"],
+        applied_fields=list(result.get("applied_fields") or []),
+        needs_clarification=list(result.get("needs_clarification") or []),
+    )
 
 
 def build_dependency_info_response(dep: Mapping[str, Any]) -> DependencyInfo:

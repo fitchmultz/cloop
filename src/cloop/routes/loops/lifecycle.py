@@ -8,7 +8,7 @@ Responsibilities:
     - Create loops via capture orchestration
     - Read single loops
     - Apply canonical loop updates and status transitions
-    - Queue asynchronous enrichment requests
+    - Run explicit enrichment synchronously while capture autopilot stays async
 
 Non-scope:
     - Query/list/search endpoints
@@ -33,11 +33,13 @@ from ...loops.capture_orchestration import (
     CaptureTemplateRef,
     orchestrate_capture,
 )
+from ...loops.enrichment_orchestration import orchestrate_loop_enrichment
 from ...loops.errors import ValidationError
 from ...loops.models import is_terminal_status
 from ...schemas.loops import (
     LoopCaptureRequest,
     LoopCloseRequest,
+    LoopEnrichmentResponse,
     LoopResponse,
     LoopStatusRequest,
     LoopUpdateRequest,
@@ -46,6 +48,7 @@ from ...settings import Settings
 from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
+    build_loop_enrichment_response,
     build_loop_response,
     no_fields_to_update_http_exception,
     run_idempotent_loop_route,
@@ -259,13 +262,12 @@ def loop_status_endpoint(
     return build_loop_response(result)
 
 
-@router.post("/{loop_id}/enrich", response_model=LoopResponse)
+@router.post("/{loop_id}/enrich", response_model=LoopEnrichmentResponse)
 def loop_enrich_endpoint(
     loop_id: int,
-    background_tasks: BackgroundTasks,
     settings: SettingsDep,
     idempotency_key: str | None = IdempotencyKeyHeader,
-) -> LoopResponse | JSONResponse:
+) -> LoopEnrichmentResponse | JSONResponse:
     payload = {"loop_id": loop_id}
 
     result = run_idempotent_loop_route(
@@ -274,16 +276,14 @@ def loop_enrich_endpoint(
         path=f"/loops/{loop_id}/enrich",
         idempotency_key=idempotency_key,
         payload=payload,
-        execute=lambda conn: build_loop_response(
-            loop_service.request_enrichment(loop_id=loop_id, conn=conn)
+        execute=lambda conn: build_loop_enrichment_response(
+            orchestrate_loop_enrichment(
+                loop_id=loop_id,
+                conn=conn,
+                settings=settings,
+            ).to_payload()
         ).model_dump(),
     )
     if isinstance(result, JSONResponse):
         return result
-
-    background_tasks.add_task(
-        _safe_enrich_loop,
-        loop_id=loop_id,
-        settings=settings,
-    )
-    return build_loop_response(result)
+    return build_loop_enrichment_response(result)

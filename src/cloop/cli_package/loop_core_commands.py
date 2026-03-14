@@ -30,6 +30,7 @@ from ..loops.capture_orchestration import (
     CaptureTemplateRef,
     orchestrate_capture,
 )
+from ..loops.enrichment_orchestration import orchestrate_loop_enrichment
 from ..loops.errors import (
     ClaimNotFoundError,
     DependencyCycleError,
@@ -400,7 +401,11 @@ def loop_enrich_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop loop enrich' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_service.request_enrichment(loop_id=args.id, conn=conn),
+        action=lambda conn: orchestrate_loop_enrichment(
+            loop_id=args.id,
+            conn=conn,
+            settings=settings,
+        ).to_payload(),
         output_format=args.format,
         error_handlers=_loop_not_found_handler(loop_id=args.id),
     )

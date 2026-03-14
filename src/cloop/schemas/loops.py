@@ -279,6 +279,15 @@ class LoopResponse(LoopBase):
     project_id: int | None = None
 
 
+class LoopEnrichmentResponse(BaseModel):
+    """Canonical response for an explicit loop enrichment run."""
+
+    loop: LoopResponse
+    suggestion_id: int
+    applied_fields: List[str]
+    needs_clarification: List[str]
+
+
 class LoopNextResponse(BaseModel):
     """Prioritized "Next Actions" grouped by bucket."""
 

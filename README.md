@@ -211,7 +211,7 @@ cloop loop status <id> <status> [--note TEXT] [--format json|table]
 # Close a loop (completed or dropped)
 cloop loop close <id> [--dropped] [--note TEXT] [--format json|table]
 
-# Request AI enrichment
+# Run AI enrichment synchronously and return the updated loop + suggestion metadata
 cloop loop enrich <id> [--format json|table]
 
 # Snooze a loop
@@ -339,7 +339,7 @@ Endpoints:
 - `GET /loops/{id}`: fetch a loop.
 - `PATCH /loops/{id}`: update loop fields.
 - `POST /loops/{id}/close`: close a loop (completed or dropped).
-- `POST /loops/{id}/enrich`: request enrichment for a loop.
+- `POST /loops/{id}/enrich`: run synchronous enrichment for a loop and return the updated loop plus suggestion metadata.
 - `GET /loops/next`: deterministic “Next 5” buckets.
 - `GET /loops/tags`: list all tags in use.
 - `GET /loops/events/stream`: SSE stream of loop events (capture, update, status changes, enrichment).
