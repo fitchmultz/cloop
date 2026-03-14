@@ -1568,27 +1568,35 @@ async function setEnrichmentCurrentLoop(loopId) {
 }
 
 async function moveRelationshipCursor(direction) {
-  const snapshot = getRelationshipSnapshot();
-  if (!snapshot?.items?.length || !Number.isInteger(snapshot.current_index)) {
+  const sessionId = state.state.reviewRelationshipSessionId;
+  if (sessionId == null) {
     return;
   }
-  const targetIndex = direction === 'next' ? snapshot.current_index + 1 : snapshot.current_index - 1;
-  if (targetIndex < 0 || targetIndex >= snapshot.items.length) {
-    return;
+  try {
+    const snapshot = await api.moveRelationshipReviewSession(sessionId, direction);
+    state.updateState({ reviewRelationshipSessionSnapshot: snapshot });
+    renderRelationshipWorkspace();
+    setRelationshipStatus(`Moved ${direction} in relationship review.`);
+  } catch (err) {
+    console.error('moveRelationshipCursor error:', err);
+    setRelationshipStatus(err.message || 'Failed to move relationship-review cursor.');
   }
-  await setRelationshipCurrentLoop(snapshot.items[targetIndex].loop.id);
 }
 
 async function moveEnrichmentCursor(direction) {
-  const snapshot = getEnrichmentSnapshot();
-  if (!snapshot?.items?.length || !Number.isInteger(snapshot.current_index)) {
+  const sessionId = state.state.reviewEnrichmentSessionId;
+  if (sessionId == null) {
     return;
   }
-  const targetIndex = direction === 'next' ? snapshot.current_index + 1 : snapshot.current_index - 1;
-  if (targetIndex < 0 || targetIndex >= snapshot.items.length) {
-    return;
+  try {
+    const snapshot = await api.moveEnrichmentReviewSession(sessionId, direction);
+    state.updateState({ reviewEnrichmentSessionSnapshot: snapshot });
+    renderEnrichmentWorkspace();
+    setEnrichmentStatus(`Moved ${direction} in enrichment review.`);
+  } catch (err) {
+    console.error('moveEnrichmentCursor error:', err);
+    setEnrichmentStatus(err.message || 'Failed to move enrichment-review cursor.');
   }
-  await setEnrichmentCurrentLoop(snapshot.items[targetIndex].loop.id);
 }
 
 async function executeRelationshipAction(payload, successMessage) {
@@ -1652,13 +1660,20 @@ async function submitEnrichmentClarifications(loopId) {
   }
 
   try {
-    await api.answerEnrichmentReviewSessionClarifications(sessionId, {
+    const result = await api.answerEnrichmentReviewSessionClarifications(sessionId, {
       loop_id: loopId,
       answers,
     });
-    await api.enrichLoop(loopId);
-    await loadEnrichmentReviewWorkspace();
-    setEnrichmentStatus(`Recorded clarifications for loop #${loopId} and reran enrichment.`);
+    state.updateState({ reviewEnrichmentSessionSnapshot: result.snapshot });
+    renderEnrichmentWorkspace();
+    const nextQuestions = result.result.enrichment_result.needs_clarification?.length || 0;
+    const appliedFields = result.result.enrichment_result.applied_fields?.length || 0;
+    const followUpText = nextQuestions > 0
+      ? ` The refreshed suggestion still needs ${nextQuestions} clarification${nextQuestions === 1 ? '' : 's'}.`
+      : appliedFields > 0
+        ? ` The rerun applied ${appliedFields} field${appliedFields === 1 ? '' : 's'}.`
+        : '';
+    setEnrichmentStatus(`Recorded clarifications for loop #${loopId} and reran enrichment.${followUpText}`);
     await loadInbox();
   } catch (err) {
     console.error('submitEnrichmentClarifications error:', err);

@@ -588,6 +588,14 @@ export async function runRelationshipReviewSessionAction(sessionId, payload) {
   );
 }
 
+export async function moveRelationshipReviewSession(sessionId, direction) {
+  return requestJson(
+    `/loops/review/relationship/sessions/${sessionId}/move`,
+    { method: "POST", body: { direction } },
+    "Failed to move relationship review session",
+  );
+}
+
 export async function fetchEnrichmentReviewActions() {
   return requestJson("/loops/review/enrichment/actions", {}, "Failed to load enrichment review actions");
 }
@@ -661,6 +669,14 @@ export async function runEnrichmentReviewSessionAction(sessionId, payload) {
     `/loops/review/enrichment/sessions/${sessionId}/action`,
     { method: "POST", body: payload },
     "Failed to run enrichment review action",
+  );
+}
+
+export async function moveEnrichmentReviewSession(sessionId, direction) {
+  return requestJson(
+    `/loops/review/enrichment/sessions/${sessionId}/move`,
+    { method: "POST", body: { direction } },
+    "Failed to move enrichment review session",
   );
 }
 
@@ -782,6 +798,19 @@ export async function submitClarification(loopId, answers) {
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.detail || "Failed to submit clarification");
+  }
+  return response.json();
+}
+
+export async function refineClarification(loopId, answers) {
+  const response = await fetch(`/loops/${loopId}/clarifications/refine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ answers }),
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.detail || "Failed to refine clarification");
   }
   return response.json();
 }

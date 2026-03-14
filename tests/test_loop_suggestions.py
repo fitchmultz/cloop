@@ -14,6 +14,8 @@ Invariants:
     - Clarification answers target existing clarification rows by ID
 """
 
+import json
+
 import pytest
 
 from cloop import db
@@ -465,6 +467,77 @@ class TestClarificationLifecycle:
             assert data["answered_count"] == 2
             assert len(data["clarifications"]) == 2
             assert data["superseded_suggestion_ids"] == [suggestion_id]
+
+    def test_api_refine_clarification_endpoint(self, monkeypatch):
+        """POST /{loop_id}/clarifications/refine answers and reruns enrichment."""
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from cloop.main import app
+
+        monkeypatch.setattr(
+            "cloop.loops.enrichment.chat_completion",
+            lambda *args, **kwargs: (
+                json.dumps(
+                    {
+                        "title": "Clarified due date",
+                        "summary": "Ship on Friday.",
+                        "confidence": {"title": 0.99, "summary": 0.99},
+                    }
+                ),
+                {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+            get_settings.cache_clear()
+            settings = get_settings()
+            db.init_databases(settings)
+
+            with db.core_connection(settings) as conn:
+                with conn:
+                    loop = service.capture_loop(
+                        raw_text="Test loop for clarification refine API",
+                        captured_at_iso="2026-02-18T12:00:00+00:00",
+                        client_tz_offset_min=0,
+                        status=service.LoopStatus.INBOX,
+                        conn=conn,
+                    )
+                    suggestion_id = repo.insert_loop_suggestion(
+                        loop_id=loop["id"],
+                        suggestion_json={
+                            "needs_clarification": ["Due?"],
+                            "confidence": {},
+                        },
+                        model="test",
+                        conn=conn,
+                    )
+                    clarification_id = repo.insert_loop_clarification(
+                        loop_id=loop["id"],
+                        question="Due?",
+                        conn=conn,
+                    )
+
+            client = TestClient(app)
+            response = client.post(
+                f"/loops/{loop['id']}/clarifications/refine",
+                json={
+                    "answers": [
+                        {"clarification_id": clarification_id, "answer": "Friday"},
+                    ]
+                },
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["loop_id"] == loop["id"]
+            assert data["clarification_result"]["answered_count"] == 1
+            assert data["clarification_result"]["superseded_suggestion_ids"] == [suggestion_id]
+            assert data["enrichment_result"]["loop"]["id"] == loop["id"]
+            assert set(data["enrichment_result"]["applied_fields"]) == {"summary", "title"}
+            assert data["enrichment_result"]["suggestion_id"] > suggestion_id
 
     def test_api_get_clarifications_endpoint(self, monkeypatch):
         """GET /{loop_id}/clarifications returns clarification list."""

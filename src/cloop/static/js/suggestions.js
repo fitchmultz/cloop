@@ -260,15 +260,16 @@ async function submitClarificationAnswers(loopId, panel) {
   }
 
   try {
-    const result = await api.submitClarification(loopId, answers);
+    const result = await api.refineClarification(loopId, answers);
+    const nextQuestions = result.enrichment_result?.needs_clarification?.length || 0;
+    const description = nextQuestions > 0
+      ? `${result.message} The refreshed suggestion still needs ${nextQuestions} clarification${nextQuestions === 1 ? '' : 's'}.`
+      : result.message;
     await modals.alertDialog({
       title: "Clarification Submitted",
-      description: result.message,
+      description,
       eyebrow: "Suggestions",
     });
-
-    // Trigger re-enrichment
-    await api.enrichLoop(loopId);
 
     // Refresh the loop to show updated suggestions
     refreshLoop(loopId);

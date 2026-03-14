@@ -9,6 +9,7 @@ Responsibilities:
     - Apply or reject suggestions idempotently
     - List clarifications for a loop
     - Submit one or many clarification answers idempotently
+    - Answer clarifications and rerun enrichment in one idempotent mutation
 
 Non-scope:
     - Triggering enrichment generation itself (see loop.enrich)
@@ -20,7 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from ..loops import enrichment_review
+from ..loops import enrichment_orchestration, enrichment_review
 from ..schemas.loops import ClarificationSubmitRequest
 from ._mutation import run_idempotent_tool_mutation
 from ._runtime import with_mcp_error_handling
@@ -255,6 +256,41 @@ def clarification_answer_many(
     )
 
 
+@with_mcp_error_handling
+def clarification_refine(
+    loop_id: int,
+    answers: list[dict[str, Any]],
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Answer clarifications and immediately rerun enrichment.
+
+    Args:
+        loop_id: Loop identifier.
+        answers: List of `{"clarification_id": int, "answer": str}` objects.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict with nested `clarification_result`, `enrichment_result`, and `message`.
+
+    Raises:
+        ToolError: If any clarification is missing, invalid, or enrichment fails.
+    """
+    payload = {"loop_id": loop_id, "answers": answers}
+    return run_idempotent_tool_mutation(
+        tool_name="clarification.refine",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: (
+            enrichment_orchestration.orchestrate_clarification_refinement(
+                loop_id=loop_id,
+                answers=_answer_inputs_from_payload(answers),
+                conn=conn,
+                settings=settings,
+            ).to_payload()
+        ),
+    )
+
+
 def register_suggestion_tools(mcp: "FastMCP") -> None:
     """Register suggestion and clarification review tools."""
     from ._runtime import with_db_init
@@ -266,3 +302,4 @@ def register_suggestion_tools(mcp: "FastMCP") -> None:
     mcp.tool(name="clarification.list")(with_db_init(clarification_list))
     mcp.tool(name="clarification.answer")(with_db_init(clarification_answer))
     mcp.tool(name="clarification.answer_many")(with_db_init(clarification_answer_many))
+    mcp.tool(name="clarification.refine")(with_db_init(clarification_refine))

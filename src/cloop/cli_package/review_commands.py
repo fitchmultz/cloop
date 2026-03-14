@@ -174,6 +174,20 @@ def relationship_review_session_get_command(args: Namespace, settings: Settings)
     )
 
 
+def relationship_review_session_move_command(args: Namespace, settings: Settings) -> int:
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: review_workflows.move_relationship_review_session(
+            session_id=args.session,
+            direction=args.direction,
+            conn=conn,
+            settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=_common_error_handlers(),
+    )
+
+
 def relationship_review_session_update_command(args: Namespace, settings: Settings) -> int:
     if not any(
         [
@@ -349,6 +363,19 @@ def enrichment_review_session_get_command(args: Namespace, settings: Settings) -
     )
 
 
+def enrichment_review_session_move_command(args: Namespace, settings: Settings) -> int:
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: review_workflows.move_enrichment_review_session(
+            session_id=args.session,
+            direction=args.direction,
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=_common_error_handlers(),
+    )
+
+
 def enrichment_review_session_update_command(args: Namespace, settings: Settings) -> int:
     if not any(
         [
@@ -429,6 +456,7 @@ def enrichment_review_session_answer_clarifications_command(
             loop_id=args.loop,
             answers=answers,
             conn=conn,
+            settings=settings,
         ),
         output_format=args.format,
         error_handlers=_common_error_handlers(),

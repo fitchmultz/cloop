@@ -196,6 +196,27 @@ def review_relationship_session_get(session_id: int) -> dict[str, Any]:
 
 
 @with_mcp_error_handling
+def review_relationship_session_move(
+    session_id: int,
+    direction: str,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Move a relationship-review session cursor."""
+    payload = {"session_id": session_id, "direction": direction}
+    return run_idempotent_tool_mutation(
+        tool_name="review.relationship_session.move",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: review_workflows.move_relationship_review_session(
+            session_id=session_id,
+            direction=direction,
+            conn=conn,
+            settings=settings,
+        ),
+    )
+
+
+@with_mcp_error_handling
 def review_relationship_session_update(
     session_id: int,
     name: str | None = None,
@@ -467,6 +488,26 @@ def review_enrichment_session_get(session_id: int) -> dict[str, Any]:
 
 
 @with_mcp_error_handling
+def review_enrichment_session_move(
+    session_id: int,
+    direction: str,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Move an enrichment-review session cursor."""
+    payload = {"session_id": session_id, "direction": direction}
+    return run_idempotent_tool_mutation(
+        tool_name="review.enrichment_session.move",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: review_workflows.move_enrichment_review_session(
+            session_id=session_id,
+            direction=direction,
+            conn=conn,
+        ),
+    )
+
+
+@with_mcp_error_handling
 def review_enrichment_session_update(
     session_id: int,
     name: str | None = None,
@@ -592,6 +633,7 @@ def review_enrichment_session_answer_clarifications(
             loop_id=loop_id,
             answers=answer_inputs,
             conn=conn,
+            settings=settings,
         )
 
     return run_idempotent_tool_mutation(
@@ -624,6 +666,9 @@ def register_review_workflow_tools(mcp: "FastMCP") -> None:
         with_db_init(review_relationship_session_list)
     )
     mcp.tool(name="review.relationship_session.get")(with_db_init(review_relationship_session_get))
+    mcp.tool(name="review.relationship_session.move")(
+        with_db_init(review_relationship_session_move)
+    )
     mcp.tool(name="review.relationship_session.update")(
         with_db_init(review_relationship_session_update)
     )
@@ -643,6 +688,7 @@ def register_review_workflow_tools(mcp: "FastMCP") -> None:
     )
     mcp.tool(name="review.enrichment_session.list")(with_db_init(review_enrichment_session_list))
     mcp.tool(name="review.enrichment_session.get")(with_db_init(review_enrichment_session_get))
+    mcp.tool(name="review.enrichment_session.move")(with_db_init(review_enrichment_session_move))
     mcp.tool(name="review.enrichment_session.update")(
         with_db_init(review_enrichment_session_update)
     )

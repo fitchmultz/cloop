@@ -629,3 +629,22 @@ Examples:
         help="Answer item formatted as <clarification_id>=<answer>",
     )
     add_format_option(answer_many_parser)
+
+    refine_parser = clarification_subparsers.add_parser(
+        "refine",
+        help="Answer clarifications and rerun enrichment",
+        description="Submit clarification answers and immediately rerun enrichment for the loop",
+        epilog="""
+Examples:
+  cloop clarification refine --loop-id 123 --item 456=Friday --item 457=Finance
+        """,
+        formatter_class=RawDescriptionHelpFormatter,
+    )
+    refine_parser.add_argument("--loop-id", type=int, required=True, help="Loop ID")
+    refine_parser.add_argument(
+        "--item",
+        action="append",
+        required=True,
+        help="Answer item formatted as <clarification_id>=<answer>",
+    )
+    add_format_option(refine_parser)

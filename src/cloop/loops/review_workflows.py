@@ -9,8 +9,11 @@ Responsibilities:
     - Persist and validate saved review action presets
     - Persist and materialize relationship-review sessions
     - Persist and materialize enrichment-review sessions
+    - Move guided review cursors through saved sessions
     - Execute saved or inline review actions within a session and return the
       refreshed session snapshot
+    - Record clarification answers, rerun enrichment, and keep the same
+      saved session in view when follow-up work remains
     - Keep session cursor/current-loop state stable as worklists change
 
 Non-scope:
@@ -28,7 +31,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from .. import typingx
-from . import enrichment_review, relationship_review, repo
+from . import enrichment_orchestration, enrichment_review, relationship_review, repo
 from .errors import LoopNotFoundError, ResourceNotFoundError, ValidationError
 from .query import parse_loop_query
 
@@ -37,6 +40,7 @@ RelationshipTargetType = Literal["suggested", "duplicate", "related"]
 EnrichmentActionType = Literal["apply", "reject"]
 RelationshipReviewKind = Literal["all", "duplicate", "related"]
 EnrichmentPendingKind = Literal["all", "suggestions", "clarifications"]
+ReviewSessionMoveDirection = Literal["next", "previous"]
 
 _UNSET = object()
 
@@ -78,6 +82,14 @@ def _resolved_optional_loop_id(value: int | None | object) -> int | None:
     if value is None or isinstance(value, int):
         return value
     raise TypeError("review session current_loop_id must be int | None")
+
+
+def _validate_move_direction(value: str) -> ReviewSessionMoveDirection:
+    if value == "next":
+        return "next"
+    if value == "previous":
+        return "previous"
+    raise ValidationError("direction", "must be next or previous")
 
 
 def _relationship_action_payload(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -451,6 +463,25 @@ def _build_enrichment_session_snapshot(
     }
 
 
+def _move_session_loop_id(
+    *,
+    items: Sequence[Mapping[str, Any]],
+    current_index: int | None,
+    direction: ReviewSessionMoveDirection,
+    field_name: str,
+) -> int:
+    if not items:
+        raise ValidationError(field_name, "review session has no queued items")
+    if current_index is None:
+        raise ValidationError(field_name, "review session has no current item")
+
+    step = 1 if direction == "next" else -1
+    target_index = current_index + step
+    if target_index < 0 or target_index >= len(items):
+        raise ValidationError(field_name, f"no {direction} item available in this review session")
+    return int(items[target_index]["loop"]["id"])
+
+
 @typingx.validate_io()
 def create_relationship_review_action(
     *,
@@ -705,6 +736,41 @@ def get_relationship_review_session(
 
 
 @typingx.validate_io()
+def move_relationship_review_session(
+    *,
+    session_id: int,
+    direction: str,
+    conn: sqlite3.Connection,
+    settings: Any,
+) -> dict[str, Any]:
+    session_row = _require_relationship_session_row(session_id=session_id, conn=conn)
+    normalized_direction = _validate_move_direction(direction)
+    snapshot = _build_relationship_session_snapshot(
+        session_row=session_row,
+        conn=conn,
+        settings=settings,
+    )
+    target_loop_id = _move_session_loop_id(
+        items=snapshot["items"],
+        current_index=snapshot["current_index"],
+        direction=normalized_direction,
+        field_name="direction",
+    )
+    with conn:
+        updated = repo.update_review_session(
+            session_id=session_id,
+            current_loop_id=target_loop_id,
+            conn=conn,
+        )
+    if updated is None:
+        raise ResourceNotFoundError(
+            "review session",
+            f"Relationship review session not found: {session_id}",
+        )
+    return _build_relationship_session_snapshot(session_row=updated, conn=conn, settings=settings)
+
+
+@typingx.validate_io()
 def update_relationship_review_session(
     *,
     session_id: int,
@@ -823,6 +889,36 @@ def get_enrichment_review_session(
         session_row=_require_enrichment_session_row(session_id=session_id, conn=conn),
         conn=conn,
     )
+
+
+@typingx.validate_io()
+def move_enrichment_review_session(
+    *,
+    session_id: int,
+    direction: str,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    session_row = _require_enrichment_session_row(session_id=session_id, conn=conn)
+    normalized_direction = _validate_move_direction(direction)
+    snapshot = _build_enrichment_session_snapshot(session_row=session_row, conn=conn)
+    target_loop_id = _move_session_loop_id(
+        items=snapshot["items"],
+        current_index=snapshot["current_index"],
+        direction=normalized_direction,
+        field_name="direction",
+    )
+    with conn:
+        updated = repo.update_review_session(
+            session_id=session_id,
+            current_loop_id=target_loop_id,
+            conn=conn,
+        )
+    if updated is None:
+        raise ResourceNotFoundError(
+            "review session",
+            f"Enrichment review session not found: {session_id}",
+        )
+    return _build_enrichment_session_snapshot(session_row=updated, conn=conn)
 
 
 @typingx.validate_io()
@@ -1060,6 +1156,7 @@ def answer_enrichment_review_session_clarifications(
     loop_id: int,
     answers: Sequence[enrichment_review.ClarificationAnswerInput],
     conn: sqlite3.Connection,
+    settings: Any,
 ) -> dict[str, Any]:
     session_row = _require_enrichment_session_row(session_id=session_id, conn=conn)
     before = _build_enrichment_session_snapshot(session_row=session_row, conn=conn)
@@ -1084,10 +1181,11 @@ def answer_enrichment_review_session_clarifications(
                 ),
             )
 
-    result = enrichment_review.submit_clarification_answers(
+    result = enrichment_orchestration.orchestrate_clarification_refinement(
         loop_id=loop_id,
         answers=answers,
         conn=conn,
+        settings=settings,
     ).to_payload()
     after = _build_enrichment_session_snapshot(
         session_row=_require_enrichment_session_row(session_id=session_id, conn=conn),

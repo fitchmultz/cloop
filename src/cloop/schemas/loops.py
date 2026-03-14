@@ -1542,6 +1542,12 @@ class EnrichmentReviewSessionActionResponse(BaseModel):
     snapshot: EnrichmentReviewSessionSnapshotResponse
 
 
+class ReviewSessionMoveRequest(BaseModel):
+    """Move a saved review session cursor backward or forward."""
+
+    direction: Literal["next", "previous"]
+
+
 class EnrichmentReviewSessionClarificationRequest(BaseModel):
     """Answer clarifications inside a saved enrichment session."""
 
@@ -1549,10 +1555,19 @@ class EnrichmentReviewSessionClarificationRequest(BaseModel):
     answers: List["ClarificationSubmitRequest"]
 
 
+class ClarificationRefinementResponse(BaseModel):
+    """Result of answering clarifications and rerunning enrichment."""
+
+    loop_id: int
+    clarification_result: "ClarificationSubmitResponse"
+    enrichment_result: LoopEnrichmentResponse
+    message: str = "Clarifications recorded and enrichment reran."
+
+
 class EnrichmentReviewSessionClarificationResponse(BaseModel):
     """Result of answering clarifications inside a saved enrichment session."""
 
-    result: "ClarificationSubmitResponse"
+    result: ClarificationRefinementResponse
     snapshot: EnrichmentReviewSessionSnapshotResponse
 
 
@@ -1664,4 +1679,5 @@ LoopCommentResponse.model_rebuild()
 RelationshipReviewSessionActionResponse.model_rebuild()
 EnrichmentReviewQueueItemResponse.model_rebuild()
 EnrichmentReviewSessionClarificationRequest.model_rebuild()
+ClarificationRefinementResponse.model_rebuild()
 EnrichmentReviewSessionClarificationResponse.model_rebuild()

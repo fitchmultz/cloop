@@ -8,6 +8,7 @@ Responsibilities:
     - Apply or reject suggestions through the shared review service
     - List clarifications for a loop
     - Record clarification answers against existing clarification IDs
+    - Optionally answer clarifications and rerun enrichment in one mutation
 
 Non-scope:
     - Triggering enrichment generation itself
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from ... import db
-from ...loops import enrichment_review
+from ...loops import enrichment_orchestration, enrichment_review
 from ...loops import repo as loop_repo
 from ...loops.errors import (
     ClarificationNotFoundError,
@@ -35,6 +36,7 @@ from ...schemas.loops import (
     ApplySuggestionRequest,
     ApplySuggestionResponse,
     ClarificationListResponse,
+    ClarificationRefinementResponse,
     ClarificationSubmitBatchRequest,
     ClarificationSubmitRequest,
     ClarificationSubmitResponse,
@@ -45,6 +47,7 @@ from ...schemas.loops import (
 from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
+    build_clarification_refinement_response,
     build_clarification_responses,
     build_clarification_submit_response,
     build_suggestion_list_response,
@@ -271,3 +274,48 @@ def answer_loop_clarifications_endpoint(
     if isinstance(result, JSONResponse):
         return result
     return build_clarification_submit_response(result)
+
+
+@router.post("/{loop_id}/clarifications/refine", response_model=ClarificationRefinementResponse)
+def refine_loop_clarifications_endpoint(
+    loop_id: int,
+    request: ClarificationSubmitBatchRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> ClarificationRefinementResponse | JSONResponse:
+    payload = {
+        "loop_id": loop_id,
+        "answers": [answer.model_dump(mode="json") for answer in request.answers],
+    }
+    answer_inputs = [
+        enrichment_review.ClarificationAnswerInput(
+            clarification_id=answer.clarification_id,
+            answer=answer.answer,
+        )
+        for answer in request.answers
+    ]
+
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/{loop_id}/clarifications/refine",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            execute=lambda conn: enrichment_orchestration.orchestrate_clarification_refinement(
+                loop_id=loop_id,
+                answers=answer_inputs,
+                conn=conn,
+                settings=settings,
+            ).to_payload(),
+        )
+    except LoopNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="loop") from None
+    except ClarificationNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="clarification") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+
+    if isinstance(result, JSONResponse):
+        return result
+    return build_clarification_refinement_response(result)

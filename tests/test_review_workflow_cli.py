@@ -150,12 +150,154 @@ def test_relationship_review_workflow_cli(
     assert {item["id"] for item in listed} == {session["session"]["id"]}
 
 
+def test_review_session_move_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_relationship_embeddings(monkeypatch)
+
+    for raw_text in [
+        "Buy milk and eggs before the weekend",
+        "Pick up groceries like milk and eggs",
+        "Draft launch email for beta users",
+        "Write beta launch email draft",
+        "Clarify launch date",
+        "Clarify owner for launch",
+    ]:
+        assert main(["capture", raw_text]) == 0
+    capsys.readouterr()
+
+    with db.core_connection(settings) as conn:
+        repo.insert_loop_suggestion(
+            loop_id=5,
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=5,
+            question="When should this happen?",
+            conn=conn,
+        )
+        repo.insert_loop_suggestion(
+            loop_id=6,
+            suggestion_json={"needs_clarification": ["Who owns this?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=6,
+            question="Who owns this?",
+            conn=conn,
+        )
+        conn.commit()
+
+    assert (
+        main(
+            [
+                "review",
+                "relationship-session",
+                "create",
+                "--name",
+                "move-rel",
+                "--query",
+                "status:open",
+                "--kind",
+                "duplicate",
+                "--current-loop-id",
+                "1",
+            ]
+        )
+        == 0
+    )
+    relationship_session = _last_json(capsys)
+    relationship_direction = "next" if relationship_session["current_index"] == 0 else "previous"
+    relationship_step = 1 if relationship_direction == "next" else -1
+    relationship_target = relationship_session["items"][
+        relationship_session["current_index"] + relationship_step
+    ]["loop"]["id"]
+
+    assert (
+        main(
+            [
+                "review",
+                "relationship-session",
+                "move",
+                "--session",
+                str(relationship_session["session"]["id"]),
+                "--direction",
+                relationship_direction,
+            ]
+        )
+        == 0
+    )
+    moved_relationship = _last_json(capsys)
+    assert moved_relationship["current_item"]["loop"]["id"] == relationship_target
+
+    assert (
+        main(
+            [
+                "review",
+                "enrichment-session",
+                "create",
+                "--name",
+                "move-enrich",
+                "--query",
+                "status:open",
+                "--pending-kind",
+                "clarifications",
+                "--current-loop-id",
+                "5",
+            ]
+        )
+        == 0
+    )
+    enrichment_session = _last_json(capsys)
+    enrichment_direction = "next" if enrichment_session["current_index"] == 0 else "previous"
+    enrichment_step = 1 if enrichment_direction == "next" else -1
+    enrichment_target = enrichment_session["items"][
+        enrichment_session["current_index"] + enrichment_step
+    ]["loop"]["id"]
+
+    assert (
+        main(
+            [
+                "review",
+                "enrichment-session",
+                "move",
+                "--session",
+                str(enrichment_session["session"]["id"]),
+                "--direction",
+                enrichment_direction,
+            ]
+        )
+        == 0
+    )
+    moved_enrichment = _last_json(capsys)
+    assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
+
+
 def test_enrichment_review_workflow_cli(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: Any,
 ) -> None:
     settings = _make_settings(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(
+                {
+                    "title": "Clarified launch checklist owner",
+                    "summary": "Operations owns the checklist.",
+                    "confidence": {"title": 0.99, "summary": 0.99},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
 
     assert main(["capture", "Plan launch retrospective"]) == 0
     assert main(["capture", "Clarify launch checklist owner"]) == 0
@@ -262,5 +404,10 @@ def test_enrichment_review_workflow_cli(
     )
     answer_result = _last_json(capsys)
     assert answer_result["result"]["loop_id"] == 2
-    assert answer_result["result"]["superseded_suggestion_ids"] == [superseded_suggestion_id]
-    assert answer_result["snapshot"]["loop_count"] == 0
+    assert answer_result["result"]["clarification_result"]["superseded_suggestion_ids"] == [
+        superseded_suggestion_id
+    ]
+    assert answer_result["result"]["enrichment_result"]["applied_fields"] == []
+    assert answer_result["result"]["enrichment_result"]["suggestion_id"] > superseded_suggestion_id
+    assert answer_result["snapshot"]["loop_count"] == 1
+    assert answer_result["snapshot"]["session"]["current_loop_id"] == 2

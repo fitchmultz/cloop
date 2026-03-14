@@ -39,6 +39,7 @@ from ...schemas.loops import (
     BulkEnrichmentResultItem,
     BulkEnrichResponse,
     BulkResultItem,
+    ClarificationRefinementResponse,
     ClarificationResponse,
     ClarificationSubmitResponse,
     DependencyInfo,
@@ -207,6 +208,18 @@ def build_clarification_submit_response(
     )
 
 
+def build_clarification_refinement_response(
+    result: Mapping[str, Any],
+) -> ClarificationRefinementResponse:
+    """Convert a clarification-and-rerun payload into the route response model."""
+    return ClarificationRefinementResponse(
+        loop_id=int(result["loop_id"]),
+        clarification_result=build_clarification_submit_response(result["clarification_result"]),
+        enrichment_result=build_loop_enrichment_response(result["enrichment_result"]),
+        message=result.get("message", "Clarifications recorded and enrichment reran."),
+    )
+
+
 def build_suggestion_response(suggestion: Mapping[str, Any]) -> SuggestionResponse:
     """Convert a suggestion payload into the route response model."""
     return SuggestionResponse(
@@ -364,7 +377,7 @@ def build_enrichment_review_session_clarification_response(
 ) -> EnrichmentReviewSessionClarificationResponse:
     """Convert an enrichment session clarification payload into the response model."""
     return EnrichmentReviewSessionClarificationResponse(
-        result=build_clarification_submit_response(payload["result"]),
+        result=build_clarification_refinement_response(payload["result"]),
         snapshot=build_enrichment_review_session_snapshot_response(payload["snapshot"]),
     )
 

@@ -8,8 +8,9 @@ Responsibilities:
     - CRUD saved relationship and enrichment review actions
     - CRUD relationship and enrichment review sessions
     - Materialize session snapshots with preserved filtered worklists
+    - Move guided review cursors through saved sessions
     - Execute saved or inline review actions within a session
-    - Record clarification answers within an enrichment review session
+    - Record clarification answers and rerun enrichment within an enrichment review session
 
 Non-scope:
     - Low-level relationship scoring or suggestion business rules
@@ -45,6 +46,7 @@ from ...schemas.loops import (
     RelationshipReviewSessionResponse,
     RelationshipReviewSessionSnapshotResponse,
     RelationshipReviewSessionUpdateRequest,
+    ReviewSessionMoveRequest,
 )
 from ._common import (
     IdempotencyKeyHeader,
@@ -263,6 +265,40 @@ def get_relationship_review_session_endpoint(
         except ResourceNotFoundError as exc:
             raise map_not_found_to_404(exc, resource_type="review session") from None
     return build_relationship_review_session_snapshot_response(snapshot)
+
+
+@router.post(
+    "/review/relationship/sessions/{session_id}/move",
+    response_model=RelationshipReviewSessionSnapshotResponse,
+)
+def move_relationship_review_session_endpoint(
+    session_id: int,
+    request: ReviewSessionMoveRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> RelationshipReviewSessionSnapshotResponse | JSONResponse:
+    payload = {"session_id": session_id, **request.model_dump(mode="json")}
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/review/relationship/sessions/{session_id}/move",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            execute=lambda conn: review_workflows.move_relationship_review_session(
+                session_id=session_id,
+                direction=request.direction,
+                conn=conn,
+                settings=settings,
+            ),
+        )
+    except ResourceNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="review session") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return build_relationship_review_session_snapshot_response(result)
 
 
 @router.patch(
@@ -574,6 +610,39 @@ def get_enrichment_review_session_endpoint(
     return build_enrichment_review_session_snapshot_response(snapshot)
 
 
+@router.post(
+    "/review/enrichment/sessions/{session_id}/move",
+    response_model=EnrichmentReviewSessionSnapshotResponse,
+)
+def move_enrichment_review_session_endpoint(
+    session_id: int,
+    request: ReviewSessionMoveRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> EnrichmentReviewSessionSnapshotResponse | JSONResponse:
+    payload = {"session_id": session_id, **request.model_dump(mode="json")}
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/review/enrichment/sessions/{session_id}/move",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            execute=lambda conn: review_workflows.move_enrichment_review_session(
+                session_id=session_id,
+                direction=request.direction,
+                conn=conn,
+            ),
+        )
+    except ResourceNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="review session") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return build_enrichment_review_session_snapshot_response(result)
+
+
 @router.patch(
     "/review/enrichment/sessions/{session_id}",
     response_model=EnrichmentReviewSessionSnapshotResponse,
@@ -718,6 +787,7 @@ def answer_enrichment_review_session_clarifications_endpoint(
                 loop_id=request.loop_id,
                 answers=answer_inputs,
                 conn=conn,
+                settings=settings,
             ),
         )
     except ResourceNotFoundError as exc:

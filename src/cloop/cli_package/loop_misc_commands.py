@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import db
-from ..loops import enrichment_review, repo, service
+from ..loops import enrichment_orchestration, enrichment_review, repo, service
 from ..loops import events as loop_events
 from ..loops import read_service as loop_read_service
 from ..loops.errors import (
@@ -509,6 +509,51 @@ def clarification_answer_many_command(args: Namespace, settings: Settings) -> in
             loop_id=args.loop_id,
             answers=answer_inputs,
             conn=conn,
+        ).to_payload(),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda _exc: cli_error(f"loop {args.loop_id} not found", exit_code=2),
+            ),
+            error_handler(
+                ClarificationNotFoundError,
+                lambda exc: cli_error(
+                    f"clarification {exc.clarification_id} not found",
+                    exit_code=2,
+                ),
+            ),
+            *_standard_error_handlers(),
+        ],
+    )
+
+
+def clarification_refine_command(args: Namespace, settings: Settings) -> int:
+    """Handle 'cloop clarification refine' command."""
+
+    def _parse_item(item: str) -> enrichment_review.ClarificationAnswerInput:
+        clarification_text, separator, answer = item.partition("=")
+        if not separator:
+            fail_cli(f"invalid --item value '{item}' (expected <clarification_id>=<answer>)")
+        try:
+            clarification_id = int(clarification_text)
+        except ValueError:
+            fail_cli(f"invalid clarification id in --item value '{item}' (expected integer id)")
+        if not answer.strip():
+            fail_cli(f"invalid --item value '{item}' (answer must not be empty)")
+        return enrichment_review.ClarificationAnswerInput(
+            clarification_id=clarification_id,
+            answer=answer,
+        )
+
+    answer_inputs = [_parse_item(item) for item in args.item]
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: enrichment_orchestration.orchestrate_clarification_refinement(
+            loop_id=args.loop_id,
+            answers=answer_inputs,
+            conn=conn,
+            settings=settings,
         ).to_payload(),
         output_format=args.format,
         error_handlers=[

@@ -346,12 +346,18 @@ cloop suggestion reject <suggestion-id> [--format json|table]
 cloop clarification list --loop-id <loop-id> [--format json|table]
 cloop clarification answer <clarification-id> --loop-id <loop-id> --answer "Friday"
 cloop clarification answer-many --loop-id <loop-id> --item 12=Friday --item 13=Finance
+cloop clarification refine --loop-id <loop-id> --item 12=Friday --item 13=Finance
 
 # Save reusable enrichment-review actions and filtered sessions
 cloop review enrichment-action create --name apply-title --action apply --fields title
 cloop review enrichment-session create --name follow-up-pass --query "status:open" --pending-kind all
+cloop review enrichment-session move --session 1 --direction next
 cloop review enrichment-session apply-action --session 1 --suggestion 15 --action-id 3
 cloop review enrichment-session answer-clarifications --session 1 --loop 10 --item 21=Friday
+
+# Guided relationship-review sessions
+cloop review relationship-session create --name duplicate-pass --query "status:open" --kind duplicate
+cloop review relationship-session move --session 2 --direction next
 
 # Export loops
 cloop export [--output FILE] [--format json|table]
@@ -480,6 +486,7 @@ Endpoints:
 - `POST /loops/suggestions/{suggestion_id}/reject`: reject a suggestion.
 - `GET /loops/{id}/clarifications`: list clarification rows for a loop.
 - `POST /loops/{id}/clarifications/answer`: answer one or more clarification rows by `clarification_id`.
+- `POST /loops/{id}/clarifications/refine`: answer clarification rows and rerun enrichment in one mutation.
 - `POST /loops/clarifications/{clarification_id}/answer`: answer a single clarification row.
 - `GET /loops/next`: deterministic “Next 5” buckets.
 - `GET /loops/tags`: list all tags in use.
@@ -531,8 +538,8 @@ Captures are persisted immediately with offline sync support. Semantic Inbox sea
 The Review tab now has four review layers:
 
 - **Bulk enrichment**: a DSL-driven preview-and-run workflow for re-enriching a filtered loop set without leaving the review workspace.
-- **Saved relationship-review sessions**: filtered duplicate/related review queues with preserved cursor state, saved decision presets, inline confirm/dismiss flows, and duplicate merge entrypoints.
-- **Saved enrichment-review sessions**: filtered suggestion/clarification queues with preserved cursor state, saved apply/reject presets, clarification answer capture, and quick re-enrichment.
+- **Saved relationship-review sessions**: filtered duplicate/related review queues with preserved cursor state, guided next/previous stepping, saved decision presets, inline confirm/dismiss flows, and duplicate merge entrypoints.
+- **Saved enrichment-review sessions**: filtered suggestion/clarification queues with preserved cursor state, guided next/previous stepping, saved apply/reject presets, and one-shot clarification-answer-plus-rerun refinement inside the same session.
 - **Daily/weekly cohorts**: deterministic hygiene buckets for stale, blocked, and under-specified loops.
 
 The cohort section groups loops needing attention:
@@ -677,7 +684,7 @@ idempotency flow:
 - Same key + same payload: replays prior response without additional writes
 - Same key + different payload: returns 409 Conflict
 
-**MCP tools**: Pass `request_id` argument to supported mutation tools (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`, `memory.create`, `memory.update`, `memory.delete`, `suggestion.apply`, `suggestion.reject`, `clarification.answer`, `clarification.answer_many`).
+**MCP tools**: Pass `request_id` argument to supported mutation tools (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`, `memory.create`, `memory.update`, `memory.delete`, `suggestion.apply`, `suggestion.reject`, `clarification.answer`, `clarification.answer_many`, `clarification.refine`, `review.relationship_session.move`, `review.enrichment_session.move`, `review.enrichment_session.answer_clarifications`).
 - Same request_id + same args: replays prior response
 - Same request_id + different args: raises `ToolError`
 
@@ -808,7 +815,8 @@ Exposed tools include `chat.complete`, `loop.create`, `loop.update`, `loop.close
 `loop.bulk_enrich_query`, `memory.list`, `memory.search`, `memory.get`, `memory.create`,
 `memory.update`, `memory.delete`, `suggestion.list`, `suggestion.get`, `suggestion.apply`,
 `suggestion.reject`, `clarification.list`, `clarification.answer`, `clarification.answer_many`,
-`project.list`, `rag.ask`, and `rag.ingest`.
+`clarification.refine`, `review.relationship_session.move`, `review.enrichment_session.move`,
+`review.enrichment_session.answer_clarifications`, `project.list`, `rag.ask`, and `rag.ingest`.
 
 `chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
 endpoint and `cloop chat`, so tool behavior, grounding options, metadata, sources, and
@@ -828,9 +836,9 @@ and confirm/dismiss persistence stay aligned everywhere.
 the web Review tab, the Inbox bulk `Enrich` action, and `cloop loop bulk enrich`, so filtered target
 selection, result envelopes, and follow-up suggestion/clarification behavior stay aligned everywhere.
 
-`suggestion.*` and `clarification.*` reuse the shared enrichment-review service contract as the HTTP,
-web, and CLI surfaces, so suggestion payloads, linked clarification rows, and clarification-answer
-semantics stay aligned.
+`suggestion.*` and `clarification.*` reuse the shared enrichment-review and enrichment-orchestration
+contracts as the HTTP, web, and CLI surfaces, so suggestion payloads, linked clarification rows,
+clarification-answer semantics, and answer-plus-rerun refinement stay aligned.
 
 `rag.ask` and `rag.ingest` reuse the same shared retrieval execution contract as the HTTP and CLI surfaces,
 so answer/source semantics and ingest bookkeeping stay aligned.

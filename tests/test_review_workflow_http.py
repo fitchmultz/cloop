@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import numpy as np
@@ -122,10 +123,122 @@ def test_relationship_review_workflow_endpoints(
     assert delete_action.json() == {"deleted": True, "action_preset_id": action_payload["id"]}
 
 
+def test_review_session_move_endpoints(
+    make_test_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _mock_relationship_embeddings(monkeypatch)
+    client = make_test_client()
+
+    rel_first = _capture(client, "Buy milk and eggs before the weekend")
+    _capture(client, "Pick up groceries like milk and eggs", actionable=True)
+    _capture(client, "Draft launch email for beta users")
+    _capture(client, "Write beta launch email draft", actionable=True)
+    enrich_first = _capture(client, "Clarify launch date")
+    enrich_second = _capture(client, "Clarify owner for launch")
+
+    with db.core_connection(get_settings()) as conn:
+        repo.insert_loop_suggestion(
+            loop_id=enrich_first,
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=enrich_first,
+            question="When should this happen?",
+            conn=conn,
+        )
+        repo.insert_loop_suggestion(
+            loop_id=enrich_second,
+            suggestion_json={"needs_clarification": ["Who owns this?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=enrich_second,
+            question="Who owns this?",
+            conn=conn,
+        )
+        conn.commit()
+
+    relationship_session = client.post(
+        "/loops/review/relationship/sessions",
+        json={
+            "name": "move-rel",
+            "query": "status:open",
+            "relationship_kind": "duplicate",
+            "candidate_limit": 3,
+            "item_limit": 25,
+            "current_loop_id": rel_first,
+        },
+    )
+    assert relationship_session.status_code == 201
+    relationship_session_payload = relationship_session.json()
+    relationship_session_id = relationship_session_payload["session"]["id"]
+    relationship_direction = (
+        "next" if relationship_session_payload["current_index"] == 0 else "previous"
+    )
+    relationship_step = 1 if relationship_direction == "next" else -1
+    relationship_target = relationship_session_payload["items"][
+        relationship_session_payload["current_index"] + relationship_step
+    ]["loop"]["id"]
+
+    relationship_move = client.post(
+        f"/loops/review/relationship/sessions/{relationship_session_id}/move",
+        json={"direction": relationship_direction},
+    )
+    assert relationship_move.status_code == 200
+    assert relationship_move.json()["current_item"]["loop"]["id"] == relationship_target
+
+    enrichment_session = client.post(
+        "/loops/review/enrichment/sessions",
+        json={
+            "name": "move-enrich",
+            "query": "status:open",
+            "pending_kind": "clarifications",
+            "suggestion_limit": 3,
+            "clarification_limit": 3,
+            "item_limit": 25,
+            "current_loop_id": enrich_first,
+        },
+    )
+    assert enrichment_session.status_code == 201
+    enrichment_session_payload = enrichment_session.json()
+    enrichment_session_id = enrichment_session_payload["session"]["id"]
+    enrichment_direction = (
+        "next" if enrichment_session_payload["current_index"] == 0 else "previous"
+    )
+    enrichment_step = 1 if enrichment_direction == "next" else -1
+    enrichment_target = enrichment_session_payload["items"][
+        enrichment_session_payload["current_index"] + enrichment_step
+    ]["loop"]["id"]
+
+    enrichment_move = client.post(
+        f"/loops/review/enrichment/sessions/{enrichment_session_id}/move",
+        json={"direction": enrichment_direction},
+    )
+    assert enrichment_move.status_code == 200
+    assert enrichment_move.json()["current_item"]["loop"]["id"] == enrichment_target
+
+
 def test_enrichment_review_workflow_endpoints(
     make_test_client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(
+                {
+                    "title": "Clarified launch checklist owner",
+                    "summary": "Operations owns the checklist.",
+                    "confidence": {"title": 0.99, "summary": 0.99},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
     client = make_test_client()
 
     suggestion_loop_id = _capture(client, "Plan launch retrospective")
@@ -212,7 +325,12 @@ def test_enrichment_review_workflow_endpoints(
     assert answer_response.status_code == 200
     answer_payload = answer_response.json()
     assert answer_payload["result"]["loop_id"] == clarification_loop_id
-    assert answer_payload["result"]["answered_count"] == 1
-    assert answer_payload["result"]["superseded_suggestion_ids"] == [superseded_suggestion_id]
-    assert answer_payload["snapshot"]["loop_count"] == 0
-    assert answer_payload["snapshot"]["session"]["current_loop_id"] is None
+    assert answer_payload["result"]["clarification_result"]["answered_count"] == 1
+    assert answer_payload["result"]["clarification_result"]["superseded_suggestion_ids"] == [
+        superseded_suggestion_id
+    ]
+    assert answer_payload["result"]["enrichment_result"]["loop"]["id"] == clarification_loop_id
+    assert answer_payload["result"]["enrichment_result"]["applied_fields"] == []
+    assert answer_payload["result"]["enrichment_result"]["suggestion_id"] > superseded_suggestion_id
+    assert answer_payload["snapshot"]["loop_count"] == 1
+    assert answer_payload["snapshot"]["session"]["current_loop_id"] == clarification_loop_id

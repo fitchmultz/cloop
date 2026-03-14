@@ -7,6 +7,7 @@ operations to external AI agents via the Model Context Protocol.
 from __future__ import annotations
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -74,6 +75,7 @@ from cloop.mcp_tools.suggestion_tools import (
     clarification_answer,
     clarification_answer_many,
     clarification_list,
+    clarification_refine,
     suggestion_apply,
     suggestion_get,
     suggestion_list,
@@ -3473,6 +3475,7 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "clarification.list" in tool_names
     assert "clarification.answer" in tool_names
     assert "clarification.answer_many" in tool_names
+    assert "clarification.refine" in tool_names
     assert "review.relationship_action.create" in tool_names
     assert "review.relationship_action.list" in tool_names
     assert "review.relationship_action.get" in tool_names
@@ -3481,6 +3484,7 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "review.relationship_session.create" in tool_names
     assert "review.relationship_session.list" in tool_names
     assert "review.relationship_session.get" in tool_names
+    assert "review.relationship_session.move" in tool_names
     assert "review.relationship_session.update" in tool_names
     assert "review.relationship_session.delete" in tool_names
     assert "review.relationship_session.apply_action" in tool_names
@@ -3492,6 +3496,7 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "review.enrichment_session.create" in tool_names
     assert "review.enrichment_session.list" in tool_names
     assert "review.enrichment_session.get" in tool_names
+    assert "review.enrichment_session.move" in tool_names
     assert "review.enrichment_session.update" in tool_names
     assert "review.enrichment_session.delete" in tool_names
     assert "review.enrichment_session.apply_action" in tool_names
@@ -3726,6 +3731,62 @@ def test_clarification_answer_and_answer_many_via_mcp(
     assert answers_by_id[single_clarification_id] == "Friday"
     assert answers_by_id[owner_clarification_id] == "Finance"
     assert answers_by_id[cost_clarification_id] == "$500"
+
+
+def test_clarification_refine_via_mcp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """clarification.refine should answer rows and rerun enrichment in one mutation."""
+    from cloop.loops import repo
+
+    _setup_test_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(
+                {
+                    "title": "Budget review deadline confirmed",
+                    "summary": "Finalize the Friday budget review.",
+                    "confidence": {"title": 0.99, "summary": 0.99},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+
+    created = loop_create(
+        raw_text="Prepare budget review",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_id = created["id"]
+
+    with db.core_connection(get_settings()) as conn:
+        with conn:
+            repo.insert_loop_suggestion(
+                loop_id=loop_id,
+                suggestion_json={
+                    "needs_clarification": ["What is the deadline?"],
+                    "confidence": {},
+                },
+                model="mock-organizer",
+                conn=conn,
+            )
+            clarification_id = repo.insert_loop_clarification(
+                loop_id=loop_id,
+                question="What is the deadline?",
+                conn=conn,
+            )
+
+    result = clarification_refine(
+        loop_id=loop_id,
+        answers=[{"clarification_id": clarification_id, "answer": "Friday"}],
+    )
+    assert result["clarification_result"]["answered_count"] == 1
+    assert result["enrichment_result"]["loop"]["id"] == loop_id
+    assert result["enrichment_result"]["applied_fields"] == []
+    assert result["enrichment_result"]["suggestion_id"] > 0
 
 
 def test_clarification_answer_rejects_wrong_loop(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -16,9 +17,11 @@ from cloop.mcp_tools.review_workflows import (
     review_enrichment_session_answer_clarifications,
     review_enrichment_session_apply_action,
     review_enrichment_session_create,
+    review_enrichment_session_move,
     review_relationship_action_create,
     review_relationship_session_apply_action,
     review_relationship_session_create,
+    review_relationship_session_move,
 )
 from cloop.settings import Settings, get_settings
 
@@ -115,11 +118,97 @@ def test_relationship_review_workflow_tools(
     assert third_id in remaining_loop_ids or fourth_id in remaining_loop_ids
 
 
+def test_review_session_move_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_test_db(tmp_path, monkeypatch)
+    _mock_relationship_embeddings(monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        rel_first = _create_loop(raw_text="Buy milk and eggs before the weekend", conn=conn)
+        _create_loop(raw_text="Pick up groceries like milk and eggs", conn=conn)
+        _create_loop(raw_text="Draft launch email for beta users", conn=conn)
+        _create_loop(raw_text="Write beta launch email draft", conn=conn)
+        enrich_first = _create_loop(raw_text="Clarify launch date", conn=conn)
+        enrich_second = _create_loop(raw_text="Clarify owner for launch", conn=conn)
+        repo.insert_loop_suggestion(
+            loop_id=enrich_first,
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=enrich_first,
+            question="When should this happen?",
+            conn=conn,
+        )
+        repo.insert_loop_suggestion(
+            loop_id=enrich_second,
+            suggestion_json={"needs_clarification": ["Who owns this?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=enrich_second,
+            question="Who owns this?",
+            conn=conn,
+        )
+        conn.commit()
+
+    relationship_session = review_relationship_session_create(
+        name="move-rel",
+        query="status:open",
+        relationship_kind="duplicate",
+        current_loop_id=rel_first,
+    )
+    relationship_direction = "next" if relationship_session["current_index"] == 0 else "previous"
+    relationship_step = 1 if relationship_direction == "next" else -1
+    relationship_target = relationship_session["items"][
+        relationship_session["current_index"] + relationship_step
+    ]["loop"]["id"]
+    moved_relationship = review_relationship_session_move(
+        session_id=relationship_session["session"]["id"],
+        direction=relationship_direction,
+    )
+    assert moved_relationship["current_item"]["loop"]["id"] == relationship_target
+
+    enrichment_session = review_enrichment_session_create(
+        name="move-enrich",
+        query="status:open",
+        pending_kind="clarifications",
+        current_loop_id=enrich_first,
+    )
+    enrichment_direction = "next" if enrichment_session["current_index"] == 0 else "previous"
+    enrichment_step = 1 if enrichment_direction == "next" else -1
+    enrichment_target = enrichment_session["items"][
+        enrichment_session["current_index"] + enrichment_step
+    ]["loop"]["id"]
+    moved_enrichment = review_enrichment_session_move(
+        session_id=enrichment_session["session"]["id"],
+        direction=enrichment_direction,
+    )
+    assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
+
+
 def test_enrichment_review_workflow_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings = _setup_test_db(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(
+                {
+                    "title": "Clarified launch checklist owner",
+                    "summary": "Operations owns the checklist.",
+                    "confidence": {"title": 0.99, "summary": 0.99},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
 
     with db.core_connection(settings) as conn:
         suggestion_loop_id = _create_loop(raw_text="Plan launch retrospective", conn=conn)
@@ -174,5 +263,10 @@ def test_enrichment_review_workflow_tools(
         answers=[{"clarification_id": clarification_id, "answer": "Operations"}],
     )
     assert answer_result["result"]["loop_id"] == clarification_loop_id
-    assert answer_result["result"]["superseded_suggestion_ids"] == [superseded_suggestion_id]
-    assert answer_result["snapshot"]["loop_count"] == 0
+    assert answer_result["result"]["clarification_result"]["superseded_suggestion_ids"] == [
+        superseded_suggestion_id
+    ]
+    assert answer_result["result"]["enrichment_result"]["applied_fields"] == []
+    assert answer_result["result"]["enrichment_result"]["suggestion_id"] > superseded_suggestion_id
+    assert answer_result["snapshot"]["loop_count"] == 1
+    assert answer_result["snapshot"]["session"]["current_loop_id"] == clarification_loop_id

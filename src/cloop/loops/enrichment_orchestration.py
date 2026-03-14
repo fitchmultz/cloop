@@ -21,6 +21,7 @@ Non-scope:
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,7 +29,7 @@ from .. import typingx
 from ..constants import BULK_OPERATION_MAX_ITEMS
 from ..settings import Settings
 from . import enrichment as loop_enrichment
-from . import read_service, repo, service
+from . import enrichment_review, read_service, repo, service
 from .errors import LoopNotFoundError, ValidationError
 from .write_ops import _enrich_records_batch
 
@@ -104,6 +105,25 @@ class BulkLoopEnrichmentResult:
         }
 
 
+@dataclass(slots=True, frozen=True)
+class ClarificationRefinementResult:
+    """Canonical result for answering clarifications and rerunning enrichment."""
+
+    loop_id: int
+    clarification_result: enrichment_review.ClarificationSubmissionResult
+    enrichment_result: LoopEnrichmentResult
+    message: str = "Clarifications recorded and enrichment reran."
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert the conversational refinement result into a payload."""
+        return {
+            "loop_id": self.loop_id,
+            "clarification_result": self.clarification_result.to_payload(),
+            "enrichment_result": self.enrichment_result.to_payload(),
+            "message": self.message,
+        }
+
+
 def _classify_bulk_enrichment_error(exc: Exception) -> str:
     if isinstance(exc, LoopNotFoundError):
         return "not_found"
@@ -155,6 +175,32 @@ def orchestrate_loop_enrichment(
         suggestion_id=int(enrichment_result["suggestion_id"]),
         applied_fields=list(enrichment_result.get("applied_fields") or []),
         needs_clarification=list(enrichment_result.get("needs_clarification") or []),
+    )
+
+
+@typingx.validate_io()
+def orchestrate_clarification_refinement(
+    *,
+    loop_id: int,
+    answers: Sequence[enrichment_review.ClarificationAnswerInput],
+    conn: sqlite3.Connection,
+    settings: Settings,
+) -> ClarificationRefinementResult:
+    """Answer clarifications for one loop and immediately rerun enrichment."""
+    clarification_result = enrichment_review.submit_clarification_answers(
+        loop_id=loop_id,
+        answers=answers,
+        conn=conn,
+    )
+    enrichment_result = orchestrate_loop_enrichment(
+        loop_id=loop_id,
+        conn=conn,
+        settings=settings,
+    )
+    return ClarificationRefinementResult(
+        loop_id=loop_id,
+        clarification_result=clarification_result,
+        enrichment_result=enrichment_result,
     )
 
 

@@ -72,6 +72,7 @@ from .loop_misc_commands import (
     clarification_answer_command,
     clarification_answer_many_command,
     clarification_list_command,
+    clarification_refine_command,
     export_command,
     import_command,
     loop_events_command,
@@ -141,6 +142,7 @@ from .review_commands import (
     enrichment_review_session_delete_command,
     enrichment_review_session_get_command,
     enrichment_review_session_list_command,
+    enrichment_review_session_move_command,
     enrichment_review_session_update_command,
     relationship_review_action_create_command,
     relationship_review_action_delete_command,
@@ -152,6 +154,7 @@ from .review_commands import (
     relationship_review_session_delete_command,
     relationship_review_session_get_command,
     relationship_review_session_list_command,
+    relationship_review_session_move_command,
     relationship_review_session_update_command,
 )
 from .template_commands import (
@@ -425,6 +428,8 @@ def main(argv: List[str] | None = None) -> int:
             return clarification_answer_command(args, settings)
         if args.clarification_cmd == "answer-many":
             return clarification_answer_many_command(args, settings)
+        if args.clarification_cmd == "refine":
+            return clarification_refine_command(args, settings)
         parser.error(f"Unknown clarification command: {args.clarification_cmd}")
         return 2
 
@@ -451,6 +456,8 @@ def main(argv: List[str] | None = None) -> int:
                 return relationship_review_session_list_command(args, settings)
             if args.review_relationship_session_command == "get":
                 return relationship_review_session_get_command(args, settings)
+            if args.review_relationship_session_command == "move":
+                return relationship_review_session_move_command(args, settings)
             if args.review_relationship_session_command == "update":
                 return relationship_review_session_update_command(args, settings)
             if args.review_relationship_session_command == "delete":
@@ -483,6 +490,8 @@ def main(argv: List[str] | None = None) -> int:
                 return enrichment_review_session_list_command(args, settings)
             if args.review_enrichment_session_command == "get":
                 return enrichment_review_session_get_command(args, settings)
+            if args.review_enrichment_session_command == "move":
+                return enrichment_review_session_move_command(args, settings)
             if args.review_enrichment_session_command == "update":
                 return enrichment_review_session_update_command(args, settings)
             if args.review_enrichment_session_command == "delete":

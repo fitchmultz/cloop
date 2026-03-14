@@ -2199,10 +2199,57 @@ def test_clarification_commands(
     assert batch["answered_count"] == 2
     assert batch["superseded_suggestion_ids"] == [second_suggestion_id]
 
+    with db.core_connection(settings) as conn:
+        with conn:
+            refine_suggestion_id = repo.insert_loop_suggestion(
+                loop_id=1,
+                suggestion_json={
+                    "needs_clarification": ["What changed?"],
+                    "confidence": {},
+                },
+                model="mock-organizer",
+                conn=conn,
+            )
+            refine_clarification_id = repo.insert_loop_clarification(
+                loop_id=1,
+                question="What changed?",
+                conn=conn,
+            )
+
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(
+                {
+                    "title": "Budget review updated",
+                    "summary": "Capture the latest changes.",
+                    "confidence": {"title": 0.99, "summary": 0.99},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+    exit_code = cli.main(
+        [
+            "clarification",
+            "refine",
+            "--loop-id",
+            "1",
+            "--item",
+            f"{refine_clarification_id}=Scope changed",
+        ]
+    )
+    assert exit_code == 0
+    refined = _get_last_json(capsys)
+    assert refined["clarification_result"]["superseded_suggestion_ids"] == [refine_suggestion_id]
+    assert refined["enrichment_result"]["applied_fields"] == []
+    assert refined["enrichment_result"]["suggestion_id"] > refine_suggestion_id
+
     exit_code = cli.main(["suggestion", "list", "--loop-id", "1", "--pending"])
     assert exit_code == 0
     pending = _get_last_json(capsys)
-    assert pending == []
+    assert len(pending) == 1
+    assert pending[0]["id"] == refined["enrichment_result"]["suggestion_id"]
 
 
 def test_memory_commands(

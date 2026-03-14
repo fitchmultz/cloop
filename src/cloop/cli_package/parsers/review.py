@@ -111,6 +111,11 @@ Examples:
     get_parser.add_argument("id", type=int)
     add_format_option(get_parser)
 
+    move = sub.add_parser("move", help="Move a relationship-review session cursor")
+    move.add_argument("--session", type=int, required=True)
+    move.add_argument("--direction", choices=["next", "previous"], required=True)
+    add_format_option(move)
+
     update = sub.add_parser("update", help="Update a relationship-review session")
     update.add_argument("id", type=int)
     update.add_argument("--name")
@@ -219,6 +224,11 @@ Examples:
     get_parser = sub.add_parser("get", help="Load an enrichment-review session snapshot")
     get_parser.add_argument("id", type=int)
     add_format_option(get_parser)
+
+    move = sub.add_parser("move", help="Move an enrichment-review session cursor")
+    move.add_argument("--session", type=int, required=True)
+    move.add_argument("--direction", choices=["next", "previous"], required=True)
+    add_format_option(move)
 
     update = sub.add_parser("update", help="Update an enrichment-review session")
     update.add_argument("id", type=int)
