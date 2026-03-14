@@ -23,7 +23,7 @@ from typing import Any, Mapping
 
 from .. import typingx
 from ..settings import Settings, get_settings
-from . import repo
+from . import relationship_review, repo
 from .claim_state import read_active_claim
 from .errors import LoopNotFoundError, ValidationError
 from .models import (
@@ -34,16 +34,6 @@ from .models import (
     is_terminal_status,
     utc_now,
 )
-from .serialization import loop_record_to_dict
-
-
-def _record_to_dict(
-    record: LoopRecord,
-    *,
-    project: str | None = None,
-    tags: list[str] | None = None,
-) -> dict[str, Any]:
-    return loop_record_to_dict(record, project=project, tags=tags)
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,14 +264,19 @@ def merge_loops(
             conn=conn,
         )
 
-        # Update duplicate link to mark as resolved
-        conn.execute(
-            """
-            UPDATE loop_links
-            SET relationship_type = 'duplicate_resolved'
-            WHERE loop_id = ? AND related_loop_id = ? AND relationship_type = 'duplicate'
-            """,
-            (duplicate_loop_id, surviving_loop_id),
+        relationship_review.resolve_relationship(
+            loop_id=duplicate_loop_id,
+            candidate_loop_id=surviving_loop_id,
+            relationship_type="duplicate",
+            conn=conn,
+            source="system",
+        )
+        relationship_review.resolve_relationship(
+            loop_id=duplicate_loop_id,
+            candidate_loop_id=surviving_loop_id,
+            relationship_type="related",
+            conn=conn,
+            source="system",
         )
 
     # Fetch updated surviving loop
@@ -320,27 +315,28 @@ def find_duplicate_candidates_for_loop(
     Raises:
         LoopNotFoundError: If loop doesn't exist
     """
-    from . import related
-
-    # Verify loop exists
-    loop = repo.read_loop(loop_id=loop_id, conn=conn)
-    if loop is None:
-        raise LoopNotFoundError(loop_id)
-
-    candidates = related.find_duplicate_candidates(
+    result = relationship_review.review_loop_relationships(
         loop_id=loop_id,
+        statuses=[
+            LoopStatus.INBOX,
+            LoopStatus.ACTIONABLE,
+            LoopStatus.BLOCKED,
+            LoopStatus.SCHEDULED,
+        ],
+        duplicate_limit=10,
+        related_limit=1,
         conn=conn,
         settings=settings,
     )
 
     return [
         {
-            "loop_id": c.loop_id,
-            "score": c.score,
-            "title": c.title,
-            "raw_text_preview": c.raw_text_preview,
-            "status": c.status,
-            "captured_at_utc": c.captured_at_utc,
+            "loop_id": candidate["id"],
+            "score": candidate["score"],
+            "title": candidate["title"],
+            "raw_text_preview": candidate["raw_text_preview"],
+            "status": candidate["status"],
+            "captured_at_utc": candidate["captured_at_utc"],
         }
-        for c in candidates
+        for candidate in result["duplicate_candidates"]
     ]

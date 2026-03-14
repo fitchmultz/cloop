@@ -37,6 +37,7 @@ export const state = {
   templatesCache: null,
   reviewMode: 'daily',
   reviewData: null,
+  relationshipReviewQueue: null,
   chatMessages: [],
   chatPreferences: { ...DEFAULT_CHAT_PREFERENCES },
   lastClickedLoopId: null,

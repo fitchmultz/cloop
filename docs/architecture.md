@@ -45,6 +45,7 @@ flowchart LR
 - `src/cloop/loops/write_ops.py`: canonical write-operation helpers and mutation invariants.
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
 - `src/cloop/loops/enrichment_review.py`: shared suggestion/clarification review contract used by HTTP, web, CLI, and MCP after enrichment runs.
+- `src/cloop/loops/relationship_review.py`: shared duplicate/related-loop review contract used by HTTP, web, CLI, and MCP on top of semantic similarity.
 - `src/cloop/memory_management.py`: shared direct memory-management contract used by HTTP, web, CLI, MCP, and memory tool executors.
 - `src/cloop/loops/read_service.py`, `src/cloop/loops/similarity.py`: shared semantic-loop search contract plus canonical loop-embedding/source-hash maintenance for on-demand backfill.
 - `src/cloop/loops/prioritization.py`, `review.py`, `timers.py`, `claims.py`: specialized loop behavior.
@@ -102,6 +103,12 @@ flowchart LR
 2. `src/cloop/loops/similarity.py` owns the canonical loop-to-embedding source text, source-hash comparison, and on-demand embedding refresh.
 3. Search requests backfill missing or stale loop embeddings before scoring, so older loops stay searchable without introducing transport-specific indexing code.
 4. Internal related/duplicate workflows can reuse the same loop-embedding substrate instead of inventing parallel semantic contracts.
+
+### Relationship review (HTTP + Web + CLI + MCP)
+1. HTTP relationship-review endpoints, the Review tab, `cloop loop relationship *`, and MCP `loop.relationship_*` all call `src/cloop/loops/relationship_review.py`.
+2. `src/cloop/loops/relationship_review.py` owns duplicate-vs-related classification, cross-loop review queues, confirm/dismiss decisions, and merge-resolution state updates.
+3. `src/cloop/loops/read_service.py` + `src/cloop/loops/similarity.py` remain the only owners of embedding source text, source-hash upkeep, and similarity scoring.
+4. Relationship decisions persist in `loop_links` with explicit `link_state` (`active`, `dismissed`, `resolved`) so review outcomes survive later suggestion refreshes.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.

@@ -749,7 +749,9 @@ def test_enrichment_skips_embedding_phase_on_valueerror_without_traceback(
                 "ollama/... requires CLOOP_OLLAMA_API_BASE",
             ),
         ),
-        patch("cloop.loops.enrichment.suggest_links") as suggest_links_mock,
+        patch(
+            "cloop.loops.enrichment.sync_relationship_suggestions"
+        ) as sync_relationship_suggestions_mock,
     ):
         result = loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
 
@@ -761,7 +763,7 @@ def test_enrichment_skips_embedding_phase_on_valueerror_without_traceback(
     ]
     assert warning_records
     assert warning_records[0].exc_info is None
-    suggest_links_mock.assert_not_called()
+    sync_relationship_suggestions_mock.assert_not_called()
 
     conn.close()
 
@@ -821,6 +823,7 @@ def test_suggest_links_creates_related_links(
     from cloop.loops import repo
     from cloop.loops.models import LoopStatus
     from cloop.loops.related import suggest_links
+    from cloop.loops.similarity import build_loop_semantic_text, semantic_source_hash
     from cloop.settings import get_settings
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
@@ -851,25 +854,29 @@ def test_suggest_links_creates_related_links(
     )
     conn.commit()
 
-    # Create embeddings for both loops with high similarity
-    # Use identical vectors to ensure high similarity
-    vec = np.array([0.5, 0.5, 0.5, 0.5], dtype=np.float32)
-    vec = vec / np.linalg.norm(vec)  # normalize
+    # Create embeddings with cosine similarity above the related threshold but below
+    # the duplicate threshold so suggest_links surfaces a related match.
+    loop1_vec = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
+    loop1_vec = loop1_vec / np.linalg.norm(loop1_vec)
+    loop2_vec = np.array([0.8, 0.6, 0.0, 0.0], dtype=np.float32)
+    loop2_vec = loop2_vec / np.linalg.norm(loop2_vec)
 
     repo.upsert_loop_embedding(
         loop_id=loop1.id,
-        embedding_blob=vec.tobytes(),
+        embedding_blob=loop1_vec.tobytes(),
         embedding_dim=4,
-        embedding_norm=float(np.linalg.norm(vec)),
-        embed_model="test",
+        embedding_norm=float(np.linalg.norm(loop1_vec)),
+        embed_model=settings.embed_model,
+        source_text_hash=semantic_source_hash(build_loop_semantic_text(loop1)),
         conn=conn,
     )
     repo.upsert_loop_embedding(
         loop_id=loop2.id,
-        embedding_blob=vec.tobytes(),
+        embedding_blob=loop2_vec.tobytes(),
         embedding_dim=4,
-        embedding_norm=float(np.linalg.norm(vec)),
-        embed_model="test",
+        embedding_norm=float(np.linalg.norm(loop2_vec)),
+        embed_model=settings.embed_model,
+        source_text_hash=semantic_source_hash(build_loop_semantic_text(loop2)),
         conn=conn,
     )
     conn.commit()

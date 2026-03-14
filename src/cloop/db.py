@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 35
+SCHEMA_VERSION: int = 36
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -245,15 +245,19 @@ CREATE TABLE loop_links (
     loop_id INTEGER NOT NULL,
     related_loop_id INTEGER NOT NULL,
     relationship_type TEXT NOT NULL,
+    link_state TEXT NOT NULL DEFAULT 'active',
     confidence REAL,
     source TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
     FOREIGN KEY(related_loop_id) REFERENCES loops(id) ON DELETE CASCADE
 );
 
 CREATE UNIQUE INDEX idx_loop_links_unique
-    ON loop_links(loop_id, related_loop_id, relationship_type, source);
+    ON loop_links(loop_id, related_loop_id, relationship_type);
+CREATE INDEX idx_loop_links_loop_type_state_confidence
+    ON loop_links(loop_id, relationship_type, link_state, confidence DESC, related_loop_id);
 
 CREATE TABLE loop_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -581,6 +585,47 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    36: """
+    ALTER TABLE loop_links ADD COLUMN link_state TEXT NOT NULL DEFAULT 'active';
+    ALTER TABLE loop_links ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+    UPDATE loop_links
+    SET relationship_type = 'duplicate',
+        link_state = 'resolved'
+    WHERE relationship_type = 'duplicate_resolved';
+
+    CREATE TEMP TABLE loop_links_ranked AS
+        SELECT
+            id,
+            ROW_NUMBER() OVER (
+                PARTITION BY loop_id, related_loop_id, relationship_type
+                ORDER BY
+                    CASE link_state
+                        WHEN 'resolved' THEN 3
+                        WHEN 'active' THEN 2
+                        WHEN 'dismissed' THEN 1
+                        ELSE 0
+                    END DESC,
+                    CASE WHEN confidence IS NULL THEN -1.0 ELSE confidence END DESC,
+                    created_at DESC,
+                    id DESC
+            ) AS rank_order
+        FROM loop_links;
+
+    DELETE FROM loop_links
+    WHERE id IN (
+        SELECT id
+        FROM loop_links_ranked
+        WHERE rank_order > 1
+    );
+
+    DROP TABLE loop_links_ranked;
+    DROP INDEX idx_loop_links_unique;
+    CREATE UNIQUE INDEX idx_loop_links_unique
+        ON loop_links(loop_id, related_loop_id, relationship_type);
+    CREATE INDEX idx_loop_links_loop_type_state_confidence
+        ON loop_links(loop_id, relationship_type, link_state, confidence DESC, related_loop_id);
+    """,
     35: """
     ALTER TABLE loop_embeddings ADD COLUMN source_text_hash TEXT NOT NULL DEFAULT '';
     """,
@@ -1123,15 +1168,19 @@ _CORE_MIGRATIONS: dict[int, str] = {
         loop_id INTEGER NOT NULL,
         related_loop_id INTEGER NOT NULL,
         relationship_type TEXT NOT NULL,
+        link_state TEXT NOT NULL DEFAULT 'active',
         confidence REAL,
         source TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
         FOREIGN KEY(related_loop_id) REFERENCES loops(id) ON DELETE CASCADE
     );
 
     CREATE UNIQUE INDEX idx_loop_links_unique
-        ON loop_links(loop_id, related_loop_id, relationship_type, source);
+        ON loop_links(loop_id, related_loop_id, relationship_type);
+    CREATE INDEX idx_loop_links_loop_type_state_confidence
+        ON loop_links(loop_id, relationship_type, link_state, confidence DESC, related_loop_id);
 
     CREATE TABLE loop_suggestions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

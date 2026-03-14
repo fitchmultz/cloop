@@ -39,7 +39,8 @@ from . import repo, similarity
 from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
-from .related import find_duplicate_candidates, suggest_links
+from .related import find_duplicate_candidates
+from .relationship_review import sync_relationship_suggestions
 from .utils import normalize_tags
 
 logger = logging.getLogger(__name__)
@@ -212,7 +213,7 @@ def _gather_enrichment_context(
                     "preview": d.raw_text_preview,
                 }
             )
-    except sqlite3.Error, ValueError, AttributeError:
+    except sqlite3.Error, ValueError, AttributeError, LoopNotFoundError, CloopValidationError:
         logger.debug("Failed to fetch duplicate candidates for loop %s", loop_id)
 
     try:
@@ -652,18 +653,13 @@ def enrich_loop(
                 conn=conn,
                 settings=settings,
             )
-            suggest_links(loop_id=loop_id, conn=conn, settings=settings)
-            # Detect and link potential duplicates
-            dupes = find_duplicate_candidates(loop_id=loop_id, conn=conn, settings=settings)
-            for dupe in dupes:
-                repo.insert_loop_link(
-                    loop_id=loop_id,
-                    related_loop_id=dupe.loop_id,
-                    relationship_type="duplicate",
-                    confidence=dupe.score,
-                    source="ai",
-                    conn=conn,
-                )
+            sync_relationship_suggestions(
+                loop_id=loop_id,
+                conn=conn,
+                settings=settings,
+                related_limit=5,
+                duplicate_limit=3,
+            )
         except CloopValidationError as exc:
             # Common expected case: provider misconfiguration (e.g., missing api_base).
             # Keep autopilot capture successful, but avoid scary traceback spam.

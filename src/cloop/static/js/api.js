@@ -413,6 +413,57 @@ export async function fetchReviewData() {
   return response.json();
 }
 
+export async function fetchRelationshipReviewQueue(options = {}) {
+  const params = new URLSearchParams({
+    status: options.status ?? "open",
+    relationship_kind: options.relationshipKind ?? "all",
+    limit: String(options.limit ?? 25),
+    candidate_limit: String(options.candidateLimit ?? 3),
+  });
+  const response = await fetch(`/loops/relationships/review?${params}`);
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to load relationship review queue"));
+  }
+  return response.json();
+}
+
+export async function fetchLoopRelationshipReview(loopId, options = {}) {
+  const params = new URLSearchParams({
+    status: options.status ?? "open",
+    duplicate_limit: String(options.duplicateLimit ?? 10),
+    related_limit: String(options.relatedLimit ?? 10),
+  });
+  const response = await fetch(`/loops/${loopId}/relationships/review?${params}`);
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to load relationship review"));
+  }
+  return response.json();
+}
+
+export async function confirmLoopRelationship(loopId, candidateLoopId, relationshipType) {
+  const response = await fetch(`/loops/${loopId}/relationships/${candidateLoopId}/confirm`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ relationship_type: relationshipType }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to confirm loop relationship"));
+  }
+  return response.json();
+}
+
+export async function dismissLoopRelationship(loopId, candidateLoopId, relationshipType) {
+  const response = await fetch(`/loops/${loopId}/relationships/${candidateLoopId}/dismiss`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ relationship_type: relationshipType }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to dismiss loop relationship"));
+  }
+  return response.json();
+}
+
 // ========================================
 // Metrics
 // ========================================

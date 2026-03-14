@@ -45,41 +45,53 @@ Legend:
 The next work should happen in this order so that the newly stabilized shared chat,
 enrichment, review, and direct-memory contracts can propagate outward without rework.
 
-### Phase 1 — Turn internal AI capabilities into explicit product features
+### Phase 1 — Productize shared AI-assisted loop operations
 
-Goal: promote the strongest existing internal AI signals into first-class features.
+Goal: turn the next strongest shared loop primitives into explicit operator workflows.
 
-- Better duplicate/related-loop review workflows built on the now-shared semantic-search and similarity machinery.
 - Bulk enrichment across filtered loop sets.
+- Saved review actions that can apply consistent duplicate/related decisions or enrichment follow-ups across a review session without transport-specific glue.
 
 Why here:
 
-- These are product bets built on top of already-shared infrastructure.
-- Semantic search is now shared, so the next highest-leverage work is turning its similarity signals into better review and bulk-action workflows.
+- Relationship review and semantic search are now shared, so the next highest-leverage work is batching and session-level operator flow on top of those stabilized contracts.
+- These features extend already-centralized behavior instead of creating fresh AI/runtime seams.
 
-### Phase 2 — Add richer AI-native workflows
+### Phase 2 — Add richer conversational loop refinement
 
-Goal: move beyond one-shot actions only after the foundations are stable and shared.
+Goal: move beyond one-shot actions only after shared operator workflows are stable.
 
 - Conversational enrichment workflows that can ask follow-up clarification
   questions, collect answers, and rerun enrichment.
+- Guided review flows that can step through relationship-review or enrichment queues without hiding deterministic state transitions.
+
+Why next:
+
+- These flows add UX and state complexity, but can now build on shared review and enrichment contracts instead of inventing new ones.
+
+### Phase 3 — Add broader AI-native planning workflows
+
+Goal: introduce larger multi-step assistance only after lower-level review/refinement flows are proven.
+
 - Multi-step planning/review flows that reduce user effort without hiding
   system state or mutating loops opaquely.
 
 Why last:
 
-- These flows multiply state, UX, and transport complexity.
-- They should reuse proven foundations instead of forcing another architectural reset.
+- These workflows compound transport, state, and trust concerns.
+- They should sit on top of already-proven shared primitives rather than force another architectural reset.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Productized AI features session**
-   - duplicate/related review improvements
+1. **Shared operator workflows session**
    - bulk enrichment workflows
-2. **Richer AI-native workflows session**
+   - saved review actions for relationship/enrichment queues
+2. **Conversational refinement session**
    - conversational clarification/enrichment loops
+   - guided relationship/enrichment review walkthroughs
+3. **Planning workflow session**
    - multi-step planning/review flows on top of the stabilized shared contracts
 
 That sequence gives the highest leverage while minimizing contract churn.

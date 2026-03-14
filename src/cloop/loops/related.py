@@ -30,8 +30,8 @@ import numpy as np
 
 from ..embeddings import embed_texts
 from ..settings import Settings, get_settings
-from . import repo
-from .models import format_utc_datetime, is_terminal_status
+from . import relationship_review, repo
+from .models import LoopStatus
 from .similarity import semantic_source_hash
 
 
@@ -135,92 +135,33 @@ def find_duplicate_candidates(
     conn: sqlite3.Connection,
     settings: Settings | None = None,
 ) -> list[DuplicateCandidate]:
-    """Find loops that are likely duplicates of the given loop.
-
-    Uses a higher similarity threshold (default 0.95) than related loops
-    to identify near-identical content.
-
-    Args:
-        loop_id: The source loop to check for duplicates
-        conn: Database connection
-        settings: Optional settings override
-
-    Returns:
-        List of DuplicateCandidate sorted by score descending.
-        Only includes non-terminal loops (not completed/dropped).
-    """
+    """Find loops that are likely duplicates of the given loop."""
     settings = settings or get_settings()
-
-    # Fetch current loop's embedding directly
-    current = conn.execute(
-        """
-        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm
-        FROM loop_embeddings
-        WHERE loop_id = ?
-        """,
-        (loop_id,),
-    ).fetchone()
-
-    if current is None:
-        return []
-
-    dim = int(current["embedding_dim"])
-    query_vec = np.frombuffer(current["embedding_blob"], dtype=np.float32, count=dim)
-
-    # Find candidates above duplicate threshold
-    candidates = find_related_loops(
+    result = relationship_review.review_loop_relationships(
         loop_id=loop_id,
-        query_vec=query_vec,
-        threshold=settings.duplicate_similarity_threshold,
-        top_k=10,  # Duplicates should be rare; limit to top 10
+        statuses=[
+            LoopStatus.INBOX,
+            LoopStatus.ACTIONABLE,
+            LoopStatus.BLOCKED,
+            LoopStatus.SCHEDULED,
+        ],
+        duplicate_limit=10,
+        related_limit=1,
         conn=conn,
         settings=settings,
     )
 
-    if not candidates:
-        return []
-
-    # Enrich with loop details, filter out terminal statuses
-    loop_ids = [c["loop_id"] for c in candidates]
-    loops = repo.read_loops_batch(loop_ids=loop_ids, conn=conn)
-
-    # Get loops that already have a duplicate relationship with this loop
-    existing_duplicate_ids = set(
-        row["related_loop_id"]
-        for row in conn.execute(
-            """
-            SELECT related_loop_id
-            FROM loop_links
-            WHERE loop_id = ? AND relationship_type IN ('duplicate', 'duplicate_resolved')
-            """,
-            (loop_id,),
-        ).fetchall()
-    )
-
-    results: list[DuplicateCandidate] = []
-    for cand in candidates:
-        lid = int(cand["loop_id"])
-        # Skip if already linked as duplicate
-        if lid in existing_duplicate_ids:
-            continue
-        loop = loops.get(lid)
-        if loop is None:
-            continue
-        if is_terminal_status(loop.status):
-            continue  # Don't suggest merging with closed loops
-
-        results.append(
-            DuplicateCandidate(
-                loop_id=lid,
-                score=float(cand["score"]),
-                title=loop.title,
-                raw_text_preview=loop.raw_text[:100] + ("..." if len(loop.raw_text) > 100 else ""),
-                status=loop.status.value,
-                captured_at_utc=format_utc_datetime(loop.captured_at_utc),
-            )
+    return [
+        DuplicateCandidate(
+            loop_id=int(candidate["id"]),
+            score=float(candidate["score"]),
+            title=(str(candidate["title"]) if candidate["title"] is not None else None),
+            raw_text_preview=str(candidate["raw_text_preview"]),
+            status=str(candidate["status"]),
+            captured_at_utc=str(candidate["captured_at_utc"]),
         )
-
-    return results
+        for candidate in result["duplicate_candidates"]
+    ]
 
 
 def suggest_links(
@@ -229,57 +170,16 @@ def suggest_links(
     conn: sqlite3.Connection,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Find and link loops related to the given loop by embedding similarity.
-
-    Fetches the current loop's embedding, finds similar loops using
-    vector similarity, and creates 'related' links in the loop_links table.
-
-    Args:
-        loop_id: The source loop ID to find relations for
-        conn: Database connection
-        settings: Optional settings override
-
-    Returns:
-        List of related loop dicts with 'loop_id' and 'score' keys
-    """
+    """Find and link loops related to the given loop by embedding similarity."""
     settings = settings or get_settings()
-
-    # Fetch current loop's embedding directly
-    current = conn.execute(
-        """
-        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm
-        FROM loop_embeddings
-        WHERE loop_id = ?
-        """,
-        (loop_id,),
-    ).fetchone()
-
-    if current is None:
-        return []
-
-    dim = int(current["embedding_dim"])
-    query_vec = np.frombuffer(current["embedding_blob"], dtype=np.float32, count=dim)
-
-    # Find related loops using existing helper
-    related = find_related_loops(
+    synced = relationship_review.sync_relationship_suggestions(
         loop_id=loop_id,
-        query_vec=query_vec,
-        threshold=settings.related_similarity_threshold,
-        top_k=5,
         conn=conn,
         settings=settings,
+        related_limit=5,
+        duplicate_limit=3,
     )
-
-    # Insert links for each related loop
-    with conn:
-        for item in related:
-            repo.insert_loop_link(
-                loop_id=loop_id,
-                related_loop_id=int(item["loop_id"]),
-                relationship_type="related",
-                confidence=float(item["score"]),
-                source="ai",
-                conn=conn,
-            )
-
-    return related
+    return [
+        {"loop_id": int(candidate["id"]), "score": float(candidate["score"])}
+        for candidate in synced["related"]
+    ]

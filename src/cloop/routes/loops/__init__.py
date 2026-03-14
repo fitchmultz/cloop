@@ -20,6 +20,7 @@ Modules:
 - timers: Time tracking sessions
 - comments: Threaded comments on loops
 - duplicates: Duplicate detection and merge operations
+- relationships: Related/duplicate relationship review operations
 
 Route Ordering:
     Routers are included from most specific (static paths) to least specific
@@ -41,6 +42,7 @@ from .lifecycle import router as lifecycle_router
 from .metrics import router as metrics_router
 from .push import router as push_router
 from .query import router as query_router
+from .relationships import router as relationships_router
 from .suggestions_clarifications import router as suggestions_clarifications_router
 from .templates import router as templates_router
 from .timers import router as timers_router
@@ -85,6 +87,7 @@ router.include_router(dependencies_router)
 router.include_router(events_router)
 router.include_router(timers_router)
 router.include_router(comments_router)
+router.include_router(relationships_router)
 router.include_router(duplicates_router)
 
 __all__ = [

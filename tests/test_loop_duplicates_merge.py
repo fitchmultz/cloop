@@ -20,11 +20,32 @@ Non-scope:
 
 import time
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pytest
 from conftest import _now_iso
 
 from cloop.settings import get_settings
+
+
+def _mock_duplicate_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    vectors = {
+        "test duplicate detection task": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+    }
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = vectors.get(lowered, np.array([0.1, 0.1, 0.1], dtype=np.float32))
+            vector = vector / np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
 
 # ============================================================================
 # Duplicate Detection and Merge Tests
@@ -60,6 +81,7 @@ def test_find_duplicate_candidates_endpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
     """GET /loops/{id}/duplicates returns candidates list."""
+    _mock_duplicate_embeddings(monkeypatch)
     client = make_test_client()
 
     # Create two loops
@@ -89,6 +111,8 @@ def test_find_duplicate_candidates_endpoint(
     assert "loop_id" in data
     assert "candidates" in data
     assert isinstance(data["candidates"], list)
+    assert data["candidates"]
+    assert data["candidates"][0]["loop_id"] != loop1["id"]
 
 
 def test_merge_preview_endpoint(

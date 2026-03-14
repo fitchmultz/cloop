@@ -473,7 +473,38 @@
 
     <!-- Review Tab -->
     <main class="workspace-main review-main" id="review-main">
-      <div class="workspace-primary">
+      <div class="workspace-primary review-workspace-primary">
+        <section class="panel review-panel relationship-review-panel">
+          <div class="review-header relationship-review-header">
+            <div>
+              <p class="support-eyebrow">Similarity review</p>
+              <h2>Duplicate & related-loop review</h2>
+              <p class="support-copy">Review semantically similar loops, confirm real relationships, dismiss noisy matches, or merge duplicates into the better surviving loop.</p>
+            </div>
+            <div class="review-controls-row">
+              <label for="review-relationship-status">scope:</label>
+              <select id="review-relationship-status">
+                <option value="open" selected>open</option>
+                <option value="inbox">inbox</option>
+                <option value="actionable">actionable</option>
+                <option value="blocked">blocked</option>
+                <option value="scheduled">scheduled</option>
+                <option value="completed">completed</option>
+                <option value="dropped">dropped</option>
+                <option value="all">all</option>
+              </select>
+              <label for="review-relationship-kind">kind:</label>
+              <select id="review-relationship-kind">
+                <option value="all" selected>all</option>
+                <option value="duplicate">duplicates</option>
+                <option value="related">related</option>
+              </select>
+              <button class="secondary" type="button" id="review-relationship-refresh">Refresh</button>
+            </div>
+          </div>
+          <p id="review-status" class="support-status" role="status" aria-live="polite">Loading review workspace…</p>
+          <div id="review-relationship-queue" class="review-relationship-queue"></div>
+        </section>
         <section class="panel review-panel">
           <div class="review-header">
             <h2>Loop Review</h2>
@@ -489,7 +520,7 @@
         <section class="panel support-panel support-panel-feature">
           <p class="support-eyebrow">Review rhythm</p>
           <h3>Turn drift into an action list</h3>
-          <p class="support-copy">Daily review catches stale or blocked work quickly. Weekly review is better for broader cleanup when priorities have shifted.</p>
+          <p class="support-copy">Use relationship review to collapse duplicate work before it fans out, then use daily and weekly cohorts to clean up stale or blocked loops.</p>
         </section>
         <section class="panel support-panel data-management-panel">
           <p class="support-eyebrow">Workspace tools</p>

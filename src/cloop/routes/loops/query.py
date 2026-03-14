@@ -18,18 +18,22 @@ Non-scope:
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from collections.abc import Mapping
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 
 from ... import db
 from ...constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from ...loops import read_service as loop_read_service
+from ...loops import relationship_review
 from ...loops.models import LoopStatus
 from ...loops.review import compute_review_cohorts
 from ...loops.utils import normalize_tag
 from ...schemas.loops import (
     LoopNextResponse,
+    LoopRelationshipReviewQueueItemResponse,
+    LoopRelationshipReviewQueueResponse,
     LoopResponse,
     LoopReviewCohortItem,
     LoopReviewCohortResponse,
@@ -38,9 +42,10 @@ from ...schemas.loops import (
     LoopSearchResponse,
     LoopSemanticSearchRequest,
     LoopSemanticSearchResponse,
+    RelationshipReviewCandidateResponse,
     SemanticSearchLoopResponse,
 )
-from ._common import SettingsDep, build_loop_responses
+from ._common import SettingsDep, build_loop_response, build_loop_responses
 
 router = APIRouter()
 
@@ -57,6 +62,12 @@ def _resolve_statuses_for_search(status: str) -> list[LoopStatus] | None:
             LoopStatus.SCHEDULED,
         ]
     return [LoopStatus(status)]
+
+
+def _build_relationship_candidate_response(
+    payload: Mapping[str, Any],
+) -> RelationshipReviewCandidateResponse:
+    return RelationshipReviewCandidateResponse.model_validate(payload)
 
 
 @router.get("/", response_model=list[LoopResponse])
@@ -136,6 +147,61 @@ def loop_next_endpoint(
         quick_wins=build_loop_responses(result["quick_wins"]),
         high_leverage=build_loop_responses(result["high_leverage"]),
         standard=build_loop_responses(result["standard"]),
+    )
+
+
+@router.get(
+    "/relationships/review",
+    response_model=LoopRelationshipReviewQueueResponse,
+)
+def loop_relationship_review_queue_endpoint(
+    settings: SettingsDep,
+    status: Annotated[
+        LoopStatus | Literal["all", "open"],
+        Query(description="Filter reviewed loops by status scope, 'open', or 'all'"),
+    ] = "open",
+    relationship_kind: Annotated[
+        Literal["all", "duplicate", "related"],
+        Query(description="Limit the queue to duplicate candidates, related candidates, or both"),
+    ] = "all",
+    limit: Annotated[int, Query(ge=1, le=100)] = 25,
+    candidate_limit: Annotated[int, Query(ge=1, le=20)] = 3,
+) -> LoopRelationshipReviewQueueResponse:
+    status_value = status.value if isinstance(status, LoopStatus) else status
+    statuses = _resolve_statuses_for_search(status_value)
+    with db.core_connection(settings) as conn:
+        result = relationship_review.list_relationship_review_queue(
+            statuses=statuses,
+            relationship_kind=relationship_kind,
+            limit=limit,
+            candidate_limit=candidate_limit,
+            conn=conn,
+            settings=settings,
+        )
+    return LoopRelationshipReviewQueueResponse(
+        status=status_value,
+        relationship_kind=relationship_kind,
+        limit=limit,
+        candidate_limit=candidate_limit,
+        indexed_count=result["indexed_count"],
+        loop_count=result["loop_count"],
+        items=[
+            LoopRelationshipReviewQueueItemResponse(
+                loop=build_loop_response(item["loop"]),
+                duplicate_count=item["duplicate_count"],
+                related_count=item["related_count"],
+                top_score=item["top_score"],
+                duplicate_candidates=[
+                    _build_relationship_candidate_response(candidate)
+                    for candidate in item["duplicate_candidates"]
+                ],
+                related_candidates=[
+                    _build_relationship_candidate_response(candidate)
+                    for candidate in item["related_candidates"]
+                ],
+            )
+            for item in result["items"]
+        ],
     )
 
 

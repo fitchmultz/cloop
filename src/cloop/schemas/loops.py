@@ -1221,6 +1221,68 @@ class MergeResultResponse(BaseModel):
     fields_updated: List[str]
 
 
+class RelationshipReviewCandidateResponse(LoopResponse):
+    """A related or duplicate candidate surfaced for relationship review."""
+
+    relationship_type: Literal["related", "duplicate"]
+    score: float
+    raw_text_preview: str
+    existing_state: str | None = None
+    existing_source: str | None = None
+
+
+class LoopRelationshipReviewResponse(BaseModel):
+    """Relationship-review payload for one loop."""
+
+    loop: LoopResponse
+    indexed_count: int
+    candidate_count: int
+    duplicate_count: int
+    related_count: int
+    duplicate_candidates: List[RelationshipReviewCandidateResponse]
+    related_candidates: List[RelationshipReviewCandidateResponse]
+    existing_duplicates: List[RelationshipReviewCandidateResponse] = Field(default_factory=list)
+    existing_related: List[RelationshipReviewCandidateResponse] = Field(default_factory=list)
+
+
+class LoopRelationshipReviewQueueItemResponse(BaseModel):
+    """One loop with pending relationship-review candidates."""
+
+    loop: LoopResponse
+    duplicate_count: int
+    related_count: int
+    top_score: float
+    duplicate_candidates: List[RelationshipReviewCandidateResponse]
+    related_candidates: List[RelationshipReviewCandidateResponse]
+
+
+class LoopRelationshipReviewQueueResponse(BaseModel):
+    """Relationship-review queue across multiple loops."""
+
+    status: str
+    relationship_kind: Literal["all", "duplicate", "related"]
+    limit: int
+    candidate_limit: int
+    indexed_count: int
+    loop_count: int
+    items: List[LoopRelationshipReviewQueueItemResponse]
+
+
+class RelationshipDecisionRequest(BaseModel):
+    """Confirm or dismiss one relationship candidate."""
+
+    relationship_type: Literal["related", "duplicate"]
+
+
+class RelationshipDecisionResponse(BaseModel):
+    """Result of confirming or dismissing one relationship candidate."""
+
+    loop_id: int
+    candidate_loop_id: int
+    relationship_type: Literal["related", "duplicate"]
+    link_state: Literal["active", "dismissed"]
+
+
 class ApplySuggestionRequest(BaseModel):
     """Request to apply a loop suggestion."""
 

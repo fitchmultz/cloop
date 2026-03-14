@@ -100,6 +100,33 @@ def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
 
+def _mock_relationship_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock deterministic embeddings for relationship-review tests."""
+
+    vectors = {
+        "buy milk and eggs before the weekend": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        "pick up groceries like milk and eggs": np.array([0.99, 0.01, 0.0], dtype=np.float32),
+        "plan weekend grocery run and meal prep": np.array([0.82, 0.57, 0.0], dtype=np.float32),
+        "reply to the client email about the contract": np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    }
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = np.array([0.1, 0.1, 0.1], dtype=np.float32)
+            for key, mapped in vectors.items():
+                if key in lowered:
+                    vector = mapped.copy()
+                    break
+            vector /= np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+
 def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock non-streaming RAG answer generation for CLI tests."""
 
@@ -1693,6 +1720,69 @@ def test_loop_semantic_search_command(
     assert output["indexed_count"] == 2
     assert output["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
     assert output["items"][0]["semantic_score"] > output["items"][1]["semantic_score"]
+
+
+def test_loop_relationship_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Relationship-review CLI commands should expose review, queue, confirm, and dismiss flows."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_relationship_embeddings(monkeypatch)
+    parser = cli.build_parser()
+
+    for raw_text in [
+        "Buy milk and eggs before the weekend",
+        "Pick up groceries like milk and eggs",
+        "Plan weekend grocery run and meal prep",
+        "Reply to the client email about the contract",
+    ]:
+        cli._capture_command(parser.parse_args(["capture", raw_text]), settings)
+    capsys.readouterr()
+
+    exit_code = cli.main(["loop", "relationship", "review", "--loop", "1"])
+    assert exit_code == 0
+    review_output = _get_last_json(capsys)
+    assert review_output["duplicate_candidates"][0]["id"] == 2
+    assert review_output["related_candidates"][0]["id"] == 3
+
+    exit_code = cli.main(["loop", "relationship", "queue"])
+    assert exit_code == 0
+    queue_output = _get_last_json(capsys)
+    assert any(item["loop"]["id"] == 1 for item in queue_output["items"])
+
+    exit_code = cli.main(
+        [
+            "loop",
+            "relationship",
+            "confirm",
+            "--loop",
+            "1",
+            "--candidate",
+            "3",
+            "--type",
+            "related",
+        ]
+    )
+    assert exit_code == 0
+    confirm_output = _get_last_json(capsys)
+    assert confirm_output["link_state"] == "active"
+
+    exit_code = cli.main(
+        [
+            "loop",
+            "relationship",
+            "dismiss",
+            "--loop",
+            "1",
+            "--candidate",
+            "2",
+            "--type",
+            "duplicate",
+        ]
+    )
+    assert exit_code == 0
+    dismiss_output = _get_last_json(capsys)
+    assert dismiss_output["link_state"] == "dismissed"
 
 
 def test_loop_update_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:

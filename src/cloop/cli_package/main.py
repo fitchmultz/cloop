@@ -84,6 +84,12 @@ from .loop_misc_commands import (
     suggestion_show_command,
     tags_command,
 )
+from .loop_relationship_commands import (
+    loop_relationship_confirm_command,
+    loop_relationship_dismiss_command,
+    loop_relationship_queue_command,
+    loop_relationship_review_command,
+)
 from .loop_timer_commands import sessions_command, timer_command
 from .loop_view_commands import (
     loop_view_apply_command,
@@ -272,6 +278,17 @@ def main(argv: List[str] | None = None) -> int:
             return loop_enrich_command(args, settings)
         if args.loop_command == "snooze":
             return loop_snooze_command(args, settings)
+        if args.loop_command == "relationship":
+            if args.relationship_command == "review":
+                return loop_relationship_review_command(args, settings)
+            if args.relationship_command == "queue":
+                return loop_relationship_queue_command(args, settings)
+            if args.relationship_command == "confirm":
+                return loop_relationship_confirm_command(args, settings)
+            if args.relationship_command == "dismiss":
+                return loop_relationship_dismiss_command(args, settings)
+            parser.error(f"Unknown relationship command: {args.relationship_command}")
+            return 2
         if args.loop_command == "view":
             if args.view_command == "create":
                 return loop_view_create_command(args, settings)

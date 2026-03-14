@@ -149,8 +149,10 @@ export async function confirmMerge() {
   try {
     await api.mergeLoops(currentDuplicateLoopId, currentSurvivingLoopId, {});
     closeMergeModal();
-    // Reload to show updated state
+    // Reload to show updated state across inbox and review surfaces
     await loadInbox();
+    const review = await import('./review.js');
+    await review.loadRelationshipReviewQueue();
   } catch (err) {
     console.error('Merge failed:', err);
     await modals.alertDialog({

@@ -122,6 +122,11 @@ const elements = {
   ragIngestRecursive: document.getElementById("rag-ingest-recursive"),
   ragIngestStatus: document.getElementById("rag-ingest-status"),
   reviewCohorts: document.getElementById("review-cohorts"),
+  reviewRelationshipQueue: document.getElementById("review-relationship-queue"),
+  reviewRelationshipStatus: document.getElementById("review-relationship-status"),
+  reviewRelationshipKind: document.getElementById("review-relationship-kind"),
+  reviewRelationshipRefresh: document.getElementById("review-relationship-refresh"),
+  reviewStatus: document.getElementById("review-status"),
   metricsContent: document.getElementById("metrics-content"),
   bulkActionBar: document.getElementById("bulk-action-bar"),
   helpModal: document.getElementById("help-modal"),
@@ -1218,7 +1223,14 @@ function init() {
   });
   timer.init({ status: elements.status });
   bulk.init({ status: elements.status, bulkActionBar: elements.bulkActionBar });
-  review.init({ reviewCohorts: elements.reviewCohorts });
+  review.init({
+    reviewCohorts: elements.reviewCohorts,
+    reviewRelationshipQueue: elements.reviewRelationshipQueue,
+    reviewRelationshipStatus: elements.reviewRelationshipStatus,
+    reviewRelationshipKind: elements.reviewRelationshipKind,
+    reviewRelationshipRefresh: elements.reviewRelationshipRefresh,
+    reviewStatus: elements.reviewStatus,
+  });
   next.init({ nextBuckets: elements.nextBuckets });
   chat.init({
     chatMessages: elements.chatMessages,

@@ -32,6 +32,31 @@ def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
 
+def _mock_relationship_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    vectors = {
+        "buy milk and eggs before the weekend": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        "pick up groceries like milk and eggs": np.array([0.99, 0.01, 0.0], dtype=np.float32),
+        "plan weekend grocery run and meal prep": np.array([0.82, 0.57, 0.0], dtype=np.float32),
+        "reply to the client email about the contract": np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    }
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = np.array([0.1, 0.1, 0.1], dtype=np.float32)
+            for key, mapped in vectors.items():
+                if key in lowered:
+                    vector = mapped.copy()
+                    break
+            vector /= np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+
 def test_ingest_and_ask(test_client: TestClient, tmp_data_dir: Path) -> None:
     doc = tmp_data_dir / "note.txt"
     doc.write_text("FastAPI makes it easy to build APIs.", encoding="utf-8")
@@ -2072,3 +2097,70 @@ def test_loop_semantic_search_endpoint(
     assert payload["indexed_count"] == 3
     assert payload["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
     assert payload["items"][0]["semantic_score"] > payload["items"][1]["semantic_score"]
+
+
+def test_loop_relationship_review_endpoints(
+    make_test_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Relationship review endpoints should expose queue, per-loop review, and decisions."""
+    _mock_relationship_embeddings(monkeypatch)
+    client = make_test_client()
+
+    created_ids: list[int] = []
+    for raw_text, actionable in [
+        ("Buy milk and eggs before the weekend", False),
+        ("Pick up groceries like milk and eggs", True),
+        ("Plan weekend grocery run and meal prep", False),
+        ("Reply to the client email about the contract", True),
+    ]:
+        response = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": raw_text,
+                "captured_at": "2026-03-14T12:00:00+00:00",
+                "client_tz_offset_min": 0,
+                "actionable": actionable,
+            },
+        )
+        assert response.status_code == 200
+        created_ids.append(int(response.json()["id"]))
+
+    review_response = client.get(f"/loops/{created_ids[0]}/relationships/review")
+    assert review_response.status_code == 200
+    review_payload = review_response.json()
+    assert review_payload["duplicate_count"] == 1
+    assert review_payload["related_count"] == 1
+    assert review_payload["duplicate_candidates"][0]["id"] == created_ids[1]
+    assert review_payload["related_candidates"][0]["id"] == created_ids[2]
+
+    queue_response = client.get("/loops/relationships/review")
+    assert queue_response.status_code == 200
+    queue_payload = queue_response.json()
+    assert queue_payload["loop_count"] >= 1
+    assert any(item["loop"]["id"] == created_ids[0] for item in queue_payload["items"])
+
+    confirm_response = client.post(
+        f"/loops/{created_ids[0]}/relationships/{created_ids[2]}/confirm",
+        json={"relationship_type": "related"},
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["link_state"] == "active"
+
+    dismiss_response = client.post(
+        f"/loops/{created_ids[0]}/relationships/{created_ids[1]}/dismiss",
+        json={"relationship_type": "duplicate"},
+    )
+    assert dismiss_response.status_code == 200
+    assert dismiss_response.json()["link_state"] == "dismissed"
+
+    after_response = client.get(f"/loops/{created_ids[0]}/relationships/review")
+    assert after_response.status_code == 200
+    after_payload = after_response.json()
+    assert [candidate["id"] for candidate in after_payload["existing_related"]] == [created_ids[2]]
+    assert all(
+        candidate["id"] != created_ids[2] for candidate in after_payload["related_candidates"]
+    )
+    assert all(
+        candidate["id"] != created_ids[1] for candidate in after_payload["duplicate_candidates"]
+    )

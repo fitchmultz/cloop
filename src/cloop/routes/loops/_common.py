@@ -94,6 +94,9 @@ def run_idempotent_loop_route(
             return replay
 
         response_body = execute(conn)
+        if idempotency.key is None:
+            conn.commit()
+            return response_body
         finalize_idempotent_response(
             state=idempotency,
             response_status=response_status,

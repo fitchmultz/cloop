@@ -48,6 +48,12 @@ from cloop.mcp_tools.loop_read import (
     loop_snooze,
     loop_tags,
 )
+from cloop.mcp_tools.loop_relationships import (
+    loop_relationship_confirm,
+    loop_relationship_dismiss,
+    loop_relationship_queue,
+    loop_relationship_review,
+)
 from cloop.mcp_tools.loop_templates import project_list
 from cloop.mcp_tools.memory_tools import (
     memory_create,
@@ -111,6 +117,33 @@ def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
                 vector += np.array([0.0, 1.0, 0.0], dtype=np.float32)
             if any(token in lowered for token in ["quarter", "planning", "roadmap", "review"]):
                 vector += np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            vector /= np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+
+def _mock_relationship_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock deterministic embeddings for MCP relationship-review tests."""
+
+    vectors = {
+        "buy milk and eggs before the weekend": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        "pick up groceries like milk and eggs": np.array([0.99, 0.01, 0.0], dtype=np.float32),
+        "plan weekend grocery run and meal prep": np.array([0.82, 0.57, 0.0], dtype=np.float32),
+        "reply to the client email about the contract": np.array([0.0, 1.0, 0.0], dtype=np.float32),
+    }
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = np.array([0.1, 0.1, 0.1], dtype=np.float32)
+            for key, mapped in vectors.items():
+                if key in lowered:
+                    vector = mapped.copy()
+                    break
             vector /= np.linalg.norm(vector)
             data.append({"embedding": vector.tolist()})
         return {"data": data}
@@ -721,6 +754,63 @@ def test_loop_semantic_search_returns_ranked_matches(
     assert results["indexed_count"] == 2
     assert results["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
     assert results["items"][0]["semantic_score"] > results["items"][1]["semantic_score"]
+
+
+def test_loop_relationship_tools_cover_review_queue_and_decisions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Relationship-review MCP tools should expose review, queue, confirm, and dismiss flows."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_relationship_embeddings(monkeypatch)
+
+    first = loop_create(
+        raw_text="Buy milk and eggs before the weekend",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    second = loop_create(
+        raw_text="Pick up groceries like milk and eggs",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="actionable",
+    )
+    third = loop_create(
+        raw_text="Plan weekend grocery run and meal prep",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="scheduled",
+    )
+    loop_create(
+        raw_text="Reply to the client email about the contract",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+        status="blocked",
+    )
+
+    review = loop_relationship_review(loop_id=first["id"], status="all")
+    assert review["duplicate_candidates"][0]["id"] == second["id"]
+    assert review["related_candidates"][0]["id"] == third["id"]
+
+    queue = loop_relationship_queue(status="all", relationship_kind="all")
+    assert any(item["loop"]["id"] == first["id"] for item in queue["items"])
+
+    confirm = loop_relationship_confirm(
+        loop_id=first["id"],
+        candidate_loop_id=third["id"],
+        relationship_type="related",
+    )
+    assert confirm["link_state"] == "active"
+
+    dismiss = loop_relationship_dismiss(
+        loop_id=first["id"],
+        candidate_loop_id=second["id"],
+        relationship_type="duplicate",
+    )
+    assert dismiss["link_state"] == "dismissed"
+
+    after = loop_relationship_review(loop_id=first["id"], status="all")
+    assert [candidate["id"] for candidate in after["existing_related"]] == [third["id"]]
+    assert all(candidate["id"] != second["id"] for candidate in after["duplicate_candidates"])
 
 
 # =============================================================================
@@ -3286,6 +3376,10 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "memory.update" in tool_names
     assert "memory.delete" in tool_names
     assert "loop.semantic_search" in tool_names
+    assert "loop.relationship_review" in tool_names
+    assert "loop.relationship_queue" in tool_names
+    assert "loop.relationship_confirm" in tool_names
+    assert "loop.relationship_dismiss" in tool_names
     assert "suggestion.list" in tool_names
     assert "suggestion.get" in tool_names
     assert "suggestion.apply" in tool_names
