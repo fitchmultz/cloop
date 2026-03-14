@@ -18,18 +18,19 @@ Non-scope:
 
 from typing import Annotated, Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query, Response, status
 
+from .. import memory_management
 from ..schemas.memory import (
     MemoryCategory,
     MemoryCreateRequest,
     MemoryListResponse,
     MemoryResponse,
+    MemorySearchResponse,
     MemorySource,
     MemoryUpdateRequest,
 )
 from ..settings import Settings, get_settings
-from ..storage import memory_store
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
@@ -46,9 +47,9 @@ def list_memories(
     cursor: Annotated[str | None, Query(description="Pagination cursor")] = None,
 ) -> Dict[str, Any]:
     """List memory entries with optional filters."""
-    return memory_store.list_memory_entries(
-        category=category.value if category else None,
-        source=source.value if source else None,
+    return memory_management.list_memory_entries(
+        category=category,
+        source=source,
         min_priority=min_priority,
         limit=limit,
         cursor=cursor,
@@ -62,19 +63,13 @@ def create_memory(
     settings: SettingsDep,
 ) -> Dict[str, Any]:
     """Create a new memory entry."""
-    entry = memory_store.create_memory_entry(
-        key=request.key,
-        content=request.content,
-        category=request.category.value,
-        priority=request.priority,
-        source=request.source.value,
-        metadata=request.metadata,
+    return memory_management.create_memory_entry(
+        payload=request.model_dump(),
         settings=settings,
     )
-    return entry
 
 
-@router.get("/search", response_model=MemoryListResponse)
+@router.get("/search", response_model=MemorySearchResponse)
 def search_memories(
     settings: SettingsDep,
     q: Annotated[str, Query(max_length=200, description="Search query")],
@@ -85,10 +80,10 @@ def search_memories(
     cursor: Annotated[str | None, Query(description="Pagination cursor")] = None,
 ) -> Dict[str, Any]:
     """Search memory entries by text."""
-    return memory_store.search_memory_entries(
+    return memory_management.search_memory_entries(
         query=q,
-        category=category.value if category else None,
-        source=source.value if source else None,
+        category=category,
+        source=source,
         min_priority=min_priority,
         limit=limit,
         cursor=cursor,
@@ -102,10 +97,7 @@ def get_memory(
     settings: SettingsDep,
 ) -> Dict[str, Any]:
     """Get a single memory entry by ID."""
-    entry = memory_store.get_memory_entry(entry_id, settings)
-    if entry is None:
-        raise HTTPException(status_code=404, detail="Memory entry not found")
-    return entry
+    return memory_management.get_memory_entry(entry_id=entry_id, settings=settings)
 
 
 @router.put("/{entry_id}", response_model=MemoryResponse)
@@ -115,30 +107,18 @@ def update_memory(
     settings: SettingsDep,
 ) -> Dict[str, Any]:
     """Update a memory entry."""
-    existing = memory_store.get_memory_entry(entry_id, settings)
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Memory entry not found")
-
-    entry = memory_store.update_memory_entry(
-        entry_id,
-        key=request.key,
-        content=request.content,
-        category=request.category.value if request.category else None,
-        priority=request.priority,
-        source=request.source.value if request.source else None,
-        metadata=request.metadata,
+    return memory_management.update_memory_entry(
+        entry_id=entry_id,
+        fields=request.model_dump(exclude_unset=True),
         settings=settings,
     )
-    assert entry is not None
-    return entry
 
 
-@router.delete("/{entry_id}", status_code=204)
+@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_memory(
     entry_id: int,
     settings: SettingsDep,
-) -> None:
+) -> Response:
     """Delete a memory entry."""
-    deleted = memory_store.delete_memory_entry(entry_id, settings)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Memory entry not found")
+    memory_management.delete_memory_entry(entry_id=entry_id, settings=settings)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

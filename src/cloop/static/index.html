@@ -21,6 +21,7 @@
     <link rel="stylesheet" href="/static/css/loop.css">
     <link rel="stylesheet" href="/static/css/review.css">
     <link rel="stylesheet" href="/static/css/chat-rag.css">
+    <link rel="stylesheet" href="/static/css/memory.css">
     <link rel="stylesheet" href="/static/css/comments.css">
     <link rel="stylesheet" href="/static/css/layout.css">
     <link rel="stylesheet" href="/static/css/modals.css">
@@ -44,9 +45,10 @@
       <button class="tab active" data-tab="inbox" role="tab" aria-selected="true" id="tab-inbox" aria-controls="inbox-main" type="button">Inbox<span class="shortcut-hint">1</span></button>
       <button class="tab" data-tab="next" role="tab" aria-selected="false" id="tab-next" aria-controls="next-main" type="button">Next<span class="shortcut-hint">2</span></button>
       <button class="tab" data-tab="chat" role="tab" aria-selected="false" id="tab-chat" aria-controls="chat-main" type="button">Chat<span class="shortcut-hint">3</span></button>
-      <button class="tab" data-tab="rag" role="tab" aria-selected="false" id="tab-rag" aria-controls="rag-main" type="button">RAG<span class="shortcut-hint">4</span></button>
-      <button class="tab" data-tab="review" role="tab" aria-selected="false" id="tab-review" aria-controls="review-main" type="button">Review<span class="shortcut-hint">5</span></button>
-      <button class="tab" data-tab="metrics" role="tab" aria-selected="false" id="tab-metrics" aria-controls="metrics-main" type="button">Metrics<span class="shortcut-hint">6</span></button>
+      <button class="tab" data-tab="memory" role="tab" aria-selected="false" id="tab-memory" aria-controls="memory-main" type="button">Memory<span class="shortcut-hint">4</span></button>
+      <button class="tab" data-tab="rag" role="tab" aria-selected="false" id="tab-rag" aria-controls="rag-main" type="button">RAG<span class="shortcut-hint">5</span></button>
+      <button class="tab" data-tab="review" role="tab" aria-selected="false" id="tab-review" aria-controls="review-main" type="button">Review<span class="shortcut-hint">6</span></button>
+      <button class="tab" data-tab="metrics" role="tab" aria-selected="false" id="tab-metrics" aria-controls="metrics-main" type="button">Metrics<span class="shortcut-hint">7</span></button>
     </nav>
 
     <!-- Inbox Tab -->
@@ -239,6 +241,113 @@
             <button class="secondary" type="button" id="import-btn" aria-label="Import loops" data-import-loops>Import data</button>
           </div>
           <p class="support-status" data-data-management-status role="status" aria-live="polite">Local-only JSON snapshots for loops and loop metadata.</p>
+        </section>
+      </aside>
+    </main>
+
+    <!-- Memory Tab -->
+    <main class="workspace-main memory-main" id="memory-main">
+      <div class="workspace-primary">
+        <section class="panel memory-panel">
+          <div class="memory-header">
+            <div class="memory-header-copy">
+              <h2>Memory</h2>
+              <p>Create, review, search, and clean up durable memory entries through the shared direct-memory contract.</p>
+            </div>
+            <button class="secondary" id="memory-refresh-btn" type="button">Refresh</button>
+          </div>
+          <form id="memory-filter-form" class="memory-filter-form">
+            <div class="memory-filter-grid">
+              <label class="memory-field memory-filter-wide" for="memory-query">
+                <span class="memory-field-label">Search</span>
+                <input type="text" id="memory-query" placeholder="Search memory by key or content">
+              </label>
+              <label class="memory-field" for="memory-category-filter">
+                <span class="memory-field-label">Category</span>
+                <select id="memory-category-filter">
+                  <option value="">All categories</option>
+                  <option value="fact">Fact</option>
+                  <option value="preference">Preference</option>
+                  <option value="commitment">Commitment</option>
+                  <option value="context">Context</option>
+                </select>
+              </label>
+              <label class="memory-field" for="memory-source-filter">
+                <span class="memory-field-label">Source</span>
+                <select id="memory-source-filter">
+                  <option value="">All sources</option>
+                  <option value="user_stated">User stated</option>
+                  <option value="inferred">Inferred</option>
+                  <option value="imported">Imported</option>
+                  <option value="system">System</option>
+                </select>
+              </label>
+              <label class="memory-field" for="memory-min-priority">
+                <span class="memory-field-label">Min priority</span>
+                <input type="number" id="memory-min-priority" min="0" max="100" step="1" placeholder="0-100">
+              </label>
+            </div>
+            <div class="memory-filter-actions">
+              <p id="memory-status" class="support-status" role="status" aria-live="polite">Direct memory CRUD uses the shared memory-management contract.</p>
+              <div class="support-actions">
+                <button class="secondary" type="button" id="memory-clear-filters-btn">Clear</button>
+                <button type="submit">Apply</button>
+              </div>
+            </div>
+          </form>
+          <div id="memory-list" class="memory-list"></div>
+          <div class="support-actions">
+            <button class="secondary" type="button" id="memory-load-more-btn" hidden>Load more</button>
+          </div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Memory support">
+        <section class="panel support-panel support-panel-feature memory-create-panel">
+          <p class="support-eyebrow">Direct management</p>
+          <h3>Capture durable facts, preferences, commitments, and context</h3>
+          <p class="support-copy">Use this when memory deserves first-class storage instead of only living inside a chat thread. The same canonical contract now powers HTTP, web, CLI, and MCP.</p>
+          <form id="memory-create-form" class="memory-create-form">
+            <div class="memory-create-grid">
+              <label class="memory-field" for="memory-key">
+                <span class="memory-field-label">Key</span>
+                <input type="text" id="memory-key" maxlength="120" placeholder="Optional identifier">
+              </label>
+              <label class="memory-field" for="memory-category">
+                <span class="memory-field-label">Category</span>
+                <select id="memory-category">
+                  <option value="fact" selected>Fact</option>
+                  <option value="preference">Preference</option>
+                  <option value="commitment">Commitment</option>
+                  <option value="context">Context</option>
+                </select>
+              </label>
+              <label class="memory-field" for="memory-priority">
+                <span class="memory-field-label">Priority</span>
+                <input type="number" id="memory-priority" min="0" max="100" step="1" value="0">
+              </label>
+              <label class="memory-field" for="memory-source">
+                <span class="memory-field-label">Source</span>
+                <select id="memory-source">
+                  <option value="user_stated" selected>User stated</option>
+                  <option value="inferred">Inferred</option>
+                  <option value="imported">Imported</option>
+                  <option value="system">System</option>
+                </select>
+              </label>
+              <label class="memory-field memory-create-wide" for="memory-content">
+                <span class="memory-field-label">Content</span>
+                <textarea id="memory-content" rows="4" maxlength="4000" placeholder="Store a durable fact, preference, commitment, or context note..." required></textarea>
+              </label>
+              <label class="memory-field memory-create-wide" for="memory-metadata">
+                <span class="memory-field-label">Metadata JSON</span>
+                <textarea id="memory-metadata" rows="5" placeholder='{"source_app": "web"}'></textarea>
+              </label>
+            </div>
+            <div class="memory-create-actions">
+              <p class="support-status">Structured metadata is optional. Use it when a future filter or audit trail will matter.</p>
+              <button type="submit">Create memory</button>
+            </div>
+          </form>
         </section>
       </aside>
     </main>
@@ -486,6 +595,10 @@
             <div class="help-keys"><span class="help-key">g</span><span class="help-key">c</span></div>
           </div>
           <div class="help-shortcut">
+            <span class="help-desc">Go to Memory</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">e</span></div>
+          </div>
+          <div class="help-shortcut">
             <span class="help-desc">Go to RAG</span>
             <div class="help-keys"><span class="help-key">g</span><span class="help-key">r</span></div>
           </div>
@@ -498,8 +611,8 @@
             <div class="help-keys"><span class="help-key">g</span><span class="help-key">m</span></div>
           </div>
           <div class="help-shortcut">
-            <span class="help-desc">Switch tabs (1-6)</span>
-            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span><span class="help-key">5</span><span class="help-key">6</span></div>
+            <span class="help-desc">Switch tabs (1-7)</span>
+            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span><span class="help-key">5</span><span class="help-key">6</span><span class="help-key">7</span></div>
           </div>
         </div>
         <div class="help-section">

@@ -102,6 +102,21 @@ class TestMemoryCRUD:
         assert data["content"] == "Updated content"
         assert data["priority"] == 75
 
+    def test_update_memory_can_clear_key(self, test_client: TestClient) -> None:
+        """Updating with `key: null` clears the optional key."""
+        create_resp = test_client.post(
+            "/memory",
+            json={"key": "timezone", "content": "America/New_York"},
+        )
+        entry_id = create_resp.json()["id"]
+
+        update_resp = test_client.put(
+            f"/memory/{entry_id}",
+            json={"key": None},
+        )
+        assert update_resp.status_code == 200
+        assert update_resp.json()["key"] is None
+
     def test_delete_memory(self, test_client: TestClient) -> None:
         """Delete a memory entry."""
         create_resp = test_client.post(
@@ -173,6 +188,23 @@ class TestMemoryListAndSearch:
         items = response.json()["items"]
         assert len(items) == 1
         assert items[0]["key"] == "timezone"
+
+    def test_search_escapes_sql_wildcards(self, test_client: TestClient) -> None:
+        """Search treats SQL wildcard characters literally."""
+        test_client.post(
+            "/memory",
+            json={"content": "Discount is 50% for members", "category": "fact"},
+        )
+        test_client.post(
+            "/memory",
+            json={"content": "Discount is 500 for everyone", "category": "fact"},
+        )
+
+        response = test_client.get("/memory/search?q=50%")
+        assert response.status_code == 200
+        items = response.json()["items"]
+        assert len(items) == 1
+        assert "50%" in items[0]["content"]
 
 
 class TestMemoryTools:

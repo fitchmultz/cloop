@@ -14,20 +14,38 @@ Non-scope:
 
 Invariants/Assumptions:
     - Cursor ordering uses `(updated_at DESC, id DESC)` for deterministic scans.
-    - Search ordering prefers higher priority, then recency.
+    - Search ordering matches the cursor contract by using recency-first ordering.
 """
 
 from __future__ import annotations
 
 import json
+import sqlite3
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
-from .. import db
+from .. import db, typingx
 from ..loops.pagination import LoopCursor, encode_cursor, prepare_cursor_state
 from ..settings import Settings, get_settings
 
 
-def _row_to_memory_dict(row) -> dict[str, Any]:
+@contextmanager
+def _memory_connection(
+    *,
+    settings: Settings,
+    conn: sqlite3.Connection | None,
+) -> Iterator[tuple[sqlite3.Connection, bool]]:
+    """Yield a usable connection plus whether this helper owns commit lifecycle."""
+    if conn is not None:
+        yield conn, False
+        return
+
+    with db.core_connection(settings) as opened:
+        yield opened, True
+
+
+def _row_to_memory_dict(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
     metadata_json = row["metadata_json"]
     metadata = json.loads(metadata_json) if metadata_json else {}
     return {
@@ -43,6 +61,7 @@ def _row_to_memory_dict(row) -> dict[str, Any]:
     }
 
 
+@typingx.validate_io()
 def create_memory_entry(
     *,
     key: str | None,
@@ -52,21 +71,23 @@ def create_memory_entry(
     source: str = "user_stated",
     metadata: dict[str, Any] | None = None,
     settings: Settings | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Create a new memory entry."""
     settings = settings or get_settings()
     metadata_json = json.dumps(metadata or {})
-    with db.core_connection(settings) as conn:
-        cursor = conn.execute(
+    with _memory_connection(settings=settings, conn=conn) as (active_conn, owns_commit):
+        cursor = active_conn.execute(
             """
             INSERT INTO memory_entries (key, content, category, priority, source, metadata_json)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (key, content, category, priority, source, metadata_json),
         )
-        conn.commit()
+        if owns_commit:
+            active_conn.commit()
         entry_id = cursor.lastrowid
-        row = conn.execute(
+        row = active_conn.execute(
             """
             SELECT id, key, content, category, priority, source, metadata_json, created_at,
                    updated_at
@@ -78,11 +99,16 @@ def create_memory_entry(
     return _row_to_memory_dict(row)
 
 
-def get_memory_entry(entry_id: int, settings: Settings | None = None) -> dict[str, Any] | None:
+@typingx.validate_io()
+def get_memory_entry(
+    entry_id: int,
+    settings: Settings | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Get a memory entry by ID."""
     settings = settings or get_settings()
-    with db.core_connection(settings) as conn:
-        row = conn.execute(
+    with _memory_connection(settings=settings, conn=conn) as (active_conn, _owns_commit):
+        row = active_conn.execute(
             """
             SELECT id, key, content, category, priority, source, metadata_json, created_at,
                    updated_at
@@ -94,65 +120,76 @@ def get_memory_entry(entry_id: int, settings: Settings | None = None) -> dict[st
     return _row_to_memory_dict(row) if row else None
 
 
+@typingx.validate_io()
 def update_memory_entry(
     entry_id: int,
     *,
-    key: str | None = None,
-    content: str | None = None,
-    category: str | None = None,
-    priority: int | None = None,
-    source: str | None = None,
-    metadata: dict[str, Any] | None = None,
+    fields: Mapping[str, Any],
     settings: Settings | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any] | None:
-    """Update a memory entry."""
+    """Update a memory entry using explicit field presence semantics."""
     settings = settings or get_settings()
+    if not fields:
+        return get_memory_entry(entry_id, settings=settings, conn=conn)
+
     updates: list[str] = []
     params: list[Any] = []
 
-    if key is not None:
-        updates.append("key = ?")
-        params.append(key)
-    if content is not None:
-        updates.append("content = ?")
-        params.append(content)
-    if category is not None:
-        updates.append("category = ?")
-        params.append(category)
-    if priority is not None:
-        updates.append("priority = ?")
-        params.append(priority)
-    if source is not None:
-        updates.append("source = ?")
-        params.append(source)
-    if metadata is not None:
-        updates.append("metadata_json = ?")
-        params.append(json.dumps(metadata))
+    for field_name, field_value in fields.items():
+        if field_name == "key":
+            updates.append("key = ?")
+            params.append(field_value)
+        elif field_name == "content":
+            updates.append("content = ?")
+            params.append(field_value)
+        elif field_name == "category":
+            updates.append("category = ?")
+            params.append(field_value)
+        elif field_name == "priority":
+            updates.append("priority = ?")
+            params.append(field_value)
+        elif field_name == "source":
+            updates.append("source = ?")
+            params.append(field_value)
+        elif field_name == "metadata":
+            updates.append("metadata_json = ?")
+            params.append(json.dumps(field_value))
 
     if not updates:
-        return get_memory_entry(entry_id, settings)
+        return get_memory_entry(entry_id, settings=settings, conn=conn)
 
     updates.append("updated_at = CURRENT_TIMESTAMP")
     params.append(entry_id)
 
-    with db.core_connection(settings) as conn:
-        conn.execute(
+    with _memory_connection(settings=settings, conn=conn) as (active_conn, owns_commit):
+        cursor = active_conn.execute(
             f"UPDATE memory_entries SET {', '.join(updates)} WHERE id = ?",
             params,
         )
-        conn.commit()
-    return get_memory_entry(entry_id, settings)
+        if cursor.rowcount == 0:
+            return None
+        if owns_commit:
+            active_conn.commit()
+    return get_memory_entry(entry_id, settings=settings, conn=conn)
 
 
-def delete_memory_entry(entry_id: int, settings: Settings | None = None) -> bool:
+@typingx.validate_io()
+def delete_memory_entry(
+    entry_id: int,
+    settings: Settings | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> bool:
     """Delete a memory entry."""
     settings = settings or get_settings()
-    with db.core_connection(settings) as conn:
-        cursor = conn.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
-        conn.commit()
+    with _memory_connection(settings=settings, conn=conn) as (active_conn, owns_commit):
+        cursor = active_conn.execute("DELETE FROM memory_entries WHERE id = ?", (entry_id,))
+        if owns_commit:
+            active_conn.commit()
         return cursor.rowcount > 0
 
 
+@typingx.validate_io()
 def list_memory_entries(
     *,
     category: str | None = None,
@@ -161,12 +198,18 @@ def list_memory_entries(
     limit: int = 50,
     cursor: str | None = None,
     settings: Settings | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """List memory entries with filters and cursor pagination."""
     settings = settings or get_settings()
     limit = min(limit, 100)
     state = prepare_cursor_state(
-        fingerprint_payload_dict={"tool": "memory.list", "category": category, "source": source},
+        fingerprint_payload_dict={
+            "tool": "memory.list",
+            "category": category,
+            "source": source,
+            "min_priority": min_priority,
+        },
         cursor=cursor,
     )
 
@@ -184,7 +227,7 @@ def list_memory_entries(
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-    with db.core_connection(settings) as conn:
+    with _memory_connection(settings=settings, conn=conn) as (active_conn, _owns_commit):
         if state.cursor_anchor:
             anchor_updated_at, _, anchor_id = state.cursor_anchor
             query = f"""
@@ -207,7 +250,7 @@ def list_memory_entries(
                 LIMIT ?
             """
             params.append(limit + 1)
-        rows = conn.execute(query, params).fetchall()
+        rows = active_conn.execute(query, params).fetchall()
 
     items = [_row_to_memory_dict(row) for row in rows[:limit]]
     next_cursor = None
@@ -224,6 +267,7 @@ def list_memory_entries(
     return {"items": items, "next_cursor": next_cursor, "limit": limit}
 
 
+@typingx.validate_io()
 def search_memory_entries(
     *,
     query: str,
@@ -233,16 +277,23 @@ def search_memory_entries(
     limit: int = 50,
     cursor: str | None = None,
     settings: Settings | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Search memory entries by text."""
     settings = settings or get_settings()
     limit = min(limit, 100)
     state = prepare_cursor_state(
-        fingerprint_payload_dict={"tool": "memory.search", "query": query, "category": category},
+        fingerprint_payload_dict={
+            "tool": "memory.search",
+            "query": query,
+            "category": category,
+            "source": source,
+            "min_priority": min_priority,
+        },
         cursor=cursor,
     )
-    search_pattern = f"%{query}%"
-    conditions = ["(key LIKE ? OR content LIKE ?)"]
+    search_pattern = f"%{typingx.escape_like_pattern(query)}%"
+    conditions = ["(key LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\')"]
     params: list[Any] = [search_pattern, search_pattern]
     if category:
         conditions.append("category = ?")
@@ -254,7 +305,7 @@ def search_memory_entries(
         conditions.append("priority >= ?")
         params.append(min_priority)
 
-    with db.core_connection(settings) as conn:
+    with _memory_connection(settings=settings, conn=conn) as (active_conn, _owns_commit):
         if state.cursor_anchor:
             anchor_updated_at, _, anchor_id = state.cursor_anchor
             query_sql = f"""
@@ -263,7 +314,7 @@ def search_memory_entries(
                 FROM memory_entries
                 WHERE {" AND ".join(conditions)}
                   AND ((updated_at < ?) OR (updated_at = ? AND id < ?))
-                ORDER BY priority DESC, updated_at DESC, id DESC
+                ORDER BY updated_at DESC, id DESC
                 LIMIT ?
             """
             params.extend([anchor_updated_at, anchor_updated_at, anchor_id, limit + 1])
@@ -273,11 +324,11 @@ def search_memory_entries(
                        updated_at
                 FROM memory_entries
                 WHERE {" AND ".join(conditions)}
-                ORDER BY priority DESC, updated_at DESC, id DESC
+                ORDER BY updated_at DESC, id DESC
                 LIMIT ?
             """
             params.append(limit + 1)
-        rows = conn.execute(query_sql, params).fetchall()
+        rows = active_conn.execute(query_sql, params).fetchall()
 
     items = [_row_to_memory_dict(row) for row in rows[:limit]]
     next_cursor = None

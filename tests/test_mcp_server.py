@@ -48,6 +48,14 @@ from cloop.mcp_tools.loop_read import (
     loop_tags,
 )
 from cloop.mcp_tools.loop_templates import project_list
+from cloop.mcp_tools.memory_tools import (
+    memory_create,
+    memory_delete,
+    memory_get,
+    memory_list,
+    memory_search,
+    memory_update,
+)
 from cloop.mcp_tools.rag_tools import rag_ask, rag_ingest
 from cloop.mcp_tools.suggestion_tools import (
     clarification_answer,
@@ -3207,15 +3215,21 @@ def test_rag_ask_rejects_non_positive_top_k(
 
 
 # =============================================================================
-# suggestion.* and clarification.* tests
+# memory.* and review-tool tests
 # =============================================================================
 
 
-def test_mcp_server_registers_review_tools() -> None:
-    """The MCP server should register suggestion and clarification review tools."""
+def test_mcp_server_registers_memory_and_review_tools() -> None:
+    """The MCP server should register direct memory and review tools."""
     tools = asyncio.run(mcp.list_tools())
     tool_names = {tool.name for tool in tools}
 
+    assert "memory.list" in tool_names
+    assert "memory.search" in tool_names
+    assert "memory.get" in tool_names
+    assert "memory.create" in tool_names
+    assert "memory.update" in tool_names
+    assert "memory.delete" in tool_names
     assert "suggestion.list" in tool_names
     assert "suggestion.get" in tool_names
     assert "suggestion.apply" in tool_names
@@ -3223,6 +3237,52 @@ def test_mcp_server_registers_review_tools() -> None:
     assert "clarification.list" in tool_names
     assert "clarification.answer" in tool_names
     assert "clarification.answer_many" in tool_names
+
+
+def test_memory_tools_support_direct_crud_and_search(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Memory MCP tools should reuse the shared direct-memory contract."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    created = memory_create(
+        content="User prefers dark mode",
+        key="theme",
+        category="preference",
+        priority=40,
+        metadata={"source_app": "mcp"},
+    )
+    entry_id = created["id"]
+    assert created["key"] == "theme"
+    assert created["metadata"] == {"source_app": "mcp"}
+
+    listed = memory_list(category="preference")
+    assert listed["items"][0]["id"] == entry_id
+
+    searched = memory_search(query="dark mode")
+    assert searched["query"] == "dark mode"
+    assert searched["items"][0]["id"] == entry_id
+
+    fetched = memory_get(entry_id=entry_id)
+    assert fetched["id"] == entry_id
+
+    updated = memory_update(
+        entry_id=entry_id,
+        clear_key=True,
+        content="User prefers light mode now",
+        priority=60,
+        metadata={"source_app": "mcp", "updated": True},
+    )
+    assert updated["key"] is None
+    assert updated["content"] == "User prefers light mode now"
+    assert updated["priority"] == 60
+
+    deleted = memory_delete(entry_id=entry_id)
+    assert deleted == {"entry_id": entry_id, "deleted": True}
+
+    with pytest.raises(ToolError, match="Memory not found"):
+        memory_get(entry_id=entry_id)
 
 
 def test_suggestion_list_and_get_include_linked_clarifications(

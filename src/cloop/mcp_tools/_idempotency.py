@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ..idempotency_flow import (
+    PreparedIdempotentRequest,
     finalize_idempotent_response,
     prepare_mcp_idempotency,
     replay_mcp_response,
@@ -33,7 +34,7 @@ def prepare_tool_idempotency(
     payload: Mapping[str, Any],
     settings: Any,
     conn: Any,
-) -> Any | None:
+) -> PreparedIdempotentRequest:
     """Prepare idempotency state for an MCP tool call."""
     return prepare_mcp_idempotency(
         tool_name=tool_name,
@@ -44,14 +45,14 @@ def prepare_tool_idempotency(
     )
 
 
-def replay_tool_response(state: Any) -> Any | None:
+def replay_tool_response(state: PreparedIdempotentRequest) -> Any | None:
     """Return the replay body for a previously completed tool call."""
     return replay_mcp_response(state)
 
 
 def finalize_tool_idempotency(
     *,
-    state: Any,
+    state: PreparedIdempotentRequest,
     response: Any,
     conn: Any,
 ) -> None:

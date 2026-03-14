@@ -37,31 +37,15 @@ Legend:
 | RAG ingest | yes | yes | yes | yes | HTTP, CLI, and MCP now share ingest execution and bookkeeping (`files`, `chunks`, `files_skipped`, `failed_files`). |
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
 | Suggestions and clarifications | yes | yes | yes | yes | Suggestion payloads now link persisted clarification rows, and all surfaces answer existing clarification IDs through the same review contract. |
-| Memory CRUD | yes | no | no | no | Memory exists as chat context substrate but is only directly managed over HTTP. |
+| Memory CRUD | yes | yes | yes | yes | HTTP, web, CLI, and MCP now reuse the shared `memory_management` contract for deterministic direct memory CRUD/search. |
 | Semantic loop similarity | partial | partial | no | no | Used internally for duplicates/related context, not yet a first-class cross-surface feature. |
 
 ## Execution Order
 
 The next work should happen in this order so that the newly stabilized shared chat,
-enrichment, and review contracts can propagate outward without rework.
+enrichment, review, and direct-memory contracts can propagate outward without rework.
 
-### Phase 1 — Add direct memory management beyond raw HTTP
-
-Goal: expose memory as a first-class capability in the interfaces where grounded chat
-already benefits from it.
-
-- Add a web UI memory surface.
-- Add CLI memory commands with deterministic CRUD semantics.
-- Add MCP memory tools only if the read/write contract remains narrow and useful.
-- Keep chat grounding on top of shared memory storage rather than introducing
-  transport-owned memory state.
-
-Why first now:
-
-- Chat, retrieval, enrichment, and enrichment follow-up contracts are now shared.
-- Memory management is the largest remaining AI-adjacent capability still trapped in raw HTTP.
-
-### Phase 2 — Turn internal AI capabilities into explicit product features
+### Phase 1 — Turn internal AI capabilities into explicit product features
 
 Goal: promote the strongest existing internal AI signals into first-class features.
 
@@ -72,9 +56,9 @@ Goal: promote the strongest existing internal AI signals into first-class featur
 Why here:
 
 - These are product bets built on top of already-shared infrastructure.
-- They should not land while direct memory management parity is still missing.
+- Memory management parity is now shared, so the next highest-leverage work is turning internal signals into explicit user-facing features.
 
-### Phase 3 — Add richer AI-native workflows
+### Phase 2 — Add richer AI-native workflows
 
 Goal: move beyond one-shot actions only after the foundations are stable and shared.
 
@@ -92,15 +76,11 @@ Why last:
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Memory management parity session**
-   - add web UI memory management
-   - add CLI memory commands
-   - add MCP memory tools only if the contract stays narrow and deterministic
-2. **Productized AI features session**
+1. **Productized AI features session**
    - semantic search
    - duplicate/related review improvements
    - bulk enrichment workflows
-3. **Richer AI-native workflows session**
+2. **Richer AI-native workflows session**
    - conversational clarification/enrichment loops
    - multi-step planning/review flows on top of the stabilized shared contracts
 

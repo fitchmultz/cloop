@@ -29,21 +29,20 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol
 
-from . import db
+from . import db, memory_management
 from .ai_bridge.protocol import BridgeToolSpec
-from .constants import MEMORY_CONTENT_MAX, MEMORY_KEY_MAX, NOTE_BODY_MAX, TITLE_MAX
+from .constants import NOTE_BODY_MAX, TITLE_MAX
 from .loops import read_service
 from .loops.errors import (
     CloopError,
     LoopNotFoundError,
-    MemoryNotFoundError,
     NoteNotFoundError,
     TransitionError,
     ValidationError,
 )
 from .loops.models import LoopStatus, format_utc_datetime, is_terminal_status, utc_now
 from .settings import get_settings
-from .storage import memory_store, notes_store
+from .storage import notes_store
 
 logger = logging.getLogger(__name__)
 
@@ -485,25 +484,15 @@ def execute_loop_get(**kwargs: Any) -> Dict[str, Any]:
 
 def execute_memory_create(**kwargs: Any) -> Dict[str, Any]:
     """Create a new memory entry."""
-    content = kwargs.get("content")
-    if not content:
-        raise ValidationError("content", "content is required")
-
-    key = kwargs.get("key")
-    if key is not None and len(str(key)) > MEMORY_KEY_MAX:
-        raise ValidationError("key", f"exceeds maximum length of {MEMORY_KEY_MAX} characters")
-    if len(str(content)) > MEMORY_CONTENT_MAX:
-        raise ValidationError(
-            "content", f"exceeds maximum length of {MEMORY_CONTENT_MAX} characters"
-        )
-
-    entry = memory_store.create_memory_entry(
-        key=key,
-        content=content,
-        category=kwargs.get("category", "fact"),
-        priority=kwargs.get("priority", 0),
-        source=kwargs.get("source", "user_stated"),
-        metadata=kwargs.get("metadata"),
+    entry = memory_management.create_memory_entry(
+        payload={
+            "key": kwargs.get("key"),
+            "content": kwargs.get("content"),
+            "category": kwargs.get("category", "fact"),
+            "priority": kwargs.get("priority", 0),
+            "source": kwargs.get("source", "user_stated"),
+            "metadata": kwargs.get("metadata"),
+        },
         settings=get_settings(),
     )
     return {"action": "memory_create", "memory": entry}
@@ -512,51 +501,55 @@ def execute_memory_create(**kwargs: Any) -> Dict[str, Any]:
 def execute_memory_search(**kwargs: Any) -> Dict[str, Any]:
     """Search memory entries."""
     query = kwargs.get("query")
-    if not query:
+    if query is None:
         raise ValidationError("query", "query is required")
 
-    result = memory_store.search_memory_entries(
-        query=query,
+    result = memory_management.search_memory_entries(
+        query=str(query),
         category=kwargs.get("category"),
         source=kwargs.get("source"),
         min_priority=kwargs.get("min_priority"),
         limit=kwargs.get("limit", 10),
         settings=get_settings(),
     )
-    return {"action": "memory_search", "memories": result["items"], "query": query}
+    return {"action": "memory_search", "memories": result["items"], "query": result["query"]}
 
 
 def execute_memory_update(**kwargs: Any) -> Dict[str, Any]:
     """Update a memory entry."""
     entry_id = kwargs.get("entry_id")
-    if not entry_id:
+    if entry_id is None:
         raise ValidationError("entry_id", "entry_id is required")
 
-    entry = memory_store.update_memory_entry(
-        entry_id,
-        key=kwargs.get("key"),
-        content=kwargs.get("content"),
-        category=kwargs.get("category"),
-        priority=kwargs.get("priority"),
-        source=kwargs.get("source"),
-        metadata=kwargs.get("metadata"),
+    entry = memory_management.update_memory_entry(
+        entry_id=int(entry_id),
+        fields={
+            key: value
+            for key, value in {
+                "key": kwargs.get("key"),
+                "content": kwargs.get("content"),
+                "category": kwargs.get("category"),
+                "priority": kwargs.get("priority"),
+                "source": kwargs.get("source"),
+                "metadata": kwargs.get("metadata"),
+            }.items()
+            if value is not None
+        },
         settings=get_settings(),
     )
-    if entry is None:
-        raise MemoryNotFoundError(entry_id)
     return {"action": "memory_update", "memory": entry}
 
 
 def execute_memory_delete(**kwargs: Any) -> Dict[str, Any]:
     """Delete a memory entry."""
     entry_id = kwargs.get("entry_id")
-    if not entry_id:
+    if entry_id is None:
         raise ValidationError("entry_id", "entry_id is required")
 
-    deleted = memory_store.delete_memory_entry(entry_id, settings=get_settings())
-    if not deleted:
-        raise MemoryNotFoundError(entry_id)
-    return {"action": "memory_delete", "deleted": True, "entry_id": entry_id}
+    return {
+        "action": "memory_delete",
+        **memory_management.delete_memory_entry(entry_id=int(entry_id), settings=get_settings()),
+    }
 
 
 # ============================================================================

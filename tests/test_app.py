@@ -853,6 +853,24 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert "/static/js/init.js?v=" in html
 
 
+def test_ui_contains_memory_management_elements(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    """Initial HTML should expose the direct memory-management tab and controls."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'data-tab="memory"' in html
+    assert 'id="memory-main"' in html
+    assert 'id="memory-list"' in html
+    assert 'id="memory-filter-form"' in html
+    assert 'id="memory-create-form"' in html
+    assert 'id="memory-content"' in html
+    assert 'id="memory-metadata"' in html
+
+
 def test_chat_empty_state_copy_is_consistent_on_initial_html(
     test_client: TestClient,
     tmp_data_dir: Path,
@@ -1674,6 +1692,18 @@ def test_chat_ui_requests_grounding_and_control_options_in_static_client() -> No
     assert "include_rag_context: options.includeRagContext ?? false" in api_js
     assert "rag_k: options.ragK ?? 5" in api_js
     assert "rag_scope: options.ragScope?.trim() ? options.ragScope.trim() : undefined" in api_js
+
+
+def test_memory_ui_uses_direct_memory_api_helpers() -> None:
+    api_path = Path(__file__).resolve().parents[1] / "src" / "cloop" / "static" / "js" / "api.js"
+    api_js = api_path.read_text(encoding="utf-8")
+
+    assert "export async function fetchMemoryEntries(options = {})" in api_js
+    assert "export async function searchMemoryEntries(query, options = {})" in api_js
+    assert "export async function fetchMemoryEntry(entryId)" in api_js
+    assert "export async function createMemoryEntry(payload)" in api_js
+    assert "export async function updateMemoryEntry(entryId, payload)" in api_js
+    assert "export async function deleteMemoryEntry(entryId)" in api_js
 
 
 def test_chat_logging_tolerates_non_json_usage_objects(

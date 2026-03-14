@@ -1,15 +1,16 @@
 """Assistant memory entry request/response models.
 
 Purpose:
-    Define Pydantic models for the /memory/* endpoints.
+    Define the canonical transport models for direct memory-management APIs.
 
 Responsibilities:
     - Memory CRUD request/response schemas
     - Category and source validation
+    - Shared response envelopes for list/search/delete operations
 
 Non-scope:
-    - Database operations (see db.py)
-    - HTTP route handlers (see routes/memory.py)
+    - Database operations (see storage/memory_store.py)
+    - Direct memory-management orchestration (see memory_management.py)
 """
 
 from enum import StrEnum
@@ -104,8 +105,21 @@ class MemoryResponse(BaseModel):
 
 
 class MemoryListResponse(BaseModel):
-    """Response for memory list/search."""
+    """Response for memory list operations."""
 
     items: List[MemoryResponse]
     next_cursor: str | None = None
     limit: int
+
+
+class MemorySearchResponse(MemoryListResponse):
+    """Response for memory search operations."""
+
+    query: str
+
+
+class MemoryDeleteResponse(BaseModel):
+    """Response for deleting one memory entry."""
+
+    entry_id: int
+    deleted: bool

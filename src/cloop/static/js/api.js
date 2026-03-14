@@ -32,10 +32,106 @@ async function extractErrorMessage(response, fallbackMessage) {
     if (typeof error?.message === "string" && error.message.trim()) {
       return error.message;
     }
+    if (error?.error && typeof error.error.message === "string" && error.error.message.trim()) {
+      return error.error.message;
+    }
   } catch {
     // Fall back to the provided default when no structured payload is available.
   }
   return fallbackMessage;
+}
+
+// ========================================
+// Memory Operations
+// ========================================
+
+export async function fetchMemoryEntries(options = {}) {
+  const url = new URL("/memory", window.location.origin);
+  if (options.category) {
+    url.searchParams.set("category", options.category);
+  }
+  if (options.source) {
+    url.searchParams.set("source", options.source);
+  }
+  if (options.minPriority !== undefined && options.minPriority !== null && options.minPriority !== "") {
+    url.searchParams.set("min_priority", String(options.minPriority));
+  }
+  url.searchParams.set("limit", String(options.limit ?? 50));
+  if (options.cursor) {
+    url.searchParams.set("cursor", options.cursor);
+  }
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to load memory entries"));
+  }
+  return response.json();
+}
+
+export async function searchMemoryEntries(query, options = {}) {
+  const url = new URL("/memory/search", window.location.origin);
+  url.searchParams.set("q", query);
+  if (options.category) {
+    url.searchParams.set("category", options.category);
+  }
+  if (options.source) {
+    url.searchParams.set("source", options.source);
+  }
+  if (options.minPriority !== undefined && options.minPriority !== null && options.minPriority !== "") {
+    url.searchParams.set("min_priority", String(options.minPriority));
+  }
+  url.searchParams.set("limit", String(options.limit ?? 50));
+  if (options.cursor) {
+    url.searchParams.set("cursor", options.cursor);
+  }
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to search memory entries"));
+  }
+  return response.json();
+}
+
+export async function fetchMemoryEntry(entryId) {
+  const response = await fetch(`/memory/${entryId}`);
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to load memory entry"));
+  }
+  return response.json();
+}
+
+export async function createMemoryEntry(payload) {
+  const response = await fetch("/memory", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to create memory entry"));
+  }
+  return response.json();
+}
+
+export async function updateMemoryEntry(entryId, payload) {
+  const response = await fetch(`/memory/${entryId}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to update memory entry"));
+  }
+  return response.json();
+}
+
+export async function deleteMemoryEntry(entryId) {
+  const response = await fetch(`/memory/${entryId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to delete memory entry"));
+  }
+  return true;
 }
 
 // ========================================

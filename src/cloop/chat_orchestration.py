@@ -23,14 +23,13 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
-from . import db
+from . import db, memory_management
 from .loops.due import effective_due_iso
 from .loops.errors import CloopError
 from .rag import retrieve_similar_chunks
 from .rag.ask_orchestration import format_sources, sanitize_chunk
 from .schemas.chat import ChatRequest
 from .settings import Settings, ToolMode
-from .storage import memory_store
 
 
 @dataclass(slots=True, frozen=True)
@@ -214,7 +213,7 @@ def build_loop_context_snapshot(settings: Settings) -> str:
 def build_memory_context(settings: Settings, *, limit: int = 10) -> MemoryContextBuildResult:
     """Build compact memory context plus a summary count."""
     try:
-        result = memory_store.list_memory_entries(
+        result = memory_management.list_memory_entries(
             limit=limit,
             settings=settings,
         )

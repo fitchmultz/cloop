@@ -11,7 +11,7 @@ Cloop is a local-first FastAPI service with three primary interfaces:
 - **CLI** (`src/cloop/cli.py`, `src/cloop/cli_package/*`)
 - **MCP server** (`src/cloop/mcp_server.py`, tools in `src/cloop/mcp_tools/*`)
 
-All interfaces converge on shared domain/service/repository logic in `src/cloop/loops/*` and `src/cloop/rag/*`.
+All interfaces converge on shared domain/service/repository logic in `src/cloop/loops/*`, `src/cloop/rag/*`, and shared top-level execution/orchestration modules such as `src/cloop/chat_execution.py`, `src/cloop/rag_execution.py`, and `src/cloop/memory_management.py`.
 Persistent state is local SQLite (`core.db`, `rag.db`), not an external database service. The scheduler is a separate local process (`cloop-scheduler`) that coordinates through SQLite leases and execution markers.
 
 ```mermaid
@@ -45,6 +45,7 @@ flowchart LR
 - `src/cloop/loops/write_ops.py`: canonical write-operation helpers and mutation invariants.
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
 - `src/cloop/loops/enrichment_review.py`: shared suggestion/clarification review contract used by HTTP, web, CLI, and MCP after enrichment runs.
+- `src/cloop/memory_management.py`: shared direct memory-management contract used by HTTP, web, CLI, MCP, and memory tool executors.
 - `src/cloop/loops/prioritization.py`, `review.py`, `timers.py`, `claims.py`: specialized loop behavior.
 - `src/cloop/storage/*`: feature-owned persistence for notes, memory, idempotency, interaction logs, and scheduler state.
 
@@ -88,6 +89,12 @@ flowchart LR
 2. `src/cloop/loops/enrichment_review.py` reads suggestion payloads, links them to persisted clarification IDs, and owns apply/reject/answer semantics.
 3. HTTP routes, the web UI, CLI commands, and MCP tools all reuse that shared contract instead of inventing transport-specific clarification payloads.
 4. Answering clarifications targets existing clarification rows and supersedes stale clarification-dependent suggestions before the next enrichment pass.
+
+### Direct memory management (HTTP + Web + CLI + MCP)
+1. HTTP `/memory/*`, the web memory tab, `cloop memory *`, and MCP `memory.*` all call `src/cloop/memory_management.py`.
+2. `src/cloop/memory_management.py` owns category/source/priority validation, query semantics, and explicit update-field presence rules such as clearing `key`.
+3. `src/cloop/storage/memory_store.py` stays persistence-only, including cursor pagination and JSON metadata serialization.
+4. Chat grounding continues to read from the same durable memory substrate rather than maintaining transport-specific memory state.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.

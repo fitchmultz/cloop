@@ -152,7 +152,9 @@ def run_cli_db_action(
 
     def _execute() -> ResultT:
         with db.core_connection(settings) as conn:
-            return action(conn)
+            result = action(conn)
+            conn.commit()
+            return result
 
     handlers = [*(error_handlers or []), sqlite_error_handler()]
     return run_cli_action(

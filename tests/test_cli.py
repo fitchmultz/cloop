@@ -411,6 +411,32 @@ def test_loop_list_help_describes_open_default(tmp_path: Path) -> None:
     assert "List all open loops (default)" in result.stdout
 
 
+def test_build_parser_memory_command() -> None:
+    """Memory parser should accept deterministic CRUD/search arguments."""
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "memory",
+            "update",
+            "12",
+            "--clear-key",
+            "--content",
+            "Updated memory",
+            "--priority",
+            "75",
+            "--metadata-json",
+            '{"source_app":"cli"}',
+        ]
+    )
+    assert args.command == "memory"
+    assert args.memory_command == "update"
+    assert args.id == 12
+    assert args.clear_key is True
+    assert args.content == "Updated memory"
+    assert args.priority == 75
+    assert args.metadata_json == '{"source_app":"cli"}'
+
+
 # =============================================================================
 # Command Function Tests
 # =============================================================================
@@ -1970,6 +1996,79 @@ def test_clarification_commands(
     assert exit_code == 0
     pending = _get_last_json(capsys)
     assert pending == []
+
+
+def test_memory_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    """Memory CLI commands should reuse the shared direct-memory contract."""
+    _make_settings(tmp_path, monkeypatch)
+
+    exit_code = cli.main(
+        [
+            "memory",
+            "create",
+            "User prefers dark mode",
+            "--key",
+            "theme",
+            "--category",
+            "preference",
+            "--priority",
+            "45",
+            "--metadata-json",
+            '{"source_app":"cli"}',
+        ]
+    )
+    assert exit_code == 0
+    created = _get_last_json(capsys)
+    entry_id = created["id"]
+    assert created["key"] == "theme"
+    assert created["category"] == "preference"
+    assert created["metadata"] == {"source_app": "cli"}
+
+    exit_code = cli.main(["memory", "list"])
+    assert exit_code == 0
+    listed = _get_last_json(capsys)
+    assert listed["items"][0]["id"] == entry_id
+
+    exit_code = cli.main(["memory", "search", "dark mode"])
+    assert exit_code == 0
+    searched = _get_last_json(capsys)
+    assert searched["items"][0]["id"] == entry_id
+    assert searched["query"] == "dark mode"
+
+    exit_code = cli.main(
+        [
+            "memory",
+            "update",
+            str(entry_id),
+            "--clear-key",
+            "--content",
+            "User prefers light mode now",
+            "--priority",
+            "60",
+            "--metadata-json",
+            '{"source_app":"cli","updated":true}',
+        ]
+    )
+    assert exit_code == 0
+    updated = _get_last_json(capsys)
+    assert updated["key"] is None
+    assert updated["content"] == "User prefers light mode now"
+    assert updated["priority"] == 60
+
+    exit_code = cli.main(["memory", "get", str(entry_id)])
+    assert exit_code == 0
+    fetched = _get_last_json(capsys)
+    assert fetched["id"] == entry_id
+    assert fetched["key"] is None
+
+    exit_code = cli.main(["memory", "delete", str(entry_id)])
+    assert exit_code == 0
+    deleted = _get_last_json(capsys)
+    assert deleted == {"entry_id": entry_id, "deleted": True}
 
 
 def test_loop_snooze_command_duration(

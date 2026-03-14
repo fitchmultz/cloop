@@ -25,6 +25,7 @@ import * as bulk from './bulk.js';
 import * as review from './review.js';
 import * as next from './next.js';
 import * as chat from './chat.js';
+import * as memory from './memory.js';
 import * as rag from './rag.js';
 import * as keyboard from './keyboard.js';
 import * as modals from './modals.js';
@@ -71,6 +72,7 @@ const elements = {
   inboxMain: document.getElementById("inbox-main"),
   nextMain: document.getElementById("next-main"),
   chatMain: document.getElementById("chat-main"),
+  memoryMain: document.getElementById("memory-main"),
   ragMain: document.getElementById("rag-main"),
   reviewMain: document.getElementById("review-main"),
   metricsMain: document.getElementById("metrics-main"),
@@ -91,6 +93,23 @@ const elements = {
   chatRagScope: document.getElementById("chat-rag-scope"),
   chatControlsStatus: document.getElementById("chat-controls-status"),
   chatRuntimeStatus: document.getElementById("chat-runtime-status"),
+  memoryList: document.getElementById("memory-list"),
+  memoryStatus: document.getElementById("memory-status"),
+  memoryFilterForm: document.getElementById("memory-filter-form"),
+  memoryQuery: document.getElementById("memory-query"),
+  memoryCategoryFilter: document.getElementById("memory-category-filter"),
+  memorySourceFilter: document.getElementById("memory-source-filter"),
+  memoryMinPriority: document.getElementById("memory-min-priority"),
+  memoryClearFiltersBtn: document.getElementById("memory-clear-filters-btn"),
+  memoryRefreshBtn: document.getElementById("memory-refresh-btn"),
+  memoryLoadMoreBtn: document.getElementById("memory-load-more-btn"),
+  memoryCreateForm: document.getElementById("memory-create-form"),
+  memoryKey: document.getElementById("memory-key"),
+  memoryContent: document.getElementById("memory-content"),
+  memoryCategory: document.getElementById("memory-category"),
+  memoryPriority: document.getElementById("memory-priority"),
+  memorySource: document.getElementById("memory-source"),
+  memoryMetadata: document.getElementById("memory-metadata"),
   ragInput: document.getElementById("rag-input"),
   ragForm: document.getElementById("rag-form"),
   ragAnswer: document.getElementById("rag-answer"),
@@ -175,6 +194,9 @@ function switchTab(tabName) {
   elements.inboxMain.style.display = tabName === "inbox" ? "grid" : "none";
   elements.nextMain.style.display = tabName === "next" ? "grid" : "none";
   elements.chatMain.style.display = tabName === "chat" ? "grid" : "none";
+  if (elements.memoryMain) {
+    elements.memoryMain.style.display = tabName === "memory" ? "grid" : "none";
+  }
   elements.ragMain.style.display = tabName === "rag" ? "grid" : "none";
   if (elements.reviewMain) {
     elements.reviewMain.style.display = tabName === "review" ? "grid" : "none";
@@ -186,6 +208,9 @@ function switchTab(tabName) {
   // Load data when switching to tabs
   if (tabName === "next") {
     next.loadNext();
+  }
+  if (tabName === "memory") {
+    memory.loadMemories();
   }
   if (tabName === "review") {
     review.loadReviewData();
@@ -1178,6 +1203,25 @@ function init() {
     chatRagScope: elements.chatRagScope,
     chatControlsStatus: elements.chatControlsStatus,
     chatRuntimeStatus: elements.chatRuntimeStatus,
+  });
+  memory.init({
+    memoryList: elements.memoryList,
+    memoryStatus: elements.memoryStatus,
+    memoryFilterForm: elements.memoryFilterForm,
+    memoryQuery: elements.memoryQuery,
+    memoryCategoryFilter: elements.memoryCategoryFilter,
+    memorySourceFilter: elements.memorySourceFilter,
+    memoryMinPriority: elements.memoryMinPriority,
+    memoryClearFiltersBtn: elements.memoryClearFiltersBtn,
+    memoryRefreshBtn: elements.memoryRefreshBtn,
+    memoryLoadMoreBtn: elements.memoryLoadMoreBtn,
+    memoryCreateForm: elements.memoryCreateForm,
+    memoryKey: elements.memoryKey,
+    memoryContent: elements.memoryContent,
+    memoryCategory: elements.memoryCategory,
+    memoryPriority: elements.memoryPriority,
+    memorySource: elements.memorySource,
+    memoryMetadata: elements.memoryMetadata,
   });
   rag.init({
     ragAnswer: elements.ragAnswer,

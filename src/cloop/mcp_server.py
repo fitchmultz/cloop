@@ -1,8 +1,8 @@
 """MCP server entrypoint for Cloop tools.
 
 Purpose:
-    Assemble and run the FastMCP server that exposes loop, grounded chat,
-    retrieval, and enrichment-review operations to external AI agents.
+    Assemble and run the FastMCP server that exposes loop, direct-memory,
+    grounded chat, retrieval, and enrichment-review operations to external AI agents.
 
 Responsibilities:
     - Create the shared FastMCP application instance
@@ -62,6 +62,7 @@ from .mcp_tools import (
     register_loop_read_tools,
     register_loop_template_tools,
     register_loop_view_tools,
+    register_memory_tools,
     register_rag_tools,
     register_suggestion_tools,
 )
@@ -77,6 +78,7 @@ register_loop_bulk_tools(mcp)
 register_loop_claim_tools(mcp)
 register_loop_dependency_tools(mcp)
 register_loop_template_tools(mcp)
+register_memory_tools(mcp)
 register_rag_tools(mcp)
 register_suggestion_tools(mcp)
 

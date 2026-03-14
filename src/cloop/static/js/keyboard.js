@@ -7,7 +7,7 @@
  * Responsibilities:
  *   - Global keyboard shortcuts
  *   - G-key sequences (g i, g n, etc.)
- *   - Tab switching (1-6)
+ *   - Tab switching (1-7)
  *   - Loop actions (c, e, r, t, s)
  *   - Bulk selection shortcuts
  *   - Help modal trigger
@@ -68,8 +68,10 @@ function getFirstVisibleLoopId() {
     document.getElementById("inbox-main"),
     document.getElementById("next-main"),
     document.getElementById("chat-main"),
+    document.getElementById("memory-main"),
     document.getElementById("rag-main"),
-    document.getElementById("review-main")
+    document.getElementById("review-main"),
+    document.getElementById("metrics-main")
   ].find(el => el && el.style.display !== "none");
 
   if (!visibleMain) return null;
@@ -141,6 +143,7 @@ function handleKeyboardShortcuts(event) {
       "i": "inbox",
       "n": "next",
       "c": "chat",
+      "e": "memory",
       "r": "rag",
       "v": "review",
       "m": "metrics"
@@ -157,7 +160,7 @@ function handleKeyboardShortcuts(event) {
   // Start g-key sequence
   if (key === "g") {
     pendingGKey = true;
-    if (statusEl) statusEl.textContent = "g pressed. Press i, n, c, r, v, or m...";
+    if (statusEl) statusEl.textContent = "g pressed. Press i, n, c, e, r, v, or m...";
     gKeyTimeout = setTimeout(() => {
       pendingGKey = false;
       if (statusEl) statusEl.textContent = "Ready.";
@@ -166,8 +169,8 @@ function handleKeyboardShortcuts(event) {
     return;
   }
 
-  // Direct tab switching with 1-6
-  const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "rag", "5": "review", "6": "metrics" };
+  // Direct tab switching with 1-7
+  const tabNumbers = { "1": "inbox", "2": "next", "3": "chat", "4": "memory", "5": "rag", "6": "review", "7": "metrics" };
   if (tabNumbers[key]) {
     switchTabFn(tabNumbers[key]);
     if (statusEl) statusEl.textContent = `Switched to ${tabNumbers[key]}`;

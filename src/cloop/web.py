@@ -71,6 +71,7 @@ def serve_index() -> HTMLResponse:
         "/static/css/loop.css",
         "/static/css/review.css",
         "/static/css/chat-rag.css",
+        "/static/css/memory.css",
         "/static/css/comments.css",
         "/static/css/layout.css",
         "/static/css/modals.css",

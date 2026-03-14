@@ -61,13 +61,13 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **Pi-powered chat**: Route all generative chat/tool calls through a local pi bridge while keeping Python in control of app state and tools.
 - **Private RAG**: Recursively ingest files → chunk → embed → store in SQLite → retrieve relevant context.
 - **No heavy infrastructure**: Pure Python + SQLite; optional SQLite vector extensions if you have them.
-- **CLI + API**: Use it from the terminal or run a local HTTP server.
-- **Persistent “memory”**: Optional `read_note` / `write_note` tools backed by `core.db`.
+- **CLI + API**: Use it from the terminal, the built-in web UI, or a local HTTP server.
+- **Persistent memory**: Direct memory CRUD/search across HTTP, web, CLI, and MCP, all backed by the shared `memory_management` contract in `core.db`.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
 - **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
 - **Next 5**: Deterministic prioritization for actionable loops.
-- **MCP tools**: A purpose-built MCP server that exposes loop operations plus grounded chat and RAG ingest/ask retrieval tools.
+- **MCP tools**: A purpose-built MCP server that exposes loop operations, direct memory CRUD/search, grounded chat, and RAG ingest/ask retrieval tools.
 
 Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 
@@ -168,6 +168,14 @@ uv run cloop loop close 1 --note "Done"
 uv run cloop next
 ```
 
+Manage durable memory directly:
+
+```bash
+uv run cloop memory create "User prefers dark mode" --category preference --priority 40
+uv run cloop memory search "dark mode"
+uv run cloop memory list --category preference
+```
+
 Notes:
 
 - `cloop ask` prints JSON including the generated `answer`, retrieved `chunks`, and `sources`.
@@ -211,6 +219,33 @@ Notes:
 - `cloop chat` uses the same request/response model as the HTTP `/chat` endpoint.
 - `--format text` is the default for conversational use; `--format json` emits the full structured response payload.
 - `--tool` implies manual tool mode; otherwise CLI chat defaults to `tool_mode=none` unless you pass `--tool-mode` explicitly.
+
+### Memory Commands
+
+```bash
+# List memory entries
+cloop memory list [--category CATEGORY] [--source SOURCE] [--min-priority N] [--cursor CURSOR] [--format json|table]
+
+# Search memory entries by key/content text
+cloop memory search <query> [--category CATEGORY] [--source SOURCE] [--min-priority N] [--cursor CURSOR] [--format json|table]
+
+# Fetch one memory entry
+cloop memory get <id> [--format json|table]
+
+# Create a memory entry
+cloop memory create <content> [--key KEY] [--category CATEGORY] [--priority N] [--source SOURCE] [--metadata-json JSON] [--format json|table]
+
+# Update a memory entry
+cloop memory update <id> [--key KEY | --clear-key] [--content TEXT] [--category CATEGORY] [--priority N] [--source SOURCE] [--metadata-json JSON] [--format json|table]
+
+# Delete a memory entry
+cloop memory delete <id> [--format json|table]
+```
+
+Notes:
+- `cloop memory *` reuses the shared `src/cloop/memory_management.py` contract rather than talking to storage directly.
+- Updates preserve field presence, so `--clear-key` explicitly clears the nullable key instead of silently ignoring it.
+- `--metadata-json` must be a JSON object.
 
 ### Loop Lifecycle Commands
 
@@ -530,7 +565,7 @@ Embeddings remain on LiteLLM-compatible providers during this cutover.
   - Note: `CLOOP_VECTOR_MODE=sqlite` requires `CLOOP_EMBED_STORAGE=json` or `dual`.
 - `CLOOP_SQLITE_VECTOR_EXTENSION`: optional path to a SQLite vector extension, if you have one.
 
-### Tools (“memory” notes)
+### Note tools (separate from durable memory entries)
 
 - `CLOOP_TOOL_MODE`: `manual`, `llm`, or `none` (default: `manual`)
   - `manual`: you must send a `tool_call` to `/chat` (e.g., `read_note`, `write_note`)
@@ -566,16 +601,17 @@ Both operations return:
 
 ### Idempotency (safe retries)
 
-All mutating endpoints support idempotency for safe retries over unreliable networks:
+Shared idempotency support covers the mutation surfaces that already use the common
+idempotency flow:
 
 - `CLOOP_IDEMPOTENCY_TTL_SECONDS`: retention window for idempotency keys (default: `86400` = 24 hours)
 - `CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH`: max key length (default: `255`)
 
-**HTTP API**: Include `Idempotency-Key` header with any mutating request (POST/PATCH).
+**HTTP API**: Include `Idempotency-Key` header with supported loop/review POST/PATCH mutations.
 - Same key + same payload: replays prior response without additional writes
 - Same key + different payload: returns 409 Conflict
 
-**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`, `suggestion.apply`, `suggestion.reject`, `clarification.answer`, `clarification.answer_many`).
+**MCP tools**: Pass `request_id` argument to supported mutation tools (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`, `memory.create`, `memory.update`, `memory.delete`, `suggestion.apply`, `suggestion.reject`, `clarification.answer`, `clarification.answer_many`).
 - Same request_id + same args: replays prior response
 - Same request_id + different args: raises `ToolError`
 
@@ -701,13 +737,17 @@ uv run cloop-mcp
 
 Exposed tools include `chat.complete`, `loop.create`, `loop.update`, `loop.close`, `loop.get`,
 `loop.next`, `loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.snooze`,
-`loop.enrich`, `suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`,
+`loop.enrich`, `memory.list`, `memory.search`, `memory.get`, `memory.create`, `memory.update`,
+`memory.delete`, `suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`,
 `clarification.list`, `clarification.answer`, `clarification.answer_many`, `project.list`,
 `rag.ask`, and `rag.ingest`.
 
 `chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
 endpoint and `cloop chat`, so tool behavior, grounding options, metadata, sources, and
 interaction logging stay aligned. MCP currently exposes the non-streaming chat contract.
+
+`memory.*` reuses the shared `memory_management` contract as the HTTP, web, and CLI surfaces,
+so direct memory CRUD/search semantics stay aligned everywhere.
 
 `suggestion.*` and `clarification.*` reuse the shared enrichment-review service contract as the HTTP,
 web, and CLI surfaces, so suggestion payloads, linked clarification rows, and clarification-answer

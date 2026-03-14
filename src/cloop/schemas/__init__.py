@@ -35,9 +35,11 @@ from .loops import (
 from .memory import (
     MemoryCategory,
     MemoryCreateRequest,
+    MemoryDeleteResponse,
     MemoryEntryBase,
     MemoryListResponse,
     MemoryResponse,
+    MemorySearchResponse,
     MemorySource,
     MemoryUpdateRequest,
 )
@@ -63,9 +65,11 @@ __all__ = [
     "LoopUpdateRequest",
     "MemoryCategory",
     "MemoryCreateRequest",
+    "MemoryDeleteResponse",
     "MemoryEntryBase",
     "MemoryListResponse",
     "MemoryResponse",
+    "MemorySearchResponse",
     "MemorySource",
     "MemoryUpdateRequest",
     "AskResponse",

@@ -51,5 +51,8 @@ def run_idempotent_tool_mutation(
             return replay
 
         result = execute(conn=conn, settings=settings)
+        if idempotency.key is None:
+            conn.commit()
+            return result
         finalize_tool_idempotency(state=idempotency, response=result, conn=conn)
         return result

@@ -92,6 +92,14 @@ from .loop_view_commands import (
     loop_view_list_command,
     loop_view_update_command,
 )
+from .memory_commands import (
+    memory_create_command,
+    memory_delete_command,
+    memory_get_command,
+    memory_list_command,
+    memory_search_command,
+    memory_update_command,
+)
 
 # Import parser builders
 from .parsers.backup import add_backup_parser
@@ -108,6 +116,7 @@ from .parsers.loop_misc_parsers import (
     add_suggestion_parser,
     add_tags_parser,
 )
+from .parsers.memory import add_memory_parser
 from .parsers.rag import add_ask_parser, add_ingest_parser
 from .parsers.template import add_template_parser
 from .rag_commands import ask_command, ingest_command
@@ -144,6 +153,10 @@ Examples:
   # Grounded chat
   cloop chat "What should I focus on today?" --include-loop-context --include-memory-context
   cloop chat "Where is the onboarding checklist?" --include-rag-context --rag-scope onboarding
+
+  # Memory management
+  cloop memory create "User prefers dark mode" --category preference --priority 40
+  cloop memory search "dark mode"
 
   # Saved views
   cloop loop view create --name "Today's tasks" --query "status:open due:today"
@@ -211,6 +224,7 @@ Exit codes:
     add_backup_parser(subparsers)
     add_suggestion_parser(subparsers)
     add_clarification_parser(subparsers)
+    add_memory_parser(subparsers)
 
     return parser
 
@@ -361,6 +375,22 @@ def main(argv: List[str] | None = None) -> int:
         if args.clarification_cmd == "answer-many":
             return clarification_answer_many_command(args, settings)
         parser.error(f"Unknown clarification command: {args.clarification_cmd}")
+        return 2
+
+    if args.command == "memory":
+        if args.memory_command == "list":
+            return memory_list_command(args, settings)
+        if args.memory_command == "search":
+            return memory_search_command(args, settings)
+        if args.memory_command == "get":
+            return memory_get_command(args, settings)
+        if args.memory_command == "create":
+            return memory_create_command(args, settings)
+        if args.memory_command == "update":
+            return memory_update_command(args, settings)
+        if args.memory_command == "delete":
+            return memory_delete_command(args, settings)
+        parser.error(f"Unknown memory command: {args.memory_command}")
         return 2
 
     parser.error(f"Unknown command: {args.command}")
