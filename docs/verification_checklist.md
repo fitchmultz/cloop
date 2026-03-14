@@ -59,6 +59,7 @@ CLI:
 ```bash
 uv run cloop --help
 uv run cloop loop list --status open --limit 5
+uv run cloop loop semantic-search "buy groceries before the weekend" --status all
 uv run cloop chat "What should I focus on today?" --include-loop-context --no-stream
 uv run cloop memory create "User prefers dark mode" --category preference --priority 40
 uv run cloop memory search "dark mode"
@@ -89,7 +90,7 @@ MCP:
 uv run cloop-mcp
 ```
 
-Confirm your MCP client discovers grounded chat (`chat.complete`), direct memory tools (`memory.list`, `memory.search`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`), both retrieval tools (`rag.ask`, `rag.ingest`), suggestion review tools (`suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`), clarification tools (`clarification.list`, `clarification.answer`, `clarification.answer_many`), and the loop tool set.
+Confirm your MCP client discovers grounded chat (`chat.complete`), direct memory tools (`memory.list`, `memory.search`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`), semantic loop search (`loop.semantic_search`), both retrieval tools (`rag.ask`, `rag.ingest`), suggestion review tools (`suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`), clarification tools (`clarification.list`, `clarification.answer`, `clarification.answer_many`), and the rest of the loop tool set.
 
 ## 4) CI workflow intent check
 

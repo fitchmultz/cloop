@@ -60,6 +60,7 @@ from .loop_core_commands import (
     loop_get_command,
     loop_list_command,
     loop_search_command,
+    loop_semantic_search_command,
     loop_snooze_command,
     loop_status_command,
     loop_update_command,
@@ -149,6 +150,7 @@ Examples:
   cloop loop search "due:between:2026-02-20..2026-02-28"
   cloop loop search "project:ClientAlpha blocked"
   cloop loop search "status:open groceries"
+  cloop loop semantic-search "buy milk and eggs"
 
   # Grounded chat
   cloop chat "What should I focus on today?" --include-loop-context --include-memory-context
@@ -258,6 +260,8 @@ def main(argv: List[str] | None = None) -> int:
             return loop_list_command(args, settings)
         if args.loop_command == "search":
             return loop_search_command(args, settings)
+        if args.loop_command == "semantic-search":
+            return loop_semantic_search_command(args, settings)
         if args.loop_command == "update":
             return loop_update_command(args, settings)
         if args.loop_command == "status":

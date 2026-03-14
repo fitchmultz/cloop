@@ -4,8 +4,8 @@ Purpose:
     Argument parsers for loop lifecycle commands.
 
 Responsibilities:
-    - Define argument parsers for loop subcommands (get, list, search, update,
-      status, close, enrich, snooze)
+    - Define argument parsers for loop subcommands (get, list, search,
+      semantic-search, update, status, close, enrich, snooze)
     - Define argument parsers for view subcommands (create, list, get, update,
       delete, apply)
     - Define argument parsers for dependency subcommands (add, remove, list,
@@ -41,6 +41,7 @@ def add_loop_parser(subparsers: Any) -> None:
     _add_get_parser(loop_subparsers)
     _add_list_parser(loop_subparsers)
     _add_search_parser(loop_subparsers)
+    _add_semantic_search_parser(loop_subparsers)
     _add_update_parser(loop_subparsers)
     _add_status_parser(loop_subparsers)
     _add_close_parser(loop_subparsers)
@@ -161,6 +162,47 @@ Examples:
     search_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
     search_parser.add_argument(
         "--offset", type=int, default=0, help="Pagination offset (default: 0)"
+    )
+    add_format_option(search_parser)
+
+
+def _add_semantic_search_parser(loop_subparsers: Any) -> None:
+    """Add 'loop semantic-search' parser."""
+    from argparse import RawDescriptionHelpFormatter
+
+    search_parser = loop_subparsers.add_parser(
+        "semantic-search",
+        help="Search loops by semantic similarity",
+        description="Search loops by natural-language meaning instead of DSL term matching",
+        epilog="""
+Examples:
+  # Find loops about groceries, even if wording differs
+  cloop loop semantic-search "buy milk and eggs"
+
+  # Limit to inbox items only
+  cloop loop semantic-search "customer follow-up" --status inbox
+
+  # Filter out weak matches
+  cloop loop semantic-search "quarterly planning" --min-score 0.4 --format table
+        """,
+        formatter_class=RawDescriptionHelpFormatter,
+    )
+    search_parser.add_argument("query", nargs="?", help="Natural-language semantic query")
+    search_parser.add_argument("--query", dest="query_flag", help="Natural-language semantic query")
+    search_parser.add_argument(
+        "--status",
+        default="open",
+        help=f"Filter by status scope ({LOOP_STATUS_VALUES})",
+    )
+    search_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
+    search_parser.add_argument(
+        "--offset", type=int, default=0, help="Pagination offset (default: 0)"
+    )
+    search_parser.add_argument(
+        "--min-score",
+        dest="min_score",
+        type=float,
+        help="Optional minimum similarity score between 0.0 and 1.0",
     )
     add_format_option(search_parser)
 

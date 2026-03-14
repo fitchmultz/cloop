@@ -245,11 +245,21 @@ function formatLoopStateLabel(value) {
 function buildLoopContextBadges(loop) {
   const badges = [];
   const projectName = String(loop.project ?? "").trim();
+  const semanticScore = typeof loop.semantic_score === "number" ? loop.semantic_score : null;
   const tags = Array.isArray(loop.tags)
     ? loop.tags
         .map((tag) => String(tag ?? "").trim())
         .filter(Boolean)
     : [];
+
+  if (semanticScore !== null) {
+    badges.push(`
+      <span class="loop-context-badge semantic-score">
+        <span class="loop-context-badge-label">Semantic</span>
+        <span class="loop-context-badge-value">${escapeHtml(semanticScore.toFixed(3))}</span>
+      </span>
+    `);
+  }
 
   if (projectName) {
     badges.push(`

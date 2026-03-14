@@ -30,7 +30,7 @@ import {
 } from './utils.js';
 
 // DOM Elements
-let inbox, statusEl, queryFilter, statusFilter, tagFilter, viewFilter;
+let inbox, statusEl, queryFilter, queryModeFilter, statusFilter, tagFilter, viewFilter;
 const OPEN_STATUSES = new Set(["inbox", "actionable", "blocked", "scheduled"]);
 let inboxReloadScheduled = false;
 let nextRefreshScheduled = false;
@@ -41,6 +41,10 @@ function removeInboxEmptyState() {
 
 function activeInboxQuery() {
   return queryFilter?.value?.trim() || "";
+}
+
+function activeQueryMode() {
+  return queryModeFilter?.value || "dsl";
 }
 
 function usesServerDrivenInboxResults() {
@@ -163,6 +167,7 @@ export function init(elements) {
   inbox = elements.inbox;
   statusEl = elements.status;
   queryFilter = elements.queryFilter;
+  queryModeFilter = elements.queryModeFilter;
   statusFilter = elements.statusFilter;
   tagFilter = elements.tagFilter;
   viewFilter = elements.viewFilter;
@@ -205,7 +210,17 @@ export async function loadInbox() {
 
   try {
     if (queryValue) {
-      data = await api.searchLoops(queryValue);
+      if (activeQueryMode() === "semantic") {
+        const result = await api.searchLoopsSemantic(queryValue, {
+          status: statusFilter.value,
+        });
+        data = result.items;
+        statusEl.textContent = result.indexed_count
+          ? `Semantic search refreshed ${result.indexed_count} loop embeddings.`
+          : `Semantic search returned ${result.match_count} loop matches.`;
+      } else {
+        data = await api.searchLoops(queryValue);
+      }
     } else {
       const statusValue = statusFilter.value;
       const tagValue = tagFilter.value;

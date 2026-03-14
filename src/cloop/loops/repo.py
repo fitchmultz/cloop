@@ -1171,6 +1171,27 @@ def list_loop_links_by_type(
     return [dict(row) for row in rows]
 
 
+def read_loop_embeddings_batch(
+    *,
+    loop_ids: list[int],
+    conn: sqlite3.Connection,
+) -> dict[int, dict[str, Any]]:
+    """Read embedding rows for a batch of loop IDs."""
+    if not loop_ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in loop_ids)
+    rows = conn.execute(
+        f"""
+        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model, source_text_hash
+        FROM loop_embeddings
+        WHERE loop_id IN ({placeholders})
+        """,
+        loop_ids,
+    ).fetchall()
+    return {int(row["loop_id"]): dict(row) for row in rows}
+
+
 def fetch_loop_embeddings(
     *,
     conn: sqlite3.Connection,
@@ -1188,7 +1209,7 @@ def fetch_loop_embeddings(
         List of embedding records as dictionaries
     """
     sql = """
-        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model
+        SELECT loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model, source_text_hash
         FROM loop_embeddings
     """
     params: list[Any] = []
@@ -1216,6 +1237,7 @@ def upsert_loop_embedding(
     embedding_norm: float,
     embed_model: str,
     conn: sqlite3.Connection,
+    source_text_hash: str = "",
 ) -> None:
     conn.execute(
         """
@@ -1224,17 +1246,19 @@ def upsert_loop_embedding(
             embedding_blob,
             embedding_dim,
             embedding_norm,
-            embed_model
+            embed_model,
+            source_text_hash
         )
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(loop_id) DO UPDATE SET
             embedding_blob = excluded.embedding_blob,
             embedding_dim = excluded.embedding_dim,
             embedding_norm = excluded.embedding_norm,
             embed_model = excluded.embed_model,
+            source_text_hash = excluded.source_text_hash,
             created_at = CURRENT_TIMESTAMP
         """,
-        (loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model),
+        (loop_id, embedding_blob, embedding_dim, embedding_norm, embed_model, source_text_hash),
     )
 
 

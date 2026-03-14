@@ -155,9 +155,29 @@ export async function searchLoops(query, limit = 50, offset = 0) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ query, limit, offset }),
   });
-  if (!response.ok) throw new Error("Failed to search loops");
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to search loops"));
+  }
   const result = await response.json();
   return result.items;
+}
+
+export async function searchLoopsSemantic(query, options = {}) {
+  const response = await fetch("/loops/search/semantic", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      query,
+      status: options.status ?? "open",
+      limit: options.limit ?? 50,
+      offset: options.offset ?? 0,
+      min_score: options.minScore ?? null,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to search loops semantically"));
+  }
+  return response.json();
 }
 
 export async function fetchLoop(loopId) {

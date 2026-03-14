@@ -4,7 +4,8 @@ Purpose:
     Implement CLI command handlers for core loop operations.
 
 Responsibilities:
-    - Handle capture, inbox, next, get, list, search, update, status, close, enrich, snooze commands
+    - Handle capture, inbox, next, get, list, search, semantic-search, update,
+      status, close, enrich, snooze commands
 
 Non-scope:
     - Does not handle dependency operations (see loop_dep_commands.py)
@@ -49,6 +50,7 @@ from ..loops.models import (
 from ..loops.utils import normalize_tags
 from ..settings import Settings
 from ._runtime import cli_error, error_handler, fail_cli, run_cli_action, run_cli_db_action
+from .output import emit_output
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +290,53 @@ def loop_search_command(args: Namespace, settings: Settings) -> int:
             conn=conn,
         ),
         output_format=args.format,
+        error_handlers=[
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(str(exc)),
+            )
+        ],
+    )
+
+
+def loop_semantic_search_command(args: Namespace, settings: Settings) -> int:
+    """Handle 'cloop loop semantic-search' command."""
+    try:
+        statuses = parse_list_status_filter(args.status)
+    except ValueError as exc:
+        message = str(exc)
+        return run_cli_action(action=lambda: fail_cli(message))
+
+    positional_query = args.query
+    flag_query = args.query_flag
+    if positional_query and flag_query:
+        return run_cli_action(
+            action=lambda: fail_cli("provide either positional query or --query, not both")
+        )
+    query = flag_query or positional_query
+    if not query:
+        return run_cli_action(
+            action=lambda: fail_cli("missing query (use positional value or --query)")
+        )
+
+    def _render(result: dict[str, Any]) -> None:
+        if args.format == "json":
+            _emit_json(result)
+            return
+        emit_output(result["items"], args.format)
+
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: loop_read_service.semantic_search_loops(
+            query=query,
+            statuses=statuses,
+            limit=args.limit,
+            offset=args.offset,
+            min_score=args.min_score,
+            conn=conn,
+            settings=settings,
+        ),
+        render=_render,
         error_handlers=[
             error_handler(
                 ValidationError,

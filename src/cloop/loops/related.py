@@ -32,6 +32,7 @@ from ..embeddings import embed_texts
 from ..settings import Settings, get_settings
 from . import repo
 from .models import format_utc_datetime, is_terminal_status
+from .similarity import semantic_source_hash
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +68,7 @@ def upsert_loop_embedding(
             embedding_dim=int(vector.shape[0]),
             embedding_norm=embedding_norm,
             embed_model=settings.embed_model,
+            source_text_hash=semantic_source_hash(text),
             conn=conn,
         )
 

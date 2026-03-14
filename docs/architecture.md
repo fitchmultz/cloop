@@ -46,6 +46,7 @@ flowchart LR
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
 - `src/cloop/loops/enrichment_review.py`: shared suggestion/clarification review contract used by HTTP, web, CLI, and MCP after enrichment runs.
 - `src/cloop/memory_management.py`: shared direct memory-management contract used by HTTP, web, CLI, MCP, and memory tool executors.
+- `src/cloop/loops/read_service.py`, `src/cloop/loops/similarity.py`: shared semantic-loop search contract plus canonical loop-embedding/source-hash maintenance for on-demand backfill.
 - `src/cloop/loops/prioritization.py`, `review.py`, `timers.py`, `claims.py`: specialized loop behavior.
 - `src/cloop/storage/*`: feature-owned persistence for notes, memory, idempotency, interaction logs, and scheduler state.
 
@@ -95,6 +96,12 @@ flowchart LR
 2. `src/cloop/memory_management.py` owns category/source/priority validation, query semantics, and explicit update-field presence rules such as clearing `key`.
 3. `src/cloop/storage/memory_store.py` stays persistence-only, including cursor pagination and JSON metadata serialization.
 4. Chat grounding continues to read from the same durable memory substrate rather than maintaining transport-specific memory state.
+
+### Semantic loop search (HTTP + Web + CLI + MCP)
+1. HTTP `/loops/search/semantic`, the Inbox semantic mode, `cloop loop semantic-search`, and MCP `loop.semantic_search` all call `src/cloop/loops/read_service.py::semantic_search_loops`.
+2. `src/cloop/loops/similarity.py` owns the canonical loop-to-embedding source text, source-hash comparison, and on-demand embedding refresh.
+3. Search requests backfill missing or stale loop embeddings before scoring, so older loops stay searchable without introducing transport-specific indexing code.
+4. Internal related/duplicate workflows can reuse the same loop-embedding substrate instead of inventing parallel semantic contracts.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.

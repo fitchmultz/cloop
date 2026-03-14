@@ -1,17 +1,18 @@
 """Loop read and query service functions.
 
 Purpose:
-    Own read-only loop retrieval, query, prioritization, and cursor pagination
-    so mutation orchestration does not share a service module with read paths.
+    Own loop retrieval, query, prioritization, cursor pagination, and semantic
+    search so mutation orchestration does not share a service module with read
+    paths.
 
 Responsibilities:
     - Retrieve single loops and enriched loop collections
-    - Execute status, tag, and DSL-based searches
+    - Execute status, tag, DSL, and semantic-loop searches
     - Compute prioritized next-loop buckets
     - Provide cursor-paginated list and query endpoints
 
 Non-scope:
-    - Loop mutations and transitions
+    - Loop lifecycle mutations and transitions
     - Saved-view or template management
     - Transport-level response shaping
 
@@ -28,8 +29,8 @@ from typing import Any
 
 from .. import typingx
 from ..settings import Settings, get_settings
-from . import repo
-from .errors import LoopNotFoundError
+from . import repo, similarity
+from .errors import LoopNotFoundError, ValidationError
 from .models import LoopRecord, LoopStatus, utc_now
 from .pagination import build_next_cursor, prepare_cursor_state
 from .prioritization import PriorityWeights, bucketize, compute_priority_score
@@ -208,6 +209,60 @@ def search_loops_by_query(
         conn=conn,
     )
     return _enrich_records_batch(records, conn=conn)
+
+
+@typingx.validate_io()
+def semantic_search_loops(
+    *,
+    query: str,
+    statuses: list[LoopStatus] | None,
+    limit: int,
+    offset: int,
+    min_score: float | None,
+    conn: sqlite3.Connection,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Search loops by semantic similarity to a natural-language query."""
+    if limit < 1:
+        raise ValidationError("limit", "must be positive")
+    if offset < 0:
+        raise ValidationError("offset", "must be non-negative")
+
+    settings = settings or get_settings()
+    if statuses is None:
+        records = repo.list_all_loops(conn=conn)
+    elif not statuses:
+        records = []
+    else:
+        records = repo.list_loops_by_statuses(statuses=statuses, conn=conn)
+
+    ranked, indexed_count = similarity.rank_semantic_candidate_records(
+        query=query,
+        records=records,
+        conn=conn,
+        min_score=min_score,
+        settings=settings,
+    )
+    if indexed_count:
+        conn.commit()
+
+    paged = ranked[offset : offset + limit]
+    page_records = [record for record, _score in paged]
+    items = _enrich_records_batch(page_records, conn=conn)
+    score_by_id = {record.id: score for record, score in paged}
+    for item in items:
+        item["semantic_score"] = score_by_id[item["id"]]
+
+    return {
+        "query": query,
+        "limit": limit,
+        "offset": offset,
+        "min_score": min_score,
+        "indexed_count": indexed_count,
+        "candidate_count": len(records),
+        "match_count": len(ranked),
+        "items": items,
+    }
 
 
 @typingx.validate_io()

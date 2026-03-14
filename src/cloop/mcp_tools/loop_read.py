@@ -4,7 +4,7 @@ Purpose:
     MCP tools for reading loop data without mutations.
 
 Responsibilities:
-    - List and search loops with filtering and pagination
+    - List loops plus DSL and semantic-loop search with filtering
     - Retrieve prioritized loops organized into action buckets
     - Get event history and support undo operations
     - Manage loop snoozing and AI enrichment triggers
@@ -13,6 +13,7 @@ Responsibilities:
 Tools:
     - loop.list: List loops with optional status filter
     - loop.search: Search loops using DSL query
+    - loop.semantic_search: Search loops by semantic similarity
     - loop.next: Get prioritized loops in action buckets
     - loop.tags: List all unique tags
     - loop.events: Get event history for a loop
@@ -70,6 +71,20 @@ def loop_list(
         )
 
 
+def _parse_loop_status_filter(status: str) -> list[LoopStatus] | None:
+    """Parse a loop status scope for read-only search tools."""
+    if status == "all":
+        return None
+    if status == "open":
+        return [
+            LoopStatus.INBOX,
+            LoopStatus.ACTIONABLE,
+            LoopStatus.BLOCKED,
+            LoopStatus.SCHEDULED,
+        ]
+    return [LoopStatus(status)]
+
+
 @with_mcp_error_handling
 def loop_search(
     query: str, limit: int = DEFAULT_LOOP_LIST_LIMIT, cursor: str | None = None
@@ -105,6 +120,51 @@ def loop_search(
     with db.core_connection(settings) as conn:
         return read_service.search_loops_by_query_page(
             query=query, limit=limit, cursor=cursor, conn=conn
+        )
+
+
+@with_mcp_error_handling
+def loop_semantic_search(
+    query: str,
+    status: str = "open",
+    limit: int = DEFAULT_LOOP_LIST_LIMIT,
+    offset: int = 0,
+    min_score: float | None = None,
+) -> dict[str, Any]:
+    """Search loops by semantic similarity to a natural-language query.
+
+    This ranks loops by meaning instead of exact token matches. The search path
+    backfills missing or stale loop embeddings on demand so older loops remain
+    searchable after the feature cutover.
+
+    Args:
+        query: Natural-language search query.
+        status: Search scope (`open`, `all`, or one concrete loop status).
+        limit: Maximum number of results to return (default: 50).
+        offset: Pagination offset for ranked matches.
+        min_score: Optional minimum cosine similarity score between 0.0 and 1.0.
+
+    Returns:
+        Dict with `query`, `limit`, `offset`, `min_score`, `indexed_count`,
+        `candidate_count`, `match_count`, and `items`.
+
+    Raises:
+        ToolError: If validation fails or embeddings are unavailable.
+    """
+    from .. import db
+    from ..settings import get_settings
+
+    settings = get_settings()
+    statuses = _parse_loop_status_filter(status)
+    with db.core_connection(settings) as conn:
+        return read_service.semantic_search_loops(
+            query=query,
+            statuses=statuses,
+            limit=limit,
+            offset=offset,
+            min_score=min_score,
+            conn=conn,
+            settings=settings,
         )
 
 
@@ -301,6 +361,7 @@ def register_loop_read_tools(mcp: "FastMCP") -> None:
 
     mcp.tool(name="loop.list")(with_db_init(loop_list))
     mcp.tool(name="loop.search")(with_db_init(loop_search))
+    mcp.tool(name="loop.semantic_search")(with_db_init(loop_semantic_search))
     mcp.tool(name="loop.snooze")(with_db_init(loop_snooze))
     mcp.tool(name="loop.enrich")(with_db_init(loop_enrich))
     mcp.tool(name="loop.events")(with_db_init(loop_events))

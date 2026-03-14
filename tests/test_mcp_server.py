@@ -44,6 +44,7 @@ from cloop.mcp_tools.loop_read import (
     loop_list,
     loop_next,
     loop_search,
+    loop_semantic_search,
     loop_snooze,
     loop_tags,
 )
@@ -91,6 +92,30 @@ def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr("cloop.rag.embed_texts", fake_embed)
     monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
+
+
+def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock content-aware embeddings for MCP semantic loop search tests."""
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = np.array([0.05, 0.05, 0.05], dtype=np.float32)
+            if any(token in lowered for token in ["milk", "eggs", "grocery", "groceries", "store"]):
+                vector += np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            if any(
+                token in lowered for token in ["email", "client", "follow-up", "follow up", "reply"]
+            ):
+                vector += np.array([0.0, 1.0, 0.0], dtype=np.float32)
+            if any(token in lowered for token in ["quarter", "planning", "roadmap", "review"]):
+                vector += np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            vector /= np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
 
 def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -666,6 +691,36 @@ def test_loop_search_escapes_sql_wildcards(tmp_path: Path, monkeypatch: pytest.M
 
     assert len(results["items"]) == 1
     assert "50%" in results["items"][0]["raw_text"]
+
+
+def test_loop_semantic_search_returns_ranked_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """loop.semantic_search should return ranked semantic matches with refresh metadata."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_semantic_embeddings(monkeypatch)
+
+    loop_create(
+        raw_text="Buy milk and eggs before the weekend",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+    loop_create(
+        raw_text="Reply to the client email about the contract",
+        captured_at=_now_iso(),
+        client_tz_offset_min=0,
+    )
+
+    results = loop_semantic_search(
+        query="pick up groceries like milk",
+        status="all",
+        min_score=0.0,
+    )
+
+    assert results["candidate_count"] == 2
+    assert results["indexed_count"] == 2
+    assert results["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
+    assert results["items"][0]["semantic_score"] > results["items"][1]["semantic_score"]
 
 
 # =============================================================================
@@ -3230,6 +3285,7 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "memory.create" in tool_names
     assert "memory.update" in tool_names
     assert "memory.delete" in tool_names
+    assert "loop.semantic_search" in tool_names
     assert "suggestion.list" in tool_names
     assert "suggestion.get" in tool_names
     assert "suggestion.apply" in tool_names

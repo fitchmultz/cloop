@@ -358,6 +358,55 @@ class LoopSearchResponse(BaseModel):
     items: List[LoopResponse]
 
 
+LoopSearchStatusFilter = Literal[
+    "open",
+    "all",
+    "inbox",
+    "actionable",
+    "blocked",
+    "scheduled",
+    "completed",
+    "dropped",
+]
+
+
+class SemanticSearchLoopResponse(LoopResponse):
+    """Loop payload augmented with semantic similarity score."""
+
+    semantic_score: float
+
+
+class LoopSemanticSearchRequest(BaseModel):
+    """Request for semantic loop search."""
+
+    query: str = Field(
+        ..., min_length=1, max_length=SEARCH_QUERY_MAX, description="Natural-language query"
+    )
+    status: LoopSearchStatusFilter = Field(default="open", description="Loop status scope")
+    limit: int = Field(default=50, ge=1, le=200, description="Max results")
+    offset: int = Field(default=0, ge=0, description="Pagination offset")
+    min_score: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Optional minimum cosine similarity score",
+    )
+
+
+class LoopSemanticSearchResponse(BaseModel):
+    """Response from semantic loop search."""
+
+    query: str
+    status: LoopSearchStatusFilter
+    limit: int
+    offset: int
+    min_score: float | None = None
+    indexed_count: int
+    candidate_count: int
+    match_count: int
+    items: List[SemanticSearchLoopResponse]
+
+
 class LoopViewCreateRequest(BaseModel):
     """Request to create a saved view."""
 

@@ -38,7 +38,7 @@ Legend:
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
 | Suggestions and clarifications | yes | yes | yes | yes | Suggestion payloads now link persisted clarification rows, and all surfaces answer existing clarification IDs through the same review contract. |
 | Memory CRUD | yes | yes | yes | yes | HTTP, web, CLI, and MCP now reuse the shared `memory_management` contract for deterministic direct memory CRUD/search. |
-| Semantic loop similarity | partial | partial | no | no | Used internally for duplicates/related context, not yet a first-class cross-surface feature. |
+| Semantic loop search | yes | yes | yes | yes | HTTP `/loops/search/semantic`, Inbox semantic mode, `cloop loop semantic-search`, and MCP `loop.semantic_search` now share the same `read_service` + `loops/similarity.py` contract with on-demand embedding backfill. |
 
 ## Execution Order
 
@@ -49,14 +49,13 @@ enrichment, review, and direct-memory contracts can propagate outward without re
 
 Goal: promote the strongest existing internal AI signals into first-class features.
 
-- Semantic loop search using the existing loop embedding infrastructure.
+- Better duplicate/related-loop review workflows built on the now-shared semantic-search and similarity machinery.
 - Bulk enrichment across filtered loop sets.
-- Better duplicate/related-loop review workflows built on the current similarity machinery.
 
 Why here:
 
 - These are product bets built on top of already-shared infrastructure.
-- Memory management parity is now shared, so the next highest-leverage work is turning internal signals into explicit user-facing features.
+- Semantic search is now shared, so the next highest-leverage work is turning its similarity signals into better review and bulk-action workflows.
 
 ### Phase 2 — Add richer AI-native workflows
 
@@ -77,7 +76,6 @@ Why last:
 If work is being planned session-by-session, the best short sequence is:
 
 1. **Productized AI features session**
-   - semantic search
    - duplicate/related review improvements
    - bulk enrichment workflows
 2. **Richer AI-native workflows session**

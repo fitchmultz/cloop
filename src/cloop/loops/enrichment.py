@@ -35,15 +35,11 @@ from .. import db
 from ..llm import chat_completion
 from ..settings import Settings, get_settings
 from ..webhooks.service import queue_deliveries
-from . import repo
+from . import repo, similarity
 from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
-from .related import (
-    find_duplicate_candidates,
-    suggest_links,
-    upsert_loop_embedding,
-)
+from .related import find_duplicate_candidates, suggest_links
 from .utils import normalize_tags
 
 logger = logging.getLogger(__name__)
@@ -651,31 +647,24 @@ def enrich_loop(
 
     if settings.autopilot_enabled:
         try:
-            text_for_embedding = " ".join(
-                chunk
-                for chunk in [
-                    suggestion.title or record.title or "",
-                    record.raw_text,
-                ]
-                if chunk
+            similarity.ensure_loop_embeddings(
+                loop_ids=[loop_id],
+                conn=conn,
+                settings=settings,
             )
-            if text_for_embedding.strip():
-                upsert_loop_embedding(
-                    loop_id=loop_id, text=text_for_embedding, conn=conn, settings=settings
+            suggest_links(loop_id=loop_id, conn=conn, settings=settings)
+            # Detect and link potential duplicates
+            dupes = find_duplicate_candidates(loop_id=loop_id, conn=conn, settings=settings)
+            for dupe in dupes:
+                repo.insert_loop_link(
+                    loop_id=loop_id,
+                    related_loop_id=dupe.loop_id,
+                    relationship_type="duplicate",
+                    confidence=dupe.score,
+                    source="ai",
+                    conn=conn,
                 )
-                suggest_links(loop_id=loop_id, conn=conn, settings=settings)
-                # Detect and link potential duplicates
-                dupes = find_duplicate_candidates(loop_id=loop_id, conn=conn, settings=settings)
-                for dupe in dupes:
-                    repo.insert_loop_link(
-                        loop_id=loop_id,
-                        related_loop_id=dupe.loop_id,
-                        relationship_type="duplicate",
-                        confidence=dupe.score,
-                        source="ai",
-                        conn=conn,
-                    )
-        except ValueError as exc:
+        except CloopValidationError as exc:
             # Common expected case: provider misconfiguration (e.g., missing api_base).
             # Keep autopilot capture successful, but avoid scary traceback spam.
             logging.warning(

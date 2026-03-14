@@ -9,7 +9,7 @@ Responsibilities:
     - Return loop tags
     - Compute prioritized next-loop buckets
     - Return review cohorts
-    - Execute canonical DSL search
+    - Execute canonical DSL and semantic-loop search
 
 Non-scope:
     - Loop mutations and enrichment requests
@@ -36,10 +36,27 @@ from ...schemas.loops import (
     LoopReviewResponse,
     LoopSearchRequest,
     LoopSearchResponse,
+    LoopSemanticSearchRequest,
+    LoopSemanticSearchResponse,
+    SemanticSearchLoopResponse,
 )
 from ._common import SettingsDep, build_loop_responses
 
 router = APIRouter()
+
+
+def _resolve_statuses_for_search(status: str) -> list[LoopStatus] | None:
+    """Resolve a route-level status filter into loop status values."""
+    if status == "all":
+        return None
+    if status == "open":
+        return [
+            LoopStatus.INBOX,
+            LoopStatus.ACTIONABLE,
+            LoopStatus.BLOCKED,
+            LoopStatus.SCHEDULED,
+        ]
+    return [LoopStatus(status)]
 
 
 @router.get("/", response_model=list[LoopResponse])
@@ -179,4 +196,33 @@ def loop_search_endpoint(
         limit=request.limit,
         offset=request.offset,
         items=build_loop_responses(items),
+    )
+
+
+@router.post("/search/semantic", response_model=LoopSemanticSearchResponse)
+def loop_semantic_search_endpoint(
+    request: LoopSemanticSearchRequest,
+    settings: SettingsDep,
+) -> LoopSemanticSearchResponse:
+    statuses = _resolve_statuses_for_search(request.status)
+    with db.core_connection(settings) as conn:
+        result = loop_read_service.semantic_search_loops(
+            query=request.query,
+            statuses=statuses,
+            limit=request.limit,
+            offset=request.offset,
+            min_score=request.min_score,
+            conn=conn,
+            settings=settings,
+        )
+    return LoopSemanticSearchResponse(
+        query=result["query"],
+        status=request.status,
+        limit=result["limit"],
+        offset=result["offset"],
+        min_score=result["min_score"],
+        indexed_count=result["indexed_count"],
+        candidate_count=result["candidate_count"],
+        match_count=result["match_count"],
+        items=[SemanticSearchLoopResponse(**item) for item in result["items"]],
     )

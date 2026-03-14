@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 34
+SCHEMA_VERSION: int = 35
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -309,6 +309,7 @@ CREATE TABLE loop_embeddings (
     embedding_dim INTEGER NOT NULL,
     embedding_norm REAL NOT NULL,
     embed_model TEXT NOT NULL,
+    source_text_hash TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
 );
@@ -580,6 +581,9 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    35: """
+    ALTER TABLE loop_embeddings ADD COLUMN source_text_hash TEXT NOT NULL DEFAULT '';
+    """,
     34: """
     DELETE FROM loop_clarifications
     WHERE id IN (
@@ -1147,6 +1151,7 @@ _CORE_MIGRATIONS: dict[int, str] = {
         embedding_dim INTEGER NOT NULL,
         embedding_norm REAL NOT NULL,
         embed_model TEXT NOT NULL,
+        source_text_hash TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
     );

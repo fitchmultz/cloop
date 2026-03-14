@@ -76,6 +76,30 @@ def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cloop.rag.search.embed_texts", fake_embed)
 
 
+def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mock content-aware embeddings for semantic loop search tests."""
+
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = np.array([0.05, 0.05, 0.05], dtype=np.float32)
+            if any(token in lowered for token in ["milk", "eggs", "grocery", "groceries", "store"]):
+                vector += np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            if any(
+                token in lowered for token in ["email", "client", "follow-up", "follow up", "reply"]
+            ):
+                vector += np.array([0.0, 1.0, 0.0], dtype=np.float32)
+            if any(token in lowered for token in ["quarter", "planning", "roadmap", "review"]):
+                vector += np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            vector /= np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+
 def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock non-streaming RAG answer generation for CLI tests."""
 
@@ -1632,6 +1656,43 @@ def test_loop_search_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     output = _get_last_json(capsys)
     assert len(output) == 1
     assert "groceries" in output[0]["raw_text"].lower()
+
+
+def test_loop_semantic_search_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Test loop semantic-search command."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_semantic_embeddings(monkeypatch)
+    parser = cli.build_parser()
+
+    cli._capture_command(
+        parser.parse_args(["capture", "Buy milk and eggs before the weekend"]),
+        settings,
+    )
+    cli._capture_command(
+        parser.parse_args(["capture", "Reply to the client email about the contract"]),
+        settings,
+    )
+    capsys.readouterr()
+
+    exit_code = cli.main(
+        [
+            "loop",
+            "semantic-search",
+            "pick up groceries like milk",
+            "--status",
+            "all",
+            "--min-score",
+            "0.0",
+        ]
+    )
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["candidate_count"] == 2
+    assert output["indexed_count"] == 2
+    assert output["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
+    assert output["items"][0]["semantic_score"] > output["items"][1]["semantic_score"]
 
 
 def test_loop_update_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:

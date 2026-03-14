@@ -2,11 +2,34 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
 from cloop.settings import get_settings
+
+
+def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = np.array([0.05, 0.05, 0.05], dtype=np.float32)
+            if any(token in lowered for token in ["milk", "eggs", "grocery", "groceries", "store"]):
+                vector += np.array([1.0, 0.0, 0.0], dtype=np.float32)
+            if any(
+                token in lowered for token in ["email", "client", "follow-up", "follow up", "reply"]
+            ):
+                vector += np.array([0.0, 1.0, 0.0], dtype=np.float32)
+            if any(token in lowered for token in ["quarter", "planning", "roadmap", "review"]):
+                vector += np.array([0.0, 0.0, 1.0], dtype=np.float32)
+            vector /= np.linalg.norm(vector)
+            data.append({"embedding": vector.tolist()})
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
 
 def test_ingest_and_ask(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -2005,3 +2028,47 @@ def test_chat_rag_context_graceful_failure(
         )
 
     assert response.status_code == 200
+
+
+def test_loop_semantic_search_endpoint(
+    make_test_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """POST /loops/search/semantic returns ranked semantic matches and refresh metadata."""
+    _mock_semantic_embeddings(monkeypatch)
+    client = make_test_client()
+
+    for raw_text, actionable in [
+        ("Buy milk and eggs before the weekend", False),
+        ("Reply to the client email about the contract", True),
+        ("Quarterly roadmap planning review", False),
+    ]:
+        response = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": raw_text,
+                "captured_at": "2026-03-14T12:00:00+00:00",
+                "client_tz_offset_min": 0,
+                "actionable": actionable,
+            },
+        )
+        assert response.status_code == 200
+
+    response = client.post(
+        "/loops/search/semantic",
+        json={
+            "query": "pick up groceries like milk",
+            "status": "all",
+            "limit": 10,
+            "offset": 0,
+            "min_score": 0.0,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["query"] == "pick up groceries like milk"
+    assert payload["candidate_count"] == 3
+    assert payload["indexed_count"] == 3
+    assert payload["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
+    assert payload["items"][0]["semantic_score"] > payload["items"][1]["semantic_score"]

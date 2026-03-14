@@ -29,8 +29,11 @@ from .loops import (
     LoopImportResponse,
     LoopNextResponse,
     LoopResponse,
+    LoopSemanticSearchRequest,
+    LoopSemanticSearchResponse,
     LoopStatusRequest,
     LoopUpdateRequest,
+    SemanticSearchLoopResponse,
 )
 from .memory import (
     MemoryCategory,
@@ -61,8 +64,11 @@ __all__ = [
     "LoopImportResponse",
     "LoopNextResponse",
     "LoopResponse",
+    "LoopSemanticSearchRequest",
+    "LoopSemanticSearchResponse",
     "LoopStatusRequest",
     "LoopUpdateRequest",
+    "SemanticSearchLoopResponse",
     "MemoryCategory",
     "MemoryCreateRequest",
     "MemoryDeleteResponse",

@@ -65,6 +65,7 @@ const elements = {
   statusFilter: document.getElementById("status-filter"),
   tagFilter: document.getElementById("tag-filter"),
   queryFilter: document.getElementById("query-filter"),
+  queryModeFilter: document.getElementById("query-mode-filter"),
   viewFilter: document.getElementById("view-filter"),
   saveViewBtn: document.getElementById("save-view-btn"),
   importFile: document.getElementById("import-file"),
@@ -694,6 +695,22 @@ function updateOnlineStatus() {
 // Event Handlers Setup
 // ========================================
 
+function syncLoopQueryModeUi() {
+  const isSemantic = elements.queryModeFilter?.value === "semantic";
+  if (elements.queryFilter) {
+    elements.queryFilter.placeholder = isSemantic
+      ? "e.g., buy groceries before the weekend"
+      : "e.g., status:inbox due:today";
+  }
+  if (elements.saveViewBtn) {
+    elements.saveViewBtn.disabled = Boolean(isSemantic);
+    elements.saveViewBtn.title = isSemantic
+      ? "Saved views currently support DSL queries only"
+      : "Save current DSL query as a view";
+  }
+}
+
+
 function setupEventHandlers() {
   // Tab switching
   document.querySelectorAll(".tab").forEach(tab => {
@@ -743,6 +760,13 @@ function setupEventHandlers() {
     elements.viewFilter.value = "";
     loop.loadInbox();
   });
+  elements.queryModeFilter?.addEventListener("change", () => {
+    elements.viewFilter.value = "";
+    syncLoopQueryModeUi();
+    if (elements.queryFilter.value.trim()) {
+      loop.loadInbox();
+    }
+  });
   elements.queryFilter.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -756,6 +780,10 @@ function setupEventHandlers() {
     const selected = elements.viewFilter.selectedOptions[0];
     if (selected?.dataset.query) {
       elements.queryFilter.value = selected.dataset.query;
+      if (elements.queryModeFilter) {
+        elements.queryModeFilter.value = "dsl";
+        syncLoopQueryModeUi();
+      }
       elements.statusFilter.value = "all";
       elements.tagFilter.value = "";
       loop.loadInbox();
@@ -765,6 +793,10 @@ function setupEventHandlers() {
   // Button handlers
   elements.saveViewBtn.addEventListener("click", async () => {
     const query = elements.queryFilter.value.trim();
+    if (elements.queryModeFilter?.value === "semantic") {
+      elements.status.textContent = "Saved views currently support DSL queries only.";
+      return;
+    }
     if (!query) {
       elements.status.textContent = "Enter a query first.";
       return;
@@ -1248,6 +1280,8 @@ function init() {
       toggleSnoozeDropdown: loop.toggleSnoozeDropdown,
     }
   );
+
+  syncLoopQueryModeUi();
 
   // Setup handlers
   setupEventHandlers();

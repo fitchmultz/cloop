@@ -743,8 +743,11 @@ def test_enrichment_skips_embedding_phase_on_valueerror_without_traceback(
     with (
         patch("cloop.loops.enrichment.chat_completion", return_value=mock_response),
         patch(
-            "cloop.loops.enrichment.upsert_loop_embedding",
-            side_effect=ValueError("ollama/... requires CLOOP_OLLAMA_API_BASE"),
+            "cloop.loops.enrichment.similarity.ensure_loop_embeddings",
+            side_effect=loop_enrichment.CloopValidationError(
+                "semantic_search",
+                "ollama/... requires CLOOP_OLLAMA_API_BASE",
+            ),
         ),
         patch("cloop.loops.enrichment.suggest_links") as suggest_links_mock,
     ):
