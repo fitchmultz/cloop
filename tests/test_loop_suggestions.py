@@ -1,25 +1,25 @@
-"""Tests for loop suggestion lifecycle management.
+"""Tests for enrichment suggestion and clarification review flows.
 
 Purpose:
-    Test suite for suggestion operations: create, read, list, apply, reject.
+    Verify repo, shared service, and HTTP contracts for enrichment follow-up.
 
 Responsibilities:
-    - Test repo layer suggestion functions
-    - Test service layer apply/reject functionality
-    - Test resolution state transitions
+    - Test repo-layer suggestion and clarification persistence helpers
+    - Test shared enrichment-review service operations
+    - Test HTTP endpoints for suggestion/clarification review flows
 
 Invariants:
     - All tests use isolated temporary databases
-    - Tests verify both success and error cases
+    - Suggestion review flows reuse the shared service contract
+    - Clarification answers target existing clarification rows by ID
 """
 
 import pytest
 
 from cloop import db
-from cloop.loops import duplicates as loop_duplicates
-from cloop.loops import repo, service
+from cloop.loops import enrichment_review, repo, service
 from cloop.loops.enrichment import LoopSuggestion
-from cloop.loops.errors import SuggestionNotFoundError, ValidationError
+from cloop.loops.errors import ClarificationNotFoundError, SuggestionNotFoundError, ValidationError
 from cloop.settings import get_settings
 
 
@@ -64,13 +64,12 @@ def test_insert_and_read_suggestion(fresh_db, test_loop):
     read_back = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
     assert read_back is not None
     assert read_back["loop_id"] == test_loop["id"]
-    assert read_back["resolution"] is None  # pending
+    assert read_back["resolution"] is None
     assert read_back["model"] == "test-model"
 
 
 def test_list_pending_suggestions(fresh_db, test_loop):
     """Test listing pending suggestions."""
-    # Insert suggestion
     repo.insert_loop_suggestion(
         loop_id=test_loop["id"],
         suggestion_json={"title": "Sug1"},
@@ -92,7 +91,6 @@ def test_resolve_suggestion(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    # Reject it
     success = repo.resolve_loop_suggestion(
         suggestion_id=suggestion_id,
         resolution="rejected",
@@ -100,7 +98,6 @@ def test_resolve_suggestion(fresh_db, test_loop):
     )
     assert success is True
 
-    # Verify it's resolved
     suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
     assert suggestion is not None
     assert suggestion["resolution"] == "rejected"
@@ -109,7 +106,6 @@ def test_resolve_suggestion(fresh_db, test_loop):
 
 def test_list_loop_suggestions_with_filters(fresh_db, test_loop):
     """Test listing with loop_id and resolution filters."""
-    # Insert two suggestions
     repo.insert_loop_suggestion(
         loop_id=test_loop["id"],
         suggestion_json={"title": "Sug1"},
@@ -123,7 +119,6 @@ def test_list_loop_suggestions_with_filters(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    # Resolve one
     repo.resolve_loop_suggestion(
         suggestion_id=suggestion_id2,
         resolution="applied",
@@ -131,34 +126,42 @@ def test_list_loop_suggestions_with_filters(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    # Test filter by loop_id
     by_loop = repo.list_loop_suggestions(loop_id=test_loop["id"], conn=fresh_db)
     assert len(by_loop) == 2
 
-    # Test filter by resolution
     resolved = repo.list_loop_suggestions(resolution="applied", conn=fresh_db)
     assert len(resolved) == 1
     assert resolved[0]["id"] == suggestion_id2
 
 
-def test_service_list_loop_suggestions(fresh_db, test_loop):
-    """Test service layer list function with parsing."""
-    repo.insert_loop_suggestion(
+def test_service_list_loop_suggestions_links_clarifications(fresh_db, test_loop):
+    """Shared suggestion listing should parse payloads and link clarification rows."""
+    suggestion_id = repo.insert_loop_suggestion(
         loop_id=test_loop["id"],
-        suggestion_json={"title": "Test Suggestion", "confidence": {"title": 0.95}},
+        suggestion_json={
+            "title": "Test Suggestion",
+            "confidence": {"title": 0.95},
+            "needs_clarification": ["Who owns this?"],
+        },
         model="test",
         conn=fresh_db,
     )
+    clarification_id = repo.insert_loop_clarification(
+        loop_id=test_loop["id"],
+        question="Who owns this?",
+        conn=fresh_db,
+    )
 
-    suggestions = loop_duplicates.list_loop_suggestions(
+    suggestions = enrichment_review.list_loop_suggestions(
         loop_id=test_loop["id"],
         pending_only=True,
         conn=fresh_db,
     )
 
     assert len(suggestions) == 1
-    assert "parsed" in suggestions[0]
+    assert suggestions[0]["id"] == suggestion_id
     assert suggestions[0]["parsed"]["title"] == "Test Suggestion"
+    assert suggestions[0]["clarifications"][0]["id"] == clarification_id
 
 
 def test_apply_suggestion_partial(fresh_db, test_loop):
@@ -175,18 +178,16 @@ def test_apply_suggestion_partial(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    result = loop_duplicates.apply_suggestion(
+    result = enrichment_review.apply_suggestion(
         suggestion_id=suggestion_id,
-        fields=["title"],  # Only apply title
+        fields=["title"],
         conn=fresh_db,
         settings=get_settings(),
     )
 
     assert result["applied_fields"] == ["title"]
-    # When user specifies fields, "applied" means all requested fields were applied
     assert result["resolution"] == "applied"
 
-    # Verify loop was updated
     updated = repo.read_loop(loop_id=test_loop["id"], conn=fresh_db)
     assert updated is not None
     assert updated.title == "New Title"
@@ -204,21 +205,20 @@ def test_apply_suggestion_all_fields(fresh_db, test_loop):
             "confidence": {
                 "title": 0.95,
                 "summary": settings.autopilot_autoapply_min_confidence,
-                "next_action": 0.5,  # Below threshold
+                "next_action": 0.5,
             },
         },
         model="test",
         conn=fresh_db,
     )
 
-    result = loop_duplicates.apply_suggestion(
+    result = enrichment_review.apply_suggestion(
         suggestion_id=suggestion_id,
-        fields=None,  # Apply all above threshold
+        fields=None,
         conn=fresh_db,
         settings=settings,
     )
 
-    # Should apply title and summary but not next_action
     assert "title" in result["applied_fields"]
     assert "summary" in result["applied_fields"]
     assert "next_action" not in result["applied_fields"]
@@ -233,10 +233,9 @@ def test_reject_suggestion(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    result = loop_duplicates.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+    result = enrichment_review.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
     assert result["resolution"] == "rejected"
 
-    # Verify loop was NOT updated
     unchanged = repo.read_loop(loop_id=test_loop["id"], conn=fresh_db)
     assert unchanged is not None
     assert unchanged.title is None
@@ -251,12 +250,10 @@ def test_cannot_resolve_twice(fresh_db, test_loop):
         conn=fresh_db,
     )
 
-    # First rejection should work
-    loop_duplicates.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+    enrichment_review.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
 
-    # Second apply should fail
     with pytest.raises(ValidationError, match="already resolved"):
-        loop_duplicates.apply_suggestion(
+        enrichment_review.apply_suggestion(
             suggestion_id=suggestion_id,
             conn=fresh_db,
             settings=get_settings(),
@@ -266,7 +263,7 @@ def test_cannot_resolve_twice(fresh_db, test_loop):
 def test_apply_suggestion_not_found(fresh_db):
     """Test applying a non-existent suggestion."""
     with pytest.raises(SuggestionNotFoundError):
-        loop_duplicates.apply_suggestion(
+        enrichment_review.apply_suggestion(
             suggestion_id=99999,
             conn=fresh_db,
             settings=get_settings(),
@@ -280,13 +277,13 @@ def test_suggestion_with_project(fresh_db, test_loop):
         suggestion_json={
             "title": "With Project",
             "project": "TestProject",
-            "confidence": {"title": 0.9, "project": 0.9},  # Both above default threshold
+            "confidence": {"title": 0.9, "project": 0.9},
         },
         model="test",
         conn=fresh_db,
     )
 
-    result = loop_duplicates.apply_suggestion(
+    result = enrichment_review.apply_suggestion(
         suggestion_id=suggestion_id,
         conn=fresh_db,
         settings=get_settings(),
@@ -294,12 +291,10 @@ def test_suggestion_with_project(fresh_db, test_loop):
 
     assert "project" in result["applied_fields"]
 
-    # Verify loop was updated with project
     updated = repo.read_loop(loop_id=test_loop["id"], conn=fresh_db)
     assert updated is not None
     assert updated.title == "With Project"
 
-    # Verify project exists
     project_id = repo.upsert_project(name="TestProject", conn=fresh_db)
     assert updated.project_id == project_id
 
@@ -307,36 +302,78 @@ def test_suggestion_with_project(fresh_db, test_loop):
 class TestClarificationLifecycle:
     """Tests for clarification submission and enrichment integration."""
 
-    def test_submit_clarification_creates_record(self, fresh_db, test_loop):
-        """Submitting clarification creates a record with answer."""
-        # Simulate what the endpoint does
-        with fresh_db:
-            fresh_db.execute(
-                """
-                INSERT INTO loop_clarifications (loop_id, question, answer, answered_at)
-                VALUES (?, ?, ?, datetime('now'))
-                """,
-                (test_loop["id"], "What is the priority?", "High priority"),
-            )
+    def test_submit_clarification_answers_updates_existing_rows(self, fresh_db, test_loop):
+        """Shared clarification submission should answer existing clarification rows."""
+        suggestion_id = repo.insert_loop_suggestion(
+            loop_id=test_loop["id"],
+            suggestion_json={
+                "needs_clarification": ["What is the priority?"],
+                "confidence": {},
+            },
+            model="test",
+            conn=fresh_db,
+        )
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=test_loop["id"],
+            question="What is the priority?",
+            conn=fresh_db,
+        )
 
-        clars = repo.list_answered_clarifications(loop_id=test_loop["id"], conn=fresh_db)
-        assert len(clars) == 1
-        assert clars[0]["question"] == "What is the priority?"
-        assert clars[0]["answer"] == "High priority"
+        result = enrichment_review.submit_clarification_answers(
+            loop_id=test_loop["id"],
+            answers=[
+                enrichment_review.ClarificationAnswerInput(
+                    clarification_id=clarification_id,
+                    answer="High priority",
+                )
+            ],
+            conn=fresh_db,
+        )
+
+        assert result.answered_count == 1
+        assert result.superseded_suggestion_ids == [suggestion_id]
+        assert result.clarifications[0]["id"] == clarification_id
+        assert result.clarifications[0]["answer"] == "High priority"
+
+        unanswered = repo.list_unanswered_clarification_questions(
+            loop_id=test_loop["id"],
+            conn=fresh_db,
+        )
+        assert unanswered == set()
+
+    def test_submit_clarification_answers_rejects_missing_row(self, fresh_db, test_loop):
+        """Clarification submission should fail for missing clarification IDs."""
+        with pytest.raises(ClarificationNotFoundError):
+            enrichment_review.submit_clarification_answers(
+                loop_id=test_loop["id"],
+                answers=[
+                    enrichment_review.ClarificationAnswerInput(
+                        clarification_id=99999,
+                        answer="High priority",
+                    )
+                ],
+                conn=fresh_db,
+            )
 
     def test_clarifications_included_in_enrichment_context(self, fresh_db, test_loop):
         """Answered clarifications are included in enrichment context."""
         from cloop.loops.enrichment import _gather_enrichment_context
 
-        # Add a clarification with answer
-        with fresh_db:
-            fresh_db.execute(
-                """
-                INSERT INTO loop_clarifications (loop_id, question, answer, answered_at)
-                VALUES (?, ?, ?, datetime('now'))
-                """,
-                (test_loop["id"], "Due date?", "Tomorrow"),
-            )
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=test_loop["id"],
+            question="Due date?",
+            conn=fresh_db,
+        )
+        enrichment_review.submit_clarification_answers(
+            loop_id=test_loop["id"],
+            answers=[
+                enrichment_review.ClarificationAnswerInput(
+                    clarification_id=clarification_id,
+                    answer="Tomorrow",
+                )
+            ],
+            conn=fresh_db,
+        )
 
         context = _gather_enrichment_context(
             loop_id=test_loop["id"],
@@ -353,15 +390,11 @@ class TestClarificationLifecycle:
         """Only answered clarifications are included in enrichment context."""
         from cloop.loops.enrichment import _gather_enrichment_context
 
-        # Add an unanswered clarification
-        with fresh_db:
-            fresh_db.execute(
-                """
-                INSERT INTO loop_clarifications (loop_id, question)
-                VALUES (?, ?)
-                """,
-                (test_loop["id"], "Unanswered question?"),
-            )
+        repo.insert_loop_clarification(
+            loop_id=test_loop["id"],
+            question="Unanswered question?",
+            conn=fresh_db,
+        )
 
         context = _gather_enrichment_context(
             loop_id=test_loop["id"],
@@ -372,17 +405,13 @@ class TestClarificationLifecycle:
 
         assert len(context.answered_clarifications) == 0
 
-    def test_api_submit_clarification_endpoint(self, fresh_db, test_loop, monkeypatch):
-        """POST /{loop_id}/clarify creates clarification records."""
-
-        # Configure test database
+    def test_api_submit_clarification_endpoint(self, monkeypatch):
+        """POST /{loop_id}/clarifications/answer answers existing clarification rows."""
         import tempfile
 
         from fastapi.testclient import TestClient
 
-        from cloop import db
         from cloop.main import app
-        from cloop.settings import get_settings
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
@@ -390,24 +419,42 @@ class TestClarificationLifecycle:
             settings = get_settings()
             db.init_databases(settings)
 
-            # Create a test loop in the temp database
             with db.core_connection(settings) as conn:
-                loop = service.capture_loop(
-                    raw_text="Test loop for clarification API",
-                    captured_at_iso="2026-02-18T12:00:00+00:00",
-                    client_tz_offset_min=0,
-                    status=service.LoopStatus.INBOX,
-                    conn=conn,
-                )
+                with conn:
+                    loop = service.capture_loop(
+                        raw_text="Test loop for clarification API",
+                        captured_at_iso="2026-02-18T12:00:00+00:00",
+                        client_tz_offset_min=0,
+                        status=service.LoopStatus.INBOX,
+                        conn=conn,
+                    )
+                    suggestion_id = repo.insert_loop_suggestion(
+                        loop_id=loop["id"],
+                        suggestion_json={
+                            "needs_clarification": ["Priority?", "Due?"],
+                            "confidence": {},
+                        },
+                        model="test",
+                        conn=conn,
+                    )
+                    first_clarification_id = repo.insert_loop_clarification(
+                        loop_id=loop["id"],
+                        question="Priority?",
+                        conn=conn,
+                    )
+                    second_clarification_id = repo.insert_loop_clarification(
+                        loop_id=loop["id"],
+                        question="Due?",
+                        conn=conn,
+                    )
 
             client = TestClient(app)
-
             response = client.post(
-                f"/loops/{loop['id']}/clarify",
+                f"/loops/{loop['id']}/clarifications/answer",
                 json={
                     "answers": [
-                        {"question": "Priority?", "answer": "High"},
-                        {"question": "Due?", "answer": "Friday"},
+                        {"clarification_id": first_clarification_id, "answer": "High"},
+                        {"clarification_id": second_clarification_id, "answer": "Friday"},
                     ]
                 },
             )
@@ -417,18 +464,15 @@ class TestClarificationLifecycle:
             assert data["loop_id"] == loop["id"]
             assert data["answered_count"] == 2
             assert len(data["clarifications"]) == 2
+            assert data["superseded_suggestion_ids"] == [suggestion_id]
 
-    def test_api_get_clarifications_endpoint(self, fresh_db, test_loop, monkeypatch):
+    def test_api_get_clarifications_endpoint(self, monkeypatch):
         """GET /{loop_id}/clarifications returns clarification list."""
-
-        # Configure test database
         import tempfile
 
         from fastapi.testclient import TestClient
 
-        from cloop import db
         from cloop.main import app
-        from cloop.settings import get_settings
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
@@ -436,27 +480,26 @@ class TestClarificationLifecycle:
             settings = get_settings()
             db.init_databases(settings)
 
-            # Create a test loop in the temp database
             with db.core_connection(settings) as conn:
-                loop = service.capture_loop(
-                    raw_text="Test loop for get clarifications",
-                    captured_at_iso="2026-02-18T12:00:00+00:00",
-                    client_tz_offset_min=0,
-                    status=service.LoopStatus.INBOX,
-                    conn=conn,
-                )
+                with conn:
+                    loop = service.capture_loop(
+                        raw_text="Test loop for get clarifications",
+                        captured_at_iso="2026-02-18T12:00:00+00:00",
+                        client_tz_offset_min=0,
+                        status=service.LoopStatus.INBOX,
+                        conn=conn,
+                    )
+                    clarification_id = repo.insert_loop_clarification(
+                        loop_id=loop["id"],
+                        question="Q1?",
+                        conn=conn,
+                    )
 
             client = TestClient(app)
-
-            # Submit clarifications first
-            client.post(
-                f"/loops/{loop['id']}/clarify",
-                json={"answers": [{"question": "Q1?", "answer": "A1"}]},
-            )
-
-            # Now fetch them
             response = client.get(f"/loops/{loop['id']}/clarifications")
 
             assert response.status_code == 200
             data = response.json()
-            assert data["count"] >= 1
+            assert data["count"] == 1
+            assert data["clarifications"][0]["id"] == clarification_id
+            assert data["clarifications"][0]["question"] == "Q1?"

@@ -266,6 +266,17 @@ cloop tags [--format json|table]
 # List all projects
 cloop projects [--format json|table]
 
+# Review enrichment suggestions
+cloop suggestion list [--loop-id ID] [--pending] [--format json|table]
+cloop suggestion show <suggestion-id> [--format json|table]
+cloop suggestion apply <suggestion-id> [--fields title,tags] [--format json|table]
+cloop suggestion reject <suggestion-id> [--format json|table]
+
+# Review and answer clarification questions
+cloop clarification list --loop-id <loop-id> [--format json|table]
+cloop clarification answer <clarification-id> --loop-id <loop-id> --answer "Friday"
+cloop clarification answer-many --loop-id <loop-id> --item 12=Friday --item 13=Finance
+
 # Export loops
 cloop export [--output FILE] [--format json|table]
 # Writes to stdout if no --output specified
@@ -378,6 +389,14 @@ Endpoints:
 - `PATCH /loops/{id}`: update loop fields.
 - `POST /loops/{id}/close`: close a loop (completed or dropped).
 - `POST /loops/{id}/enrich`: run synchronous enrichment for a loop and return the updated loop plus suggestion metadata.
+- `GET /loops/{id}/suggestions`: list suggestions for a loop, including linked clarification rows.
+- `GET /loops/suggestions/pending`: list unresolved suggestions across loops.
+- `GET /loops/suggestions/{suggestion_id}`: fetch one suggestion with parsed payload and linked clarifications.
+- `POST /loops/suggestions/{suggestion_id}/apply`: apply suggestion fields to the target loop.
+- `POST /loops/suggestions/{suggestion_id}/reject`: reject a suggestion.
+- `GET /loops/{id}/clarifications`: list clarification rows for a loop.
+- `POST /loops/{id}/clarifications/answer`: answer one or more clarification rows by `clarification_id`.
+- `POST /loops/clarifications/{clarification_id}/answer`: answer a single clarification row.
 - `GET /loops/next`: deterministic “Next 5” buckets.
 - `GET /loops/tags`: list all tags in use.
 - `GET /loops/events/stream`: SSE stream of loop events (capture, update, status changes, enrichment).
@@ -556,7 +575,7 @@ All mutating endpoints support idempotency for safe retries over unreliable netw
 - Same key + same payload: replays prior response without additional writes
 - Same key + different payload: returns 409 Conflict
 
-**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`).
+**MCP tools**: Pass `request_id` argument to any mutation tool (`loop.create`, `loop.update`, `loop.close`, `loop.transition`, `loop.snooze`, `loop.enrich`, `suggestion.apply`, `suggestion.reject`, `clarification.answer`, `clarification.answer_many`).
 - Same request_id + same args: replays prior response
 - Same request_id + different args: raises `ToolError`
 
@@ -682,11 +701,17 @@ uv run cloop-mcp
 
 Exposed tools include `chat.complete`, `loop.create`, `loop.update`, `loop.close`, `loop.get`,
 `loop.next`, `loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.snooze`,
-`loop.enrich`, `project.list`, `rag.ask`, and `rag.ingest`.
+`loop.enrich`, `suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`,
+`clarification.list`, `clarification.answer`, `clarification.answer_many`, `project.list`,
+`rag.ask`, and `rag.ingest`.
 
 `chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
 endpoint and `cloop chat`, so tool behavior, grounding options, metadata, sources, and
 interaction logging stay aligned. MCP currently exposes the non-streaming chat contract.
+
+`suggestion.*` and `clarification.*` reuse the shared enrichment-review service contract as the HTTP,
+web, and CLI surfaces, so suggestion payloads, linked clarification rows, and clarification-answer
+semantics stay aligned.
 
 `rag.ask` and `rag.ingest` reuse the same shared retrieval execution contract as the HTTP and CLI surfaces,
 so answer/source semantics and ingest bookkeeping stay aligned.

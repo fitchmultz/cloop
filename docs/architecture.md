@@ -44,6 +44,7 @@ flowchart LR
 - `src/cloop/loops/service.py`: loop lifecycle operations and state transitions.
 - `src/cloop/loops/write_ops.py`: canonical write-operation helpers and mutation invariants.
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
+- `src/cloop/loops/enrichment_review.py`: shared suggestion/clarification review contract used by HTTP, web, CLI, and MCP after enrichment runs.
 - `src/cloop/loops/prioritization.py`, `review.py`, `timers.py`, `claims.py`: specialized loop behavior.
 - `src/cloop/storage/*`: feature-owned persistence for notes, memory, idempotency, interaction logs, and scheduler state.
 
@@ -81,6 +82,12 @@ flowchart LR
 2. `src/cloop/chat_orchestration.py` resolves effective options and builds loop/memory/RAG grounding.
 3. `src/cloop/chat_execution.py` runs manual tools or bridge-backed chat/tool loops and shapes the canonical response.
 4. Surface-specific layers only handle transport details (HTTP JSON/SSE, CLI text rendering, or MCP tool registration), not chat semantics.
+
+### Suggestion and clarification review (HTTP + Web + CLI + MCP)
+1. Enrichment persists a suggestion row plus clarification question rows for follow-up review.
+2. `src/cloop/loops/enrichment_review.py` reads suggestion payloads, links them to persisted clarification IDs, and owns apply/reject/answer semantics.
+3. HTTP routes, the web UI, CLI commands, and MCP tools all reuse that shared contract instead of inventing transport-specific clarification payloads.
+4. Answering clarifications targets existing clarification rows and supersedes stale clarification-dependent suggestions before the next enrichment pass.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.

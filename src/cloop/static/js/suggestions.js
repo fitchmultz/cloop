@@ -95,18 +95,20 @@ export function renderSuggestionPanel(loopCard, loop) {
 
     // Needs clarification section
     let clarifyHtml = '';
-    if (parsed.needs_clarification && parsed.needs_clarification.length > 0) {
+    const clarificationItems = Array.isArray(suggestion.clarifications)
+      ? suggestion.clarifications
+      : [];
+    if (clarificationItems.length > 0) {
       clarifyHtml = `
         <div class="needs-clarification">
           <div class="needs-clarification-title">AI needs clarification:</div>
-          ${parsed.needs_clarification.map((q, idx) => `
+          ${clarificationItems.map((clarification) => `
             <div class="needs-clarification-item">
-              <div class="clarification-question">${escapeHtml(q)}</div>
+              <div class="clarification-question">${escapeHtml(clarification.question)}</div>
               <input type="text"
                      class="clarification-input"
-                     data-question="${escapeHtml(q)}"
-                     placeholder="Type your answer..."
-                     data-idx="${idx}">
+                     data-clarification-id="${clarification.id}"
+                     placeholder="Type your answer...">
             </div>
           `).join('')}
           <button class="clarification-submit-btn"
@@ -241,10 +243,10 @@ async function submitClarificationAnswers(loopId, panel) {
   const answers = [];
 
   inputs.forEach(input => {
-    const question = input.dataset.question;
+    const clarificationId = Number.parseInt(input.dataset.clarificationId || '', 10);
     const answer = input.value.trim();
-    if (question && answer) {
-      answers.push({ question, answer });
+    if (Number.isInteger(clarificationId) && answer) {
+      answers.push({ clarification_id: clarificationId, answer });
     }
   });
 

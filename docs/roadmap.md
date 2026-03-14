@@ -36,32 +36,16 @@ Legend:
 | RAG ask | yes | yes | yes | yes | HTTP, CLI, and MCP now reuse the shared `rag_execution` contract on top of shared ask orchestration. |
 | RAG ingest | yes | yes | yes | yes | HTTP, CLI, and MCP now share ingest execution and bookkeeping (`files`, `chunks`, `files_skipped`, `failed_files`). |
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
-| Suggestions and clarifications | yes | yes | partial | no | Web + HTTP are strongest; CLI has suggestion commands but not full clarification parity. |
+| Suggestions and clarifications | yes | yes | yes | yes | Suggestion payloads now link persisted clarification rows, and all surfaces answer existing clarification IDs through the same review contract. |
 | Memory CRUD | yes | no | no | no | Memory exists as chat context substrate but is only directly managed over HTTP. |
 | Semantic loop similarity | partial | partial | no | no | Used internally for duplicates/related context, not yet a first-class cross-surface feature. |
 
 ## Execution Order
 
-The next work should happen in this order so that the newly stabilized shared chat
-and enrichment contracts can propagate outward without rework.
+The next work should happen in this order so that the newly stabilized shared chat,
+enrichment, and review contracts can propagate outward without rework.
 
-### Phase 1 — Make clarification and suggestion workflows truly multi-surface
-
-Goal: stop treating enrichment as triggerable everywhere but reviewable only in a
-subset of surfaces.
-
-- Add clarification review/completion flows outside HTTP/web.
-- Align suggestion listing, inspection, apply, and reject behavior across CLI and MCP.
-- Keep enrichment-result payloads and follow-up actions grounded in the same loop
-  suggestion data model instead of transport-specific wrappers.
-
-Why first:
-
-- The explicit enrich trigger contract is now stable, so the next churn-reducing
-  step is to stabilize what users can do with the resulting suggestions.
-- Clarification parity depends on the enrichment payload shape that is now settled.
-
-### Phase 2 — Add direct memory management beyond raw HTTP
+### Phase 1 — Add direct memory management beyond raw HTTP
 
 Goal: expose memory as a first-class capability in the interfaces where grounded chat
 already benefits from it.
@@ -72,13 +56,12 @@ already benefits from it.
 - Keep chat grounding on top of shared memory storage rather than introducing
   transport-owned memory state.
 
-Why here:
+Why first now:
 
-- Memory already matters for grounded chat, but direct management should come after
-  the main chat/retrieval contracts are settled in every transport that needs them.
-- This sequencing avoids adding more moving parts before broader suggestion/memory UX parity is done.
+- Chat, retrieval, enrichment, and enrichment follow-up contracts are now shared.
+- Memory management is the largest remaining AI-adjacent capability still trapped in raw HTTP.
 
-### Phase 3 — Turn internal AI capabilities into explicit product features
+### Phase 2 — Turn internal AI capabilities into explicit product features
 
 Goal: promote the strongest existing internal AI signals into first-class features.
 
@@ -86,12 +69,12 @@ Goal: promote the strongest existing internal AI signals into first-class featur
 - Bulk enrichment across filtered loop sets.
 - Better duplicate/related-loop review workflows built on the current similarity machinery.
 
-Why after parity work:
+Why here:
 
 - These are product bets built on top of already-shared infrastructure.
-- They should not land while core transport contracts are still expanding.
+- They should not land while direct memory management parity is still missing.
 
-### Phase 4 — Add richer AI-native workflows
+### Phase 3 — Add richer AI-native workflows
 
 Goal: move beyond one-shot actions only after the foundations are stable and shared.
 
@@ -109,18 +92,15 @@ Why last:
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Clarification + suggestion parity session**
-   - add CLI/MCP clarification review flows
-   - align suggestion list/show/apply/reject behavior everywhere it matters
-2. **Memory management parity session**
+1. **Memory management parity session**
    - add web UI memory management
    - add CLI memory commands
    - add MCP memory tools only if the contract stays narrow and deterministic
-3. **Productized AI features session**
+2. **Productized AI features session**
    - semantic search
    - duplicate/related review improvements
    - bulk enrichment workflows
-4. **Richer AI-native workflows session**
+3. **Richer AI-native workflows session**
    - conversational clarification/enrichment loops
    - multi-step planning/review flows on top of the stabilized shared contracts
 

@@ -399,7 +399,7 @@ export async function rejectSuggestion(suggestionId) {
 }
 
 export async function submitClarification(loopId, answers) {
-  const response = await fetch(`/loops/${loopId}/clarify`, {
+  const response = await fetch(`/loops/${loopId}/clarifications/answer`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ answers }),

@@ -1821,6 +1821,157 @@ def test_loop_enrich_command_not_found(
     assert "not found" in captured.err
 
 
+def test_suggestion_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
+    """Suggestion CLI commands should review and resolve shared suggestion records."""
+    from cloop.loops import repo
+
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    cli._capture_command(parser.parse_args(["capture", "Review roadmap"]), settings)
+    capsys.readouterr()
+
+    with db.core_connection(settings) as conn:
+        with conn:
+            suggestion_id = repo.insert_loop_suggestion(
+                loop_id=1,
+                suggestion_json={
+                    "title": "Roadmap review",
+                    "confidence": {"title": 0.95},
+                },
+                model="mock-organizer",
+                conn=conn,
+            )
+            rejected_suggestion_id = repo.insert_loop_suggestion(
+                loop_id=1,
+                suggestion_json={
+                    "summary": "Stale summary",
+                    "confidence": {"summary": 0.95},
+                },
+                model="mock-organizer",
+                conn=conn,
+            )
+
+    exit_code = cli.main(["suggestion", "list", "--loop-id", "1"])
+    assert exit_code == 0
+    listed = _get_last_json(capsys)
+    assert {item["id"] for item in listed} == {suggestion_id, rejected_suggestion_id}
+
+    exit_code = cli.main(["suggestion", "show", str(suggestion_id)])
+    assert exit_code == 0
+    shown = _get_last_json(capsys)
+    assert shown["parsed"]["title"] == "Roadmap review"
+
+    exit_code = cli.main(["suggestion", "apply", str(suggestion_id)])
+    assert exit_code == 0
+    applied = _get_last_json(capsys)
+    assert applied["loop"]["title"] == "Roadmap review"
+    assert applied["resolution"] == "applied"
+
+    exit_code = cli.main(["suggestion", "reject", str(rejected_suggestion_id)])
+    assert exit_code == 0
+    rejected = _get_last_json(capsys)
+    assert rejected == {"suggestion_id": rejected_suggestion_id, "resolution": "rejected"}
+
+
+def test_clarification_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    """Clarification CLI commands should list and answer existing clarification rows."""
+    from cloop.loops import repo
+
+    settings = _make_settings(tmp_path, monkeypatch)
+    parser = cli.build_parser()
+
+    cli._capture_command(parser.parse_args(["capture", "Plan budget review"]), settings)
+    capsys.readouterr()
+
+    with db.core_connection(settings) as conn:
+        with conn:
+            first_suggestion_id = repo.insert_loop_suggestion(
+                loop_id=1,
+                suggestion_json={
+                    "needs_clarification": ["What is the deadline?"],
+                    "confidence": {},
+                },
+                model="mock-organizer",
+                conn=conn,
+            )
+            first_clarification_id = repo.insert_loop_clarification(
+                loop_id=1,
+                question="What is the deadline?",
+                conn=conn,
+            )
+            second_suggestion_id = repo.insert_loop_suggestion(
+                loop_id=1,
+                suggestion_json={
+                    "needs_clarification": ["Who owns it?", "How much will it cost?"],
+                    "confidence": {},
+                },
+                model="mock-organizer",
+                conn=conn,
+            )
+            second_clarification_id = repo.insert_loop_clarification(
+                loop_id=1,
+                question="Who owns it?",
+                conn=conn,
+            )
+            third_clarification_id = repo.insert_loop_clarification(
+                loop_id=1,
+                question="How much will it cost?",
+                conn=conn,
+            )
+
+    exit_code = cli.main(["clarification", "list", "--loop-id", "1"])
+    assert exit_code == 0
+    listed = _get_last_json(capsys)
+    assert {item["id"] for item in listed} == {
+        first_clarification_id,
+        second_clarification_id,
+        third_clarification_id,
+    }
+
+    exit_code = cli.main(
+        [
+            "clarification",
+            "answer",
+            str(first_clarification_id),
+            "--loop-id",
+            "1",
+            "--answer",
+            "Friday",
+        ]
+    )
+    assert exit_code == 0
+    single = _get_last_json(capsys)
+    assert single["answered_count"] == 1
+    assert single["superseded_suggestion_ids"] == [first_suggestion_id]
+
+    exit_code = cli.main(
+        [
+            "clarification",
+            "answer-many",
+            "--loop-id",
+            "1",
+            "--item",
+            f"{second_clarification_id}=Finance",
+            "--item",
+            f"{third_clarification_id}=$500",
+        ]
+    )
+    assert exit_code == 0
+    batch = _get_last_json(capsys)
+    assert batch["answered_count"] == 2
+    assert batch["superseded_suggestion_ids"] == [second_suggestion_id]
+
+    exit_code = cli.main(["suggestion", "list", "--loop-id", "1", "--pending"])
+    assert exit_code == 0
+    pending = _get_last_json(capsys)
+    assert pending == []
+
+
 def test_loop_snooze_command_duration(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
 ) -> None:

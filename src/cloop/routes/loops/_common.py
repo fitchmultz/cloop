@@ -37,6 +37,8 @@ from ...loops.errors import (
 )
 from ...schemas.loops import (
     BulkResultItem,
+    ClarificationResponse,
+    ClarificationSubmitResponse,
     DependencyInfo,
     LoopCommentResponse,
     LoopEnrichmentResponse,
@@ -44,6 +46,8 @@ from ...schemas.loops import (
     LoopTemplateResponse,
     LoopViewResponse,
     LoopWithDependenciesResponse,
+    SuggestionListResponse,
+    SuggestionResponse,
     TimerStatusResponse,
     TimeSessionResponse,
     WebhookDeliveryResponse,
@@ -154,6 +158,68 @@ def build_loop_enrichment_response(result: Mapping[str, Any]) -> LoopEnrichmentR
         suggestion_id=result["suggestion_id"],
         applied_fields=list(result.get("applied_fields") or []),
         needs_clarification=list(result.get("needs_clarification") or []),
+    )
+
+
+def build_clarification_response(clarification: Mapping[str, Any]) -> ClarificationResponse:
+    """Convert a clarification payload into the route response model."""
+    return ClarificationResponse(**clarification)
+
+
+def build_clarification_responses(
+    clarifications: Sequence[Mapping[str, Any]],
+) -> list[ClarificationResponse]:
+    """Convert multiple clarification payloads into route response models."""
+    return [build_clarification_response(clarification) for clarification in clarifications]
+
+
+def build_clarification_submit_response(
+    result: Mapping[str, Any],
+) -> ClarificationSubmitResponse:
+    """Convert a clarification-submission payload into the route response model."""
+    return ClarificationSubmitResponse(
+        loop_id=result["loop_id"],
+        answered_count=result["answered_count"],
+        clarifications=build_clarification_responses(result.get("clarifications", [])),
+        superseded_suggestion_ids=list(result.get("superseded_suggestion_ids") or []),
+        message=result.get(
+            "message",
+            "Clarifications recorded. Re-enrich to generate an updated suggestion.",
+        ),
+    )
+
+
+def build_suggestion_response(suggestion: Mapping[str, Any]) -> SuggestionResponse:
+    """Convert a suggestion payload into the route response model."""
+    return SuggestionResponse(
+        id=int(suggestion["id"]),
+        loop_id=int(suggestion["loop_id"]),
+        suggestion_json=str(suggestion["suggestion_json"]),
+        parsed=dict(suggestion["parsed"]),
+        clarifications=build_clarification_responses(suggestion.get("clarifications", [])),
+        model=str(suggestion["model"]),
+        created_at=str(suggestion["created_at"]),
+        resolution=str(suggestion["resolution"])
+        if suggestion.get("resolution") is not None
+        else None,
+        resolved_at=(
+            str(suggestion["resolved_at"]) if suggestion.get("resolved_at") is not None else None
+        ),
+        resolved_fields_json=(
+            str(suggestion["resolved_fields_json"])
+            if suggestion.get("resolved_fields_json") is not None
+            else None
+        ),
+    )
+
+
+def build_suggestion_list_response(
+    suggestions: Sequence[Mapping[str, Any]],
+) -> SuggestionListResponse:
+    """Convert suggestion payloads into the list response model."""
+    return SuggestionListResponse(
+        suggestions=[build_suggestion_response(suggestion) for suggestion in suggestions],
+        count=len(suggestions),
     )
 
 

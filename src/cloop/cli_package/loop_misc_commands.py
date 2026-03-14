@@ -4,7 +4,8 @@ Purpose:
     Implement CLI command handlers for miscellaneous loop operations.
 
 Responsibilities:
-    - Handle review, events, undo, metrics, tags, projects, export, import, and suggestions
+    - Handle review, events, undo, metrics, tags, projects, export/import,
+      suggestions, and clarifications
     - Normalize DB orchestration, expected error handling, and output emission
       through the shared CLI runtime
 
@@ -23,11 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from .. import db
-from ..loops import duplicates as loop_duplicates
+from ..loops import enrichment_review, repo, service
 from ..loops import events as loop_events
 from ..loops import read_service as loop_read_service
-from ..loops import repo, service
 from ..loops.errors import (
+    ClarificationNotFoundError,
     LoopNotFoundError,
     SuggestionNotFoundError,
     UndoNotPossibleError,
@@ -368,7 +369,7 @@ def suggestion_list_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion list' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_duplicates.list_loop_suggestions(
+        action=lambda conn: enrichment_review.list_loop_suggestions(
             loop_id=args.loop_id,
             pending_only=args.pending,
             limit=args.limit,
@@ -380,18 +381,19 @@ def suggestion_list_command(args: Namespace, settings: Settings) -> int:
 
 def suggestion_show_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion show' command."""
-
-    def _action(conn: Any) -> dict[str, Any]:
-        suggestion = repo.read_loop_suggestion(suggestion_id=args.id, conn=conn)
-        if not suggestion:
-            fail_cli(f"suggestion {args.id} not found", exit_code=2)
-        suggestion["parsed"] = json.loads(suggestion["suggestion_json"])
-        return suggestion
-
     return run_cli_db_action(
         settings=settings,
-        action=_action,
+        action=lambda conn: enrichment_review.get_loop_suggestion(
+            suggestion_id=args.id,
+            conn=conn,
+        ),
         output_format=args.format,
+        error_handlers=[
+            error_handler(
+                SuggestionNotFoundError,
+                lambda _exc: cli_error(f"suggestion {args.id} not found", exit_code=2),
+            )
+        ],
     )
 
 
@@ -400,7 +402,7 @@ def suggestion_apply_command(args: Namespace, settings: Settings) -> int:
     fields = args.fields.split(",") if args.fields else None
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_duplicates.apply_suggestion(
+        action=lambda conn: enrichment_review.apply_suggestion(
             suggestion_id=args.id,
             fields=fields,
             conn=conn,
@@ -421,12 +423,105 @@ def suggestion_reject_command(args: Namespace, settings: Settings) -> int:
     """Handle 'cloop suggestion reject' command."""
     return run_cli_db_action(
         settings=settings,
-        action=lambda conn: loop_duplicates.reject_suggestion(suggestion_id=args.id, conn=conn),
+        action=lambda conn: enrichment_review.reject_suggestion(
+            suggestion_id=args.id,
+            conn=conn,
+        ),
         output_format=args.format,
         error_handlers=[
             error_handler(
                 SuggestionNotFoundError,
                 lambda _exc: cli_error(f"suggestion {args.id} not found", exit_code=2),
+            ),
+            *_standard_error_handlers(),
+        ],
+    )
+
+
+def clarification_list_command(args: Namespace, settings: Settings) -> int:
+    """Handle 'cloop clarification list' command."""
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: enrichment_review.list_loop_clarifications(
+            loop_id=args.loop_id,
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda _exc: cli_error(f"loop {args.loop_id} not found", exit_code=2),
+            )
+        ],
+    )
+
+
+def clarification_answer_command(args: Namespace, settings: Settings) -> int:
+    """Handle 'cloop clarification answer' command."""
+    answer_input = enrichment_review.ClarificationAnswerInput(
+        clarification_id=args.id,
+        answer=args.answer,
+    )
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: enrichment_review.submit_clarification_answers(
+            loop_id=args.loop_id,
+            answers=[answer_input],
+            conn=conn,
+        ).to_payload(),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda _exc: cli_error(f"loop {args.loop_id} not found", exit_code=2),
+            ),
+            error_handler(
+                ClarificationNotFoundError,
+                lambda _exc: cli_error(f"clarification {args.id} not found", exit_code=2),
+            ),
+            *_standard_error_handlers(),
+        ],
+    )
+
+
+def clarification_answer_many_command(args: Namespace, settings: Settings) -> int:
+    """Handle 'cloop clarification answer-many' command."""
+
+    def _parse_item(item: str) -> enrichment_review.ClarificationAnswerInput:
+        clarification_text, separator, answer = item.partition("=")
+        if not separator:
+            fail_cli(f"invalid --item value '{item}' (expected <clarification_id>=<answer>)")
+        try:
+            clarification_id = int(clarification_text)
+        except ValueError:
+            fail_cli(f"invalid clarification id in --item value '{item}' (expected integer id)")
+        if not answer.strip():
+            fail_cli(f"invalid --item value '{item}' (answer must not be empty)")
+        return enrichment_review.ClarificationAnswerInput(
+            clarification_id=clarification_id,
+            answer=answer,
+        )
+
+    answer_inputs = [_parse_item(item) for item in args.item]
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: enrichment_review.submit_clarification_answers(
+            loop_id=args.loop_id,
+            answers=answer_inputs,
+            conn=conn,
+        ).to_payload(),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda _exc: cli_error(f"loop {args.loop_id} not found", exit_code=2),
+            ),
+            error_handler(
+                ClarificationNotFoundError,
+                lambda exc: cli_error(
+                    f"clarification {exc.clarification_id} not found",
+                    exit_code=2,
+                ),
             ),
             *_standard_error_handlers(),
         ],

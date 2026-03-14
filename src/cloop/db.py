@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 33
+SCHEMA_VERSION: int = 34
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -299,6 +299,9 @@ CREATE TABLE loop_clarifications (
 
 CREATE INDEX idx_loop_clarifications_loop_id ON loop_clarifications(loop_id);
 CREATE INDEX idx_loop_clarifications_answered ON loop_clarifications(answered_at);
+CREATE UNIQUE INDEX idx_loop_clarifications_pending_question
+    ON loop_clarifications(loop_id, question)
+    WHERE answer IS NULL;
 
 CREATE TABLE loop_embeddings (
     loop_id INTEGER PRIMARY KEY,
@@ -577,6 +580,23 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    34: """
+    DELETE FROM loop_clarifications
+    WHERE id IN (
+        SELECT duplicate.id
+        FROM loop_clarifications AS duplicate
+        JOIN loop_clarifications AS keeper
+          ON duplicate.loop_id = keeper.loop_id
+         AND duplicate.question = keeper.question
+         AND duplicate.answer IS NULL
+         AND keeper.answer IS NULL
+         AND duplicate.id > keeper.id
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_loop_clarifications_pending_question
+        ON loop_clarifications(loop_id, question)
+        WHERE answer IS NULL;
+    """,
     33: """
     ALTER TABLE loops ADD COLUMN due_date TEXT;
 

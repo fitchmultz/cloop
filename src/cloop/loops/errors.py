@@ -91,6 +91,17 @@ class SuggestionNotFoundError(NotFoundError):
         self.suggestion_id = suggestion_id
 
 
+class ClarificationNotFoundError(NotFoundError):
+    """Raised when a clarification with the specified ID does not exist."""
+
+    def __init__(self, clarification_id: int) -> None:
+        super().__init__(
+            f"Clarification not found: {clarification_id}",
+            detail=f"clarification_id={clarification_id}",
+        )
+        self.clarification_id = clarification_id
+
+
 class ValidationError(CloopError):
     """Raised when input validation fails.
 

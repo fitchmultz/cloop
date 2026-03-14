@@ -1,16 +1,15 @@
 """Duplicate detection and merge functions for loops.
 
 Purpose:
-    Provide duplicate detection capabilities and merge operations for loop management,
-    including merge previews, conflict detection, and suggestion handling.
+    Provide duplicate detection capabilities and merge operations for loop management.
 
 Responsibilities:
     - Detect duplicate loop candidates
     - Preview merge operations and identify conflicts
     - Execute merge operations with field resolution
-    - Manage loop suggestions (apply/reject)
 
 Non-scope:
+    - Enrichment suggestion and clarification review flows (see enrichment_review.py)
     - Direct database schema management (see db.py)
     - Repository operations (see repo.py)
     - HTTP request/response handling (see routes/)
@@ -18,7 +17,6 @@ Non-scope:
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -27,7 +25,7 @@ from .. import typingx
 from ..settings import Settings, get_settings
 from . import repo
 from .claim_state import read_active_claim
-from .errors import LoopNotFoundError, SuggestionNotFoundError, ValidationError
+from .errors import LoopNotFoundError, ValidationError
 from .models import (
     LoopEventType,
     LoopRecord,
@@ -346,188 +344,3 @@ def find_duplicate_candidates_for_loop(
         }
         for c in candidates
     ]
-
-
-@typingx.validate_io()
-def list_loop_suggestions(
-    *,
-    loop_id: int | None = None,
-    pending_only: bool = False,
-    limit: int = 50,
-    conn: sqlite3.Connection,
-) -> list[dict[str, Any]]:
-    """List suggestions with parsed suggestion_json for convenience.
-
-    Args:
-        loop_id: Optional loop ID to filter by
-        pending_only: If True, only return suggestions awaiting resolution
-        limit: Maximum number of results
-        conn: Database connection
-
-    Returns:
-        List of suggestion dicts with 'parsed' field containing the JSON
-    """
-    if pending_only:
-        suggestions = repo.list_pending_suggestions(conn=conn, limit=limit)
-    else:
-        suggestions = repo.list_loop_suggestions(loop_id=loop_id, limit=limit, conn=conn)
-
-    for s in suggestions:
-        s["parsed"] = json.loads(s["suggestion_json"])
-    return suggestions
-
-
-@typingx.validate_io()
-def apply_suggestion(
-    *,
-    suggestion_id: int,
-    fields: list[str] | None = None,
-    conn: sqlite3.Connection,
-    settings: Settings,
-) -> dict[str, Any]:
-    """Apply a suggestion to its loop. If fields specified, only apply those.
-
-    Args:
-        suggestion_id: The suggestion ID to apply
-        fields: Optional list of field names to apply (if None, apply all above threshold)
-        conn: Database connection
-        settings: Application settings for thresholds
-
-    Returns:
-        Dict with loop, suggestion_id, applied_fields, and resolution
-
-    Raises:
-        SuggestionNotFoundError: If suggestion doesn't exist
-        ValidationError: If suggestion already resolved
-        LoopNotFoundError: If the target loop doesn't exist
-    """
-    suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=conn)
-    if not suggestion:
-        raise SuggestionNotFoundError(suggestion_id)
-
-    if suggestion.get("resolution"):
-        raise ValidationError(
-            "suggestion", f"Suggestion already resolved: {suggestion['resolution']}"
-        )
-
-    loop_id = suggestion["loop_id"]
-    loop = repo.read_loop(loop_id=loop_id, conn=conn)
-    if not loop:
-        raise LoopNotFoundError(loop_id)
-
-    parsed = json.loads(suggestion["suggestion_json"])
-    applied_fields: list[str] = []
-
-    # Determine which fields to apply
-    if fields:
-        # User specified fields
-        apply_set = set(fields)
-    else:
-        # Apply all fields above confidence threshold
-        apply_set = {
-            f
-            for f, c in parsed.get("confidence", {}).items()
-            if c >= settings.autopilot_autoapply_min_confidence
-        }
-
-    # Build update dict
-    update_fields: dict[str, Any] = {}
-    field_mapping = {
-        "title": ("title", parsed.get("title")),
-        "summary": ("summary", parsed.get("summary")),
-        "definition_of_done": ("definition_of_done", parsed.get("definition_of_done")),
-        "next_action": ("next_action", parsed.get("next_action")),
-        "due_at": ("due_at_utc", parsed.get("due_at")),
-        "snooze_until": ("snooze_until_utc", parsed.get("snooze_until")),
-        "activation_energy": ("activation_energy", parsed.get("activation_energy")),
-        "time_minutes": ("time_minutes", parsed.get("time_minutes")),
-        "urgency": ("urgency", parsed.get("urgency")),
-        "importance": ("importance", parsed.get("importance")),
-    }
-
-    for field_name, (db_field, value) in field_mapping.items():
-        if field_name in apply_set and value is not None:
-            update_fields[db_field] = value
-            applied_fields.append(field_name)
-
-    # Handle project separately (needs upsert)
-    if "project" in apply_set and parsed.get("project"):
-        project_id = repo.upsert_project(name=parsed["project"], conn=conn)
-        update_fields["project_id"] = project_id
-        applied_fields.append("project")
-
-    with conn:
-        # Handle tags separately (needs tag table)
-        if "tags" in apply_set and parsed.get("tags"):
-            repo.replace_loop_tags(loop_id=loop_id, tag_names=parsed["tags"], conn=conn)
-            applied_fields.append("tags")
-
-        # Update loop
-        if update_fields:
-            repo.update_loop_fields(loop_id=loop_id, fields=update_fields, conn=conn)
-
-        # Mark suggestion resolved
-        resolution = "applied" if len(applied_fields) == len(apply_set) else "partial"
-        repo.resolve_loop_suggestion(
-            suggestion_id=suggestion_id,
-            resolution=resolution,
-            applied_fields=applied_fields,
-            conn=conn,
-        )
-
-    # Return updated loop
-    updated_loop = repo.read_loop(loop_id=loop_id, conn=conn)
-    if updated_loop:
-        project = repo.read_project_name(project_id=updated_loop.project_id, conn=conn)
-        tags = repo.list_loop_tags(loop_id=loop_id, conn=conn)
-        loop_dict = _record_to_dict(updated_loop, project=project, tags=tags)
-    else:
-        loop_dict = None
-
-    return {
-        "loop": loop_dict,
-        "suggestion_id": suggestion_id,
-        "applied_fields": applied_fields,
-        "resolution": resolution,
-    }
-
-
-@typingx.validate_io()
-def reject_suggestion(
-    *,
-    suggestion_id: int,
-    conn: sqlite3.Connection,
-) -> dict[str, Any]:
-    """Reject a suggestion without applying any fields.
-
-    Args:
-        suggestion_id: The suggestion ID to reject
-        conn: Database connection
-
-    Returns:
-        Dict with suggestion_id and resolution
-
-    Raises:
-        SuggestionNotFoundError: If suggestion doesn't exist
-        ValidationError: If suggestion already resolved
-    """
-    suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=conn)
-    if not suggestion:
-        raise SuggestionNotFoundError(suggestion_id)
-
-    if suggestion.get("resolution"):
-        raise ValidationError(
-            "suggestion", f"Suggestion already resolved: {suggestion['resolution']}"
-        )
-
-    with conn:
-        repo.resolve_loop_suggestion(
-            suggestion_id=suggestion_id,
-            resolution="rejected",
-            conn=conn,
-        )
-
-    return {
-        "suggestion_id": suggestion_id,
-        "resolution": "rejected",
-    }

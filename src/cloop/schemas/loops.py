@@ -1194,27 +1194,6 @@ class RejectSuggestionResponse(BaseModel):
     resolution: str
 
 
-class SuggestionResponse(BaseModel):
-    """A single suggestion with parsed data."""
-
-    id: int
-    loop_id: int
-    suggestion_json: str
-    parsed: dict[str, Any]
-    model: str
-    created_at: str
-    resolution: str | None = None
-    resolved_at: str | None = None
-    resolved_fields_json: str | None = None
-
-
-class SuggestionListResponse(BaseModel):
-    """List of suggestions."""
-
-    suggestions: List[SuggestionResponse]
-    count: int
-
-
 class ClarificationSubmitRequest(BaseModel):
     """Request to submit an answer to a clarification question."""
 
@@ -1225,9 +1204,9 @@ class ClarificationSubmitRequest(BaseModel):
 class ClarificationSubmitBatchRequest(BaseModel):
     """Request to submit answers to multiple clarification questions at once."""
 
-    answers: List[dict[str, Any]] = Field(
+    answers: List[ClarificationSubmitRequest] = Field(
         ...,
-        description="List of {question, answer} pairs for new clarifications",
+        description="List of clarification_id + answer pairs for existing clarifications",
     )
 
 
@@ -1240,6 +1219,28 @@ class ClarificationResponse(BaseModel):
     answer: str | None = None
     answered_at: str | None = None
     created_at: str
+
+
+class SuggestionResponse(BaseModel):
+    """A single suggestion with parsed data and linked clarifications."""
+
+    id: int
+    loop_id: int
+    suggestion_json: str
+    parsed: dict[str, Any]
+    clarifications: List[ClarificationResponse] = Field(default_factory=list)
+    model: str
+    created_at: str
+    resolution: str | None = None
+    resolved_at: str | None = None
+    resolved_fields_json: str | None = None
+
+
+class SuggestionListResponse(BaseModel):
+    """List of suggestions."""
+
+    suggestions: List[SuggestionResponse]
+    count: int
 
 
 class ClarificationListResponse(BaseModel):
@@ -1255,4 +1256,5 @@ class ClarificationSubmitResponse(BaseModel):
     loop_id: int
     answered_count: int
     clarifications: List[ClarificationResponse]
-    message: str = "Clarifications recorded. Re-enrich to see improved suggestions."
+    superseded_suggestion_ids: List[int] = Field(default_factory=list)
+    message: str = "Clarifications recorded. Re-enrich to generate an updated suggestion."

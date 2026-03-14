@@ -8,6 +8,7 @@ Responsibilities:
     - Define argument parsers for export and import commands
     - Define argument parsers for loop subcommands: review, events, undo, metrics
     - Define argument parsers for suggestion subcommands (list, show, apply, reject)
+    - Define argument parsers for clarification subcommands (list, answer, answer-many)
     - Configure help text, descriptions, and examples for all misc loop CLI operations
 
 Non-scope:
@@ -484,7 +485,7 @@ def add_suggestion_parser(subparsers: Any) -> None:
     suggestion_parser = subparsers.add_parser(
         "suggestion",
         help="Manage AI suggestions",
-        description="List, apply, or reject AI-generated loop suggestions",
+        description="List, inspect, apply, or reject AI-generated loop suggestions",
     )
     suggestion_subparsers = suggestion_parser.add_subparsers(dest="suggestion_cmd", required=True)
 
@@ -563,3 +564,68 @@ Examples:
     )
     reject_parser.add_argument("id", type=int, help="Suggestion ID")
     add_format_option(reject_parser)
+
+
+def add_clarification_parser(subparsers: Any) -> None:
+    """Add 'clarification' command parser."""
+    from argparse import RawDescriptionHelpFormatter
+
+    clarification_parser = subparsers.add_parser(
+        "clarification",
+        help="Review and answer clarification questions",
+        description="List pending clarification questions and submit answers by clarification ID",
+    )
+    clarification_subparsers = clarification_parser.add_subparsers(
+        dest="clarification_cmd",
+        required=True,
+    )
+
+    list_parser = clarification_subparsers.add_parser(
+        "list",
+        help="List clarifications for a loop",
+        description="List clarification questions and answers for a loop",
+        epilog="""
+Examples:
+  # List clarification questions for a loop
+  cloop clarification list --loop-id 123
+        """,
+        formatter_class=RawDescriptionHelpFormatter,
+    )
+    list_parser.add_argument("--loop-id", type=int, required=True, help="Loop ID")
+    add_format_option(list_parser)
+
+    answer_parser = clarification_subparsers.add_parser(
+        "answer",
+        help="Answer one clarification",
+        description="Submit an answer for one clarification row",
+        epilog="""
+Examples:
+  # Answer clarification 456 on loop 123
+  cloop clarification answer 456 --loop-id 123 --answer "Friday"
+        """,
+        formatter_class=RawDescriptionHelpFormatter,
+    )
+    answer_parser.add_argument("id", type=int, help="Clarification ID")
+    answer_parser.add_argument("--loop-id", type=int, required=True, help="Loop ID")
+    answer_parser.add_argument("--answer", required=True, help="Answer text")
+    add_format_option(answer_parser)
+
+    answer_many_parser = clarification_subparsers.add_parser(
+        "answer-many",
+        help="Answer multiple clarifications",
+        description="Submit multiple clarification answers in one command",
+        epilog="""
+Examples:
+  # Answer multiple clarifications for one loop
+  cloop clarification answer-many --loop-id 123 --item 456=Friday --item 457=High
+        """,
+        formatter_class=RawDescriptionHelpFormatter,
+    )
+    answer_many_parser.add_argument("--loop-id", type=int, required=True, help="Loop ID")
+    answer_many_parser.add_argument(
+        "--item",
+        action="append",
+        required=True,
+        help="Answer item formatted as <clarification_id>=<answer>",
+    )
+    add_format_option(answer_many_parser)

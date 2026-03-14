@@ -21,6 +21,7 @@ import json
 import logging
 import secrets
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Mapping
 
@@ -751,19 +752,27 @@ def list_loop_suggestions(
 def list_pending_suggestions(
     *,
     conn: sqlite3.Connection,
+    loop_id: int | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Get all suggestions awaiting resolution (NULL resolution)."""
+    """Get unresolved suggestions, optionally scoped to one loop."""
+    params: list[Any] = []
+    where_clause = "WHERE resolution IS NULL"
+    if loop_id is not None:
+        where_clause += " AND loop_id = ?"
+        params.append(loop_id)
+    params.append(limit)
+
     rows = conn.execute(
-        """
+        f"""
         SELECT id, loop_id, suggestion_json, model, created_at,
                resolution, resolved_at, resolved_fields_json
         FROM loop_suggestions
-        WHERE resolution IS NULL
+        {where_clause}
         ORDER BY created_at DESC
         LIMIT ?
         """,
-        (limit,),
+        params,
     ).fetchall()
     return [dict(row) for row in rows]
 
@@ -775,10 +784,10 @@ def resolve_loop_suggestion(
     applied_fields: list[str] | None = None,
     conn: sqlite3.Connection,
 ) -> bool:
-    """Mark a suggestion as resolved (applied/rejected/partial)."""
+    """Mark a suggestion as resolved (applied/rejected/partial/superseded)."""
     from .models import format_utc_datetime, utc_now
 
-    if resolution not in ("applied", "rejected", "partial"):
+    if resolution not in ("applied", "rejected", "partial", "superseded"):
         raise ValueError(f"Invalid resolution: {resolution}")
 
     cursor = conn.execute(
@@ -816,6 +825,23 @@ def insert_loop_clarification(
     return int(cursor.lastrowid)
 
 
+def read_loop_clarification(
+    *,
+    clarification_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Get a single clarification row by ID."""
+    row = conn.execute(
+        """
+        SELECT id, loop_id, question, answer, answered_at, created_at
+        FROM loop_clarifications
+        WHERE id = ?
+        """,
+        (clarification_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def list_loop_clarifications(
     *,
     loop_id: int,
@@ -834,20 +860,41 @@ def list_loop_clarifications(
     return [dict(row) for row in rows]
 
 
+def list_loop_clarifications_for_loops(
+    *,
+    loop_ids: Sequence[int],
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """List clarifications for multiple loops in one query."""
+    if not loop_ids:
+        return []
+    placeholders = ", ".join("?" for _ in loop_ids)
+    rows = conn.execute(
+        f"""
+        SELECT id, loop_id, question, answer, answered_at, created_at
+        FROM loop_clarifications
+        WHERE loop_id IN ({placeholders})
+        ORDER BY loop_id ASC, answered_at IS NULL DESC, created_at ASC
+        """,
+        list(loop_ids),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def answer_loop_clarification(
     *,
     clarification_id: int,
     answer: str,
     conn: sqlite3.Connection,
 ) -> bool:
-    """Record an answer to a clarification question."""
+    """Record an answer to an unanswered clarification question."""
     from .models import format_utc_datetime, utc_now
 
     cursor = conn.execute(
         """
         UPDATE loop_clarifications
         SET answer = ?, answered_at = ?
-        WHERE id = ?
+        WHERE id = ? AND answer IS NULL
         """,
         (answer, format_utc_datetime(utc_now()), clarification_id),
     )

@@ -67,6 +67,9 @@ from .loop_core_commands import (
 )
 from .loop_dep_commands import loop_dep_command
 from .loop_misc_commands import (
+    clarification_answer_command,
+    clarification_answer_many_command,
+    clarification_list_command,
     export_command,
     import_command,
     loop_events_command,
@@ -96,6 +99,7 @@ from .parsers.chat import add_chat_parser
 from .parsers.loop import add_loop_parser
 from .parsers.loop_misc_parsers import (
     add_capture_parser,
+    add_clarification_parser,
     add_export_parser,
     add_import_parser,
     add_inbox_parser,
@@ -206,6 +210,7 @@ Exit codes:
     add_import_parser(subparsers)
     add_backup_parser(subparsers)
     add_suggestion_parser(subparsers)
+    add_clarification_parser(subparsers)
 
     return parser
 
@@ -346,6 +351,16 @@ def main(argv: List[str] | None = None) -> int:
         elif args.suggestion_cmd == "reject":
             return suggestion_reject_command(args, settings)
         parser.error(f"Unknown suggestion command: {args.suggestion_cmd}")
+        return 2
+
+    if args.command == "clarification":
+        if args.clarification_cmd == "list":
+            return clarification_list_command(args, settings)
+        if args.clarification_cmd == "answer":
+            return clarification_answer_command(args, settings)
+        if args.clarification_cmd == "answer-many":
+            return clarification_answer_many_command(args, settings)
+        parser.error(f"Unknown clarification command: {args.clarification_cmd}")
         return 2
 
     parser.error(f"Unknown command: {args.command}")
