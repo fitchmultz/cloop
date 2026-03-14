@@ -6,6 +6,7 @@
  *
  * Responsibilities:
  *   - Global state object with reactive updates
+ *   - Persisted chat thread and chat preferences
  *   - Selected loops tracking for bulk operations
  *   - Timer state management
  *   - Review mode state
@@ -15,6 +16,16 @@
  *   - DOM rendering (see render.js)
  *   - Event handling (see individual modules)
  */
+
+const DEFAULT_CHAT_PREFERENCES = Object.freeze({
+  toolMode: null,
+  includeLoopContext: true,
+  includeMemoryContext: true,
+  includeRagContext: false,
+  memoryLimit: 10,
+  ragK: 5,
+  ragScope: "",
+});
 
 // ========================================
 // Global Application State
@@ -27,15 +38,115 @@ export const state = {
   reviewMode: 'daily',
   reviewData: null,
   chatMessages: [],
+  chatPreferences: { ...DEFAULT_CHAT_PREFERENCES },
   lastClickedLoopId: null,
   focusedLoopId: null,
   notificationPermissionRequested: false,
 };
 
-const CLIENT_STATE_STORAGE_KEY = "cloop.clientState.v2";
+const CLIENT_STATE_STORAGE_KEY = "cloop.clientState.v3";
 
 function canUseLocalStorage() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function normalizeToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls)) {
+    return [];
+  }
+
+  return toolCalls
+    .filter((toolCall) => toolCall && typeof toolCall.name === "string")
+    .map((toolCall) => ({
+      name: toolCall.name,
+      arguments: toolCall.arguments && typeof toolCall.arguments === "object" ? toolCall.arguments : {},
+    }));
+}
+
+function normalizeSources(sources) {
+  if (!Array.isArray(sources)) {
+    return [];
+  }
+
+  return sources
+    .filter((source) => source && typeof source === "object")
+    .map((source) => ({
+      id: source.id ?? null,
+      document_path: typeof source.document_path === "string" ? source.document_path : null,
+      chunk_index: Number.isInteger(source.chunk_index) ? source.chunk_index : null,
+      score: typeof source.score === "number" ? source.score : null,
+    }));
+}
+
+function normalizeMetadata(metadata) {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  return {
+    model: typeof metadata.model === "string" ? metadata.model : null,
+    provider: typeof metadata.provider === "string" ? metadata.provider : null,
+    api: typeof metadata.api === "string" ? metadata.api : null,
+    latency_ms: typeof metadata.latency_ms === "number" ? metadata.latency_ms : null,
+    stop_reason: typeof metadata.stop_reason === "string" ? metadata.stop_reason : null,
+    usage: metadata.usage && typeof metadata.usage === "object" ? metadata.usage : {},
+  };
+}
+
+function normalizeOptions(options) {
+  if (!options || typeof options !== "object") {
+    return null;
+  }
+
+  return {
+    tool_mode: typeof options.tool_mode === "string" ? options.tool_mode : null,
+    include_loop_context: Boolean(options.include_loop_context),
+    include_memory_context: Boolean(options.include_memory_context),
+    include_rag_context: Boolean(options.include_rag_context),
+    memory_limit: Number.isInteger(options.memory_limit) ? options.memory_limit : null,
+    rag_k: Number.isInteger(options.rag_k) ? options.rag_k : null,
+    rag_scope: typeof options.rag_scope === "string" ? options.rag_scope : null,
+  };
+}
+
+function normalizeContext(context) {
+  if (!context || typeof context !== "object") {
+    return null;
+  }
+
+  return {
+    loop_context_applied: Boolean(context.loop_context_applied),
+    memory_context_applied: Boolean(context.memory_context_applied),
+    memory_entries_used: Number.isInteger(context.memory_entries_used) ? context.memory_entries_used : 0,
+    rag_context_applied: Boolean(context.rag_context_applied),
+    rag_chunks_used: Number.isInteger(context.rag_chunks_used) ? context.rag_chunks_used : 0,
+  };
+}
+
+function normalizeChatMessage(message, index = 0) {
+  if (!message || typeof message.role !== "string" || typeof message.content !== "string") {
+    return null;
+  }
+
+  return {
+    id: typeof message.id === "string" ? message.id : `chat-${index}-${Date.now()}`,
+    role: message.role,
+    content: message.content,
+    createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
+    status: typeof message.status === "string" ? message.status : "done",
+    model: typeof message.model === "string" ? message.model : null,
+    metadata: normalizeMetadata(message.metadata),
+    options: normalizeOptions(message.options),
+    context: normalizeContext(message.context),
+    toolCalls: normalizeToolCalls(message.toolCalls || message.tool_calls),
+    toolResult: message.toolResult && typeof message.toolResult === "object"
+      ? message.toolResult
+      : message.tool_result && typeof message.tool_result === "object"
+        ? message.tool_result
+        : null,
+    sources: normalizeSources(message.sources),
+    error: typeof message.error === "string" ? message.error : null,
+  };
 }
 
 function normalizeChatMessages(messages) {
@@ -44,13 +155,29 @@ function normalizeChatMessages(messages) {
   }
 
   return messages
-    .filter((message) => message && typeof message.role === "string" && typeof message.content === "string")
-    .map((message, index) => ({
-      id: typeof message.id === "string" ? message.id : `chat-${index}-${Date.now()}`,
-      role: message.role,
-      content: message.content,
-      createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
-    }));
+    .map((message, index) => normalizeChatMessage(message, index))
+    .filter(Boolean);
+}
+
+function normalizeChatPreferences(preferences) {
+  if (!preferences || typeof preferences !== "object") {
+    return { ...DEFAULT_CHAT_PREFERENCES };
+  }
+
+  const toolMode = typeof preferences.toolMode === "string" && preferences.toolMode.trim()
+    ? preferences.toolMode
+    : null;
+  const ragScope = typeof preferences.ragScope === "string" ? preferences.ragScope : "";
+
+  return {
+    toolMode,
+    includeLoopContext: preferences.includeLoopContext ?? DEFAULT_CHAT_PREFERENCES.includeLoopContext,
+    includeMemoryContext: preferences.includeMemoryContext ?? DEFAULT_CHAT_PREFERENCES.includeMemoryContext,
+    includeRagContext: preferences.includeRagContext ?? DEFAULT_CHAT_PREFERENCES.includeRagContext,
+    memoryLimit: Number.isInteger(preferences.memoryLimit) ? preferences.memoryLimit : DEFAULT_CHAT_PREFERENCES.memoryLimit,
+    ragK: Number.isInteger(preferences.ragK) ? preferences.ragK : DEFAULT_CHAT_PREFERENCES.ragK,
+    ragScope,
+  };
 }
 
 export function hydrateStateFromStorage() {
@@ -69,6 +196,7 @@ export function hydrateStateFromStorage() {
       state.activeTab = persisted.activeTab;
     }
     state.chatMessages = normalizeChatMessages(persisted.chatMessages);
+    state.chatPreferences = normalizeChatPreferences(persisted.chatPreferences);
   } catch {
     // Ignore malformed persisted state and continue with in-memory defaults.
   }
@@ -83,6 +211,7 @@ export function persistStateToStorage() {
     window.localStorage.setItem(CLIENT_STATE_STORAGE_KEY, JSON.stringify({
       activeTab: state.activeTab,
       chatMessages: state.chatMessages,
+      chatPreferences: state.chatPreferences,
     }));
   } catch {
     // Ignore storage failures and preserve the current in-memory session.
@@ -106,12 +235,11 @@ export function replaceChatMessages(messages) {
 }
 
 export function appendChatMessage(message) {
-  state.chatMessages.push({
-    id: typeof message.id === "string" ? message.id : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role: message.role,
-    content: message.content,
-    createdAt: typeof message.createdAt === "string" ? message.createdAt : new Date().toISOString(),
-  });
+  const normalized = normalizeChatMessage(message, state.chatMessages.length);
+  if (!normalized) {
+    return;
+  }
+  state.chatMessages.push(normalized);
   persistStateToStorage();
 }
 
@@ -120,13 +248,22 @@ export function updateLastChatMessage(fields) {
   if (!lastMessage) {
     return;
   }
-  Object.assign(lastMessage, fields);
+  Object.assign(lastMessage, normalizeChatMessage({ ...lastMessage, ...fields }, state.chatMessages.length - 1));
   persistStateToStorage();
 }
 
 export function clearChatMessages() {
   state.chatMessages = [];
   persistStateToStorage();
+}
+
+export function updateChatPreferences(updates) {
+  state.chatPreferences = normalizeChatPreferences({ ...state.chatPreferences, ...updates });
+  persistStateToStorage();
+}
+
+export function getChatPreferences() {
+  return { ...state.chatPreferences };
 }
 
 export function getChatThreadState() {

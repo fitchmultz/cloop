@@ -1,46 +1,44 @@
-"""Chat completion endpoint with optional tool support.
+"""Chat completion endpoint with grounded-context controls and optional tool support.
 
 Purpose:
-    HTTP endpoints for chat completions with tool calling.
+    HTTP endpoint for chat completions over the shared pi-backed runtime.
 
 Responsibilities:
-    - POST /chat: Chat completion endpoint
+    - POST /chat: chat completion endpoint
     - Tool execution integration
+    - Grounding via loop, memory, and optional RAG context
+    - Stable response semantics for metadata, effective options, and sources
 
 Non-scope:
     - LLM provider logic (see llm.py)
     - Tool implementations (see tools.py)
-
-Supports:
-- Basic chat completions
-- Manual tool execution (read_note, write_note, loop_*)
-- LLM-orchestrated tool mode
-- SSE streaming for real-time responses
 """
 
 import json
-import sqlite3
 from collections.abc import Iterator
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from .. import db
+from ..chat_orchestration import PreparedChatRequest, prepare_chat_request
 from ..llm import (
     ToolCallError,
     chat_completion,
     chat_with_tools,
-    estimate_tokens,
     stream_events,
 )
-from ..loops.due import effective_due_iso
 from ..loops.errors import CloopError
-from ..rag import retrieve_similar_chunks
-from ..schemas.chat import ChatRequest, ChatResponse, _InteractionMetadata
+from ..schemas.chat import (
+    ChatContextResponse,
+    ChatMetadataResponse,
+    ChatOptionsResponse,
+    ChatRequest,
+    ChatResponse,
+)
 from ..settings import Settings, ToolMode, get_settings
 from ..sse import format_sse_event
-from ..storage import interaction_store, memory_store
+from ..storage import interaction_store
 from ..tools import get_agent_bridge_tools, get_tool_definition
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -61,198 +59,97 @@ def handle_tool_call(tool_call, settings: Settings) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _interaction_context(settings: Settings) -> Dict[str, str]:
-    """Build interaction context for logging."""
-    backend = db.get_vector_backend()
+def _coerce_usage_payload(usage: Any) -> dict[str, Any]:
+    if usage is None:
+        return {}
+    if isinstance(usage, dict):
+        return dict(usage)
+    if hasattr(usage, "model_dump"):
+        dumped = usage.model_dump()
+        return dumped if isinstance(dumped, dict) else {"value": dumped}
+    if hasattr(usage, "dict"):
+        dumped = usage.dict()
+        return dumped if isinstance(dumped, dict) else {"value": dumped}
+    if hasattr(usage, "__dict__"):
+        dumped = usage.__dict__
+        return dumped if isinstance(dumped, dict) else {"value": dumped}
+    return {"value": str(usage)}
+
+
+def _metadata_payload(metadata: dict[str, Any]) -> dict[str, Any]:
     return {
-        "embed_model": settings.embed_model,
-        "vector_search_mode": settings.vector_search_mode.value,
-        "embed_storage_mode": settings.embed_storage_mode.value,
-        "vector_backend": backend.value,
+        "latency_ms": float(metadata.get("latency_ms", 0.0)) if metadata else 0.0,
+        "model": metadata.get("model") if metadata else None,
+        "provider": metadata.get("provider") if metadata else None,
+        "api": metadata.get("api") if metadata else None,
+        "usage": _coerce_usage_payload(metadata.get("usage")) if metadata else {},
+        "stop_reason": metadata.get("stop_reason") if metadata else None,
     }
 
 
-def _build_chat_guidance(
+def _metadata_response(metadata: dict[str, Any]) -> ChatMetadataResponse:
+    return ChatMetadataResponse(**_metadata_payload(metadata))
+
+
+def _options_payload(prepared: PreparedChatRequest) -> dict[str, Any]:
+    return {
+        "tool_mode": prepared.effective_options.tool_mode,
+        "include_loop_context": prepared.effective_options.include_loop_context,
+        "include_memory_context": prepared.effective_options.include_memory_context,
+        "memory_limit": prepared.effective_options.memory_limit,
+        "include_rag_context": prepared.effective_options.include_rag_context,
+        "rag_k": prepared.effective_options.rag_k,
+        "rag_scope": prepared.effective_options.rag_scope,
+    }
+
+
+def _options_response(prepared: PreparedChatRequest) -> ChatOptionsResponse:
+    return ChatOptionsResponse(**_options_payload(prepared))
+
+
+def _context_response(prepared: PreparedChatRequest) -> ChatContextResponse:
+    return ChatContextResponse(**prepared.context_summary)
+
+
+def _response_payload(
     *,
-    include_loop_context: bool,
-    include_memory_context: bool,
-    include_rag_context: bool,
-) -> str:
-    """Return product-specific chat guidance to keep answers grounded and useful."""
-    guidance = [
-        "You are Cloop's loop-aware planning assistant.",
-        "Prioritize concrete, actionable guidance over generic self-help language.",
-        (
-            "If loop context is available, ground your answer in the actual loop "
-            "titles, statuses, due items, and blockers you were given."
-        ),
-        "Prefer naming 1-3 specific loops or next actions instead of broad categories.",
-        (
-            "If the user asks what to focus on next, rank the most relevant current "
-            "loops and explain why briefly."
-        ),
-        "Be concise, clear, and practical. Avoid motivational filler.",
-    ]
-    if include_memory_context:
-        guidance.append("Use memory context to personalize recommendations when it is relevant.")
-    if include_rag_context:
-        guidance.append("Use retrieved document context when it directly supports the answer.")
-    if not include_loop_context:
-        guidance.append(
-            "If no loop context is available, say that you are answering generally "
-            "rather than pretending you inspected the user's loop state."
-        )
-    return "\n".join(guidance)
-
-
-def _build_loop_context_snapshot(settings: Settings) -> str:
-    """Build compact loop context snapshot for LLM system message.
-
-    Returns markdown-formatted string with:
-    - Due soon items (within 48h)
-    - Blocked items
-    - Top next actions (quick wins, high leverage)
-
-    Target: ~500-1000 tokens to avoid context bloat.
-    """
-    from ..loops.read_service import next_loops, search_loops_by_query
-
-    lines = ["## Current Loop Context"]
-
-    try:
-        with db.core_connection(settings) as conn:
-            # Get prioritized next loops
-            buckets = next_loops(limit=5, conn=conn, settings=settings)
-
-            # Get blocked loops separately (excluded from next_loops)
-            blocked = search_loops_by_query(
-                query="status:blocked",
-                limit=5,
-                offset=0,
-                conn=conn,
-            )
-    except sqlite3.Error:
-        # Fail gracefully - don't block chat if loop context fails
-        return ""
-
-    # Due soon section
-    due_soon = buckets.get("due_soon", [])
-    if due_soon:
-        lines.append("\n### Due Soon")
-        for loop in due_soon[:3]:
-            title = loop.get("title") or loop.get("raw_text", "")[:60]
-            due = effective_due_iso(loop)
-            lines.append(f"- {title}")
-            next_action = loop.get("next_action")
-            if next_action:
-                lines.append(f"  Next action: {next_action}")
-            if due:
-                lines.append(f"  Due: {due}")
-
-    # Blocked section
-    if blocked:
-        lines.append("\n### Blocked")
-        for loop in blocked[:3]:
-            title = loop.get("title") or loop.get("raw_text", "")[:60]
-            reason = loop.get("blocked_reason", "waiting on dependency")
-            lines.append(f"- {title} ({reason})")
-            next_action = loop.get("next_action")
-            if next_action:
-                lines.append(f"  Next action: {next_action}")
-
-    # Quick wins section
-    quick_wins = buckets.get("quick_wins", [])
-    if quick_wins:
-        lines.append("\n### Quick Wins")
-        for loop in quick_wins[:3]:
-            title = loop.get("title") or loop.get("raw_text", "")[:60]
-            mins = loop.get("time_minutes", "?")
-            lines.append(f"- {title} (~{mins} min)")
-            next_action = loop.get("next_action")
-            if next_action:
-                lines.append(f"  Next action: {next_action}")
-
-    # High leverage section
-    high_leverage = buckets.get("high_leverage", [])
-    if high_leverage:
-        lines.append("\n### High Leverage")
-        for loop in high_leverage[:3]:
-            title = loop.get("title") or loop.get("raw_text", "")[:60]
-            lines.append(f"- {title}")
-            next_action = loop.get("next_action")
-            if next_action:
-                lines.append(f"  Next action: {next_action}")
-
-    # Standard/other actionable items
-    standard = buckets.get("standard", [])
-    if standard:
-        lines.append("\n### Next Actions")
-        for loop in standard[:3]:
-            title = loop.get("title") or loop.get("raw_text", "")[:60]
-            lines.append(f"- {title}")
-            next_action = loop.get("next_action")
-            if next_action:
-                lines.append(f"  Next action: {next_action}")
-
-    result = "\n".join(lines)
-    return result if result != "## Current Loop Context" else ""
-
-
-def _build_memory_context(settings: Settings, limit: int = 10) -> str:
-    """Build compact memory context for LLM system message.
-
-    Returns markdown-formatted string with:
-    - Preferences
-    - Facts
-    - Commitments
-    - Context entries
-
-    Sorted by priority (highest first), bounded by limit.
-    Target: ~300-500 tokens to avoid context bloat.
-    """
-    try:
-        result = memory_store.list_memory_entries(
-            limit=limit,
-            settings=settings,
-        )
-    except sqlite3.Error:
-        return ""
-
-    items = result.get("items", [])
-    if not items:
-        return ""
-
-    # Sort by priority (highest first) to match docstring promise
-    items = sorted(items, key=lambda x: x.get("priority", 0), reverse=True)
-
-    lines = ["## User Memory"]
-
-    by_category: dict[str, list[dict]] = {}
-    for item in items:
-        cat = item.get("category", "fact")
-        by_category.setdefault(cat, []).append(item)
-
-    category_labels = {
-        "preference": "Preferences",
-        "fact": "Facts",
-        "commitment": "Commitments",
-        "context": "Context",
+    prepared: PreparedChatRequest,
+    message: str,
+    tool_result: dict[str, Any] | None,
+    tool_calls: list[dict[str, Any]],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "message": message,
+        "tool_result": tool_result,
+        "metadata": _metadata_payload(metadata),
+        "tool_calls": tool_calls,
+        "context": prepared.interaction_context,
+        "context_summary": prepared.context_summary,
+        "options": _options_payload(prepared),
+        "sources": prepared.sources,
     }
 
-    for cat in ["preference", "commitment", "fact", "context"]:
-        if cat not in by_category:
-            continue
-        lines.append(f"\n### {category_labels.get(cat, cat)}")
-        for item in by_category[cat]:
-            key = item.get("key")
-            content = item.get("content", "")[:200]
-            if key:
-                lines.append(f"- {key}: {content}")
-            else:
-                lines.append(f"- {content}")
 
-    result_str = "\n".join(lines)
-    return result_str if result_str != "## User Memory" else ""
+def _chat_response(
+    *,
+    prepared: PreparedChatRequest,
+    message: str,
+    tool_result: dict[str, Any] | None,
+    tool_calls: list[dict[str, Any]],
+    metadata: dict[str, Any],
+) -> ChatResponse:
+    metadata_response = _metadata_response(metadata)
+    return ChatResponse(
+        message=message,
+        tool_result=tool_result,
+        tool_calls=tool_calls,
+        model=metadata_response.model,
+        metadata=metadata_response,
+        options=_options_response(prepared),
+        context=_context_response(prepared),
+        sources=prepared.sources,
+    )
 
 
 @router.post("", response_model=ChatResponse)
@@ -261,83 +158,15 @@ def chat_endpoint(
     settings: SettingsDep,
     stream: Annotated[bool | None, Query(description="Stream Server-Sent Events when true")] = None,
 ) -> Any:
-    messages = [message.model_dump() for message in request.messages]
+    prepared = prepare_chat_request(request=request, settings=settings)
+    tool_mode = prepared.effective_options.tool_mode
     tool_result: Dict[str, Any] | None = None
-    tool_calls: List[Dict[str, Any]] = []
-
-    # Build and inject loop context if requested
-    loop_context: str | None = None
-    if request.include_loop_context:
-        loop_context = _build_loop_context_snapshot(settings)
-        if loop_context:
-            messages.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": loop_context,
-                },
-            )
-
-    messages.insert(
-        0,
-        {
-            "role": "system",
-            "content": _build_chat_guidance(
-                include_loop_context=request.include_loop_context,
-                include_memory_context=request.include_memory_context,
-                include_rag_context=request.include_rag_context,
-            ),
-        },
-    )
-
-    # Build and inject memory context if requested (inserted first so memory precedes loop context)
-    memory_context: str | None = None
-    if request.include_memory_context:
-        memory_context = _build_memory_context(settings, limit=request.memory_limit)
-        if memory_context:
-            messages.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": memory_context,
-                },
-            )
-
-    # Build and inject RAG context if requested
-    rag_chunks: List[Dict[str, Any]] = []
-    rag_context: str | None = None
-    if request.include_rag_context:
-        user_messages = [m for m in request.messages if m.role == "user"]
-        if user_messages:
-            query = user_messages[-1].content
-            try:
-                rag_chunks = retrieve_similar_chunks(
-                    query,
-                    top_k=request.rag_k,
-                    scope=request.rag_scope,
-                    settings=settings,
-                )
-            except RuntimeError, CloopError:
-                rag_chunks = []
-
-            if rag_chunks:
-                context_parts = [
-                    f"[{idx}] {chunk['content']}" for idx, chunk in enumerate(rag_chunks, start=1)
-                ]
-                rag_context = "\n\n".join(context_parts)
-                messages.insert(
-                    0,
-                    {
-                        "role": "system",
-                        "content": f"Relevant context from your documents:\n\n{rag_context}",
-                    },
-                )
-
-    tool_mode = request.tool_mode or settings.tool_mode_default
+    tool_calls: list[dict[str, Any]] = []
 
     if request.tool_call and tool_mode is not ToolMode.MANUAL:
         raise HTTPException(status_code=400, detail="tool_call is only supported in manual mode")
 
+    messages = list(prepared.messages)
     if tool_mode is ToolMode.MANUAL:
         tool_call = request.tool_call
         if tool_call is None:
@@ -350,29 +179,27 @@ def chat_endpoint(
             }
         )
 
-    token_estimate = estimate_tokens(messages)
     stream_enabled = stream if stream is not None else settings.stream_default
-
-    context_snapshot = _interaction_context(settings)
-    if memory_context:
-        context_snapshot["memory_context"] = memory_context
-    if loop_context:
-        context_snapshot["loop_context"] = loop_context
-    if rag_context:
-        context_snapshot["rag_context"] = rag_context
+    request_payload = request.model_dump()
+    request_payload["effective_options"] = {
+        **_options_payload(prepared),
+        "tool_mode": prepared.effective_options.tool_mode.value,
+    }
 
     if stream_enabled:
-        request_payload = request.model_dump()
         request_payload["stream"] = True
         active_tools = get_agent_bridge_tools() if tool_mode is ToolMode.LLM else None
         streamed_tool_result: list[Dict[str, Any] | None] = [tool_result]
 
         def event_stream() -> Iterator[str]:
-            tokens: List[str] = []
-            metadata: _InteractionMetadata = {
+            tokens: list[str] = []
+            metadata: dict[str, Any] = {
                 "model": settings.pi_model,
                 "latency_ms": 0.0,
                 "usage": {},
+                "provider": None,
+                "api": None,
+                "stop_reason": None,
             }
             for event in stream_events(
                 messages,
@@ -388,52 +215,68 @@ def chat_endpoint(
                     tokens.append(token)
                     yield format_sse_event("token", {"token": token})
                 elif event_type == "tool_call":
+                    payload = {
+                        "tool_call_id": event.get("tool_call_id"),
+                        "name": event.get("name"),
+                        "arguments": event.get("arguments") or {},
+                    }
                     tool_calls.append(
                         {
-                            "name": event.get("name"),
-                            "arguments": event.get("arguments") or {},
+                            "name": payload["name"],
+                            "arguments": payload["arguments"],
                         }
                     )
+                    yield format_sse_event("tool_call", payload)
                 elif event_type == "tool_result":
                     output = event.get("output")
                     if isinstance(output, dict) and streamed_tool_result[0] is None:
                         streamed_tool_result[0] = output
+                    yield format_sse_event(
+                        "tool_result",
+                        {
+                            "tool_call_id": event.get("tool_call_id"),
+                            "name": event.get("name"),
+                            "output": output,
+                            "is_error": bool(event.get("is_error", False)),
+                        },
+                    )
                 elif event_type == "done":
                     metadata = {
-                        "model": str(event.get("model") or settings.pi_model),
+                        "model": event.get("model") or settings.pi_model,
                         "latency_ms": float(event.get("latency_ms", 0.0)),
-                        "usage": dict(event.get("usage") or {}),
+                        "usage": _coerce_usage_payload(event.get("usage")),
+                        "provider": event.get("provider"),
+                        "api": event.get("api"),
+                        "stop_reason": event.get("stop_reason"),
                     }
             final_message = "".join(tokens)
-            response_payload = {
-                "message": final_message,
-                "tool_result": streamed_tool_result[0],
-                "metadata": metadata,
-                "tool_calls": tool_calls,
-                "context": context_snapshot,
-            }
-            sanitized_rag_chunks = [
-                {k: v for k, v in chunk.items() if k != "embedding_blob"} for chunk in rag_chunks
-            ]
+            response_payload = _response_payload(
+                prepared=prepared,
+                message=final_message,
+                tool_result=streamed_tool_result[0],
+                tool_calls=tool_calls,
+                metadata=metadata,
+            )
             interaction_store.record_interaction(
                 endpoint="/chat",
                 request_payload=request_payload,
                 response_payload=response_payload,
-                model=metadata["model"],
-                latency_ms=metadata["latency_ms"],
-                token_estimate=token_estimate,
-                selected_chunks=sanitized_rag_chunks,
+                model=response_payload["metadata"]["model"],
+                latency_ms=response_payload["metadata"]["latency_ms"],
+                token_estimate=prepared.token_estimate,
+                selected_chunks=prepared.rag_chunks,
                 tool_calls=tool_calls,
                 settings=settings,
             )
             yield format_sse_event(
                 "done",
-                {
-                    "message": final_message,
-                    "model": metadata["model"],
-                    "tool_result": streamed_tool_result[0],
-                    "tool_calls": tool_calls,
-                },
+                _chat_response(
+                    prepared=prepared,
+                    message=final_message,
+                    tool_result=streamed_tool_result[0],
+                    tool_calls=tool_calls,
+                    metadata=metadata,
+                ).model_dump(mode="json"),
             )
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
@@ -456,31 +299,29 @@ def chat_endpoint(
     else:
         content, metadata = chat_completion(messages, settings=settings)
 
-    response_payload = {
-        "message": content,
-        "tool_result": tool_result,
-        "metadata": metadata,
-        "tool_calls": tool_calls,
-        "context": context_snapshot,
-    }
-    sanitized_rag_chunks = [
-        {k: v for k, v in chunk.items() if k != "embedding_blob"} for chunk in rag_chunks
-    ]
+    response_payload = _response_payload(
+        prepared=prepared,
+        message=content,
+        tool_result=tool_result,
+        tool_calls=tool_calls,
+        metadata=metadata,
+    )
     interaction_store.record_interaction(
         endpoint="/chat",
-        request_payload=request.model_dump(),
+        request_payload=request_payload,
         response_payload=response_payload,
-        model=metadata.get("model"),
-        latency_ms=metadata.get("latency_ms"),
-        token_estimate=token_estimate,
-        selected_chunks=sanitized_rag_chunks,
+        model=response_payload["metadata"]["model"],
+        latency_ms=response_payload["metadata"]["latency_ms"],
+        token_estimate=prepared.token_estimate,
+        selected_chunks=prepared.rag_chunks,
         tool_calls=tool_calls,
         settings=settings,
     )
 
-    return ChatResponse(
+    return _chat_response(
+        prepared=prepared,
         message=content,
         tool_result=tool_result,
         tool_calls=tool_calls,
-        model=metadata.get("model"),
+        metadata=metadata,
     )

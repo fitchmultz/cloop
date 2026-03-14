@@ -190,10 +190,45 @@
         </section>
       </div>
       <aside class="workspace-support" aria-label="Chat support">
-        <section class="panel support-panel support-panel-feature">
-          <p class="support-eyebrow">Conversation mode</p>
-          <h3>Keep answers grounded in your actual work</h3>
-          <p class="support-copy">Chat keeps loop and memory context on by default, so this thread can help you reason from what is already in Cloop instead of starting from scratch.</p>
+        <section class="panel support-panel support-panel-feature chat-controls-panel">
+          <p class="support-eyebrow">Conversation controls</p>
+          <h3>Choose how grounded and how tool-capable this thread should be</h3>
+          <p class="support-copy">Loop and memory grounding stay on by default. Enable document grounding when you want knowledge-base evidence in the same thread, or let the assistant use tools when you want it to act instead of only advise.</p>
+          <div class="chat-controls-grid">
+            <label class="chat-control chat-control-block" for="chat-tool-mode">
+              <span class="chat-control-label">Tool mode</span>
+              <select id="chat-tool-mode">
+                <option value="none">Assistant only</option>
+                <option value="llm">Assistant + tools</option>
+              </select>
+            </label>
+            <label class="chat-control toggle" for="chat-loop-context">
+              <input type="checkbox" id="chat-loop-context" checked>
+              Include loop context
+            </label>
+            <label class="chat-control toggle" for="chat-memory-context">
+              <input type="checkbox" id="chat-memory-context" checked>
+              Include memory context
+            </label>
+            <label class="chat-control chat-control-inline" for="chat-memory-limit">
+              <span class="chat-control-label">Memory limit</span>
+              <input type="number" id="chat-memory-limit" min="1" max="50" step="1" value="10">
+            </label>
+            <label class="chat-control toggle" for="chat-rag-context">
+              <input type="checkbox" id="chat-rag-context">
+              Include document context
+            </label>
+            <label class="chat-control chat-control-inline" for="chat-rag-k">
+              <span class="chat-control-label">Document chunks</span>
+              <input type="number" id="chat-rag-k" min="1" max="20" step="1" value="5">
+            </label>
+            <label class="chat-control chat-control-block chat-control-span" for="chat-rag-scope">
+              <span class="chat-control-label">Document scope</span>
+              <input type="text" id="chat-rag-scope" placeholder="Optional path filter or doc:ID">
+            </label>
+          </div>
+          <p id="chat-controls-status" class="support-status" role="status" aria-live="polite">Assistant only · loops · memory (10)</p>
+          <p id="chat-runtime-status" class="support-status">Loading backend defaults…</p>
         </section>
         <section class="panel support-panel data-management-panel">
           <p class="support-eyebrow">Workspace tools</p>

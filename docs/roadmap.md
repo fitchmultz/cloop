@@ -27,12 +27,12 @@ Legend:
 
 | Capability | HTTP API | Web UI | CLI | MCP | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Chat completion | yes | yes | no | no | Web chat still exposes only a reduced subset of backend chat features. |
+| Chat completion | yes | yes | no | no | Web chat now exposes the core backend grounding/tool controls. |
 | Chat streaming | yes | yes | no | no | SSE-backed in HTTP and web. |
-| Chat tool calling | yes | partial | no | no | Backend supports tool modes; web hard-codes `tool_mode=none`. |
+| Chat tool calling | yes | yes | no | no | Web can now opt into `tool_mode=llm`. |
 | Chat with loop context | yes | yes | no | no | Web defaults this on. |
 | Chat with memory context | yes | yes | no | no | Web defaults this on. |
-| Chat with RAG context | yes | no | no | no | Backend supports it; web does not expose it. |
+| Chat with RAG context | yes | yes | no | no | Web can now opt into document grounding and scope it. |
 | RAG ask | yes | yes | yes | no | Shared retrieval/generation path exists. |
 | RAG ingest | yes | yes | yes | no | Embeddings-only, not generative AI. |
 | Loop enrichment | yes | yes | partial | yes | CLI currently requests enrichment but does not execute the full synchronous flow. |
@@ -45,23 +45,19 @@ Legend:
 The next work should happen in this order so that shared contracts settle before
 new surfaces depend on them.
 
-### Phase 1 — Finish parity for the generative features already in HTTP
+### Phase 1 — Finish parity for the remaining generative contract gaps
 
-Goal: lock the user-facing chat/enrichment contract before expanding into more transports.
+Goal: lock the last unstable chat/enrichment semantics before expanding into more transports.
 
-- Expose more backend chat controls in the web UI for capabilities that already exist:
-  - tool mode
-  - optional RAG-in-chat
-  - future scoped grounding controls only after the current toggles are settled
 - Decide and implement the canonical CLI behavior for `cloop loop enrich`:
-  - either execute the full synchronous enrichment flow like HTTP and MCP
+  - either execute the full synchronous enrichment flow like the shared service-layer behavior
   - or keep it request-only and document that decision explicitly
-- Make the shared request/response behavior for chat and enrichment boring enough that
-  later CLI and MCP work can reuse it without another round of contract churn.
+- Keep the shared chat request/response contract stable now that web and HTTP both expose grounding/tool controls.
+- Avoid transport-specific drift while CLI and MCP inherit the stabilized behavior.
 
 Why first:
 
-- web UI already rides the HTTP contract, so it is the cheapest place to expose existing capability
+- the web + HTTP chat contract is now broad enough that new transports should reuse it rather than reshape it
 - locking the enrich behavior now prevents CLI and MCP from growing around temporary semantics
 - this phase reduces follow-on churn for every later surface
 
@@ -141,18 +137,17 @@ Why last:
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Web + HTTP generative parity session**
-   - expose backend chat controls in the web UI
-   - settle the request/response semantics that the UI should rely on
-2. **CLI generative parity session**
+1. **CLI generative parity session**
    - add `cloop chat`
    - finalize the canonical `cloop loop enrich` behavior in CLI
-3. **MCP retrieval parity session**
+2. **MCP retrieval parity session**
    - add MCP `rag.ask`
    - add MCP ingest
-4. **Memory + clarification parity session**
+3. **Memory + clarification parity session**
    - add direct memory management outside HTTP
    - align clarification review/apply flows across surfaces
+4. **Productized AI features session**
+   - promote semantic search / duplicate review / bulk enrichment into explicit product features
 
 That sequence gives the highest leverage while minimizing contract churn.
 

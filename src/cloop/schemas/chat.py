@@ -1,20 +1,16 @@
 """Chat completion request/response models.
 
 Purpose:
-    Define Pydantic models for the /chat endpoint.
+    Define the canonical transport models for the /chat endpoint.
 
 Responsibilities:
     - Chat completion request/response schemas
     - Tool execution models
+    - Client-facing response metadata, options, and grounding summaries
 
 Non-scope:
     - LLM provider logic (see llm.py)
     - Tool implementations (see tools.py)
-
-Models for the /chat endpoint supporting:
-- Basic chat completions
-- Manual tool execution (read_note, write_note, loop_*)
-- LLM-orchestrated tool mode
 """
 
 from typing import TYPE_CHECKING, Annotated, Any, Self, TypedDict
@@ -41,14 +37,7 @@ class ChatMessage(BaseModel):
 
 
 class ToolCall(BaseModel):
-    """Manual tool call instruction for chat requests.
-
-    Supports all tools defined in TOOL_SPECS:
-    - Note tools: read_note, write_note
-    - Loop tools: loop_create, loop_update, loop_close, loop_list,
-      loop_search, loop_next, loop_transition, loop_snooze,
-      loop_enrich, loop_get
-    """
+    """Manual tool call instruction for chat requests."""
 
     name: str = Field(..., description="Tool name from TOOL_SPECS")
     arguments: dict[str, Any] = Field(
@@ -68,7 +57,8 @@ class ChatRequest(BaseModel):
 
     messages: ChatMessageList
     tool_call: ToolCall | None = Field(
-        default=None, description="Optional instruction to interact with notes"
+        default=None,
+        description="Optional instruction to interact with notes or loops in manual mode.",
     )
     tool_mode: ToolMode | None = Field(
         default=None,
@@ -110,6 +100,39 @@ class ChatRequest(BaseModel):
         return self
 
 
+class ChatMetadataResponse(BaseModel):
+    """Execution metadata returned to chat clients."""
+
+    latency_ms: float | None = None
+    model: str | None = None
+    provider: str | None = None
+    api: str | None = None
+    usage: dict[str, Any] = Field(default_factory=dict)
+    stop_reason: str | None = None
+
+
+class ChatOptionsResponse(BaseModel):
+    """Effective request options after applying server defaults."""
+
+    tool_mode: ToolMode
+    include_loop_context: bool
+    include_memory_context: bool
+    memory_limit: int
+    include_rag_context: bool
+    rag_k: int
+    rag_scope: str | None = None
+
+
+class ChatContextResponse(BaseModel):
+    """Summary of which grounding context was actually applied."""
+
+    loop_context_applied: bool = False
+    memory_context_applied: bool = False
+    memory_entries_used: int = 0
+    rag_context_applied: bool = False
+    rag_chunks_used: int = 0
+
+
 class ChatResponse(BaseModel):
     """Response from chat completion."""
 
@@ -117,3 +140,7 @@ class ChatResponse(BaseModel):
     tool_result: dict[str, Any] | None = None
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     model: str | None = None
+    metadata: ChatMetadataResponse | None = None
+    options: ChatOptionsResponse
+    context: ChatContextResponse = Field(default_factory=ChatContextResponse)
+    sources: list[dict[str, Any]] = Field(default_factory=list)

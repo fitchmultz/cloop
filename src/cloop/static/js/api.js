@@ -19,6 +19,25 @@
  *   - Event handling (see individual modules)
  */
 
+async function extractErrorMessage(response, fallbackMessage) {
+  try {
+    const error = await response.json();
+    const detail = error?.detail;
+    if (typeof detail === "string" && detail.trim()) {
+      return detail;
+    }
+    if (detail && typeof detail.message === "string" && detail.message.trim()) {
+      return detail.message;
+    }
+    if (typeof error?.message === "string" && error.message.trim()) {
+      return error.message;
+    }
+  } catch {
+    // Fall back to the provided default when no structured payload is available.
+  }
+  return fallbackMessage;
+}
+
 // ========================================
 // Loop Operations
 // ========================================
@@ -88,7 +107,9 @@ export async function enrichLoop(loopId) {
     method: "POST",
     headers: { "content-type": "application/json" },
   });
-  if (!response.ok) throw new Error("Enrichment request failed");
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Enrichment request failed"));
+  }
   return response.json();
 }
 
@@ -402,25 +423,42 @@ export async function fetchClarifications(loopId) {
 // ========================================
 
 export async function submitChatMessage(messages, stream = true, options = {}) {
+  const payload = {
+    messages,
+    tool_mode: options.toolMode ?? undefined,
+    include_loop_context: options.includeLoopContext ?? true,
+    include_memory_context: options.includeMemoryContext ?? true,
+    memory_limit: options.memoryLimit ?? 10,
+    include_rag_context: options.includeRagContext ?? false,
+    rag_k: options.ragK ?? 5,
+    rag_scope: options.ragScope?.trim() ? options.ragScope.trim() : undefined,
+  };
+
   const response = await fetch(`/chat?stream=${stream}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      messages,
-      tool_mode: "none",
-      include_loop_context: options.includeLoopContext ?? true,
-      include_memory_context: options.includeMemoryContext ?? true,
-      include_rag_context: options.includeRagContext ?? false,
-    }),
+    body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("Chat request failed");
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Chat request failed"));
+  }
   return response;
 }
 
 export async function submitRagQuestion(question, stream = true) {
   const response = await fetch(`/ask?q=${encodeURIComponent(question)}&stream=${stream}`);
-  if (!response.ok) throw new Error("RAG request failed");
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "RAG request failed"));
+  }
   return response;
+}
+
+export async function fetchHealth() {
+  const response = await fetch("/health");
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response, "Failed to load health"));
+  }
+  return response.json();
 }
 
 export async function ingestKnowledge(paths, mode = "add", recursive = true) {

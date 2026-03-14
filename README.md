@@ -330,7 +330,7 @@ Endpoints:
 - `GET /docs`: interactive Swagger UI for all API operations.
 - `GET /redoc`: ReDoc-style API reference.
 - `GET /openapi.json`: machine-readable OpenAPI schema.
-- `POST /chat`: chat completion (optionally with tools); `?stream=true` for SSE streaming.
+- `POST /chat`: chat completion with configurable tool/grounding options; `?stream=true` for SSE streaming.
 - `POST /ingest`: ingest local files/folders into `rag.db`.
 - `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
 - `GET /health`: shows the active pi backend, chat/organizer models, embedding model, and bridge readiness.
@@ -369,7 +369,7 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 |-----|---------|
 | **Inbox** (1) | Quick capture and loop list with filters |
 | **Next** (2) | Prioritized "what should I do now?" buckets |
-| **Chat** (3) | LLM conversation interface |
+| **Chat** (3) | LLM conversation with configurable loop, memory, document, and tool grounding |
 | **RAG** (4) | Query your knowledge base |
 | **Review** (5) | Daily/weekly review cohorts |
 | **Metrics** (6) | Loop health statistics |

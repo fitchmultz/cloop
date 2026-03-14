@@ -275,6 +275,8 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     payload = {
         "messages": [{"role": "user", "content": "Stream please."}],
         "tool_mode": "none",
+        "include_loop_context": True,
+        "include_memory_context": True,
     }
 
     with test_client.stream("POST", "/chat?stream=true", json=payload) as response:
@@ -289,6 +291,13 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     final_payload = done_events[-1][1]
     assert final_payload["message"] == "".join(STREAM_TOKENS)
     assert final_payload["model"] == "mock-llm"
+    assert final_payload["metadata"]["model"] == "mock-llm"
+    assert final_payload["options"]["tool_mode"] == "none"
+    assert final_payload["options"]["include_loop_context"] is True
+    assert final_payload["options"]["include_memory_context"] is True
+    assert final_payload["context"]["loop_context_applied"] in {True, False}
+    assert final_payload["context"]["memory_context_applied"] in {True, False}
+    assert final_payload["sources"] == []
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
@@ -299,6 +308,49 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     recorded = json.loads(row["response_payload"])
     assert recorded["message"] == "".join(STREAM_TOKENS)
     assert recorded["context"]["embed_model"] == get_settings().embed_model
+    assert recorded["options"]["tool_mode"] == "none"
+    assert recorded["context_summary"]["memory_context_applied"] in {True, False}
+
+
+def test_chat_response_exposes_effective_options_metadata_and_sources(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    doc = tmp_data_dir / "playbook.txt"
+    doc.write_text("The launch checklist lives in the ops playbook.", encoding="utf-8")
+    ingest = test_client.post("/ingest", json={"paths": [str(doc)]})
+    assert ingest.status_code == 200
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Where is the launch checklist?"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+            "include_memory_context": True,
+            "include_rag_context": True,
+            "rag_k": 3,
+            "rag_scope": "playbook.txt",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    assert payload["metadata"]["model"] == "mock-llm"
+    assert payload["options"] == {
+        "tool_mode": "none",
+        "include_loop_context": True,
+        "include_memory_context": True,
+        "memory_limit": 10,
+        "include_rag_context": True,
+        "rag_k": 3,
+        "rag_scope": "playbook.txt",
+    }
+    assert payload["context"]["rag_context_applied"] is True
+    assert payload["context"]["rag_chunks_used"] >= 1
+    assert payload["sources"]
+    assert any(
+        "playbook.txt" in (source.get("document_path") or "") for source in payload["sources"]
+    )
 
 
 def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -732,6 +784,15 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert 'id="chat-form"' in html
     assert 'id="chat-input"' in html
     assert 'id="chat-messages"' in html
+    assert 'id="chat-tool-mode"' in html
+    assert 'id="chat-loop-context"' in html
+    assert 'id="chat-memory-context"' in html
+    assert 'id="chat-memory-limit"' in html
+    assert 'id="chat-rag-context"' in html
+    assert 'id="chat-rag-k"' in html
+    assert 'id="chat-rag-scope"' in html
+    assert 'id="chat-controls-status"' in html
+    assert 'id="chat-runtime-status"' in html
 
     # Check for RAG elements (static structure - dynamic elements rendered by JS)
     assert 'id="rag-form"' in html
@@ -899,6 +960,9 @@ def test_chat_streaming_with_llm_tool_mode_streams_successfully(
     final_payload = done_events[-1][1]
     assert final_payload["message"] == "".join(tokens)
     assert final_payload["model"] == "mock-llm"
+    assert final_payload["metadata"]["model"] == "mock-llm"
+    assert final_payload["options"]["tool_mode"] == "llm"
+    assert "tool_calls" in final_payload
 
 
 def test_rag_returns_sources_for_ui(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -1554,11 +1618,16 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
     assert "Avoid motivational filler" in messages[0]["content"]
 
 
-def test_chat_ui_requests_loop_and_memory_context_in_static_client() -> None:
+def test_chat_ui_requests_grounding_and_control_options_in_static_client() -> None:
     api_path = Path(__file__).resolve().parents[1] / "src" / "cloop" / "static" / "js" / "api.js"
     api_js = api_path.read_text(encoding="utf-8")
+    assert "tool_mode: options.toolMode ?? undefined" in api_js
     assert "include_loop_context: options.includeLoopContext ?? true" in api_js
     assert "include_memory_context: options.includeMemoryContext ?? true" in api_js
+    assert "memory_limit: options.memoryLimit ?? 10" in api_js
+    assert "include_rag_context: options.includeRagContext ?? false" in api_js
+    assert "rag_k: options.ragK ?? 5" in api_js
+    assert "rag_scope: options.ragScope?.trim() ? options.ragScope.trim() : undefined" in api_js
 
 
 def test_chat_logging_tolerates_non_json_usage_objects(
@@ -1849,7 +1918,7 @@ def test_chat_rag_context_graceful_failure(
     def mock_retrieve_fail(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
         raise RuntimeError("Simulated RAG failure")
 
-    with patch("cloop.routes.chat.retrieve_similar_chunks", mock_retrieve_fail):
+    with patch("cloop.chat_orchestration.retrieve_similar_chunks", mock_retrieve_fail):
         response = test_client.post(
             "/chat",
             json={

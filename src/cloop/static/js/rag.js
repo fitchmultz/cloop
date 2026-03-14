@@ -16,6 +16,7 @@
  */
 
 import * as api from './api.js';
+import { consumeJsonEventStream } from './stream.js';
 import { escapeHtml } from './utils.js';
 
 const NO_KNOWLEDGE_MESSAGE = "No knowledge available. Ingest documents first.";
@@ -116,46 +117,30 @@ export async function submitRagQuestion(question) {
 
   try {
     const response = await api.submitRagQuestion(question, true);
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
     let accumulated = "";
     let finalAnswer = "";
     let sources = [];
     let chunks = [];
-    let buffer = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    await consumeJsonEventStream(response, (eventName, payload) => {
+      if (eventName === "token" && payload.token) {
+        accumulated += payload.token;
+        ragAnswerText.textContent = accumulated;
+        return;
+      }
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("data:")) {
-          try {
-            const data = JSON.parse(line.slice(5).trim());
-            if (data.token) {
-              accumulated += data.token;
-              ragAnswerText.textContent = accumulated;
-            }
-            if (data.sources) {
-              sources = data.sources;
-            }
-            if (data.chunks) {
-              chunks = data.chunks;
-            }
-            if (data.answer !== undefined && data.token === undefined) {
-              finalAnswer = data.answer;
-              renderAnswer(finalAnswer, sources, chunks);
-            }
-          } catch (e) {
-            console.warn("SSE parse error:", e);
-          }
+      if (eventName === "done") {
+        if (Array.isArray(payload.sources)) {
+          sources = payload.sources;
+        }
+        if (Array.isArray(payload.chunks)) {
+          chunks = payload.chunks;
+        }
+        if (typeof payload.answer === "string") {
+          finalAnswer = payload.answer;
         }
       }
-    }
+    });
 
     renderAnswer(finalAnswer || accumulated || ragAnswerText.textContent, sources, chunks);
     ragAnswer.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -163,7 +148,7 @@ export async function submitRagQuestion(question) {
     ragAnswer.classList.remove("hidden");
     ragAnswer.classList.add("rag-answer-error");
     setNoKnowledgeState(false);
-    ragAnswerText.textContent = "Connection error. Please try again.";
+    ragAnswerText.textContent = err.message || "Connection error. Please try again.";
     console.error("RAG error:", err);
   }
 }
