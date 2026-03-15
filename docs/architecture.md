@@ -117,6 +117,12 @@ flowchart LR
 3. Relationship session snapshots delegate candidate generation back to `src/cloop/loops/relationship_review.py`, and enrichment session snapshots delegate suggestion/clarification hydration back to `src/cloop/loops/enrichment_review.py`.
 4. The web Review tab should treat saved sessions as the source of truth for current worklist state instead of rebuilding ad-hoc queue filters client-side.
 
+### Planning workflows (HTTP + Web + CLI + MCP)
+1. HTTP `/loops/planning/*`, the Review tab planning workspace, `cloop plan session *`, and MCP `plan.session.*` all call `src/cloop/loops/planning_workflows.py`.
+2. `src/cloop/loops/planning_workflows.py` owns grounded plan generation, durable planning-session persistence, checkpoint cursors, execution history, refresh semantics, and deterministic checkpoint execution.
+3. Persisted session metadata lives in `planning_sessions`, and executed checkpoint snapshots live in `planning_session_runs`, so operators can inspect prior results without relying on transport-local state.
+4. Checkpoint execution may compose existing shared deterministic primitives such as loop capture/update/status transitions, explicit enrichment orchestration, and saved review-session creation instead of inventing transport-specific workflow forks.
+
 ### Bulk enrichment (HTTP + Web + CLI + MCP)
 1. Explicit bulk enrichment now routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.
 2. `src/cloop/loops/enrichment_orchestration.py` owns selected-loop bulk execution, query-target preview, and query-driven bulk enrichment for filtered loop sets.
@@ -171,5 +177,6 @@ That makes Cloop a practical example of agent-tool integration in a real applica
 - API bootstrap: `src/cloop/main.py`
 - Settings/config loading: `src/cloop/settings.py`
 - Loop lifecycle core: `src/cloop/loops/service.py`
+- Planning workflow orchestration: `src/cloop/loops/planning_workflows.py`
 - RAG ingest/retrieval: `src/cloop/rag/*`
 - CI and release automation: `.github/workflows/*.yml`

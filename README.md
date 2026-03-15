@@ -66,6 +66,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **Semantic loop search**: Query loops by meaning across HTTP, the web Inbox, CLI, and MCP using the shared `read_service` + `loops/similarity.py` contract with on-demand embedding backfill.
 - **Relationship review**: Review semantically similar loops as duplicate vs related work across HTTP, the web Review tab, CLI, and MCP via the shared `loops/relationship_review.py` contract.
 - **Saved review workflows**: Persist reusable review actions plus filtered relationship/enrichment review sessions across HTTP, the web Review tab, CLI, and MCP via the shared `loops/review_workflows.py` contract.
+- **Checkpointed planning workflows**: Generate durable AI-native planning sessions with explicit checkpoints, deterministic loop operations, execution history, and refreshable grounded context across HTTP, the web Review tab, CLI, and MCP via the shared `loops/planning_workflows.py` contract.
 - **Bulk enrichment workflows**: Preview and re-run explicit enrichment across filtered loop sets from HTTP, the web Review tab, the Inbox bulk action bar, CLI, and MCP via the shared `loops/enrichment_orchestration.py` contract.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
@@ -359,6 +360,11 @@ cloop review enrichment-session answer-clarifications --session 1 --loop 10 --it
 cloop review relationship-session create --name duplicate-pass --query "status:open" --kind duplicate
 cloop review relationship-session move --session 2 --direction next
 
+# Checkpointed planning sessions
+cloop plan session create --name weekly-reset --prompt "Build a checkpointed plan for my open launch work" --query "status:open"
+cloop plan session execute --session 3
+cloop plan session refresh --session 3
+
 # Export loops
 cloop export [--output FILE] [--format json|table]
 # Writes to stdout if no --output specified
@@ -479,6 +485,13 @@ Endpoints:
 - `POST /loops/{id}/enrich`: run synchronous enrichment for a loop and return the updated loop plus suggestion metadata.
 - `POST /loops/bulk/enrich`: run explicit enrichment for a selected set of loops.
 - `POST /loops/bulk/query/enrich`: preview or run explicit enrichment across a DSL-selected loop set.
+- `GET /loops/planning/sessions`: list saved planning sessions.
+- `POST /loops/planning/sessions`: create a planning session from a grounded AI prompt.
+- `GET /loops/planning/sessions/{session_id}`: fetch one planning session snapshot.
+- `POST /loops/planning/sessions/{session_id}/move`: move the current planning checkpoint cursor.
+- `POST /loops/planning/sessions/{session_id}/refresh`: regenerate a saved plan against current grounded context.
+- `POST /loops/planning/sessions/{session_id}/execute`: execute the current deterministic checkpoint.
+- `DELETE /loops/planning/sessions/{session_id}`: delete a saved planning session.
 - `GET /loops/{id}/suggestions`: list suggestions for a loop, including linked clarification rows.
 - `GET /loops/suggestions/pending`: list unresolved suggestions across loops.
 - `GET /loops/suggestions/{suggestion_id}`: fetch one suggestion with parsed payload and linked clarifications.
@@ -520,7 +533,7 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 | **Chat** (3) | LLM conversation with configurable loop, memory, document, and tool grounding |
 | **Memory** (4) | Durable memory CRUD/search powered by the shared direct-memory contract |
 | **RAG** (5) | Query your knowledge base |
-| **Review** (6) | Bulk enrichment, saved relationship/enrichment review sessions, plus daily/weekly review cohorts |
+| **Review** (6) | Checkpointed planning sessions, bulk enrichment, saved relationship/enrichment review sessions, plus daily/weekly review cohorts |
 | **Metrics** (7) | Loop health statistics |
 
 ### Quick Capture
@@ -535,8 +548,9 @@ Captures are persisted immediately with offline sync support. Semantic Inbox sea
 
 ### Review Cohorts
 
-The Review tab now has four review layers:
+The Review tab now has five review layers:
 
+- **Checkpointed planning sessions**: grounded AI plans with durable checkpoints, explicit deterministic operations, execution history, and refreshable context snapshots.
 - **Bulk enrichment**: a DSL-driven preview-and-run workflow for re-enriching a filtered loop set without leaving the review workspace.
 - **Saved relationship-review sessions**: filtered duplicate/related review queues with preserved cursor state, guided next/previous stepping, saved decision presets, inline confirm/dismiss flows, and duplicate merge entrypoints.
 - **Saved enrichment-review sessions**: filtered suggestion/clarification queues with preserved cursor state, guided next/previous stepping, saved apply/reject presets, and one-shot clarification-answer-plus-rerun refinement inside the same session.

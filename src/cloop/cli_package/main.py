@@ -126,9 +126,19 @@ from .parsers.loop_misc_parsers import (
     add_tags_parser,
 )
 from .parsers.memory import add_memory_parser
+from .parsers.plan import add_plan_parser
 from .parsers.rag import add_ask_parser, add_ingest_parser
 from .parsers.review import add_review_parser
 from .parsers.template import add_template_parser
+from .planning_commands import (
+    planning_session_create_command,
+    planning_session_delete_command,
+    planning_session_execute_command,
+    planning_session_get_command,
+    planning_session_list_command,
+    planning_session_move_command,
+    planning_session_refresh_command,
+)
 from .rag_commands import ask_command, ingest_command
 from .review_commands import (
     enrichment_review_action_create_command,
@@ -213,6 +223,12 @@ Examples:
   cloop loop review --cohort stale     # Filter to stale loops only
   cloop loop review --all --format table  # All cohorts in table format
 
+  # Checkpointed planning sessions
+  cloop plan session create --name weekly-reset \
+    --prompt "Build a checkpointed plan for my open launch work" \
+    --query "status:open"
+  cloop plan session execute --session 3
+
   # Loop claims (multi-agent coordination)
   cloop loop claim 1 --owner agent-alpha
   cloop loop update 1 --title "Updated" --claim-token TOKEN
@@ -263,6 +279,7 @@ Exit codes:
     add_suggestion_parser(subparsers)
     add_clarification_parser(subparsers)
     add_review_parser(subparsers)
+    add_plan_parser(subparsers)
     add_memory_parser(subparsers)
 
     return parser
@@ -505,6 +522,27 @@ def main(argv: List[str] | None = None) -> int:
             )
             return 2
         parser.error(f"Unknown review command: {args.review_command}")
+        return 2
+
+    if args.command == "plan":
+        if args.plan_command == "session":
+            if args.plan_session_command == "create":
+                return planning_session_create_command(args, settings)
+            if args.plan_session_command == "list":
+                return planning_session_list_command(args, settings)
+            if args.plan_session_command == "get":
+                return planning_session_get_command(args, settings)
+            if args.plan_session_command == "move":
+                return planning_session_move_command(args, settings)
+            if args.plan_session_command == "refresh":
+                return planning_session_refresh_command(args, settings)
+            if args.plan_session_command == "execute":
+                return planning_session_execute_command(args, settings)
+            if args.plan_session_command == "delete":
+                return planning_session_delete_command(args, settings)
+            parser.error(f"Unknown plan session command: {args.plan_session_command}")
+            return 2
+        parser.error(f"Unknown plan command: {args.plan_command}")
         return 2
 
     if args.command == "memory":

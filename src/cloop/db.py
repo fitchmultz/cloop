@@ -137,7 +137,7 @@ def _get_vector_manager() -> VectorExtensionManager:
     return VectorExtensionManager()
 
 
-SCHEMA_VERSION: int = 37
+SCHEMA_VERSION: int = 38
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [
@@ -373,6 +373,34 @@ CREATE INDEX idx_review_sessions_kind_name
     ON review_sessions(review_kind, name);
 CREATE INDEX idx_review_sessions_current_loop
     ON review_sessions(current_loop_id) WHERE current_loop_id IS NOT NULL;
+
+CREATE TABLE planning_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    prompt TEXT NOT NULL,
+    query TEXT,
+    options_json TEXT NOT NULL DEFAULT '{}',
+    plan_json TEXT NOT NULL,
+    current_checkpoint_index INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_planning_sessions_updated
+    ON planning_sessions(updated_at DESC, id DESC);
+
+CREATE TABLE planning_session_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    checkpoint_index INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(session_id) REFERENCES planning_sessions(id) ON DELETE CASCADE,
+    UNIQUE(session_id, checkpoint_index)
+);
+
+CREATE INDEX idx_planning_session_runs_session
+    ON planning_session_runs(session_id, checkpoint_index);
 
 CREATE TABLE webhook_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -615,6 +643,35 @@ INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, 
 """
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    38: """
+    CREATE TABLE planning_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        prompt TEXT NOT NULL,
+        query TEXT,
+        options_json TEXT NOT NULL DEFAULT '{}',
+        plan_json TEXT NOT NULL,
+        current_checkpoint_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_planning_sessions_updated
+        ON planning_sessions(updated_at DESC, id DESC);
+
+    CREATE TABLE planning_session_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        checkpoint_index INTEGER NOT NULL,
+        result_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(session_id) REFERENCES planning_sessions(id) ON DELETE CASCADE,
+        UNIQUE(session_id, checkpoint_index)
+    );
+
+    CREATE INDEX idx_planning_session_runs_session
+        ON planning_session_runs(session_id, checkpoint_index);
+    """,
     37: """
     CREATE TABLE review_action_presets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -919,6 +919,25 @@ def test_ui_contains_memory_management_elements(
     assert 'id="memory-metadata"' in html
 
 
+def test_ui_contains_planning_workspace_elements(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    """Initial HTML should expose the checkpointed planning workspace controls."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'id="review-planning-session-select"' in html
+    assert 'id="review-planning-session-new"' in html
+    assert 'id="review-planning-session-delete"' in html
+    assert 'id="review-planning-session-refresh"' in html
+    assert 'id="review-planning-session-execute"' in html
+    assert 'id="review-planning-session-list"' in html
+    assert 'id="review-planning-session-detail"' in html
+    assert "Checkpointed planning sessions" in html
+
+
 def test_chat_empty_state_copy_is_consistent_on_initial_html(
     test_client: TestClient,
     tmp_data_dir: Path,

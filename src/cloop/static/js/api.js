@@ -512,6 +512,58 @@ async function requestJson(path, options = {}, fallbackMessage = "Request failed
   return response.json();
 }
 
+export async function fetchPlanningSessions() {
+  return requestJson("/loops/planning/sessions", {}, "Failed to load planning sessions");
+}
+
+export async function createPlanningSession(payload) {
+  return requestJson(
+    "/loops/planning/sessions",
+    { method: "POST", body: payload },
+    "Failed to create planning session",
+  );
+}
+
+export async function fetchPlanningSession(sessionId) {
+  return requestJson(
+    `/loops/planning/sessions/${sessionId}`,
+    {},
+    "Failed to load planning session",
+  );
+}
+
+export async function movePlanningSession(sessionId, direction) {
+  return requestJson(
+    `/loops/planning/sessions/${sessionId}/move`,
+    { method: "POST", body: { direction } },
+    "Failed to move planning session",
+  );
+}
+
+export async function refreshPlanningSession(sessionId) {
+  return requestJson(
+    `/loops/planning/sessions/${sessionId}/refresh`,
+    { method: "POST" },
+    "Failed to refresh planning session",
+  );
+}
+
+export async function executePlanningSession(sessionId) {
+  return requestJson(
+    `/loops/planning/sessions/${sessionId}/execute`,
+    { method: "POST" },
+    "Failed to execute planning checkpoint",
+  );
+}
+
+export async function deletePlanningSession(sessionId) {
+  return requestJson(
+    `/loops/planning/sessions/${sessionId}`,
+    { method: "DELETE" },
+    "Failed to delete planning session",
+  );
+}
+
 export async function fetchRelationshipReviewActions() {
   return requestJson("/loops/review/relationship/actions", {}, "Failed to load relationship review actions");
 }

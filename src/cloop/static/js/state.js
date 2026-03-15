@@ -38,6 +38,9 @@ export const state = {
   reviewMode: 'daily',
   reviewData: null,
   relationshipReviewQueue: null,
+  reviewPlanningSessions: [],
+  reviewPlanningSessionSnapshot: null,
+  reviewPlanningSessionId: null,
   reviewRelationshipActions: [],
   reviewRelationshipSessions: [],
   reviewRelationshipSessionSnapshot: null,
@@ -213,6 +216,9 @@ export function hydrateStateFromStorage() {
     }
     state.chatMessages = normalizeChatMessages(persisted.chatMessages);
     state.chatPreferences = normalizeChatPreferences(persisted.chatPreferences);
+    state.reviewPlanningSessionId = Number.isInteger(persisted.reviewPlanningSessionId)
+      ? persisted.reviewPlanningSessionId
+      : null;
     state.reviewRelationshipSessionId = Number.isInteger(persisted.reviewRelationshipSessionId)
       ? persisted.reviewRelationshipSessionId
       : null;
@@ -239,6 +245,7 @@ export function persistStateToStorage() {
     window.localStorage.setItem(CLIENT_STATE_STORAGE_KEY, JSON.stringify({
       activeTab: state.activeTab,
       reviewMode: state.reviewMode,
+      reviewPlanningSessionId: state.reviewPlanningSessionId,
       reviewRelationshipSessionId: state.reviewRelationshipSessionId,
       reviewRelationshipActionId: state.reviewRelationshipActionId,
       reviewEnrichmentSessionId: state.reviewEnrichmentSessionId,

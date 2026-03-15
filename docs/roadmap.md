@@ -39,49 +39,49 @@ Legend:
 | Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
 | Suggestions and clarifications | yes | yes | yes | yes | Suggestion payloads now link persisted clarification rows, and all surfaces answer existing clarification IDs through the same review contract. |
 | Saved review workflows | yes | yes | yes | yes | Saved review actions plus guided cursor movement and session-preserving relationship/enrichment refinement now share `loops/review_workflows.py` across all operator surfaces. |
+| Planning workflows | yes | yes | yes | yes | Checkpointed planning sessions now share `loops/planning_workflows.py` across HTTP, the Review tab, CLI, and MCP with durable execution history. |
 | Memory CRUD | yes | yes | yes | yes | HTTP, web, CLI, and MCP now reuse the shared `memory_management` contract for deterministic direct memory CRUD/search. |
 | Semantic loop search | yes | yes | yes | yes | HTTP `/loops/search/semantic`, Inbox semantic mode, `cloop loop semantic-search`, and MCP `loop.semantic_search` now share the same `read_service` + `loops/similarity.py` contract with on-demand embedding backfill. |
 
 ## Execution Order
 
-The next work should happen in this order so that the newly stabilized shared chat,
-enrichment, review, direct-memory, and pi-selector defaults can propagate outward without rework.
+The next work should happen in this order so that the newly stabilized shared planning,
+chat, enrichment, review, direct-memory, and pi-selector defaults can propagate outward without rework.
 
-### Phase 1 — Add broader AI-native planning workflows
+### Phase 1 — Deepen transport ergonomics for shared AI workflows
 
-Goal: introduce larger multi-step assistance now that conversational refinement on top of saved sessions is in place.
+Goal: polish the newest shared planning/review/chat/RAG capabilities now that the higher-leverage workflow contracts are in place.
 
-- Multi-step planning/review flows that reduce user effort without hiding
-  system state or mutating loops opaquely.
-- Higher-level workflow generation that can orchestrate deterministic loop tools while still exposing state, checkpoints, and rollback-friendly results.
+- Better guided web UI affordances on top of saved review sessions and checkpointed planning flows.
+- Richer MCP ergonomics and examples for the newest shared planning, review, and grounded-chat operators.
+- Documentation/examples that make the shared pi-selector, planning-workflow, and review-workflow model obvious for operators.
 
 Why first now:
 
-- Saved review sessions now support guided cursor movement plus clarification-answer-and-rerun refinement across HTTP, web, CLI, and MCP.
-- The next leverage point is building larger workflow assistance on top of those proven review/refinement primitives rather than reopening transport-level churn.
+- Planning sessions, saved review sessions, grounded chat, and shared RAG execution now exist across all major operator surfaces.
+- The next leverage point is smoothing operator ergonomics on top of those shared contracts rather than reopening service-layer churn.
 
-### Phase 2 — Deepen transport ergonomics for shared AI workflows
+### Phase 2 — Expand deterministic planning execution coverage
 
-Goal: polish the newest shared review/chat/RAG capabilities after the next higher-leverage planning workflows land.
+Goal: make the shared planning contract broader and more operator-friendly once the current planning surface has settled.
 
-- Better guided web UI affordances on top of saved review sessions and multi-step planning flows.
-- Richer MCP ergonomics and examples for the newest shared review and grounded-chat operators.
-- Documentation/examples that make the shared pi-selector and review-workflow model obvious for operators.
+- Add more reusable deterministic checkpoint operations where canonical shared primitives already exist.
+- Surface stronger undo/rollback affordances and provenance for executed checkpoints.
+- Improve session analytics and operator cues around plan freshness, execution drift, and follow-up review outputs.
 
 Why next:
 
-- This work benefits from stabilized workflow primitives first.
-- It is easier to polish transports after the next shared orchestration contracts settle.
+- This work benefits from the now-shared planning-session substrate first.
+- Expanding operation coverage after transport polish reduces the odds of reworking newly added UX and tool surfaces.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Planning workflow session**
-   - multi-step planning/review flows on top of the stabilized shared review contracts
-   - checkpointed AI assistance that still exposes deterministic loop state transitions
-2. **Transport polish session**
-   - deeper web UX polish, richer MCP ergonomics, and docs/examples for the newest shared review operators
+1. **Transport polish session**
+   - deeper web UX polish, richer MCP ergonomics, and docs/examples for the newest shared planning/review operators
+2. **Planning execution expansion session**
+   - broader deterministic checkpoint operations plus clearer undo/provenance affordances on top of the new planning substrate
 
 That sequence gives the highest leverage while minimizing contract churn.
 

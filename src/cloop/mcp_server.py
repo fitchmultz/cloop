@@ -64,6 +64,7 @@ from .mcp_tools import (
     register_loop_template_tools,
     register_loop_view_tools,
     register_memory_tools,
+    register_planning_tools,
     register_rag_tools,
     register_review_workflow_tools,
     register_suggestion_tools,
@@ -84,6 +85,7 @@ register_loop_template_tools(mcp)
 register_memory_tools(mcp)
 register_rag_tools(mcp)
 register_review_workflow_tools(mcp)
+register_planning_tools(mcp)
 register_suggestion_tools(mcp)
 
 

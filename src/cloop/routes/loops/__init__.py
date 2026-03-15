@@ -11,6 +11,7 @@ Modules:
 - metrics: Workflow metrics endpoints
 - suggestions_clarifications: Suggestion and clarification endpoints
 - review_workflows: Saved review actions and session-preserving review workflows
+- planning_workflows: Saved AI-native planning sessions and checkpoint execution
 - dependencies: Loop dependency management (blockers, dependents)
 - views: Saved views for filtered queries
 - templates: Loop templates for pre-filled capture
@@ -41,6 +42,7 @@ from .events import router as events_router
 from .import_export import router as import_export_router
 from .lifecycle import router as lifecycle_router
 from .metrics import router as metrics_router
+from .planning_workflows import router as planning_workflows_router
 from .push import router as push_router
 from .query import router as query_router
 from .relationships import router as relationships_router
@@ -75,6 +77,7 @@ router.include_router(query_router)
 router.include_router(import_export_router)
 router.include_router(metrics_router)
 router.include_router(review_workflows_router)
+router.include_router(planning_workflows_router)
 router.include_router(suggestions_clarifications_router)
 router.include_router(claims_router)
 

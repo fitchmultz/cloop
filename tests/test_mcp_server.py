@@ -3501,6 +3501,13 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "review.enrichment_session.delete" in tool_names
     assert "review.enrichment_session.apply_action" in tool_names
     assert "review.enrichment_session.answer_clarifications" in tool_names
+    assert "plan.session.create" in tool_names
+    assert "plan.session.list" in tool_names
+    assert "plan.session.get" in tool_names
+    assert "plan.session.move" in tool_names
+    assert "plan.session.refresh" in tool_names
+    assert "plan.session.execute" in tool_names
+    assert "plan.session.delete" in tool_names
 
 
 def test_memory_tools_support_direct_crud_and_search(

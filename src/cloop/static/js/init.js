@@ -23,6 +23,7 @@ import * as loop from './loop.js';
 import * as timer from './timer.js';
 import * as bulk from './bulk.js';
 import * as review from './review.js';
+import * as planning from './planning.js';
 import * as next from './next.js';
 import * as chat from './chat.js';
 import * as memory from './memory.js';
@@ -122,6 +123,15 @@ const elements = {
   ragIngestRecursive: document.getElementById("rag-ingest-recursive"),
   ragIngestStatus: document.getElementById("rag-ingest-status"),
   reviewCohorts: document.getElementById("review-cohorts"),
+  reviewPlanningSessionSelect: document.getElementById("review-planning-session-select"),
+  reviewPlanningSessionNew: document.getElementById("review-planning-session-new"),
+  reviewPlanningSessionDelete: document.getElementById("review-planning-session-delete"),
+  reviewPlanningSessionRefresh: document.getElementById("review-planning-session-refresh"),
+  reviewPlanningSessionExecute: document.getElementById("review-planning-session-execute"),
+  reviewPlanningSessionStatus: document.getElementById("review-planning-session-status"),
+  reviewPlanningSessionSummary: document.getElementById("review-planning-session-summary"),
+  reviewPlanningSessionList: document.getElementById("review-planning-session-list"),
+  reviewPlanningSessionDetail: document.getElementById("review-planning-session-detail"),
   reviewRelationshipSessionSelect: document.getElementById("review-relationship-session-select"),
   reviewRelationshipSessionNew: document.getElementById("review-relationship-session-new"),
   reviewRelationshipSessionEdit: document.getElementById("review-relationship-session-edit"),
@@ -248,6 +258,7 @@ function switchTab(tabName) {
   }
   if (tabName === "review") {
     review.loadReviewData();
+    planning.loadPlanningWorkspace();
   }
   if (tabName === "metrics") {
     fetchAndRenderMetrics();
@@ -1286,6 +1297,17 @@ function init() {
     reviewBulkEnrichStatus: elements.reviewBulkEnrichStatus,
     reviewBulkEnrichPreviewResults: elements.reviewBulkEnrichPreviewResults,
     reviewBulkEnrichRunResults: elements.reviewBulkEnrichRunResults,
+  });
+  planning.init({
+    reviewPlanningSessionSelect: elements.reviewPlanningSessionSelect,
+    reviewPlanningSessionNew: elements.reviewPlanningSessionNew,
+    reviewPlanningSessionDelete: elements.reviewPlanningSessionDelete,
+    reviewPlanningSessionRefresh: elements.reviewPlanningSessionRefresh,
+    reviewPlanningSessionExecute: elements.reviewPlanningSessionExecute,
+    reviewPlanningSessionStatus: elements.reviewPlanningSessionStatus,
+    reviewPlanningSessionSummary: elements.reviewPlanningSessionSummary,
+    reviewPlanningSessionList: elements.reviewPlanningSessionList,
+    reviewPlanningSessionDetail: elements.reviewPlanningSessionDetail,
   });
   next.init({ nextBuckets: elements.nextBuckets });
   chat.init({

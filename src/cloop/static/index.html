@@ -506,6 +506,35 @@
           <div id="review-bulk-enrich-preview-results" class="bulk-enrichment-results"></div>
           <div id="review-bulk-enrich-run-results" class="bulk-enrichment-results"></div>
         </section>
+        <section class="panel review-panel planning-review-panel">
+          <div class="review-header planning-review-header">
+            <div>
+              <p class="support-eyebrow">AI-native planning</p>
+              <h2>Checkpointed planning sessions</h2>
+              <p class="support-copy">Generate durable plans grounded in your current loops, then execute deterministic checkpoints one step at a time with transparent results and execution history.</p>
+            </div>
+            <div class="review-session-toolbar">
+              <label class="review-session-select-field" for="review-planning-session-select">
+                <span>Session</span>
+                <select id="review-planning-session-select">
+                  <option value="">No saved session</option>
+                </select>
+              </label>
+              <div class="review-session-toolbar-actions">
+                <button class="secondary" type="button" id="review-planning-session-new">New session</button>
+                <button class="secondary" type="button" id="review-planning-session-delete">Delete</button>
+                <button class="secondary" type="button" id="review-planning-session-refresh">Refresh</button>
+                <button type="button" id="review-planning-session-execute">Execute checkpoint</button>
+              </div>
+            </div>
+          </div>
+          <p id="review-planning-session-status" class="support-status" role="status" aria-live="polite">Create a planning session to generate a checkpointed workflow grounded in your current loops.</p>
+          <div id="review-planning-session-summary" class="review-session-summary"></div>
+          <div class="review-session-workspace">
+            <div id="review-planning-session-list" class="review-session-list"></div>
+            <div id="review-planning-session-detail" class="review-session-detail"></div>
+          </div>
+        </section>
         <section class="panel review-panel relationship-review-panel">
           <div class="review-header relationship-review-header">
             <div>

@@ -57,6 +57,13 @@ from ...schemas.loops import (
     LoopTemplateResponse,
     LoopViewResponse,
     LoopWithDependenciesResponse,
+    PlanningCheckpointExecutionResultResponse,
+    PlanningCheckpointResponse,
+    PlanningExecutionHistoryItemResponse,
+    PlanningSessionExecuteResponse,
+    PlanningSessionResponse,
+    PlanningSessionSnapshotResponse,
+    PlanningTargetLoopResponse,
     QueryBulkEnrichResponse,
     RelationshipReviewActionResponse,
     RelationshipReviewSessionActionResponse,
@@ -379,6 +386,110 @@ def build_enrichment_review_session_clarification_response(
     return EnrichmentReviewSessionClarificationResponse(
         result=build_clarification_refinement_response(payload["result"]),
         snapshot=build_enrichment_review_session_snapshot_response(payload["snapshot"]),
+    )
+
+
+def build_planning_session_response(
+    session: Mapping[str, Any],
+) -> PlanningSessionResponse:
+    """Convert a planning session payload into the response model."""
+    return PlanningSessionResponse(**session)
+
+
+def build_planning_target_loop_response(
+    loop: Mapping[str, Any],
+) -> PlanningTargetLoopResponse:
+    """Convert one compact planning loop snapshot into the response model."""
+    return PlanningTargetLoopResponse(**loop)
+
+
+def build_planning_checkpoint_response(
+    checkpoint: Mapping[str, Any],
+) -> PlanningCheckpointResponse:
+    """Convert one planning checkpoint payload into the response model."""
+    return PlanningCheckpointResponse(
+        title=str(checkpoint.get("title") or ""),
+        summary=str(checkpoint.get("summary") or ""),
+        success_criteria=str(checkpoint.get("success_criteria") or ""),
+        focus_loop_ids=[int(loop_id) for loop_id in checkpoint.get("focus_loop_ids", [])],
+        operations=[dict(operation) for operation in checkpoint.get("operations", [])],
+    )
+
+
+def build_planning_checkpoint_execution_result_response(
+    result: Mapping[str, Any],
+) -> PlanningCheckpointExecutionResultResponse:
+    """Convert one planning checkpoint execution result into the response model."""
+    result_payload = result.get("result")
+    normalized_result = (
+        dict(result_payload.items()) if isinstance(result_payload, Mapping) else None
+    )
+    return PlanningCheckpointExecutionResultResponse(
+        index=int(result["index"]),
+        kind=str(result["kind"]),
+        summary=str(result["summary"]),
+        ok=bool(result.get("ok", True)),
+        operation=dict(result.get("operation") or {}),
+        result=normalized_result,
+        before_loops=[build_loop_response(loop) for loop in result.get("before_loops", [])],
+        after_loops=[build_loop_response(loop) for loop in result.get("after_loops", [])],
+        undoable=bool(result.get("undoable", False)),
+    )
+
+
+def build_planning_execution_history_item_response(
+    item: Mapping[str, Any],
+) -> PlanningExecutionHistoryItemResponse:
+    """Convert one planning execution history entry into the response model."""
+    return PlanningExecutionHistoryItemResponse(
+        checkpoint_index=int(item["checkpoint_index"]),
+        checkpoint_title=str(item.get("checkpoint_title") or ""),
+        executed_at_utc=str(item.get("executed_at_utc") or ""),
+        operation_count=int(item.get("operation_count") or 0),
+        results=[
+            build_planning_checkpoint_execution_result_response(result)
+            for result in item.get("results", [])
+        ],
+    )
+
+
+def build_planning_session_snapshot_response(
+    snapshot: Mapping[str, Any],
+) -> PlanningSessionSnapshotResponse:
+    """Convert a planning session snapshot payload into the response model."""
+    return PlanningSessionSnapshotResponse(
+        session=build_planning_session_response(snapshot["session"]),
+        plan_title=str(snapshot.get("plan_title") or ""),
+        plan_summary=str(snapshot.get("plan_summary") or ""),
+        assumptions=[str(item) for item in snapshot.get("assumptions", [])],
+        context_summary=dict(snapshot.get("context_summary") or {}),
+        target_loops=[
+            build_planning_target_loop_response(loop) for loop in snapshot.get("target_loops", [])
+        ],
+        sources=[dict(source) for source in snapshot.get("sources", [])],
+        checkpoints=[
+            build_planning_checkpoint_response(checkpoint)
+            for checkpoint in snapshot.get("checkpoints", [])
+        ],
+        current_checkpoint=(
+            build_planning_checkpoint_response(snapshot["current_checkpoint"])
+            if snapshot.get("current_checkpoint") is not None
+            else None
+        ),
+        execution_history=[
+            build_planning_execution_history_item_response(item)
+            for item in snapshot.get("execution_history", [])
+        ],
+    )
+
+
+def build_planning_session_execute_response(
+    payload: Mapping[str, Any],
+) -> PlanningSessionExecuteResponse:
+    """Convert a planning execution payload into the response model."""
+    return PlanningSessionExecuteResponse(
+        execution=build_planning_execution_history_item_response(payload["execution"]),
+        snapshot=build_planning_session_snapshot_response(payload["snapshot"]),
     )
 
 
