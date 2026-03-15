@@ -103,6 +103,7 @@ Review-tab smoke checklist:
   - current checkpoint success criteria
   - focus-loop cards
   - execution-history output summaries after a checkpoint runs
+  - rollback / provenance cues when a checkpoint exposes `rollback_actions`, `resource_refs`, or created follow-up resources
 - If a checkpoint creates a saved review session, confirm the adjacent relationship/enrichment workspace can pick it up without reloading the app.
 - Confirm the Review support sidebar still explains the plan → execute → review → refresh flow.
 

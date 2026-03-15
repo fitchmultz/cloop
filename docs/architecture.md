@@ -121,8 +121,9 @@ flowchart LR
 1. HTTP `/loops/planning/*`, the Review tab planning workspace, `cloop plan session *`, and MCP `plan.session.*` all call `src/cloop/loops/planning_workflows.py`.
 2. `src/cloop/loops/planning_workflows.py` owns grounded plan generation, durable planning-session persistence, checkpoint cursors, execution history, refresh semantics, and deterministic checkpoint execution.
 3. Persisted session metadata lives in `planning_sessions`, and executed checkpoint snapshots live in `planning_session_runs`, so operators can inspect prior results without relying on transport-local state.
-4. Checkpoint execution may compose existing shared deterministic primitives such as loop capture/update/status transitions, explicit enrichment orchestration, and saved review-session creation instead of inventing transport-specific workflow forks.
-5. Transport ergonomics should stay layered on top of that shared substrate: the Review tab should surface plan freshness, focus loops, and execution outputs clearly, while MCP tool descriptions should teach operators how planning hands off into saved review sessions and grounded chat.
+4. Checkpoint execution may compose existing shared deterministic primitives such as loop capture/update/status transitions, query-bulk loop mutations, saved views/templates, explicit enrichment orchestration, and saved review-session creation instead of inventing transport-specific workflow forks.
+5. Executed checkpoints should persist transparent provenance (`execution.summary`, per-operation `resource_refs`, rollback metadata, and before/after loop snapshots) so transports can explain what changed without rebuilding ad-hoc bookkeeping.
+6. Transport ergonomics should stay layered on top of that shared substrate: the Review tab should surface plan freshness, focus loops, rollback cues, and execution outputs clearly, while MCP tool descriptions should teach operators how planning hands off into saved review sessions and grounded chat.
 
 ### Bulk enrichment (HTTP + Web + CLI + MCP)
 1. Explicit bulk enrichment now routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.

@@ -145,8 +145,17 @@ def test_planning_workflow_endpoints(
     assert first_execute.status_code == 200
     first_execute_payload = first_execute.json()
     assert first_execute_payload["execution"]["checkpoint_index"] == 0
+    assert first_execute_payload["execution"]["summary"]["touched_loop_ids"] == [
+        first_id,
+        second_id,
+    ]
+    assert (
+        first_execute_payload["execution"]["results"][0]["rollback_actions"][0]["kind"]
+        == "loop.undo"
+    )
     assert first_execute_payload["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execute_payload["snapshot"]["session"]["current_checkpoint_index"] == 1
+    assert first_execute_payload["snapshot"]["context_freshness"]["generated_at_utc"]
 
     loop_response = client.get(f"/loops/{first_id}")
     assert loop_response.status_code == 200
@@ -157,6 +166,10 @@ def test_planning_workflow_endpoints(
     second_execute_payload = second_execute.json()
     assert second_execute_payload["snapshot"]["session"]["status"] == "completed"
     assert second_execute_payload["snapshot"]["session"]["executed_checkpoint_count"] == 2
+    assert second_execute_payload["execution"]["summary"]["created_review_session_ids"]
+    assert (
+        second_execute_payload["snapshot"]["execution_analytics"]["follow_up_resource_count"] >= 1
+    )
 
     review_sessions = client.get("/loops/review/enrichment/sessions")
     assert review_sessions.status_code == 200

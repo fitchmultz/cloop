@@ -66,7 +66,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 - **Semantic loop search**: Query loops by meaning across HTTP, the web Inbox, CLI, and MCP using the shared `read_service` + `loops/similarity.py` contract with on-demand embedding backfill.
 - **Relationship review**: Review semantically similar loops as duplicate vs related work across HTTP, the web Review tab, CLI, and MCP via the shared `loops/relationship_review.py` contract.
 - **Saved review workflows**: Persist reusable review actions plus filtered relationship/enrichment review sessions across HTTP, the web Review tab, CLI, and MCP via the shared `loops/review_workflows.py` contract.
-- **Checkpointed planning workflows**: Generate durable AI-native planning sessions with explicit checkpoints, deterministic loop operations, execution history, and refreshable grounded context across HTTP, the web Review tab, CLI, and MCP via the shared `loops/planning_workflows.py` contract.
+- **Checkpointed planning workflows**: Generate durable AI-native planning sessions with explicit checkpoints, broader deterministic loop/view/template/review operations, durable execution history, rollback/provenance metadata, and refreshable grounded context across HTTP, the web Review tab, CLI, and MCP via the shared `loops/planning_workflows.py` contract.
 - **Bulk enrichment workflows**: Preview and re-run explicit enrichment across filtered loop sets from HTTP, the web Review tab, the Inbox bulk action bar, CLI, and MCP via the shared `loops/enrichment_orchestration.py` contract.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
@@ -390,7 +390,16 @@ cloop plan session create \
 cloop plan session get --session 1
 cloop plan session execute --session 1
 cloop plan session refresh --session 1
+
+# Execution payloads now include execution.summary plus per-operation
+# rollback_actions / resource_refs / provenance so operators can inspect
+# exactly which loops, saved views, templates, or review sessions were touched.
 ```
+
+Planning checkpoints may now reuse broader deterministic primitives when the
+shared services already own them: query-bulk loop updates/close/snooze steps,
+saved review-session creation, saved-view creation/update, and template capture
+from existing loops.
 
 **Saved review queues via CLI:**
 ```bash
@@ -431,7 +440,7 @@ curl -X POST http://127.0.0.1:8000/loops/planning/sessions/1/execute
 **MCP operator pattern:**
 - `plan.session.create` → generate the durable checkpointed plan.
 - `plan.session.get` / `plan.session.move` → inspect and navigate checkpoints before execution.
-- `plan.session.execute` → run exactly one deterministic checkpoint and inspect `execution.results`.
+- `plan.session.execute` → run exactly one deterministic checkpoint and inspect `execution.results`, `execution.summary`, and per-operation `rollback_actions` / `resource_refs`.
 - `review.relationship_session.*` and `review.enrichment_session.*` → continue any saved follow-up sessions that a checkpoint created.
 - `chat.complete` → ask for advice against the live loop/memory/RAG state after deterministic work lands.
 
@@ -900,9 +909,12 @@ endpoint and `cloop chat`, so tool behavior, grounding options, metadata, source
 interaction logging stay aligned. MCP currently exposes the non-streaming chat contract.
 
 `plan.session.*` and `review.*` are intended to be used together: planning sessions can create
-follow-up review sessions, and those saved review sessions preserve cursor state for later MCP calls.
-Their tool descriptions now include operator-facing `Args`, `Returns`, and `Examples` guidance so MCP
-clients can surface a lightweight workflow playbook directly inside tool discovery.
+follow-up review sessions, saved views, and reusable templates, and those saved review sessions preserve
+cursor state for later MCP calls. Planning execution results now also expose `execution.summary`,
+per-operation `resource_refs`, and `rollback_actions` so MCP clients can surface follow-up resources
+and rollback guidance directly inside tool discovery or execution logs. Their tool descriptions now
+include operator-facing `Args`, `Returns`, and `Examples` guidance so MCP clients can surface a
+lightweight workflow playbook directly inside tool discovery.
 
 `memory.*` reuses the shared `memory_management` contract as the HTTP, web, and CLI surfaces,
 so direct memory CRUD/search semantics stay aligned everywhere.

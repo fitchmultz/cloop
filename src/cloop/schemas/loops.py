@@ -1579,6 +1579,9 @@ class PlanningSessionResponse(BaseModel):
     current_checkpoint_index: int
     checkpoint_count: int
     executed_checkpoint_count: int
+    next_unexecuted_checkpoint_index: int | None = None
+    generated_at_utc: str | None = None
+    last_executed_at_utc: str | None = None
     status: PlanningSessionStatus
     created_at_utc: str
     updated_at_utc: str
@@ -1595,6 +1598,7 @@ class PlanningTargetLoopResponse(BaseModel):
     status: str
     due_date: str | None = None
     due_at_utc: str | None = None
+    updated_at_utc: str | None = None
     project: str | None = None
     tags: List[str] = Field(default_factory=list)
     blocked_reason: str | None = None
@@ -1623,6 +1627,10 @@ class PlanningCheckpointExecutionResultResponse(BaseModel):
     before_loops: List[LoopResponse] = Field(default_factory=list)
     after_loops: List[LoopResponse] = Field(default_factory=list)
     undoable: bool = False
+    rollback_supported: bool = False
+    resource_refs: List[Dict[str, Any]] = Field(default_factory=list)
+    rollback_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    provenance: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PlanningExecutionHistoryItemResponse(BaseModel):
@@ -1633,6 +1641,7 @@ class PlanningExecutionHistoryItemResponse(BaseModel):
     executed_at_utc: str
     operation_count: int
     results: List[PlanningCheckpointExecutionResultResponse] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PlanningSessionSnapshotResponse(BaseModel):
@@ -1643,6 +1652,8 @@ class PlanningSessionSnapshotResponse(BaseModel):
     plan_summary: str
     assumptions: List[str] = Field(default_factory=list)
     context_summary: Dict[str, Any] = Field(default_factory=dict)
+    context_freshness: Dict[str, Any] = Field(default_factory=dict)
+    execution_analytics: Dict[str, Any] = Field(default_factory=dict)
     target_loops: List[PlanningTargetLoopResponse] = Field(default_factory=list)
     sources: List[Dict[str, Any]] = Field(default_factory=list)
     checkpoints: List[PlanningCheckpointResponse] = Field(default_factory=list)

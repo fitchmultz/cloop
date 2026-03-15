@@ -224,6 +224,15 @@ def read_loop(*, loop_id: int, conn: sqlite3.Connection) -> LoopRecord | None:
     return _row_to_record(row) if row else None
 
 
+def delete_loop(*, loop_id: int, conn: sqlite3.Connection) -> bool:
+    """Delete a loop row and cascade related records."""
+    cursor = conn.execute("DELETE FROM loops WHERE id = ?", (loop_id,))
+    if cursor.rowcount > 0:
+        conn.execute("DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags)")
+        return True
+    return False
+
+
 def list_loops(
     *,
     status: LoopStatus | None,

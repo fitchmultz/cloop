@@ -179,13 +179,17 @@ def test_planning_workflow_cli(
 
     assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
     first_execution = _last_json(capsys)
+    assert first_execution["execution"]["summary"]["touched_loop_ids"] == [1, 2]
+    assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
+    assert first_execution["snapshot"]["context_freshness"]["generated_at_utc"]
 
     assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
     second_execution = _last_json(capsys)
     assert second_execution["snapshot"]["session"]["status"] == "completed"
     assert second_execution["snapshot"]["session"]["executed_checkpoint_count"] == 2
+    assert second_execution["execution"]["summary"]["created_review_session_ids"]
 
     with db.core_connection(settings) as conn:
         created_loop = repo.find_loop_by_raw_text(

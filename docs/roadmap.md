@@ -48,40 +48,40 @@ Legend:
 The next work should happen in this order so that the newly stabilized shared planning,
 chat, enrichment, review, direct-memory, and pi-selector defaults can propagate outward without rework.
 
-### Phase 1 — Expand deterministic planning execution coverage
+### Phase 1 — Extend parity for post-planning operator loops
 
-Goal: make the shared planning contract broader and more operator-friendly once the current planning surface has settled.
-
-- Add more reusable deterministic checkpoint operations where canonical shared primitives already exist.
-- Surface stronger undo/rollback affordances and provenance for executed checkpoints.
-- Improve session analytics and operator cues around plan freshness, execution drift, and follow-up review outputs.
-
-Why next:
-
-- The shared planning substrate and transport ergonomics are now in place.
-- Expanding operation coverage next delivers more real operator leverage without reopening the transport polish that just landed.
-
-### Phase 2 — Extend parity for post-planning operator loops
-
-Goal: make the handoff from planning/review into subsequent execution even more seamless.
+Goal: make the handoff from planning/review into subsequent execution even more seamless now that the shared planning substrate exposes broader deterministic operations plus rollback/provenance metadata.
 
 - Add transport-ready affordances wherever checkpoint execution should launch the next deterministic operator surface directly.
 - Tighten chat/review/planning examples around multi-step operator sessions, especially when saved review sessions become the next queue.
-- Consider remaining parity gaps only after they can reuse the already-shared planning/review/chat contracts.
+- Teach the web Review tab and MCP clients how to surface execution summaries, rollback cues, and created follow-up resources without bespoke workflow glue.
+
+Why next:
+
+- The planning substrate now covers broader deterministic operations and richer execution metadata.
+- The highest remaining leverage is to help operators move from executed checkpoints into the next surface with less friction.
+
+### Phase 2 — Harden non-reversible planning steps
+
+Goal: reduce remaining edge cases where planning checkpoints still rely on best-effort rollback.
+
+- Tighten the contract around non-reversible enrichment-heavy checkpoint operations.
+- Consider deeper replay / rollback handling only where the underlying shared enrichment primitives can support it cleanly.
+- Keep follow-up execution analytics aligned if new checkpoint kinds add more downstream resources.
 
 Why after Phase 1:
 
-- Broader checkpoint coverage should land before another round of transport polish.
-- That keeps docs/examples focused on workflows that actually exist end-to-end.
+- The current rollback/provenance substrate is strong enough for broader transport adoption.
+- Remaining rollback work should happen only after the operator handoff surfaces fully exploit the current contract.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Planning execution expansion session**
-   - broader deterministic checkpoint operations plus clearer undo/provenance affordances on top of the new planning substrate
-2. **Post-planning parity session**
-   - polish the handoff from executed checkpoints into the next saved review/chat operator surface once the new checkpoint coverage exists
+1. **Post-planning parity session**
+   - polish the handoff from executed checkpoints into the next saved review/chat operator surface using the new execution summaries and rollback metadata
+2. **Non-reversible-step hardening session**
+   - deepen rollback/replay handling only where enrichment-heavy checkpoint operations can support a clean shared contract
 
 That sequence gives the highest leverage while minimizing contract churn.
 

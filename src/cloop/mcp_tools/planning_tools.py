@@ -44,8 +44,8 @@ def plan_session_create(
 
     Use this when you want pi to turn a grounded prompt plus current loop state
     into an explicit multi-step workflow. The returned snapshot includes the
-    saved session metadata, generated checkpoints, grounded target loops, and
-    the current checkpoint ready for operator review.
+    saved session metadata, generated checkpoints, grounded target loops, plan-
+    freshness metadata, and the current checkpoint ready for operator review.
 
     Args:
         name: Human-facing session name. Must be unique among planning sessions.
@@ -67,7 +67,8 @@ def plan_session_create(
         - `plan_title` / `plan_summary`: generated plan overview
         - `checkpoints`: ordered checkpoint list with deterministic operations
         - `current_checkpoint`: the checkpoint currently ready for review/execution
-        - `target_loops`, `context_summary`, `execution_history`: grounded context
+        - `target_loops`, `context_summary`, `context_freshness`: grounded context
+        - `execution_history`, `execution_analytics`: durable execution metadata
 
     Raises:
         ToolError: If validation fails, the grounded planner response is invalid,
@@ -250,7 +251,8 @@ def plan_session_execute(
     This runs every operation in the current checkpoint through the shared
     planning workflow contract, records durable execution history, advances the
     checkpoint cursor when appropriate, and returns transparent before/after
-    loop snapshots plus any created follow-up review sessions.
+    loop snapshots plus any created follow-up review sessions, saved views,
+    templates, rollback actions, and execution summary metadata.
 
     Args:
         session_id: Planning session ID.
@@ -258,16 +260,20 @@ def plan_session_execute(
 
     Returns:
         Dict with:
-        - `execution`: stored execution-history item for the checkpoint just run
-        - `snapshot`: updated planning-session snapshot after execution
+        - `execution`: stored execution-history item for the checkpoint just run,
+          including `summary`, per-operation `resource_refs`, `rollback_actions`,
+          and provenance details
+        - `snapshot`: updated planning-session snapshot after execution, including
+          plan-freshness and aggregate execution analytics
 
     Raises:
         ToolError: If the session is missing, the checkpoint was already
             executed, or one of the shared deterministic operations fails.
 
     Examples:
-        - Execute the first checkpoint, inspect created loops or saved review
-          sessions in `execution.results`, then decide whether to continue.
+        - Execute the first checkpoint, inspect created loops, review sessions,
+          saved views, or templates in `execution.results` / `execution.summary`,
+          then decide whether to continue.
         - Replay safely with the same `request_id` if the client lost the first
           response.
     """

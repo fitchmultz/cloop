@@ -156,12 +156,16 @@ def test_planning_workflow_tools(
     assert moved_back["session"]["current_checkpoint_index"] == 0
 
     first_execution = plan_session_execute(session_id=session_id)
+    assert first_execution["execution"]["summary"]["touched_loop_ids"] == [first_id, second_id]
+    assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
+    assert first_execution["snapshot"]["context_freshness"]["generated_at_utc"]
 
     second_execution = plan_session_execute(session_id=session_id)
     assert second_execution["snapshot"]["session"]["status"] == "completed"
     assert second_execution["snapshot"]["session"]["executed_checkpoint_count"] == 2
+    assert second_execution["execution"]["summary"]["created_review_session_ids"]
 
     loaded = plan_session_get(session_id=session_id)
     assert loaded["session"]["status"] == "completed"

@@ -434,6 +434,10 @@ def build_planning_checkpoint_execution_result_response(
         before_loops=[build_loop_response(loop) for loop in result.get("before_loops", [])],
         after_loops=[build_loop_response(loop) for loop in result.get("after_loops", [])],
         undoable=bool(result.get("undoable", False)),
+        rollback_supported=bool(result.get("rollback_supported", False)),
+        resource_refs=[dict(resource) for resource in result.get("resource_refs", [])],
+        rollback_actions=[dict(action) for action in result.get("rollback_actions", [])],
+        provenance=dict(result.get("provenance") or {}),
     )
 
 
@@ -450,6 +454,7 @@ def build_planning_execution_history_item_response(
             build_planning_checkpoint_execution_result_response(result)
             for result in item.get("results", [])
         ],
+        summary=dict(item.get("summary") or {}),
     )
 
 
@@ -463,6 +468,8 @@ def build_planning_session_snapshot_response(
         plan_summary=str(snapshot.get("plan_summary") or ""),
         assumptions=[str(item) for item in snapshot.get("assumptions", [])],
         context_summary=dict(snapshot.get("context_summary") or {}),
+        context_freshness=dict(snapshot.get("context_freshness") or {}),
+        execution_analytics=dict(snapshot.get("execution_analytics") or {}),
         target_loops=[
             build_planning_target_loop_response(loop) for loop in snapshot.get("target_loops", [])
         ],
