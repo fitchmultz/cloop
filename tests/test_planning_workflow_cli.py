@@ -136,6 +136,7 @@ def test_planning_workflow_cli(
     )
     session = _last_json(capsys)
     assert session["session"]["name"] == "weekly-reset"
+    assert session["context_summary"]["generated_at_utc"]
     session_id = session["session"]["id"]
 
     assert main(["plan", "session", "list"]) == 0

@@ -33,6 +33,12 @@ let reviewPlanningSessionSummary;
 let reviewPlanningSessionList;
 let reviewPlanningSessionDetail;
 
+const STATUS_LABELS = {
+  draft: 'Draft',
+  in_progress: 'In progress',
+  completed: 'Completed',
+};
+
 export function init(elements) {
   reviewPlanningSessionSelect = elements.reviewPlanningSessionSelect;
   reviewPlanningSessionNew = elements.reviewPlanningSessionNew;
@@ -106,15 +112,48 @@ function setPlanningStatus(message, { isError = false } = {}) {
   reviewPlanningSessionStatus.classList.toggle('is-error', isError);
 }
 
-function formatTimestamp(value) {
+function parseTimestamp(value) {
   if (!value) {
-    return '—';
+    return null;
   }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return escapeHtml(String(value));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatTimestamp(value) {
+  const date = parseTimestamp(value);
+  if (!date) {
+    return value ? escapeHtml(String(value)) : '—';
   }
   return escapeHtml(date.toLocaleString());
+}
+
+function formatRelativeTimestamp(value) {
+  const date = parseTimestamp(value);
+  if (!date) {
+    return value ? escapeHtml(String(value)) : 'unknown time';
+  }
+
+  const diffMs = Date.now() - date.getTime();
+  const absMs = Math.abs(diffMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  let amount;
+  let unit;
+  if (absMs < hour) {
+    amount = Math.max(1, Math.round(absMs / minute));
+    unit = amount === 1 ? 'minute' : 'minutes';
+  } else if (absMs < day) {
+    amount = Math.max(1, Math.round(absMs / hour));
+    unit = amount === 1 ? 'hour' : 'hours';
+  } else {
+    amount = Math.max(1, Math.round(absMs / day));
+    unit = amount === 1 ? 'day' : 'days';
+  }
+
+  return escapeHtml(`${amount} ${unit} ${diffMs >= 0 ? 'ago' : 'from now'}`);
 }
 
 function formatLoopTitle(loop) {
@@ -125,12 +164,47 @@ function formatLoopPreview(loop) {
   return escapeHtml(loop?.summary || loop?.raw_text || 'No summary available.');
 }
 
+function formatStatusLabel(status) {
+  if (!status) {
+    return 'Unknown';
+  }
+  return escapeHtml(STATUS_LABELS[status] || String(status).replace(/_/g, ' '));
+}
+
 function getPlanningSessions() {
   return Array.isArray(state.state.reviewPlanningSessions) ? state.state.reviewPlanningSessions : [];
 }
 
 function getPlanningSnapshot() {
   return state.state.reviewPlanningSessionSnapshot;
+}
+
+function planningGeneratedAt(snapshot) {
+  return snapshot?.context_summary?.generated_at_utc || snapshot?.session?.updated_at_utc || null;
+}
+
+function planningCurrentCheckpointStatus(snapshot, checkpointIndex) {
+  const session = snapshot?.session;
+  if (!session) {
+    return 'pending';
+  }
+  const executed = executedCheckpointIndexSet(snapshot);
+  if (executed.has(checkpointIndex)) {
+    return 'executed';
+  }
+  if (session.current_checkpoint_index === checkpointIndex) {
+    return 'current';
+  }
+  return checkpointIndex < session.current_checkpoint_index ? 'passed' : 'pending';
+}
+
+function planningStatusClass(status) {
+  return String(status || 'draft').replace(/_/g, '-');
+}
+
+function findTargetLoop(snapshot, loopId) {
+  const targetLoops = Array.isArray(snapshot?.target_loops) ? snapshot.target_loops : [];
+  return targetLoops.find((loop) => loop.id === loopId) || null;
 }
 
 function renderSessionSummary(summaryEl, snapshot, summaryBits) {
@@ -142,9 +216,15 @@ function renderSessionSummary(summaryEl, snapshot, summaryBits) {
     return;
   }
 
+  const generatedAt = planningGeneratedAt(snapshot);
+  const generatedLabel = generatedAt
+    ? `Plan generated ${formatRelativeTimestamp(generatedAt)} · ${formatTimestamp(generatedAt)}`
+    : 'Plan generation time unavailable';
+
   summaryEl.innerHTML = `
     <div class="review-session-chip-group">
       ${summaryBits.map((bit) => `<span class="review-session-chip">${escapeHtml(bit)}</span>`).join('')}
+      <span class="review-session-chip">${generatedLabel}</span>
     </div>
   `;
 }
@@ -167,20 +247,19 @@ function renderPlanningSessionList() {
     return;
   }
 
-  const executed = executedCheckpointIndexSet(snapshot);
   reviewPlanningSessionList.innerHTML = snapshot.checkpoints.map((checkpoint, index) => {
-    const isCurrent = snapshot.session.current_checkpoint_index === index;
-    const isExecuted = executed.has(index);
+    const checkpointStatus = planningCurrentCheckpointStatus(snapshot, index);
+    const focusCount = Array.isArray(checkpoint.focus_loop_ids) ? checkpoint.focus_loop_ids.length : 0;
     return `
-      <article class="review-session-item planning-checkpoint-item ${isCurrent ? 'is-active' : ''} ${isExecuted ? 'is-complete' : ''}">
+      <article class="review-session-item planning-checkpoint-item is-${checkpointStatus}">
         <span class="review-session-item-order planning-checkpoint-badge">${index + 1}</span>
         <span class="review-session-item-body">
           <span class="review-session-item-title">${escapeHtml(checkpoint.title || `Checkpoint ${index + 1}`)}</span>
           <span class="review-session-item-copy">${escapeHtml(checkpoint.summary || 'No summary provided.')}</span>
           <span class="review-session-item-meta">
-            <span class="cohort-count ${isExecuted ? '' : 'alert'}">${isExecuted ? 'Executed' : 'Pending'}</span>
+            <span class="cohort-count ${checkpointStatus === 'pending' ? 'alert' : ''}">${escapeHtml(checkpointStatus)}</span>
             <span class="cohort-count">${(checkpoint.operations || []).length} action${(checkpoint.operations || []).length === 1 ? '' : 's'}</span>
-            ${isCurrent ? '<span class="cohort-count">Current</span>' : ''}
+            <span class="cohort-count">Focus loops ${focusCount}</span>
           </span>
         </span>
       </article>
@@ -188,49 +267,131 @@ function renderPlanningSessionList() {
   }).join('');
 }
 
-function renderTargetLoop(loop) {
+function renderLoopSummaryCard(loop, { label = null } = {}) {
   return `
-    <article class="planning-target-loop">
-      <h5>${formatLoopTitle(loop)}</h5>
+    <article class="planning-loop-summary-card">
+      <div class="planning-loop-summary-header">
+        <div>
+          <p class="support-eyebrow">${escapeHtml(label || `Loop #${loop?.id ?? '—'}`)}</p>
+          <h5>${formatLoopTitle(loop)}</h5>
+        </div>
+        <span class="review-session-chip">${escapeHtml(loop?.status || 'unknown')}</span>
+      </div>
       <p>${formatLoopPreview(loop)}</p>
       <div class="review-session-chip-group">
-        <span class="review-session-chip">Status: ${escapeHtml(loop.status || 'unknown')}</span>
-        ${loop.project ? `<span class="review-session-chip">Project: ${escapeHtml(loop.project)}</span>` : ''}
-        ${(loop.tags || []).length ? `<span class="review-session-chip">Tags: ${escapeHtml(loop.tags.join(', '))}</span>` : ''}
+        ${loop?.project ? `<span class="review-session-chip">Project: ${escapeHtml(loop.project)}</span>` : ''}
+        ${(loop?.tags || []).length ? `<span class="review-session-chip">Tags: ${escapeHtml(loop.tags.join(', '))}</span>` : ''}
+        ${loop?.next_action ? `<span class="review-session-chip">Next: ${escapeHtml(loop.next_action)}</span>` : ''}
+        ${loop?.due_date ? `<span class="review-session-chip">Due: ${escapeHtml(loop.due_date)}</span>` : ''}
+        ${loop?.due_at_utc ? `<span class="review-session-chip">Due at: ${formatTimestamp(loop.due_at_utc)}</span>` : ''}
       </div>
     </article>
+  `;
+}
+
+function renderLoopCollection(title, loops, emptyMessage) {
+  const normalized = Array.isArray(loops) ? loops : [];
+  return `
+    <section class="planning-loop-collection">
+      <div class="planning-loop-collection-header">
+        <h5>${escapeHtml(title)}</h5>
+        <span class="cohort-count">${normalized.length}</span>
+      </div>
+      ${normalized.length
+        ? `<div class="planning-loop-summary-grid">${normalized.map((loop) => renderLoopSummaryCard(loop)).join('')}</div>`
+        : `<div class="review-session-empty">${escapeHtml(emptyMessage)}</div>`}
+    </section>
   `;
 }
 
 function renderOperationCard(operation) {
   const operationCopy = { ...operation };
   delete operationCopy.summary;
+  delete operationCopy.focus_loop_ids;
   return `
     <article class="planning-operation-card">
       <div class="planning-operation-card-header">
         <span class="planning-operation-kind">${escapeHtml(operation.kind || 'operation')}</span>
       </div>
       <p class="planning-operation-summary">${escapeHtml(operation.summary || 'No summary provided.')}</p>
-      <pre class="planning-operation-payload">${escapeHtml(JSON.stringify(operationCopy, null, 2))}</pre>
+      <details class="planning-operation-details">
+        <summary>Inspect operation payload</summary>
+        <pre class="planning-operation-payload">${escapeHtml(JSON.stringify(operationCopy, null, 2))}</pre>
+      </details>
     </article>
   `;
 }
 
+function summarizePlanningExecutionOutputs(result) {
+  const summary = [];
+  const payload = result?.result && typeof result.result === 'object' ? result.result : {};
+  const loop = payload.loop && typeof payload.loop === 'object' ? payload.loop : null;
+  const session = payload.session && typeof payload.session === 'object' ? payload.session : null;
+  const snapshot = payload.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot : null;
+
+  if (loop) {
+    summary.push({
+      label: result.kind === 'create_loop' ? 'Created loop' : 'Loop',
+      value: loop.title || loop.raw_text || `Loop #${loop.id ?? '—'}`,
+    });
+  }
+  if (session?.name) {
+    summary.push({ label: 'Saved session', value: session.name });
+  }
+  if (snapshot?.session?.name) {
+    summary.push({ label: 'Saved session', value: snapshot.session.name });
+  }
+  if (typeof payload.suggestion_id === 'number') {
+    summary.push({ label: 'Suggestion', value: `#${payload.suggestion_id}` });
+  }
+  if (typeof payload.matched_count === 'number') {
+    summary.push({ label: 'Matched loops', value: String(payload.matched_count) });
+  }
+  if (typeof payload.succeeded === 'number') {
+    summary.push({ label: 'Succeeded', value: String(payload.succeeded) });
+  }
+  if (typeof payload.failed === 'number') {
+    summary.push({ label: 'Failed', value: String(payload.failed) });
+  }
+
+  return summary;
+}
+
 function renderExecutionResult(result) {
-  const afterCount = Array.isArray(result.after_loops) ? result.after_loops.length : 0;
-  const beforeCount = Array.isArray(result.before_loops) ? result.before_loops.length : 0;
+  const afterLoops = Array.isArray(result.after_loops) ? result.after_loops : [];
+  const beforeLoops = Array.isArray(result.before_loops) ? result.before_loops : [];
+  const outputs = summarizePlanningExecutionOutputs(result);
+
   return `
-    <article class="planning-execution-result">
+    <article class="planning-execution-result ${result.ok ? 'is-success' : 'is-error'}">
       <div class="planning-execution-result-header">
-        <strong>${escapeHtml(result.summary || result.kind || 'Operation')}</strong>
-        <span class="review-session-chip">${escapeHtml(result.kind || 'operation')}</span>
+        <div>
+          <strong>${escapeHtml(result.summary || result.kind || 'Operation')}</strong>
+          <p class="planning-execution-result-copy">${escapeHtml(result.kind || 'operation')}</p>
+        </div>
+        <span class="review-session-chip">${result.undoable ? 'Undo snapshot kept' : 'No undo snapshot'}</span>
       </div>
+      ${outputs.length ? `
+        <div class="planning-execution-output-list">
+          ${outputs.map((item) => `
+            <div class="planning-execution-output-item">
+              <span class="planning-execution-output-label">${escapeHtml(item.label)}</span>
+              <span class="planning-execution-output-value">${escapeHtml(item.value)}</span>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
       <div class="review-session-chip-group">
-        <span class="review-session-chip">Before loops: ${beforeCount}</span>
-        <span class="review-session-chip">After loops: ${afterCount}</span>
-        <span class="review-session-chip">${result.undoable ? 'Undo-friendly snapshot' : 'No undo snapshot'}</span>
+        <span class="review-session-chip">Before loops: ${beforeLoops.length}</span>
+        <span class="review-session-chip">After loops: ${afterLoops.length}</span>
+        <span class="review-session-chip">${result.ok ? 'Executed' : 'Failed'}</span>
       </div>
-      <pre class="planning-operation-payload">${escapeHtml(JSON.stringify(result.result || {}, null, 2))}</pre>
+      ${renderLoopCollection('Before loops', beforeLoops, 'No before-loop snapshot was recorded.')}
+      ${renderLoopCollection('After loops', afterLoops, 'No after-loop snapshot was recorded.')}
+      <details class="planning-operation-details">
+        <summary>Inspect raw execution payload</summary>
+        <pre class="planning-operation-payload">${escapeHtml(JSON.stringify(result.result || {}, null, 2))}</pre>
+      </details>
     </article>
   `;
 }
@@ -252,7 +413,7 @@ function renderExecutionHistory(snapshot) {
             </div>
             <div class="review-session-chip-group">
               <span class="review-session-chip">${item.operation_count} result${item.operation_count === 1 ? '' : 's'}</span>
-              <span class="review-session-chip">${formatTimestamp(item.executed_at_utc)}</span>
+              <span class="review-session-chip">Executed ${formatRelativeTimestamp(item.executed_at_utc)}</span>
             </div>
           </div>
           <div class="planning-execution-results">
@@ -261,6 +422,67 @@ function renderExecutionHistory(snapshot) {
         </section>
       `).join('')}
     </div>
+  `;
+}
+
+function renderCheckpointFocusLoops(snapshot, checkpoint) {
+  const focusLoopIds = Array.isArray(checkpoint?.focus_loop_ids) ? checkpoint.focus_loop_ids : [];
+  const loops = focusLoopIds
+    .map((loopId) => findTargetLoop(snapshot, loopId))
+    .filter(Boolean);
+
+  return `
+    <section class="planning-loop-collection">
+      <div class="planning-loop-collection-header">
+        <h5>Focus loops</h5>
+        <span class="cohort-count">${focusLoopIds.length}</span>
+      </div>
+      ${!focusLoopIds.length
+        ? '<div class="review-session-empty">This checkpoint does not target existing loops directly. It may create new work or queue a follow-up review session.</div>'
+        : loops.length
+          ? `<div class="planning-loop-summary-grid">${loops.map((loop) => renderLoopSummaryCard(loop, { label: `Focus loop #${loop.id}` })).join('')}</div>`
+          : '<div class="review-session-empty">Focus-loop IDs exist, but none of those loops were present in the grounded target snapshot.</div>'}
+    </section>
+  `;
+}
+
+function renderGroundingSnapshot(snapshot) {
+  const contextSummary = snapshot?.context_summary && typeof snapshot.context_summary === 'object'
+    ? snapshot.context_summary
+    : {};
+  const targetLoops = Array.isArray(snapshot?.target_loops) ? snapshot.target_loops : [];
+  const sources = Array.isArray(snapshot?.sources) ? snapshot.sources : [];
+  const query = snapshot?.session?.query || contextSummary.query || 'next-loop focus';
+
+  return `
+    <section class="planning-section-block">
+      <div class="planning-section-heading">
+        <h4>Grounding snapshot</h4>
+        <span class="cohort-count">${targetLoops.length} loops</span>
+      </div>
+      <div class="planning-grounding-grid">
+        <article class="planning-grounding-card">
+          <span class="planning-grounding-label">Query</span>
+          <strong>${escapeHtml(query)}</strong>
+          <p>${snapshot?.session?.query ? 'The planner was scoped with an explicit DSL query.' : 'The planner used the default next-loop focus ordering.'}</p>
+        </article>
+        <article class="planning-grounding-card">
+          <span class="planning-grounding-label">Plan generated</span>
+          <strong>${formatRelativeTimestamp(planningGeneratedAt(snapshot))}</strong>
+          <p>${formatTimestamp(planningGeneratedAt(snapshot))}</p>
+        </article>
+        <article class="planning-grounding-card">
+          <span class="planning-grounding-label">Memory grounding</span>
+          <strong>${Number(contextSummary.memory_entries_used || 0)}</strong>
+          <p>Stored memory entries included when the plan was generated.</p>
+        </article>
+        <article class="planning-grounding-card">
+          <span class="planning-grounding-label">RAG grounding</span>
+          <strong>${Number(contextSummary.rag_chunks_used || 0)}</strong>
+          <p>${sources.length} source${sources.length === 1 ? '' : 's'} captured in the plan snapshot.</p>
+        </article>
+      </div>
+    </section>
   `;
 }
 
@@ -277,14 +499,15 @@ function renderPlanningWorkspace() {
     sessions,
     state.state.reviewPlanningSessionId,
     'No saved session',
-    (item) => `${item.name} · ${item.status} · ${item.executed_checkpoint_count}/${item.checkpoint_count}`,
+    (item) => `${item.name} · ${formatStatusLabel(item.status)} · ${item.executed_checkpoint_count}/${item.checkpoint_count}`,
   );
 
   const summaryBits = session
     ? [
-        session.query ? `Query: ${session.query}` : 'Query: next-loop focus',
-        `Status: ${session.status.replace(/_/g, ' ')}`,
+        `Status: ${STATUS_LABELS[session.status] || session.status.replace(/_/g, ' ')}`,
         `Executed: ${session.executed_checkpoint_count}/${session.checkpoint_count}`,
+        `Current checkpoint: ${session.checkpoint_count ? session.current_checkpoint_index + 1 : 0}`,
+        session.query ? `Query: ${session.query}` : 'Query: next-loop focus',
       ]
     : [];
   renderSessionSummary(reviewPlanningSessionSummary, snapshot, summaryBits);
@@ -310,16 +533,41 @@ function renderPlanningWorkspace() {
 
   const canMovePrev = session.current_checkpoint_index > 0;
   const canMoveNext = session.current_checkpoint_index < session.checkpoint_count - 1;
-  const targetLoops = Array.isArray(snapshot.target_loops) ? snapshot.target_loops.slice(0, 6) : [];
+  const targetLoops = Array.isArray(snapshot.target_loops) ? snapshot.target_loops : [];
   const assumptions = Array.isArray(snapshot.assumptions) ? snapshot.assumptions : [];
+  const generatedAt = planningGeneratedAt(snapshot);
+  const generatedLabel = generatedAt ? `${formatRelativeTimestamp(generatedAt)} · ${formatTimestamp(generatedAt)}` : 'unknown time';
 
   reviewPlanningSessionDetail.innerHTML = `
     <div class="review-session-card planning-session-card">
-      <div class="review-session-card-header">
+      <div class="planning-status-banner is-${planningStatusClass(session.status)}">
         <div>
           <p class="support-eyebrow">${escapeHtml(session.name)}</p>
           <h3>${escapeHtml(snapshot.plan_title || session.name)}</h3>
           <p class="review-session-copy">${escapeHtml(snapshot.plan_summary || session.prompt)}</p>
+        </div>
+        <div class="planning-status-banner-meta">
+          <span class="review-session-chip">${formatStatusLabel(session.status)}</span>
+          <span class="review-session-chip">Generated ${generatedLabel}</span>
+          <span class="review-session-chip">${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed</span>
+        </div>
+      </div>
+      <div class="review-session-card-header">
+        <div class="planning-operator-briefing">
+          <div class="review-session-chip-group">
+            <span class="review-session-chip">Prompt: ${escapeHtml(session.prompt)}</span>
+            <span class="review-session-chip">Loop limit: ${session.loop_limit}</span>
+            <span class="review-session-chip">Memory: ${session.include_memory_context ? 'on' : 'off'}</span>
+            <span class="review-session-chip">RAG: ${session.include_rag_context ? `on · k=${session.rag_k}` : 'off'}</span>
+          </div>
+          <div class="planning-operator-callout">
+            <strong>${session.status === 'completed' ? 'Plan complete.' : currentExecuted ? 'Current checkpoint already executed.' : 'Ready for operator execution.'}</strong>
+            <span>${session.status === 'completed'
+              ? 'Refresh the plan if loop state has drifted and you want a fresh grounded workflow.'
+              : currentExecuted
+                ? 'Move to the next checkpoint or refresh the plan if the surrounding context has changed.'
+                : 'Review the focus loops and deterministic operations below before executing the current checkpoint.'}</span>
+          </div>
         </div>
         <div class="review-session-card-actions">
           <button type="button" class="secondary" data-action="planning-move" data-direction="previous" ${canMovePrev ? '' : 'disabled'}>Previous</button>
@@ -328,12 +576,7 @@ function renderPlanningWorkspace() {
           <button type="button" data-action="planning-execute" ${currentCheckpoint && !currentExecuted ? '' : 'disabled'}>Execute current checkpoint</button>
         </div>
       </div>
-      <div class="review-session-chip-group">
-        <span class="review-session-chip">Prompt: ${escapeHtml(session.prompt)}</span>
-        <span class="review-session-chip">Loop limit: ${session.loop_limit}</span>
-        <span class="review-session-chip">Memory: ${session.include_memory_context ? 'on' : 'off'}</span>
-        <span class="review-session-chip">RAG: ${session.include_rag_context ? `on · k=${session.rag_k}` : 'off'}</span>
-      </div>
+      ${renderGroundingSnapshot(snapshot)}
       <section class="planning-section-block">
         <div class="planning-section-heading">
           <h4>Current checkpoint</h4>
@@ -350,18 +593,17 @@ function renderPlanningWorkspace() {
               <span class="review-session-chip">${escapeHtml(currentCheckpoint.success_criteria || 'No success criteria provided.')}</span>
               ${currentExecuted ? '<span class="review-session-chip">Already executed</span>' : '<span class="review-session-chip">Ready to execute</span>'}
             </div>
-            <div class="planning-operation-list">
-              ${(currentCheckpoint.operations || []).map((operation) => renderOperationCard(operation)).join('')}
-            </div>
           </div>
         ` : '<div class="review-session-empty">No current checkpoint available.</div>'}
+        ${currentCheckpoint ? renderCheckpointFocusLoops(snapshot, currentCheckpoint) : ''}
+        ${currentCheckpoint ? `<div class="planning-operation-list">${(currentCheckpoint.operations || []).map((operation) => renderOperationCard(operation)).join('')}</div>` : ''}
       </section>
       <section class="planning-section-block">
         <div class="planning-section-heading">
           <h4>Grounded target loops</h4>
-          <span class="cohort-count">${Array.isArray(snapshot.target_loops) ? snapshot.target_loops.length : 0} loaded</span>
+          <span class="cohort-count">${targetLoops.length} loaded</span>
         </div>
-        ${targetLoops.length ? `<div class="planning-target-loop-list">${targetLoops.map((loop) => renderTargetLoop(loop)).join('')}</div>` : '<div class="review-session-empty">No grounded target loops were included in this planning session.</div>'}
+        ${targetLoops.length ? `<div class="planning-loop-summary-grid">${targetLoops.map((loop) => renderLoopSummaryCard(loop)).join('')}</div>` : '<div class="review-session-empty">No grounded target loops were included in this planning session.</div>'}
       </section>
       <section class="planning-section-block">
         <div class="planning-section-heading">

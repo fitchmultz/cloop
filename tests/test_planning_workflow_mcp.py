@@ -144,6 +144,7 @@ def test_planning_workflow_tools(
     )
     session_id = session["session"]["id"]
     assert session["current_checkpoint"]["title"] == "Stabilize the active loops"
+    assert session["context_summary"]["generated_at_utc"]
 
     listed = plan_session_list()
     assert [item["id"] for item in listed] == [session_id]

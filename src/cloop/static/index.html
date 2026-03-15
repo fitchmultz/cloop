@@ -631,6 +631,18 @@
         </section>
       </div>
       <aside class="workspace-support" aria-label="Review support">
+        <section class="panel support-panel support-panel-feature review-guide-panel">
+          <p class="support-eyebrow">AI workflow guide</p>
+          <h3>Plan, execute, review, then chat against the live state</h3>
+          <p class="support-copy">Use the shared planning, review, and grounded-chat contracts as one operator loop instead of treating them as isolated surfaces.</p>
+          <ol class="review-guide-list">
+            <li><strong>Create a planning session</strong><span>Start with a query-scoped checkpointed plan when you need a structured multi-step pass.</span></li>
+            <li><strong>Execute one deterministic checkpoint at a time</strong><span>Review focus loops, success criteria, and operation payloads before committing the next step.</span></li>
+            <li><strong>Follow the generated review outputs</strong><span>If a checkpoint creates relationship or enrichment sessions, move directly into those saved queues instead of open-coding follow-up work.</span></li>
+            <li><strong>Refresh when reality changes</strong><span>Regenerate the plan after major loop edits so the checkpoint list stays grounded in the current state.</span></li>
+          </ol>
+          <p class="support-status">Planning sessions are durable. The plan snapshot and execution history are meant to survive tab reloads and resume later.</p>
+        </section>
         <section class="panel support-panel support-panel-feature">
           <p class="support-eyebrow">Review rhythm</p>
           <h3>Turn drift into an action list</h3>

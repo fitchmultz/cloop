@@ -122,6 +122,7 @@ flowchart LR
 2. `src/cloop/loops/planning_workflows.py` owns grounded plan generation, durable planning-session persistence, checkpoint cursors, execution history, refresh semantics, and deterministic checkpoint execution.
 3. Persisted session metadata lives in `planning_sessions`, and executed checkpoint snapshots live in `planning_session_runs`, so operators can inspect prior results without relying on transport-local state.
 4. Checkpoint execution may compose existing shared deterministic primitives such as loop capture/update/status transitions, explicit enrichment orchestration, and saved review-session creation instead of inventing transport-specific workflow forks.
+5. Transport ergonomics should stay layered on top of that shared substrate: the Review tab should surface plan freshness, focus loops, and execution outputs clearly, while MCP tool descriptions should teach operators how planning hands off into saved review sessions and grounded chat.
 
 ### Bulk enrichment (HTTP + Web + CLI + MCP)
 1. Explicit bulk enrichment now routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.
@@ -169,6 +170,7 @@ The MCP server is a meaningful part of the project, not a sidecar demo.
 - It exposes loop operations plus narrow grounded-chat and retrieval surfaces through domain-specific tools.
 - It reuses the same shared execution and service/repository logic as the API and CLI.
 - It avoids giving agents raw SQL or overly broad host access for common loop, chat, and knowledge workflows.
+- Tool descriptions are part of the operator contract: `chat.complete`, `plan.session.*`, and `review.*` should carry enough Args/Returns/examples guidance for MCP clients to present a self-explanatory workflow surface.
 
 That makes Cloop a practical example of agent-tool integration in a real application, not just a standalone chat/RAG demo.
 

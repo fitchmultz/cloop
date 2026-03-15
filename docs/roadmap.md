@@ -48,20 +48,7 @@ Legend:
 The next work should happen in this order so that the newly stabilized shared planning,
 chat, enrichment, review, direct-memory, and pi-selector defaults can propagate outward without rework.
 
-### Phase 1 — Deepen transport ergonomics for shared AI workflows
-
-Goal: polish the newest shared planning/review/chat/RAG capabilities now that the higher-leverage workflow contracts are in place.
-
-- Better guided web UI affordances on top of saved review sessions and checkpointed planning flows.
-- Richer MCP ergonomics and examples for the newest shared planning, review, and grounded-chat operators.
-- Documentation/examples that make the shared pi-selector, planning-workflow, and review-workflow model obvious for operators.
-
-Why first now:
-
-- Planning sessions, saved review sessions, grounded chat, and shared RAG execution now exist across all major operator surfaces.
-- The next leverage point is smoothing operator ergonomics on top of those shared contracts rather than reopening service-layer churn.
-
-### Phase 2 — Expand deterministic planning execution coverage
+### Phase 1 — Expand deterministic planning execution coverage
 
 Goal: make the shared planning contract broader and more operator-friendly once the current planning surface has settled.
 
@@ -71,17 +58,30 @@ Goal: make the shared planning contract broader and more operator-friendly once 
 
 Why next:
 
-- This work benefits from the now-shared planning-session substrate first.
-- Expanding operation coverage after transport polish reduces the odds of reworking newly added UX and tool surfaces.
+- The shared planning substrate and transport ergonomics are now in place.
+- Expanding operation coverage next delivers more real operator leverage without reopening the transport polish that just landed.
+
+### Phase 2 — Extend parity for post-planning operator loops
+
+Goal: make the handoff from planning/review into subsequent execution even more seamless.
+
+- Add transport-ready affordances wherever checkpoint execution should launch the next deterministic operator surface directly.
+- Tighten chat/review/planning examples around multi-step operator sessions, especially when saved review sessions become the next queue.
+- Consider remaining parity gaps only after they can reuse the already-shared planning/review/chat contracts.
+
+Why after Phase 1:
+
+- Broader checkpoint coverage should land before another round of transport polish.
+- That keeps docs/examples focused on workflows that actually exist end-to-end.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best short sequence is:
 
-1. **Transport polish session**
-   - deeper web UX polish, richer MCP ergonomics, and docs/examples for the newest shared planning/review operators
-2. **Planning execution expansion session**
+1. **Planning execution expansion session**
    - broader deterministic checkpoint operations plus clearer undo/provenance affordances on top of the new planning substrate
+2. **Post-planning parity session**
+   - polish the handoff from executed checkpoints into the next saved review/chat operator surface once the new checkpoint coverage exists
 
 That sequence gives the highest leverage while minimizing contract churn.
 

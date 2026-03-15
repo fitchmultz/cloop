@@ -496,6 +496,7 @@ def _generate_workflow_plan(
                 "target_loop_count": len(target_loops),
                 "memory_entries_used": memory_result.entry_count if memory_result else 0,
                 "rag_chunks_used": int(rag_result["chunks_used"]),
+                "generated_at_utc": format_utc_datetime(utc_now()),
             },
             "target_loops": [_compact_loop_payload(loop) for loop in target_loops],
             "sources": list(rag_result["sources"]),

@@ -121,6 +121,7 @@ def test_planning_workflow_endpoints(
     create_payload = create_response.json()
     session_id = create_payload["session"]["id"]
     assert create_payload["current_checkpoint"]["title"] == "Stabilize the active loops"
+    assert create_payload["context_summary"]["generated_at_utc"]
 
     list_response = client.get("/loops/planning/sessions")
     assert list_response.status_code == 200

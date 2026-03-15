@@ -938,6 +938,34 @@ def test_ui_contains_planning_workspace_elements(
     assert "Checkpointed planning sessions" in html
 
 
+def test_review_support_sidebar_explains_ai_workflow_loop(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    """Initial HTML should include the review-tab workflow guide for planning/review handoff."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert "AI workflow guide" in html
+    assert "Plan, execute, review, then chat against the live state" in html
+    assert "Create a planning session" in html
+    assert "Refresh when reality changes" in html
+
+
+def test_planning_workspace_js_includes_freshness_and_execution_output_cues() -> None:
+    """The planning workspace frontend should render freshness and execution-output helpers."""
+    planning_js = (
+        Path(__file__).resolve().parent.parent / "src" / "cloop" / "static" / "js" / "planning.js"
+    ).read_text(encoding="utf-8")
+
+    assert "Plan generated" in planning_js
+    assert "Grounding snapshot" in planning_js
+    assert "Execution history" in planning_js
+    assert "summarizePlanningExecutionOutputs" in planning_js
+    assert "Focus loops" in planning_js
+
+
 def test_chat_empty_state_copy_is_consistent_on_initial_html(
     test_client: TestClient,
     tmp_data_dir: Path,

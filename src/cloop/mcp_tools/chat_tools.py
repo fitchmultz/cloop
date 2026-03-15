@@ -114,6 +114,13 @@ def chat_complete(
     Raises:
         ToolError: If request validation fails, tool usage is invalid, or chat
             execution raises a shared domain/runtime error.
+
+    Examples:
+        - Ask grounded chat to summarize today with loop and memory context on.
+        - Enable `include_rag_context` when you want document citations in the
+          same response payload.
+        - Use `tool_mode='llm'` when you want the bridge-led tool loop instead
+          of a pure advisory answer.
     """
     settings = get_settings()
     request = _build_chat_request(

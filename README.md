@@ -374,6 +374,69 @@ cloop import [--file FILE] [--format json|table]
 # Reads from stdin if no --file specified
 ```
 
+### Planning and Review Playbooks
+
+These shared workflows are meant to compose with each other instead of living in one transport only. They all inherit the same pi selector defaults from `CLOOP_PI_MODEL` / `CLOOP_PI_ORGANIZER_MODEL`, so planning, review, and grounded chat stay on one configured generative runtime unless you intentionally change the selectors.
+
+**Checkpointed planning via CLI:**
+```bash
+# Create a durable plan grounded in current launch work
+cloop plan session create \
+  --name weekly-launch-reset \
+  --prompt "Build a checkpointed plan for my open launch work" \
+  --query "project:launch status:open"
+
+# Inspect, execute one checkpoint, then refresh if the loop set changed
+cloop plan session get --session 1
+cloop plan session execute --session 1
+cloop plan session refresh --session 1
+```
+
+**Saved review queues via CLI:**
+```bash
+# Preserve duplicate review work across sessions
+cloop review relationship-session create \
+  --name launch-duplicates \
+  --query "project:launch status:open" \
+  --kind duplicate
+
+# Preserve enrichment follow-up work and answer clarifications in-session
+cloop review enrichment-session create \
+  --name launch-follow-ups \
+  --query "project:launch status:open" \
+  --pending-kind all
+cloop review enrichment-session answer-clarifications \
+  --session 2 \
+  --loop 14 \
+  --item 31="Need budget by Friday"
+```
+
+**HTTP workflow sketch:**
+```bash
+# Create a planning session
+curl -X POST http://127.0.0.1:8000/loops/planning/sessions \
+  -H 'content-type: application/json' \
+  -d '{
+    "name": "weekly-launch-reset",
+    "prompt": "Build a checkpointed plan for my open launch work",
+    "query": "project:launch status:open",
+    "include_memory_context": true,
+    "include_rag_context": false
+  }'
+
+# Execute the current checkpoint
+curl -X POST http://127.0.0.1:8000/loops/planning/sessions/1/execute
+```
+
+**MCP operator pattern:**
+- `plan.session.create` → generate the durable checkpointed plan.
+- `plan.session.get` / `plan.session.move` → inspect and navigate checkpoints before execution.
+- `plan.session.execute` → run exactly one deterministic checkpoint and inspect `execution.results`.
+- `review.relationship_session.*` and `review.enrichment_session.*` → continue any saved follow-up sessions that a checkpoint created.
+- `chat.complete` → ask for advice against the live loop/memory/RAG state after deterministic work lands.
+
+The MCP tool descriptions are intentionally rich: clients should surface the `Args`, `Returns`, and `Examples` sections so operators can discover the shared workflow model without separate transport-specific docs.
+
 ### Review Commands
 
 ```bash
@@ -548,7 +611,7 @@ Captures are persisted immediately with offline sync support. Semantic Inbox sea
 
 ### Review Cohorts
 
-The Review tab now has five review layers:
+The Review tab now has five review layers, plus an in-product workflow guide that shows when to plan, execute, refresh, and hand work off to saved review sessions:
 
 - **Checkpointed planning sessions**: grounded AI plans with durable checkpoints, explicit deterministic operations, execution history, and refreshable context snapshots.
 - **Bulk enrichment**: a DSL-driven preview-and-run workflow for re-enriching a filtered loop set without leaving the review workspace.
@@ -835,6 +898,11 @@ Exposed tools include `chat.complete`, `loop.create`, `loop.update`, `loop.close
 `chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
 endpoint and `cloop chat`, so tool behavior, grounding options, metadata, sources, and
 interaction logging stay aligned. MCP currently exposes the non-streaming chat contract.
+
+`plan.session.*` and `review.*` are intended to be used together: planning sessions can create
+follow-up review sessions, and those saved review sessions preserve cursor state for later MCP calls.
+Their tool descriptions now include operator-facing `Args`, `Returns`, and `Examples` guidance so MCP
+clients can surface a lightweight workflow playbook directly inside tool discovery.
 
 `memory.*` reuses the shared `memory_management` contract as the HTTP, web, and CLI surfaces,
 so direct memory CRUD/search semantics stay aligned everywhere.

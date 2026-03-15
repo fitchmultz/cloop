@@ -97,6 +97,15 @@ uv run uvicorn cloop.main:app --reload
 # confirm bridge_name / bridge_version / bridge_protocol are populated when pi bridge is healthy
 ```
 
+Review-tab smoke checklist:
+- Create a planning session from the Review tab and confirm the workspace shows:
+  - plan-generated timestamp / freshness cue
+  - current checkpoint success criteria
+  - focus-loop cards
+  - execution-history output summaries after a checkpoint runs
+- If a checkpoint creates a saved review session, confirm the adjacent relationship/enrichment workspace can pick it up without reloading the app.
+- Confirm the Review support sidebar still explains the plan → execute → review → refresh flow.
+
 MCP:
 
 ```bash
@@ -104,6 +113,8 @@ uv run cloop-mcp
 ```
 
 Confirm your MCP client discovers grounded chat (`chat.complete`), direct memory tools (`memory.list`, `memory.search`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`), semantic loop search (`loop.semantic_search`), relationship-review tools (`loop.relationship_review`, `loop.relationship_queue`, `loop.relationship_confirm`, `loop.relationship_dismiss`), saved review workflow tools (`review.relationship_action.*`, `review.relationship_session.*`, `review.enrichment_action.*`, `review.enrichment_session.*`), planning workflow tools (`plan.session.*`), both retrieval tools (`rag.ask`, `rag.ingest`), suggestion review tools (`suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`), clarification tools (`clarification.list`, `clarification.answer`, `clarification.answer_many`), and the rest of the loop tool set.
+
+Also confirm the MCP client surfaces rich tool descriptions for `chat.complete`, `plan.session.*`, and `review.*` so operators can see Args/Returns/examples guidance during tool discovery.
 
 ## 4) CI workflow intent check
 

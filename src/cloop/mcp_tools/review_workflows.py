@@ -143,7 +143,34 @@ def review_relationship_session_create(
     current_loop_id: int | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create a relationship-review session snapshot."""
+    """Create a durable relationship-review session.
+
+    Use this to persist a filtered duplicate/related-loop review queue so an MCP
+    client can pause and resume without rebuilding candidate state.
+
+    Args:
+        name: Human-facing session name. Must be unique among relationship sessions.
+        query: DSL query describing which loops belong in the saved review queue.
+        relationship_kind: Candidate type to queue (`all`, `duplicate`, `related`).
+        candidate_limit: Maximum duplicate/related candidates to retain per loop.
+        item_limit: Maximum loops to include in the saved session snapshot.
+        current_loop_id: Optional loop that should become the initial cursor.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict matching the shared relationship-review session snapshot contract,
+        including the durable `session`, saved `items`, `current_item`, and
+        `current_index` cursor metadata.
+
+    Raises:
+        ToolError: If validation fails, the named session already exists, or the
+            shared review workflow raises a domain/runtime error.
+
+    Examples:
+        - Save a duplicate-only review queue for `project:launch status:open`.
+        - Resume a previously identified hot loop first by providing
+          `current_loop_id`.
+    """
     payload = {
         "name": name,
         "query": query,
@@ -182,7 +209,19 @@ def review_relationship_session_list() -> list[dict[str, Any]]:
 
 @with_mcp_error_handling
 def review_relationship_session_get(session_id: int) -> dict[str, Any]:
-    """Get a relationship-review session snapshot."""
+    """Fetch one full relationship-review session snapshot.
+
+    Args:
+        session_id: Saved relationship-review session ID.
+
+    Returns:
+        Dict matching the shared relationship-review snapshot contract with the
+        durable session metadata, full queued items, and the currently selected
+        loop plus duplicate/related candidates.
+
+    Raises:
+        ToolError: If the saved session does not exist.
+    """
     from .. import db
     from ..settings import get_settings
 
@@ -201,7 +240,19 @@ def review_relationship_session_move(
     direction: str,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Move a relationship-review session cursor."""
+    """Move the cursor inside a relationship-review session.
+
+    Args:
+        session_id: Saved relationship-review session ID.
+        direction: Cursor movement direction. Valid values are `next` and `previous`.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Updated relationship-review session snapshot with the new current loop.
+
+    Raises:
+        ToolError: If the session is missing or no next/previous item exists.
+    """
     payload = {"session_id": session_id, "direction": direction}
     return run_idempotent_tool_mutation(
         tool_name="review.relationship_session.move",
@@ -295,7 +346,32 @@ def review_relationship_session_apply_action(
     relationship_type: str | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Run a relationship-review action inside a session."""
+    """Apply a duplicate/related decision inside a saved relationship session.
+
+    Use this when the agent has inspected the current candidate and is ready to
+    confirm or dismiss it while preserving the saved-session cursor.
+
+    Args:
+        session_id: Saved relationship-review session ID.
+        loop_id: Primary loop under review.
+        candidate_loop_id: Candidate loop being confirmed or dismissed.
+        candidate_relationship_type: Candidate type as queued in the session.
+        action_preset_id: Optional saved action preset to reuse.
+        action_type: Inline action override (`confirm` or `dismiss`) when not
+            using a preset.
+        relationship_type: Optional explicit relationship outcome (`duplicate`
+            or `related`) when not using a preset.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict with:
+        - `result`: normalized relationship decision payload
+        - `snapshot`: refreshed relationship-review session after the action
+
+    Raises:
+        ToolError: If the candidate is invalid for the session, the action is
+            incompatible, or the underlying relationship decision fails.
+    """
     payload = {
         "session_id": session_id,
         "loop_id": loop_id,
@@ -438,7 +514,33 @@ def review_enrichment_session_create(
     current_loop_id: int | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Create an enrichment-review session snapshot."""
+    """Create a durable enrichment-review session.
+
+    Use this to persist a filtered suggestion/clarification queue so the agent
+    can work through enrichment follow-up without reconstructing state.
+
+    Args:
+        name: Human-facing session name. Must be unique among enrichment sessions.
+        query: DSL query describing which loops should populate the session.
+        pending_kind: Follow-up type to include (`all`, `suggestions`, `clarifications`).
+        suggestion_limit: Maximum suggestions to retain per loop in the snapshot.
+        clarification_limit: Maximum clarifications to retain per loop.
+        item_limit: Maximum loops to include in the saved session.
+        current_loop_id: Optional loop that should become the initial cursor.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict matching the shared enrichment-review session snapshot contract with
+        durable `session`, saved `items`, `current_item`, and cursor metadata.
+
+    Raises:
+        ToolError: If validation fails, the named session already exists, or the
+            shared review workflow raises a domain/runtime error.
+
+    Examples:
+        - Save a clarification-only queue for `status:open project:launch`.
+        - Save a mixed suggestions+clarifications queue before a review pass.
+    """
     payload = {
         "name": name,
         "query": query,
@@ -478,7 +580,19 @@ def review_enrichment_session_list() -> list[dict[str, Any]]:
 
 @with_mcp_error_handling
 def review_enrichment_session_get(session_id: int) -> dict[str, Any]:
-    """Get an enrichment-review session snapshot."""
+    """Fetch one full enrichment-review session snapshot.
+
+    Args:
+        session_id: Saved enrichment-review session ID.
+
+    Returns:
+        Dict matching the shared enrichment-review snapshot contract with the
+        durable session metadata, full queued items, pending suggestions,
+        clarifications, and the current cursor position.
+
+    Raises:
+        ToolError: If the saved session does not exist.
+    """
     from .. import db
     from ..settings import get_settings
 
@@ -493,7 +607,19 @@ def review_enrichment_session_move(
     direction: str,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Move an enrichment-review session cursor."""
+    """Move the cursor inside an enrichment-review session.
+
+    Args:
+        session_id: Saved enrichment-review session ID.
+        direction: Cursor movement direction. Valid values are `next` and `previous`.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Updated enrichment-review session snapshot with the new current loop.
+
+    Raises:
+        ToolError: If the session is missing or no next/previous item exists.
+    """
     payload = {"session_id": session_id, "direction": direction}
     return run_idempotent_tool_mutation(
         tool_name="review.enrichment_session.move",
@@ -586,7 +712,26 @@ def review_enrichment_session_apply_action(
     fields: Sequence[str] | None = None,
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Run an enrichment-review action inside a session."""
+    """Apply or reject a suggestion inside a saved enrichment session.
+
+    Args:
+        session_id: Saved enrichment-review session ID.
+        suggestion_id: Suggestion to resolve inside the saved session.
+        action_preset_id: Optional saved action preset to reuse.
+        action_type: Inline action override (`apply` or `reject`) when not using
+            a preset.
+        fields: Optional field subset when applying a suggestion inline.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict with:
+        - `result`: normalized suggestion resolution payload
+        - `snapshot`: refreshed enrichment-review session after the action
+
+    Raises:
+        ToolError: If the suggestion is invalid for the session, the requested
+            action is incompatible, or the underlying resolution fails.
+    """
     payload = {
         "session_id": session_id,
         "suggestion_id": suggestion_id,
@@ -617,7 +762,31 @@ def review_enrichment_session_answer_clarifications(
     answers: list[dict[str, Any]],
     request_id: str | None = None,
 ) -> dict[str, Any]:
-    """Answer clarifications for one loop in an enrichment session."""
+    """Answer clarification prompts and rerun enrichment in one session step.
+
+    This is the session-preserving refinement path for enrichment follow-up. It
+    records answers against existing clarification rows, reruns the shared
+    enrichment orchestration, and returns the refreshed session snapshot.
+
+    Args:
+        session_id: Saved enrichment-review session ID.
+        loop_id: Loop whose clarification rows are being answered.
+        answers: List of `{clarification_id, answer}` dicts.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict with:
+        - `result`: clarification-answer + rerun-enrichment payload
+        - `snapshot`: refreshed enrichment-review session after refinement
+
+    Raises:
+        ToolError: If the clarification IDs do not belong to the loop/session or
+            the shared refinement flow fails.
+
+    Examples:
+        - Answer two clarifications, rerun enrichment, then inspect the updated
+          pending suggestions in the returned `snapshot`.
+    """
     payload = {"session_id": session_id, "loop_id": loop_id, "answers": answers}
 
     def _execute(conn: Any, settings: Any) -> dict[str, Any]:

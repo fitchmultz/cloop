@@ -3844,6 +3844,27 @@ def test_mcp_server_registers_chat_complete_tool() -> None:
     assert "chat.complete" in tool_names
 
 
+def test_mcp_tool_descriptions_surface_operator_examples() -> None:
+    """Key MCP tools should expose rich operator-facing descriptions."""
+    tools = asyncio.run(mcp.list_tools())
+    tool_map = {tool.name: tool for tool in tools}
+
+    planning_description = tool_map["plan.session.create"].description or ""
+    relationship_description = tool_map["review.relationship_session.create"].description or ""
+    enrichment_description = (
+        tool_map["review.enrichment_session.answer_clarifications"].description or ""
+    )
+    chat_description = tool_map["chat.complete"].description or ""
+
+    assert "Args:" in planning_description
+    assert "Examples:" in planning_description
+    assert "checkpointed" in planning_description.lower()
+    assert "pause and resume" in relationship_description.lower()
+    assert "rerun enrichment" in enrichment_description.lower()
+    assert "Examples:" in chat_description
+    assert "tool_mode='llm'" in chat_description
+
+
 def test_chat_complete_returns_shared_chat_response_with_grounding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

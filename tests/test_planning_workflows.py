@@ -145,6 +145,7 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         assert snapshot["session"]["checkpoint_count"] == 2
         assert snapshot["current_checkpoint"]["title"] == "Stabilize the active loops"
         assert snapshot["target_loops"]
+        assert snapshot["context_summary"]["generated_at_utc"]
 
         listed = planning_workflows.list_planning_sessions(conn=conn)
         assert [item["name"] for item in listed] == ["weekly-reset"]

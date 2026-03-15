@@ -93,9 +93,25 @@
 .review-session-summary,
 .review-relationship-queue,
 .review-cohorts,
-.bulk-enrichment-results {
+.bulk-enrichment-results,
+.review-guide-list {
   display: grid;
   gap: var(--space-4);
+}
+
+.review-guide-list {
+  margin: 0;
+  padding-left: var(--space-4);
+}
+
+.review-guide-list li {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--color-muted);
+}
+
+.review-guide-list strong {
+  color: var(--color-ink);
 }
 
 .review-session-chip-group {
@@ -223,22 +239,122 @@
   color: var(--color-muted);
 }
 
-.planning-checkpoint-item.is-complete {
+.planning-checkpoint-item.is-executed,
+.planning-checkpoint-item.is-passed {
   border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border));
+}
+
+.planning-checkpoint-item.is-current {
+  border-color: color-mix(in srgb, var(--color-brand) 55%, var(--color-border));
 }
 
 .planning-checkpoint-badge {
   background: color-mix(in srgb, var(--color-brand) 14%, var(--color-bg-accent));
 }
 
+.planning-status-banner,
 .planning-session-card,
 .planning-section-block,
 .planning-target-loop,
 .planning-operation-card,
 .planning-execution-history-item,
-.planning-execution-result {
+.planning-execution-result,
+.planning-grounding-card,
+.planning-loop-summary-card {
   display: grid;
   gap: var(--space-3);
+}
+
+.planning-status-banner {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  background:
+    radial-gradient(circle at top right, rgba(246, 223, 201, 0.44), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(252, 246, 239, 0.98));
+}
+
+.planning-status-banner.is-draft {
+  border-color: color-mix(in srgb, var(--color-warning) 35%, var(--color-border));
+}
+
+.planning-status-banner.is-in-progress {
+  border-color: color-mix(in srgb, var(--color-brand) 40%, var(--color-border));
+}
+
+.planning-status-banner.is-completed {
+  border-color: color-mix(in srgb, var(--color-success) 40%, var(--color-border));
+}
+
+.planning-status-banner h3,
+.planning-loop-summary-card h5,
+.planning-grounding-card strong {
+  margin: 0;
+}
+
+.planning-status-banner-meta,
+.planning-operator-briefing {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.planning-operator-callout {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: rgba(255, 252, 248, 0.92);
+  border: 1px solid rgba(214, 107, 63, 0.14);
+}
+
+.planning-operator-callout strong {
+  color: var(--color-ink);
+}
+
+.planning-operator-callout span,
+.planning-grounding-card p,
+.planning-execution-result-copy,
+.planning-execution-output-label,
+.planning-loop-summary-card p {
+  color: var(--color-muted);
+}
+
+.planning-grounding-grid,
+.planning-loop-summary-grid,
+.planning-execution-output-list {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.planning-grounding-card,
+.planning-loop-summary-card {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+.planning-grounding-label,
+.planning-execution-output-label {
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.planning-execution-output-item {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-brand) 6%, var(--color-bg));
+  border: 1px solid color-mix(in srgb, var(--color-brand) 10%, var(--color-border));
+}
+
+.planning-execution-output-value {
+  color: var(--color-ink);
+  font-weight: var(--font-semibold);
 }
 
 .planning-section-block {
@@ -249,7 +365,9 @@
 .planning-section-heading,
 .planning-operation-card-header,
 .planning-execution-history-header,
-.planning-execution-result-header {
+.planning-execution-result-header,
+.planning-loop-collection-header,
+.planning-loop-summary-header {
   display: flex;
   gap: var(--space-3);
   justify-content: space-between;
@@ -260,7 +378,8 @@
 .planning-target-loop-list,
 .planning-operation-list,
 .planning-execution-history-list,
-.planning-execution-results {
+.planning-execution-results,
+.planning-loop-collection {
   display: grid;
   gap: var(--space-3);
 }
@@ -275,17 +394,29 @@
   background: var(--color-bg);
 }
 
+.planning-execution-result.is-success {
+  border-color: color-mix(in srgb, var(--color-success) 45%, var(--color-border));
+}
+
+.planning-execution-result.is-error {
+  border-color: color-mix(in srgb, var(--color-danger) 35%, var(--color-border));
+}
+
 .planning-target-loop h5,
 .planning-current-checkpoint h5,
-.planning-execution-history-item h5 {
+.planning-execution-history-item h5,
+.planning-loop-collection h5,
+.planning-loop-summary-card h5 {
   margin: 0;
 }
 
 .planning-target-loop p,
 .planning-current-checkpoint p,
-.planning-operation-summary {
+.planning-operation-summary,
+.planning-execution-result-copy,
+.planning-loop-summary-card p,
+.planning-grounding-card p {
   margin: 0;
-  color: var(--color-muted);
 }
 
 .planning-assumptions {
@@ -307,6 +438,18 @@
   font-weight: var(--font-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.planning-operation-details {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.planning-operation-details summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--font-semibold);
+  color: var(--color-brand);
 }
 
 .planning-operation-payload {
@@ -1006,6 +1149,12 @@
   .review-suggestion-actions button {
     width: 100%;
     justify-content: center;
+  }
+
+  .planning-grounding-grid,
+  .planning-loop-summary-grid,
+  .planning-execution-output-list {
+    grid-template-columns: 1fr;
   }
 
   .next-bucket {
