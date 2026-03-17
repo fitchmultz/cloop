@@ -29,6 +29,7 @@ import type {
   OperatorActionCardAction,
   ShellLocationContract,
 } from "./contracts-ui";
+import { renderTrustSurface } from "./trust-surface";
 
 const KIND_LABELS = {
   mutation: "Mutation",
@@ -110,27 +111,36 @@ function renderPreview(card: OperatorActionCard): string {
   `;
 }
 
-function renderTrust(card: OperatorActionCard): string {
-  const trustBits = [
-    ...card.trust.contextSources.map((source) => `Context: ${source}`),
-    ...card.trust.assumptions.map((assumption) => `Assumption: ${assumption}`),
-    ...(card.trust.confidenceLabel ? [`Confidence: ${card.trust.confidenceLabel}`] : []),
-    ...(card.trust.rollbackLabel ? [`Rollback: ${card.trust.rollbackLabel}`] : []),
-    ...(card.trust.freshnessLabel ? [`Freshness: ${card.trust.freshnessLabel}`] : []),
-  ];
-
-  if (!trustBits.length) {
-    return "";
+function defaultGenerationLabel(card: OperatorActionCard): string {
+  if (card.kind === "handoff") {
+    return "Prepared workflow handoff";
   }
+  if (card.kind === "decision") {
+    return "Decision support surface";
+  }
+  if (card.kind === "mutation") {
+    return "Explicit action recommendation";
+  }
+  if (card.kind === "refresh") {
+    return "Refresh or resume signal";
+  }
+  return "Context support surface";
+}
 
-  return `
-    <section class="operator-action-section" aria-label="Trust metadata">
-      <p class="operator-action-section-title">Trust metadata</p>
-      <ul class="operator-action-trust-list">
-        ${trustBits.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-      </ul>
-    </section>
-  `;
+function renderTrust(card: OperatorActionCard): string {
+  return renderTrustSurface(
+    {
+      ...card.trust,
+      generationLabel: card.trust.generationLabel ?? defaultGenerationLabel(card),
+      generationTone: card.trust.generationTone ?? (card.kind === "handoff" || card.kind === "decision" ? "attention" : "neutral"),
+      impactSummary: card.trust.impactSummary ?? card.handoff?.changeSummary ?? null,
+    },
+    {
+      variant: "compact",
+      title: "Trust surface",
+      showContextLists: true,
+    },
+  );
 }
 
 function renderHandoff(card: OperatorActionCard): string {

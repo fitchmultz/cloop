@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn the shipped operator shell, action cards, and workflow handoffs into a world-class decision and execution workspace: sharper review, stronger focus context, faster navigation, and deeper trust/continuity.
+The current priority is to turn the shipped operator shell, trust surfaces, and workflow handoffs into a world-class cross-session decision and execution workspace: stronger continuity, sharper review, and deeper operational memory.
 
 ## Direction
 
@@ -26,32 +26,23 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Trust and continuity
+### Phase 1 — Cross-session intelligence
 
-Goal: make the system feel credible, explainable, and alive over time now that the shell, review workspace, durable working sets, and command palette are in place.
+Goal: make the system feel alive and resumable over time instead of merely fast in-session now that the shell, trust surfaces, durable working sets, and command palette are in place.
 
-1. **Trust surfaces at every meaningful recommendation or mutation**
-   - Spec: [`docs/ux/trust-surfaces.md`](ux/trust-surfaces.md)
-   - Depends on: shipped action cards, workflow handoffs, the redesigned review workspace, focus-mode working sets, and the command palette.
-
-### Phase 2 — Cross-session intelligence
-
-Goal: make the system feel alive and resumable over time instead of merely fast in-session.
-
-2. **Continuity and intelligence across sessions**
+1. **Continuity and intelligence across sessions**
    - Spec: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
    - Depends on: operator workspace, durable working sets, trust surfaces, and the command palette's recent/resume model.
+   - Build this phase on the now-TypeScript-native shell/review/command-palette/trust-surface runtime; keep any still-unported legacy capture/do/recall code isolated behind the residual compatibility entrypoint instead of reintroducing shared shell dependencies on it.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Trust-surface session**
-   - layer richer provenance, drift indicators, reversibility language, and mutation confidence into the shipped action-card, command-palette, working-set, and review-workspace model
-2. **Continuity-intelligence session**
-   - deepen since-last-visit summaries, resume suggestions, and cross-session intelligence on top of the richer operator workspace, command-palette recents, and durable working-set foundation
+1. **Continuity-intelligence session**
+   - deepen since-last-visit summaries, resume suggestions, and cross-session intelligence on top of the shipped shell, trust surfaces, command palette, and durable working-set foundation
 
-That sequence minimizes churn by using the now-stable shell, review-workspace, working-set, and command-palette architecture as the base before layering deeper trust and continuity on top.
+That sequence minimizes churn by building directly on the now-stable shell, trust-surface, review-workspace, working-set, and command-palette architecture before introducing heavier cross-session behavior.
 
 ## Delivery Model
 

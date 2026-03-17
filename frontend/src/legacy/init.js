@@ -1391,6 +1391,19 @@ function init() {
   sse.setupVisibilityHandler();
   window.addEventListener('beforeunload', () => sse.disconnectSSE());
 
+  window.addEventListener(duplicates.LEGACY_RUNTIME_REFRESH_EVENT, (event) => {
+    const detail = event.detail && typeof event.detail === 'object' ? event.detail : {};
+    if (detail.inbox) {
+      loop.loadInbox();
+    }
+    if (detail.next) {
+      next.loadNext();
+    }
+    if (detail.relationshipReview) {
+      review.loadRelationshipReviewQueue();
+    }
+  });
+
   // Check for duplicates after initial load
   window.addEventListener('load', () => {
     setTimeout(duplicates.checkAndShowDuplicateBadges, 2000);

@@ -1,0 +1,145 @@
+/**
+ * trust-surfaces.css - Shared trust-surface presentation styles.
+ *
+ * Purpose:
+ *   Style consistent provenance, confidence, freshness, rollback, assumption,
+ *   and impact affordances across operator cards, palette detail, and review.
+ *
+ * Responsibilities:
+ *   - Style compact and full trust-surface variants.
+ *   - Keep trust signals readable without overwhelming surrounding layouts.
+ *   - Provide tone treatments for confidence, drift, and reversibility cues.
+ *
+ * Scope:
+ *   - Shared frontend trust-surface visuals only.
+ *
+ * Usage:
+ *   - Imported by frontend/src/main.ts before feature-specific styles.
+ *
+ * Invariants/Assumptions:
+ *   - Trust surfaces may appear inside cards, detail panes, or side panels.
+ *   - Variant classes, not per-surface forks, control density and emphasis.
+ */
+
+@import url("tokens.css");
+
+.trust-surface {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.trust-surface--panel {
+  padding: var(--space-3);
+  border: 1px solid rgba(214, 107, 63, 0.12);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.trust-surface-title,
+.trust-surface-section-title,
+.trust-surface-signal-label {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.trust-surface-signal-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trust-surface-signal {
+  display: inline-grid;
+  gap: 0.1rem;
+  padding: var(--space-2);
+  border: 1px solid rgba(214, 107, 63, 0.12);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.82);
+  min-width: min(100%, 9.5rem);
+}
+
+.trust-surface-signal-value,
+.trust-surface-impact-copy {
+  color: var(--color-text);
+  line-height: 1.55;
+}
+
+.trust-surface-section {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.trust-surface-section--impact {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(214, 107, 63, 0.12);
+  background: rgba(214, 107, 63, 0.05);
+}
+
+.trust-surface-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.trust-surface-section--list {
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.trust-surface-list {
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-muted);
+}
+
+.trust-surface-list li,
+.trust-surface-empty {
+  line-height: 1.6;
+}
+
+.trust-surface-empty {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.trust-surface-tone--neutral {
+  border-color: rgba(214, 107, 63, 0.12);
+}
+
+.trust-surface-tone--attention {
+  border-color: rgba(214, 107, 63, 0.24);
+  background: rgba(214, 107, 63, 0.08);
+}
+
+.trust-surface-tone--progress {
+  border-color: rgba(87, 149, 111, 0.24);
+  background: rgba(87, 149, 111, 0.08);
+}
+
+.trust-surface-tone--caution {
+  border-color: rgba(161, 104, 55, 0.24);
+  background: rgba(161, 104, 55, 0.08);
+}
+
+.trust-surface--compact .trust-surface-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.trust-surface--compact .trust-surface-signal {
+  min-width: unset;
+}
+
+@media (max-width: 900px) {
+  .trust-surface-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

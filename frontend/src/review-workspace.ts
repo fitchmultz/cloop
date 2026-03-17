@@ -16,8 +16,8 @@
  *   - Review-main TypeScript UI only.
  *
  * Usage:
- *   - Bootstrapped from frontend/src/main.ts after the legacy compatibility
- *     layer has initialized shared modals.
+ *   - Bootstrapped from frontend/src/main.ts as part of the TypeScript-owned
+ *     operator shell startup.
  *
  * Invariants/Assumptions:
  *   - Saved sessions remain the canonical queue state for planning,
@@ -48,6 +48,7 @@ import type {
   PlanningExecutionFollowUpResourceResponse,
   PlanningExecutionHistoryItemResponse,
   PlanningExecutionLaunchSurfaceResponse,
+  PlanningExecutionRollbackCueResponse,
   PlanningSessionCreateRequest,
   PlanningSessionExecuteResponse,
   PlanningSessionResponse,
@@ -63,9 +64,10 @@ import type {
   RelationshipReviewSessionSnapshotResponse,
   RelationshipReviewSessionUpdateRequest,
 } from "./domain";
-import type { ReviewFocus } from "./contracts-ui";
-import * as modals from "./legacy/modals.js";
-import { openMergeModal } from "./legacy/duplicates.js";
+import type { ReviewFocus, TrustSurfaceMetadata } from "./contracts-ui";
+import { renderTrustSurface } from "./trust-surface";
+import * as modals from "./modals";
+import { openMergeModal, setupMergeHandlers } from "./duplicates";
 
 interface ReviewWorkspaceElements {
   shell: HTMLElement;
@@ -197,6 +199,7 @@ const DEFAULT_STATE: ReviewWorkspaceState = {
 };
 
 const REVIEW_FOCUS_EVENT = "cloop:review-focus";
+const REVIEW_WORKSPACE_REFRESH_EVENT = "cloop:review-workspace-refresh-requested";
 const WORKSPACE_REFRESH_EVENT = "cloop:workspace-refresh-requested";
 
 let elements: ReviewWorkspaceElements | null = null;
@@ -736,6 +739,209 @@ function reviewChip(text: string, tone: "default" | "alert" | "success" = "defau
   return `<span class="review-shell-chip review-shell-chip--${tone}">${escapeHtml(text)}</span>`;
 }
 
+function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
+function describeRollbackCue(cues: PlanningExecutionRollbackCueResponse | null | undefined): string {
+  if (!cues) {
+    return "Rollback information is not available.";
+  }
+  if (cues.undoable_operation_count > 0) {
+    return `${cues.undoable_operation_count} operation${cues.undoable_operation_count === 1 ? "" : "s"} are directly undoable.`;
+  }
+  if (cues.rollback_supported_operation_count > 0) {
+    return `${cues.rollback_supported_operation_count} operation${cues.rollback_supported_operation_count === 1 ? "" : "s"} include rollback guidance.`;
+  }
+  return "No explicit rollback path was captured for this execution.";
+}
+
+function planningTrustMetadata(snapshot: PlanningSessionSnapshotResponse | null): TrustSurfaceMetadata {
+  const currentCheckpoint = snapshot?.current_checkpoint ?? null;
+  const freshness = snapshot?.context_freshness && typeof snapshot.context_freshness === "object"
+    ? snapshot.context_freshness
+    : {};
+  const staleTargetLoopCount = typeof freshness["stale_target_loop_count"] === "number"
+    ? freshness["stale_target_loop_count"]
+    : 0;
+  const missingTargetLoopCount = typeof freshness["missing_target_loop_count"] === "number"
+    ? freshness["missing_target_loop_count"]
+    : 0;
+  const isStale = Boolean(freshness["is_stale"]);
+  const sourceCount = Array.isArray(snapshot?.sources) ? snapshot.sources.length : 0;
+  const assumptions = snapshot?.assumptions ?? [];
+  const operationCount = currentCheckpoint?.operations?.length ?? 0;
+
+  return {
+    generationLabel: "AI-authored plan + deterministic execution",
+    generationTone: "attention",
+    contextSources: [
+      snapshot?.session.query ? `Saved query: ${snapshot.session.query}` : "Saved planning session",
+      `${snapshot?.target_loops?.length ?? 0} target loop${(snapshot?.target_loops?.length ?? 0) === 1 ? "" : "s"}`,
+      `${sourceCount} external source${sourceCount === 1 ? "" : "s"}`,
+    ],
+    assumptions,
+    confidenceLabel: currentCheckpoint
+      ? `${operationCount} deterministic operation${operationCount === 1 ? "" : "s"} staged`
+      : "Planning session ready",
+    confidenceTone: currentCheckpoint ? "progress" : "neutral",
+    freshnessLabel: isStale
+      ? `${staleTargetLoopCount} target loop${staleTargetLoopCount === 1 ? "" : "s"} changed${missingTargetLoopCount ? ` · ${missingTargetLoopCount} missing` : ""}`
+      : `Generated ${formatRelativeTime(planningGeneratedAt(snapshot))}`,
+    freshnessTone: isStale ? "attention" : "progress",
+    rollbackLabel: currentCheckpoint
+      ? "No mutation until you execute this checkpoint"
+      : "Execution history carries rollback cues when available",
+    rollbackTone: currentCheckpoint ? "progress" : "neutral",
+    impactSummary: currentCheckpoint
+      ? `Executing ${currentCheckpoint.title || `checkpoint ${snapshot?.session.current_checkpoint_index != null ? snapshot.session.current_checkpoint_index + 1 : ""}`.trim()} will run ${operationCount} deterministic operation${operationCount === 1 ? "" : "s"}.`
+      : "Select or refresh a planning session to inspect the next deterministic checkpoint.",
+    impactTone: currentCheckpoint ? "attention" : "neutral",
+  };
+}
+
+function relationshipTrustMetadata(
+  snapshot: RelationshipReviewSessionSnapshotResponse | null,
+  item: RelationshipReviewSessionSnapshotResponse["current_item"] | null,
+): TrustSurfaceMetadata {
+  const candidate = relationshipPrimaryCandidate(item);
+  const loopUpdated = parseTimestampMs(item?.loop.updated_at_utc);
+  const candidateUpdated = parseTimestampMs(candidate?.updated_at_utc);
+  const sessionUpdated = parseTimestampMs(snapshot?.session.updated_at_utc);
+  const drifted = sessionUpdated != null && Math.max(loopUpdated ?? 0, candidateUpdated ?? 0) > sessionUpdated;
+
+  return {
+    generationLabel: "Deterministic similarity queue + human decision",
+    generationTone: "attention",
+    contextSources: [
+      snapshot?.session.query ? `Saved query: ${snapshot.session.query}` : "Saved relationship session",
+      snapshot?.session.relationship_kind ? `${snapshot.session.relationship_kind} review focus` : "Relationship review",
+      candidate ? `Top candidate: ${loopTitle(candidate)}` : "No active candidate preview",
+    ],
+    assumptions: [
+      candidate && candidate.score < 0.9
+        ? "The score is a ranking hint; manual review is required before confirming a relationship."
+        : "Human review remains required before any relationship is confirmed or dismissed.",
+    ],
+    confidenceLabel: candidate ? `${Math.round(candidate.score * 100)}% top-similarity signal` : "Queue-level review signal",
+    confidenceTone: candidate && candidate.score >= 0.9 ? "attention" : "neutral",
+    freshnessLabel: drifted
+      ? "Loop or candidate changed after the saved queue snapshot"
+      : `Queue refreshed ${formatRelativeTime(snapshot?.session.updated_at_utc)}`,
+    freshnessTone: drifted ? "attention" : "progress",
+    rollbackLabel: candidate?.relationship_type === "duplicate"
+      ? "Duplicate confirmation may need a manual follow-up to reverse"
+      : "Related-loop confirmation remains an explicit follow-up change",
+    rollbackTone: candidate?.relationship_type === "duplicate" ? "caution" : "neutral",
+    impactSummary: candidate
+      ? relationshipRecommendation(item)
+      : "Refresh or broaden the queue to surface more relationship candidates.",
+    impactTone: candidate ? "attention" : "neutral",
+  };
+}
+
+function enrichmentTrustMetadata(
+  snapshot: EnrichmentReviewSessionSnapshotResponse | null,
+  item: EnrichmentReviewQueueItemResponse | null,
+): TrustSurfaceMetadata {
+  const suggestion = item?.pending_suggestions[0] ?? null;
+  const suggestionFields = suggestion && typeof suggestion.parsed === "object" && suggestion.parsed
+    ? Object.keys(suggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
+    : [];
+  const newestPendingAt = item?.newest_pending_at ?? null;
+  const loopUpdated = parseTimestampMs(item?.loop.updated_at_utc);
+  const newestPendingMs = parseTimestampMs(newestPendingAt);
+  const drifted = loopUpdated != null && newestPendingMs != null && loopUpdated > newestPendingMs;
+
+  return {
+    generationLabel: "AI-assisted suggestion queue",
+    generationTone: "attention",
+    contextSources: [
+      snapshot?.session.query ? `Saved query: ${snapshot.session.query}` : "Saved enrichment session",
+      snapshot?.session.pending_kind ? `${snapshot.session.pending_kind} pending work` : "Pending enrichment follow-up",
+      suggestion ? `Model: ${suggestion.model}` : "No active suggestion preview",
+    ],
+    assumptions: item?.pending_clarification_count
+      ? ["Answer clarifications before trusting older suggestions."]
+      : ["Structured suggestions should be reviewed before mutating loop state."],
+    confidenceLabel: item?.pending_clarification_count
+      ? "Clarification required before high-confidence apply"
+      : suggestionFields.length
+        ? `Suggests ${suggestionFields.join(", ")}`
+        : suggestion
+          ? "Structured suggestion ready for review"
+          : "Queue ready for follow-up review",
+    confidenceTone: item?.pending_clarification_count ? "attention" : "progress",
+    freshnessLabel: drifted
+      ? "Loop changed after the newest pending suggestion or clarification"
+      : newestPendingAt
+        ? `Newest pending ${formatRelativeTime(newestPendingAt)}`
+        : `Queue refreshed ${formatRelativeTime(snapshot?.session.updated_at_utc)}`,
+    freshnessTone: drifted ? "attention" : "progress",
+    rollbackLabel: item?.pending_clarification_count
+      ? "Clarification answers rerun enrichment and may supersede older suggestions"
+      : "Apply or reject changes loop state explicitly inside this queue",
+    rollbackTone: "caution",
+    impactSummary: item ? enrichmentRecommendation(item) : "Refresh the session or widen the query to surface more pending enrichment work.",
+    impactTone: item?.pending_clarification_count ? "attention" : "neutral",
+  };
+}
+
+function cohortTrustMetadata(
+  cohort: LoopReviewCohortResponse | null,
+  reviewMode: "daily" | "weekly",
+  generatedAtUtc: string | null,
+): TrustSurfaceMetadata {
+  const topLoop = cohort?.items[0] ?? null;
+  const generatedMs = parseTimestampMs(generatedAtUtc);
+  const topLoopMs = parseTimestampMs(topLoop?.updated_at_utc);
+  const drifted = generatedMs != null && topLoopMs != null && topLoopMs > generatedMs;
+
+  return {
+    generationLabel: "Deterministic review cohort",
+    generationTone: "progress",
+    contextSources: [
+      reviewMode === "daily" ? "Daily hygiene cadence" : "Weekly hygiene cadence",
+      cohort ? `Cohort: ${cohortLabel(cohort)}` : "No cohort selected",
+      topLoop ? `Top loop: ${loopTitle(topLoop)}` : "No loop preview available",
+    ],
+    assumptions: ["This cohort is a review signal, not an automatic mutation."],
+    confidenceLabel: cohort ? `${cohort.count} item${cohort.count === 1 ? "" : "s"} in this cohort` : "No active cohort",
+    confidenceTone: cohort?.count ? "attention" : "neutral",
+    freshnessLabel: drifted
+      ? "A loop in this cohort changed after the cohort snapshot was generated"
+      : generatedAtUtc
+        ? `Generated ${formatRelativeTime(generatedAtUtc)}`
+        : "Generated time unavailable",
+    freshnessTone: drifted ? "attention" : "progress",
+    rollbackLabel: "Opening Review is non-mutating until you edit or close a loop",
+    rollbackTone: "progress",
+    impactSummary: cohort
+      ? cohortDescriptor(cohort).decision
+      : "Choose a cohort to see why the hygiene review is surfacing it now.",
+    impactTone: cohort ? "attention" : "neutral",
+  };
+}
+
+function renderCompactTrust(metadata: TrustSurfaceMetadata): string {
+  return renderTrustSurface(metadata, {
+    variant: "compact",
+    showContextLists: false,
+  });
+}
+
+function renderPanelTrust(metadata: TrustSurfaceMetadata): string {
+  return renderTrustSurface(metadata, {
+    variant: "panel",
+    title: "Trust surface",
+    showContextLists: true,
+  });
+}
+
 function renderControls(): void {
   if (!elements) {
     return;
@@ -1009,6 +1215,25 @@ function renderQueue(): void {
                     ${reviewChip(`${checkpoint.operations?.length ?? 0} operation${(checkpoint.operations?.length ?? 0) === 1 ? "" : "s"}`)}
                     ${reviewChip(`${checkpoint.focus_loop_ids?.length ?? 0} focus loop${(checkpoint.focus_loop_ids?.length ?? 0) === 1 ? "" : "s"}`)}
                   </div>
+                  ${renderCompactTrust({
+                    generationLabel: "AI-authored checkpoint",
+                    generationTone: "attention",
+                    contextSources: [
+                      `${checkpoint.operations?.length ?? 0} deterministic operation${(checkpoint.operations?.length ?? 0) === 1 ? "" : "s"}`,
+                      `${checkpoint.focus_loop_ids?.length ?? 0} focus loop${(checkpoint.focus_loop_ids?.length ?? 0) === 1 ? "" : "s"}`,
+                    ],
+                    assumptions: [],
+                    confidenceLabel: executed ? "Already executed" : isCurrent ? "Current checkpoint" : "Queued checkpoint",
+                    confidenceTone: executed ? "progress" : isCurrent ? "attention" : "neutral",
+                    freshnessLabel: snapshot.session.updated_at_utc ? `Session updated ${formatRelativeTime(snapshot.session.updated_at_utc)}` : null,
+                    freshnessTone: executed ? "progress" : "neutral",
+                    rollbackLabel: executed ? "Check execution history for rollback cues" : "No mutation until execution",
+                    rollbackTone: executed ? "caution" : "progress",
+                    impactSummary: isCurrent
+                      ? `Review ${checkpoint.operations?.length ?? 0} staged operation${(checkpoint.operations?.length ?? 0) === 1 ? "" : "s"} before execution.`
+                      : `Checkpoint ${index + 1} remains in the saved plan queue.`,
+                    impactTone: isCurrent ? "attention" : "neutral",
+                  })}
                 </article>
               `;
             })
@@ -1042,6 +1267,7 @@ function renderQueue(): void {
                     ${reviewChip(`Duplicates ${item.duplicate_count}`, item.duplicate_count ? "alert" : "default")}
                     ${reviewChip(`Related ${item.related_count}`)}
                   </div>
+                  ${renderCompactTrust(relationshipTrustMetadata(snapshot, item))}
                 </button>
               `;
             })
@@ -1075,6 +1301,7 @@ function renderQueue(): void {
                     ${reviewChip(`Suggestions ${item.pending_suggestion_count}`, item.pending_suggestion_count ? "alert" : "default")}
                     ${reviewChip(`Clarifications ${item.pending_clarification_count}`, item.pending_clarification_count ? "alert" : "default")}
                   </div>
+                  ${renderCompactTrust(enrichmentTrustMetadata(snapshot, item))}
                 </button>
               `;
             })
@@ -1103,6 +1330,7 @@ function renderQueue(): void {
                   ${reviewChip(`${cohort.count} item${cohort.count === 1 ? "" : "s"}`, cohort.count > 0 ? "alert" : "default")}
                 </div>
                 <p>${escapeHtml(cohortDescriptor(cohort).why)}</p>
+                ${renderCompactTrust(cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null))}
               </button>
             `;
           })
@@ -1259,6 +1487,7 @@ function renderWorkspace(): void {
               ${reviewChip(`Success criteria: ${currentCheckpoint?.success_criteria || "Not provided"}`)}
               ${reviewChip(`Generated ${formatRelativeTime(planningGeneratedAt(snapshot))}`)}
             </div>
+            ${renderPanelTrust(planningTrustMetadata(snapshot))}
           </div>
           <section class="review-shell-subsection">
             <div class="review-shell-section-header">
@@ -1332,6 +1561,7 @@ function renderWorkspace(): void {
                   <button type="button" class="secondary" data-review-action="relationship-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
                   <button type="button" class="secondary" ${queueItemButtonAttributes(`#do/loop/${item.loop.id}`)}>Open loop in Do</button>
                 </div>
+                ${renderPanelTrust(relationshipTrustMetadata(snapshot, item))}
               </article>
             </div>
             <section class="review-shell-subsection">
@@ -1378,6 +1608,7 @@ function renderWorkspace(): void {
                   <button type="button" class="secondary" data-review-action="enrichment-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
                   <button type="button" class="secondary" ${queueItemButtonAttributes(`#do/loop/${item.loop.id}`)}>Open loop in Do</button>
                 </div>
+                ${renderPanelTrust(enrichmentTrustMetadata(snapshot, item))}
               </article>
             </div>
             <section class="review-shell-subsection">
@@ -1422,6 +1653,7 @@ function renderWorkspace(): void {
             ${reviewChip(`${cohort.count} item${cohort.count === 1 ? "" : "s"}`, cohort.count > 0 ? "alert" : "default")}
           </div>
           <p>${escapeHtml(cohortDescriptor(cohort).why)}</p>
+          ${renderPanelTrust(cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null))}
         </div>
         <div class="review-shell-loop-grid">
           ${cohort.items.map((item) => renderCohortLoopCard(item)).join("") || '<p class="review-shell-empty-inline">No loop previews available for this cohort.</p>'}
@@ -1454,6 +1686,23 @@ function renderLaunchSurface(surface: PlanningExecutionLaunchSurfaceResponse): s
       <div class="review-shell-inline-chip-row">
         ${surface.resource_type ? reviewChip(`${surface.resource_type} #${surface.resource_id}`) : ""}
       </div>
+      ${renderCompactTrust({
+        generationLabel: "Deterministic handoff",
+        generationTone: "progress",
+        contextSources: [
+          `Surface: ${surface.surface}`,
+          `Resource: ${surface.resource_type} #${surface.resource_id}`,
+        ],
+        assumptions: ["The downstream surface still exists and is ready to open."],
+        confidenceLabel: "Prepared next-step queue",
+        confidenceTone: "attention",
+        freshnessLabel: null,
+        freshnessTone: "neutral",
+        rollbackLabel: "Use the originating execution history for rollback cues",
+        rollbackTone: "caution",
+        impactSummary: surface.reason || "Open the next surface prepared by this checkpoint.",
+        impactTone: "attention",
+      })}
       ${hash ? `<div class="review-shell-inline-actions"><button type="button" ${queueItemButtonAttributes(hash)}>Open next queue</button></div>` : ""}
     </article>
   `;
@@ -1474,6 +1723,24 @@ function renderFollowUpResource(resource: PlanningExecutionFollowUpResourceRespo
         ${reviewChip(resource.operation_kind)}
         ${reviewChip(`Operation ${resource.operation_index + 1}`)}
       </div>
+      ${renderCompactTrust({
+        generationLabel: "Deterministic follow-up resource",
+        generationTone: "progress",
+        contextSources: [
+          `Role: ${resource.role}`,
+          `Operation: ${resource.operation_kind}`,
+          `Resource: ${resource.resource_type} #${resource.resource_id}`,
+        ],
+        assumptions: [],
+        confidenceLabel: "Created by the latest checkpoint",
+        confidenceTone: "progress",
+        freshnessLabel: null,
+        freshnessTone: "neutral",
+        rollbackLabel: "Inspect execution history for rollback support",
+        rollbackTone: "caution",
+        impactSummary: resource.operation_summary,
+        impactTone: "progress",
+      })}
     </article>
   `;
 }
@@ -1498,6 +1765,7 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
           ${reviewChip(`Assumptions ${snapshot.assumptions?.length ?? 0}`)}
           ${reviewChip(`Target loops ${snapshot.target_loops?.length ?? 0}`)}
         </div>
+        ${renderPanelTrust(planningTrustMetadata(snapshot))}
       </article>
     `;
   }
@@ -1517,6 +1785,26 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
         ${reviewChip(`Undoable ${latestExecution.rollback_cues?.undoable_operation_count ?? 0}`)}
         ${reviewChip(`Launch surfaces ${latestExecution.launch_surfaces?.length ?? 0}`, latestExecution.launch_surfaces?.length ? "alert" : "default")}
       </div>
+      ${renderPanelTrust({
+        generationLabel: "Deterministic execution result",
+        generationTone: "progress",
+        contextSources: [
+          `${latestExecution.operation_count} execution result${latestExecution.operation_count === 1 ? "" : "s"}`,
+          `${latestExecution.follow_up_resources?.length ?? 0} follow-up resource${(latestExecution.follow_up_resources?.length ?? 0) === 1 ? "" : "s"}`,
+          `${latestExecution.launch_surfaces?.length ?? 0} launch surface${(latestExecution.launch_surfaces?.length ?? 0) === 1 ? "" : "s"}`,
+        ],
+        assumptions: ["Execution reflects the latest stored checkpoint payload."],
+        confidenceLabel: latestExecution.launch_surfaces?.length ? "A downstream queue is ready" : "Execution completed without a dedicated next queue",
+        confidenceTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
+        freshnessLabel: `Executed ${formatRelativeTime(latestExecution.executed_at_utc)}`,
+        freshnessTone: "progress",
+        rollbackLabel: describeRollbackCue(latestExecution.rollback_cues),
+        rollbackTone: latestExecution.rollback_cues?.rollback_supported_operation_count ? "caution" : "neutral",
+        impactSummary: latestExecution.summary && typeof latestExecution.summary === "object" && typeof latestExecution.summary["summary"] === "string"
+          ? String(latestExecution.summary["summary"])
+          : `Checkpoint execution produced ${latestExecution.operation_count} result${latestExecution.operation_count === 1 ? "" : "s"}.`,
+        impactTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
+      })}
     </article>
     ${(latestExecution.launch_surfaces ?? []).map((surface) => renderLaunchSurface(surface)).join("")}
     ${(latestExecution.follow_up_resources ?? []).map((resource) => renderFollowUpResource(resource)).join("")}
@@ -1562,6 +1850,11 @@ function renderRelationshipImpact(snapshot: RelationshipReviewSessionSnapshotRes
         ${reviewChip(candidate.relationship_type === "duplicate" ? "Merge path available" : "Non-merge relationship" )}
         ${candidate.score < 0.9 ? reviewChip("Manual review emphasized", "alert") : ""}
       </div>
+      ${renderPanelTrust({
+        ...relationshipTrustMetadata(snapshot, item),
+        impactSummary: recommendedDecision,
+        impactTone: candidate.relationship_type === "duplicate" ? "attention" : "neutral",
+      })}
     </article>
   `;
 }
@@ -1609,6 +1902,15 @@ function renderEnrichmentImpact(snapshot: EnrichmentReviewSessionSnapshotRespons
         ${reviewChip(`Clarifications ${item.pending_clarification_count}`, item.pending_clarification_count ? "alert" : "default")}
         ${suggestionFields.length ? reviewChip(`Fields: ${suggestionFields.join(", ")}`) : ""}
       </div>
+      ${renderPanelTrust({
+        ...enrichmentTrustMetadata(snapshot, item),
+        impactSummary: item.pending_clarification_count > 0
+          ? "Answering clarifications reruns enrichment and can supersede stale suggestions."
+          : suggestionFields.length
+            ? `Applying the top suggestion may update ${suggestionFields.join(", ")}.`
+            : "Applying the top suggestion may update the loop's structured fields.",
+        impactTone: item.pending_clarification_count > 0 ? "attention" : "neutral",
+      })}
     </article>
   `;
 }
@@ -1671,6 +1973,7 @@ function renderCohortImpact(cohort: LoopReviewCohortResponse | null): string {
         ${topLoop ? reviewChip(`Top loop: ${loopTitle(topLoop)}`) : ""}
         ${reviewChip(state.reviewMode === "daily" ? "Fast cleanup cadence" : "Structural cleanup cadence")}
       </div>
+      ${renderPanelTrust(cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null))}
     </article>
   `;
 }
@@ -1814,6 +2117,19 @@ async function loadMode(focus: ReviewFocus, sessionId: number | null = null): Pr
 
 async function navigateToFocus(detail: ReviewFocusDetail): Promise<void> {
   await loadMode(detail.focus, detail.sessionId);
+}
+
+function currentFocusDetail(): ReviewFocusDetail {
+  if (state.activeMode === "planning") {
+    return { focus: "planning", sessionId: state.planningSessionId };
+  }
+  if (state.activeMode === "relationship") {
+    return { focus: "relationship", sessionId: state.relationshipSessionId };
+  }
+  if (state.activeMode === "enrichment") {
+    return { focus: "enrichment", sessionId: state.enrichmentSessionId };
+  }
+  return { focus: "cohorts", sessionId: null };
 }
 
 function dialogApi(): {
@@ -2684,8 +3000,13 @@ function handleReviewFocusEvent(event: Event): void {
   void navigateToFocus(detail);
 }
 
+function handleReviewWorkspaceRefresh(): void {
+  void navigateToFocus(currentFocusDetail());
+}
+
 function initialize(): void {
   elements = buildElements();
+  setupMergeHandlers();
   hideLegacyReviewPanels();
   renderHeader();
   elements.shell.addEventListener("click", (event) => {
@@ -2696,6 +3017,7 @@ function initialize(): void {
   });
   elements.shell.addEventListener("submit", handleWorkspaceSubmit);
   window.addEventListener(REVIEW_FOCUS_EVENT, handleReviewFocusEvent as EventListener);
+  window.addEventListener(REVIEW_WORKSPACE_REFRESH_EVENT, handleReviewWorkspaceRefresh);
 
   const initial = parseHashToFocus(window.location.hash) ?? { focus: "relationship" as ReviewFocus, sessionId: null };
   void navigateToFocus(initial);

@@ -1,21 +1,34 @@
 /**
- * state.js - Application state management
+ * state.js - Legacy application state plus shared selection-state re-exports.
  *
  * Purpose:
- *   Centralize application state to enable module communication and UI consistency.
+ *   Preserve the legacy state module while centralizing loop-selection state in
+ *   the TypeScript-owned selection-state runtime.
  *
  * Responsibilities:
- *   - Global state object with reactive updates
- *   - Persisted chat thread and chat preferences
- *   - Selected loops tracking for bulk operations
- *   - Timer state management
- *   - Review mode state
+ *   - Hold legacy app/session state that still belongs to untouched JS modules.
+ *   - Re-export the shared selection helpers used by both legacy and TS code.
  *
- * Non-scope:
- *   - API calls (see api.js)
- *   - DOM rendering (see render.js)
- *   - Event handling (see individual modules)
+ * Scope:
+ *   - Legacy app state plus compatibility exports for shared selection state.
+ *
+ * Usage:
+ *   - Imported by untouched legacy modules during the remaining cutover.
+ *
+ * Invariants/Assumptions:
+ *   - frontend/src/selection-state.ts is the source of truth for selected-loop
+ *     state.
  */
+
+import {
+  clearLoopSelection,
+  getVisibleLoopIds,
+  LOOP_SELECTION_CHANGED_EVENT,
+  selectedLoopIds,
+  selectAllVisibleLoops,
+  selectLoopRange,
+  toggleLoopSelection,
+} from "../selection-state";
 
 const DEFAULT_CHAT_PREFERENCES = Object.freeze({
   toolMode: null,
@@ -26,10 +39,6 @@ const DEFAULT_CHAT_PREFERENCES = Object.freeze({
   ragK: 5,
   ragScope: "",
 });
-
-// ========================================
-// Global Application State
-// ========================================
 
 export const state = {
   loops: [],
@@ -258,12 +267,6 @@ export function persistStateToStorage() {
   }
 }
 
-// ========================================
-// Bulk Selection State
-// ========================================
-
-export const selectedLoopIds = new Set();
-
 export function updateState(updates) {
   Object.assign(state, updates);
   persistStateToStorage();
@@ -317,54 +320,7 @@ export function getChatThreadState() {
   };
 }
 
-export function toggleLoopSelection(loopId, isSelected) {
-  if (isSelected) {
-    selectedLoopIds.add(loopId);
-  } else {
-    selectedLoopIds.delete(loopId);
-  }
-}
-
-export function clearLoopSelection() {
-  selectedLoopIds.clear();
-  state.lastClickedLoopId = null;
-}
-
-export function selectAllVisibleLoops() {
-  document.querySelectorAll(".loop-card").forEach((card) => {
-    const loopId = parseInt(card.dataset.loopId, 10);
-    if (!Number.isNaN(loopId)) {
-      selectedLoopIds.add(loopId);
-    }
-  });
-}
-
-export function getVisibleLoopIds() {
-  return Array.from(document.querySelectorAll(".loop-card"))
-    .map((card) => parseInt(card.dataset.loopId, 10))
-    .filter((id) => !Number.isNaN(id));
-}
-
-export function selectLoopRange(fromId, toId) {
-  const visibleIds = getVisibleLoopIds();
-  const fromIndex = visibleIds.indexOf(fromId);
-  const toIndex = visibleIds.indexOf(toId);
-
-  if (fromIndex === -1 || toIndex === -1) return;
-
-  const start = Math.min(fromIndex, toIndex);
-  const end = Math.max(fromIndex, toIndex);
-
-  for (let i = start; i <= end; i++) {
-    selectedLoopIds.add(visibleIds[i]);
-  }
-}
-
-// ========================================
-// Timer State
-// ========================================
-
-export const activeTimers = new Map(); // loop_id -> { session_id, started_at, interval_id }
+export const activeTimers = new Map();
 
 export function addActiveTimer(loopId, timerData) {
   activeTimers.set(loopId, timerData);
@@ -390,3 +346,13 @@ export function clearAllTimers() {
   });
   activeTimers.clear();
 }
+
+export {
+  clearLoopSelection,
+  getVisibleLoopIds,
+  LOOP_SELECTION_CHANGED_EVENT,
+  selectedLoopIds,
+  selectAllVisibleLoops,
+  selectLoopRange,
+  toggleLoopSelection,
+};

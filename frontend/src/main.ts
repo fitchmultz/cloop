@@ -6,8 +6,8 @@
  *
  * Responsibilities:
  *   - Import the current CSS modules through Vite.
- *   - Load the ported application entry module.
- *   - Keep browser startup behavior aligned with the existing shell.
+ *   - Bootstrap the TypeScript-owned shell and review workspaces.
+ *   - Keep browser startup behavior aligned with the Vite-built operator shell.
  *
  * Scope:
  *   - Frontend entrypoint only.
@@ -17,13 +17,15 @@
  *
  * Invariants/Assumptions:
  *   - The DOM structure in frontend/index.html preserves the current UI ids/classes.
- *   - The init module owns DOMContentLoaded coordination and feature bootstrap.
+ *   - Residual legacy-only surfaces, if any, are bootstrapped through their own
+ *     dedicated entrypoint rather than through this TypeScript bootstrap.
  */
 
 import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/layout.css";
 import "./styles/components.css";
+import "./styles/trust-surfaces.css";
 import "./styles/operator.css";
 import "./styles/loop.css";
 import "./styles/review.css";
@@ -36,6 +38,4 @@ import { bootstrapReviewWorkspace } from "./review-workspace";
 import { bootstrapShell } from "./shell";
 
 bootstrapShell();
-void import("./legacy/init.js").then(() => {
-  bootstrapReviewWorkspace();
-});
+bootstrapReviewWorkspace();

@@ -62,19 +62,29 @@ export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refr
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
 export type OperatorActionCardActionType = "open" | "pin";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
+export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
 export interface OperatorActionPreviewItem {
   label: string;
   value: string;
 }
 
-export interface OperatorActionTrustMetadata {
+export interface TrustSurfaceMetadata {
+  generationLabel?: string | null;
+  generationTone?: TrustTone | null;
   contextSources: string[];
   assumptions: string[];
   confidenceLabel: string | null;
-  rollbackLabel: string | null;
+  confidenceTone?: TrustTone | null;
   freshnessLabel: string | null;
+  freshnessTone?: TrustTone | null;
+  rollbackLabel: string | null;
+  rollbackTone?: TrustTone | null;
+  impactSummary?: string | null;
+  impactTone?: TrustTone | null;
 }
+
+export type OperatorActionTrustMetadata = TrustSurfaceMetadata;
 
 export interface OperatorActionHandoff {
   changeSummary: string;

@@ -54,16 +54,19 @@ import type {
   ReviewFocus,
   ShellLocationContract,
   ShellState,
+  TrustSurfaceMetadata,
+  TrustTone,
 } from "./contracts-ui";
+import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
   type PaletteGroup,
   type PaletteRankItem,
   type PaletteRankingContext,
 } from "./command-palette-ranking";
-import * as modals from "./legacy/modals.js";
-import { clearLoopSelection, selectedLoopIds } from "./legacy/state.js";
-import { updateBulkActionBar } from "./legacy/bulk.js";
+import * as modals from "./modals";
+import { updateBulkActionBar } from "./bulk-actions";
+import { clearLoopSelection, selectedLoopIds } from "./selection-state";
 
 interface CommandPaletteElements {
   root: HTMLElement;
@@ -171,6 +174,7 @@ interface CommandPaletteCommand extends PaletteRankItem {
     eyebrow: string;
     description: string;
     meta: string[];
+    trust?: Partial<TrustSurfaceMetadata> | undefined;
   };
   execute: () => Promise<void>;
   recentAction?: RecentAction | undefined;
@@ -216,7 +220,7 @@ function normalizeText(value: string): string {
 }
 
 function selectedLoopIdList(): number[] {
-  return Array.from((selectedLoopIds as Set<number>).values()).filter((value): value is number => {
+  return Array.from(selectedLoopIds.values()).filter((value): value is number => {
     return typeof value === "number" && Number.isInteger(value);
   });
 }
@@ -325,6 +329,135 @@ function requestSubmit(form: HTMLFormElement): void {
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
+function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {
+  if (command.group === "act" || command.group === "capture") {
+    return "Explicit mutation contract";
+  }
+  if (command.group === "review") {
+    return "Saved-session or review handoff";
+  }
+  if (command.group === "recent") {
+    return "Browser-local recent command";
+  }
+  if (command.group === "recall") {
+    return "Recall launch surface";
+  }
+  if (command.group === "search") {
+    return "Deterministic object lookup";
+  }
+  return "Deterministic navigation";
+}
+
+function defaultCommandContextSources(command: CommandPaletteCommand, selectedCount: number): string[] {
+  const sources: string[] = [command.detail.eyebrow];
+  if (command.location?.sessionId != null) {
+    sources.push(`Saved session #${command.location.sessionId}`);
+  }
+  if (command.location?.loopId != null) {
+    sources.push(`Loop #${command.location.loopId}`);
+  }
+  if (command.location?.viewId != null) {
+    sources.push(`Saved view #${command.location.viewId}`);
+  }
+  if (command.location?.memoryId != null) {
+    sources.push(`Memory entry #${command.location.memoryId}`);
+  }
+  if (command.location?.query) {
+    sources.push(`Query anchor: ${command.location.query}`);
+  }
+  if (selectedCount > 0 && command.group === "act") {
+    sources.push(`${selectedCount} selected loop${selectedCount === 1 ? "" : "s"}`);
+  }
+  if (command.group === "recent") {
+    sources.push("Browser-local recent usage history");
+  }
+  return sources;
+}
+
+function defaultCommandAssumptions(command: CommandPaletteCommand, selectedCount: number): string[] {
+  if (command.disabled && command.group === "act") {
+    return ["Select one or more loops before this command can run."];
+  }
+  if (command.group === "act") {
+    return ["The shared loop mutation contract remains the source of truth for the selected targets."];
+  }
+  if (command.group === "capture") {
+    return ["A confirmation dialog or follow-up form will collect any missing required fields."];
+  }
+  if (command.group === "recent") {
+    return ["Recent commands are stored locally in this browser and may not reflect work done elsewhere."];
+  }
+  if (selectedCount > 0) {
+    return ["The current shell selection and focus context may influence ranking."];
+  }
+  return [];
+}
+
+function defaultCommandConfidence(command: CommandPaletteCommand): { label: string | null; tone: TrustTone } {
+  if (command.disabled) {
+    return { label: "Unavailable until prerequisites are met", tone: "caution" };
+  }
+  if (command.location?.loopId != null || command.location?.memoryId != null || command.location?.viewId != null) {
+    return { label: "Exact object target", tone: "progress" };
+  }
+  if (command.group === "recent") {
+    return { label: "Recent repeat candidate", tone: "progress" };
+  }
+  if (command.group === "review") {
+    return { label: "Context-ranked review handoff", tone: "attention" };
+  }
+  if (command.group === "act" || command.group === "capture") {
+    return { label: "Ready to run shared mutation flow", tone: "attention" };
+  }
+  return { label: "Context-ranked navigation target", tone: "neutral" };
+}
+
+function defaultCommandFreshness(command: CommandPaletteCommand): { label: string | null; tone: TrustTone } {
+  if (command.group === "recent") {
+    const recentLine = command.detail.meta.find((item) => item.startsWith("Last used ")) ?? null;
+    return { label: recentLine ? recentLine.replace(/^Last used /, "") : "Browser-local recent history", tone: "neutral" };
+  }
+  if (command.group === "act") {
+    return { label: "Uses current shell selection and focus context", tone: command.disabled ? "caution" : "neutral" };
+  }
+  if (command.group === "review") {
+    return { label: "Depends on the latest saved session snapshot", tone: "neutral" };
+  }
+  return { label: "Resolved from the live shell context", tone: "neutral" };
+}
+
+function defaultCommandRollback(command: CommandPaletteCommand): { label: string | null; tone: TrustTone } {
+  if (command.group === "navigate" || command.group === "review" || command.group === "recall" || command.group === "search" || command.group === "recent") {
+    return { label: "Navigation only until you act downstream", tone: "progress" };
+  }
+  if (command.group === "capture") {
+    return { label: "Creates a new resource after confirmation", tone: "caution" };
+  }
+  return { label: "Runs the shared mutation contract immediately", tone: "caution" };
+}
+
+function detailTrustMetadata(command: CommandPaletteCommand, selectedCount: number): TrustSurfaceMetadata {
+  const overrides = command.detail.trust ?? {};
+  const confidence = defaultCommandConfidence(command);
+  const freshness = defaultCommandFreshness(command);
+  const rollback = defaultCommandRollback(command);
+
+  return {
+    generationLabel: overrides.generationLabel ?? defaultCommandGenerationLabel(command),
+    generationTone: overrides.generationTone ?? (command.group === "act" || command.group === "capture" ? "attention" : "neutral"),
+    contextSources: overrides.contextSources ?? defaultCommandContextSources(command, selectedCount),
+    assumptions: overrides.assumptions ?? defaultCommandAssumptions(command, selectedCount),
+    confidenceLabel: overrides.confidenceLabel ?? confidence.label,
+    confidenceTone: overrides.confidenceTone ?? confidence.tone,
+    freshnessLabel: overrides.freshnessLabel ?? freshness.label,
+    freshnessTone: overrides.freshnessTone ?? freshness.tone,
+    rollbackLabel: overrides.rollbackLabel ?? rollback.label,
+    rollbackTone: overrides.rollbackTone ?? rollback.tone,
+    impactSummary: overrides.impactSummary ?? command.subtitle,
+    impactTone: overrides.impactTone ?? (command.group === "act" || command.group === "capture" ? "attention" : "neutral"),
+  };
+}
+
 function buildDetailHtml(command: CommandPaletteCommand, selectedCount: number): string {
   return `
     <div class="command-palette-detail-header">
@@ -333,6 +466,11 @@ function buildDetailHtml(command: CommandPaletteCommand, selectedCount: number):
       <p>${escapeHtml(command.subtitle)}</p>
     </div>
     <p class="command-palette-detail-body">${escapeHtml(command.detail.description)}</p>
+    ${renderTrustSurface(detailTrustMetadata(command, selectedCount), {
+      variant: "detail",
+      title: "Trust surface",
+      showContextLists: true,
+    })}
     <ul class="command-palette-detail-meta">
       ${command.detail.meta.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
       <li>${selectedCount} selected loop${selectedCount === 1 ? "" : "s"} in scope</li>
@@ -371,7 +509,7 @@ async function captureLoopDialog(): Promise<LoopCaptureRequest | null> {
     return null;
   }
   return {
-    raw_text: result["raw_text"].trim(),
+    raw_text: result["raw_text"]?.trim() ?? "",
     captured_at: new Date().toISOString(),
     client_tz_offset_min: new Date().getTimezoneOffset(),
     actionable: result["status"] === "actionable",
@@ -432,11 +570,11 @@ async function memoryEntryDialog(): Promise<Record<string, unknown> | null> {
     return null;
   }
   return {
-    content: result["content"].trim(),
-    category: result["category"],
+    content: result["content"]?.trim() ?? "",
+    category: result["category"] ?? "context",
     key: result["key"]?.trim() || null,
     priority: Number.parseInt(result["priority"] ?? "0", 10),
-    source: result["source"],
+    source: result["source"] ?? "user_stated",
   };
 }
 
@@ -503,8 +641,8 @@ async function planningSessionDialog(): Promise<PlanningSessionCreateRequest | n
     return null;
   }
   return {
-    name: result["name"].trim(),
-    prompt: result["prompt"].trim(),
+    name: result["name"]?.trim() ?? "",
+    prompt: result["prompt"]?.trim() ?? "",
     query: result["query"]?.trim() || null,
     loop_limit: Number.parseInt(result["loop_limit"] ?? "10", 10),
     include_memory_context: result["include_memory_context"] === "true",
@@ -539,7 +677,8 @@ async function snoozeDialog(count: number): Promise<string | null> {
   if (!result) {
     return null;
   }
-  return new Date(result["snooze_until"]).toISOString();
+  const snoozeUntil = result["snooze_until"] ?? "";
+  return new Date(snoozeUntil).toISOString();
 }
 
 function countLabel(count: number): string {

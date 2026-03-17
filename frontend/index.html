@@ -1068,7 +1068,7 @@
       <div class="merge-modal" tabindex="-1">
         <h2 id="merge-modal-title">
           <span>Merge Loops</span>
-          <button class="merge-modal-close" onclick="window.closeMergeModal()" aria-label="Close merge dialog">&times;</button>
+          <button class="merge-modal-close" type="button" data-merge-modal-action="close" aria-label="Close merge dialog">&times;</button>
         </h2>
         <div class="merge-warning">
           This will close the duplicate loop as "dropped" and merge its content into the surviving loop.
@@ -1085,13 +1085,14 @@
           </div>
         </div>
         <div class="merge-actions">
-          <button class="merge-btn-cancel" onclick="window.closeMergeModal()">Cancel</button>
-          <button class="merge-btn-confirm" onclick="window.confirmMerge()">Merge & Close Duplicate</button>
+          <button class="merge-btn-cancel" type="button" data-merge-modal-action="close">Cancel</button>
+          <button class="merge-btn-confirm" type="button" data-merge-modal-action="confirm">Merge & Close Duplicate</button>
         </div>
       </div>
     </div>
 
     <!-- JavaScript Modules -->
     <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/legacy-entry.js"></script>
   </body>
 </html>

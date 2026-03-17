@@ -1,67 +1,44 @@
 /**
- * bulk.js - Bulk selection and actions
+ * bulk.js - Legacy bulk-action flows backed by the shared selection UI runtime.
  *
  * Purpose:
- *   Manage bulk selection of loops and execute bulk operations.
+ *   Preserve the legacy bulk-action module while sharing one canonical bulk
+ *   action-bar sync implementation with the TypeScript runtime.
  *
  * Responsibilities:
- *   - Selection state management
- *   - Bulk action bar UI
- *   - Bulk operations (complete, drop, snooze, status, tags, enrich)
- *   - Confirmation modals for bulk actions
+ *   - Execute legacy bulk mutations and confirmations.
+ *   - Re-export the shared bulk-action-bar updater for untouched callers.
  *
- * Non-scope:
- *   - Individual loop operations (see loop.js)
- *   - Timer management (see timer.js)
- *   - Keyboard shortcuts (see keyboard.js)
+ * Scope:
+ *   - Residual legacy bulk-action execution only.
+ *
+ * Usage:
+ *   - Imported by frontend/src/legacy/init.js and untouched legacy modules.
+ *
+ * Invariants/Assumptions:
+ *   - frontend/src/bulk-actions.ts is the source of truth for selection UI sync.
  */
 
 import * as api from './api.js';
 import * as modals from './modals.js';
+import { updateBulkActionBar as syncBulkActionBar } from '../bulk-actions';
 import { loadInbox } from './loop.js';
 import { selectedLoopIds, clearLoopSelection } from './state.js';
 
 let statusEl, bulkActionBar;
 
-/**
- * Initialize bulk module
- */
 export function init(elements) {
   statusEl = elements.status;
   bulkActionBar = elements.bulkActionBar;
-}
-
-/**
- * Update bulk action bar visibility and count
- */
-export function updateBulkActionBar() {
-  const count = selectedLoopIds.size;
-
-  if (count > 0) {
-    bulkActionBar.classList.add("visible");
-    bulkActionBar.querySelector(".bulk-count").textContent =
-      `${count} loop${count !== 1 ? "s" : ""} selected`;
-  } else {
-    bulkActionBar.classList.remove("visible");
+  if (bulkActionBar) {
+    syncBulkActionBar();
   }
-
-  // Update selected state on cards
-  document.querySelectorAll(".loop-card").forEach((card) => {
-    const loopId = parseInt(card.dataset.loopId, 10);
-    const checkbox = card.querySelector(".loop-checkbox");
-    if (selectedLoopIds.has(loopId)) {
-      card.classList.add("selected");
-      if (checkbox) checkbox.checked = true;
-    } else {
-      card.classList.remove("selected");
-      if (checkbox) checkbox.checked = false;
-    }
-  });
 }
 
-/**
- * Execute bulk close (complete or drop)
- */
+export function updateBulkActionBar() {
+  syncBulkActionBar();
+}
+
 export async function executeBulkClose(status) {
   const loopIds = Array.from(selectedLoopIds);
   const items = loopIds.map((id) => ({ loop_id: id, status }));
@@ -72,17 +49,13 @@ export async function executeBulkClose(status) {
     const result = await api.bulkCloseLoops(items, false);
     statusEl.textContent = `Closed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
     clearLoopSelection();
-    updateBulkActionBar();
-    // SSE will auto-refresh the affected loops
+    syncBulkActionBar();
   } catch (error) {
     console.error("Bulk close error:", error);
     statusEl.textContent = error.message;
   }
 }
 
-/**
- * Execute bulk snooze
- */
 export async function executeBulkSnooze(snoozeUntilUtc) {
   const loopIds = Array.from(selectedLoopIds);
   const items = loopIds.map((id) => ({ loop_id: id, snooze_until_utc: snoozeUntilUtc }));
@@ -93,16 +66,13 @@ export async function executeBulkSnooze(snoozeUntilUtc) {
     const result = await api.bulkSnoozeLoops(items, false);
     statusEl.textContent = `Snoozed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
     clearLoopSelection();
-    updateBulkActionBar();
+    syncBulkActionBar();
   } catch (error) {
     console.error("Bulk snooze error:", error);
     statusEl.textContent = error.message;
   }
 }
 
-/**
- * Execute bulk status change
- */
 export async function executeBulkStatus(newStatus) {
   const loopIds = Array.from(selectedLoopIds);
   const updates = loopIds.map((id) => ({
@@ -116,20 +86,15 @@ export async function executeBulkStatus(newStatus) {
     const result = await api.bulkUpdateLoops(updates, false);
     statusEl.textContent = `Updated ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
     clearLoopSelection();
-    updateBulkActionBar();
+    syncBulkActionBar();
   } catch (error) {
     console.error("Bulk update error:", error);
     statusEl.textContent = error.message;
   }
 }
 
-/**
- * Execute bulk add tags
- */
 export async function executeBulkAddTags(newTags) {
   const loopIds = Array.from(selectedLoopIds);
-
-  // Merge new tags with existing tags for each loop
   const updates = loopIds.map((id) => {
     const card = document.querySelector(`.loop-card[data-loop-id="${id}"]`);
     const existingTags = card ? JSON.parse(card.dataset.tags || "[]") : [];
@@ -146,16 +111,13 @@ export async function executeBulkAddTags(newTags) {
     const result = await api.bulkUpdateLoops(updates, false);
     statusEl.textContent = `Tagged ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
     clearLoopSelection();
-    updateBulkActionBar();
+    syncBulkActionBar();
   } catch (error) {
     console.error("Bulk tag error:", error);
     statusEl.textContent = error.message;
   }
 }
 
-/**
- * Execute bulk enrich for selected loops
- */
 export async function executeBulkEnrich() {
   const loopIds = Array.from(selectedLoopIds);
   const items = loopIds.map((id) => ({ loop_id: id }));
@@ -169,7 +131,7 @@ export async function executeBulkEnrich() {
       ? `Enriched ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}; ${clarificationCount} need clarification.`
       : `Enriched ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`;
     clearLoopSelection();
-    updateBulkActionBar();
+    syncBulkActionBar();
     await loadInbox();
   } catch (error) {
     console.error("Bulk enrich error:", error);
@@ -177,9 +139,6 @@ export async function executeBulkEnrich() {
   }
 }
 
-/**
- * Handle bulk action button clicks
- */
 export async function handleBulkAction(action) {
   const count = selectedLoopIds.size;
   if (count === 0) return;
@@ -310,7 +269,7 @@ export async function handleBulkAction(action) {
 
     case "clear":
       clearLoopSelection();
-      updateBulkActionBar();
+      syncBulkActionBar();
       break;
   }
 }

@@ -3,8 +3,8 @@
  *
  * Purpose:
  *   Establish the new operator-first shell on top of the Vite + TypeScript
- *   frontend, while delegating detailed feature workspaces to the preserved
- *   legacy modules.
+ *   frontend, while isolating only the still-unported capture/do/recall
+ *   surfaces behind a residual legacy runtime.
  *
  * Responsibilities:
  *   - Drive the top-level state-oriented navigation model.
@@ -22,15 +22,15 @@
  *
  * Invariants/Assumptions:
  *   - Existing deep-work DOM surfaces remain present in frontend/index.html.
- *   - Legacy bridge tabs keep their ids so the shell can trigger current data
- *     loaders without rebuilding every feature module in one cutover.
+ *   - Residual legacy tab ids remain available only for still-unported
+ *     capture/do/recall loaders.
  *   - Hash routes are the canonical shareable/deep-link format for shell state.
  */
 
 import { bootstrapCommandPalette } from "./command-palette";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { requestJson } from "./http";
-import * as modals from "./legacy/modals.js";
+import * as modals from "./modals";
 import type {
   ClarificationResponse,
   EnrichmentReviewSessionResponse,
@@ -444,8 +444,8 @@ async function promptForWorkingSetDetails(
         placeholder: "What bounded slice of the system does this set hold together?",
       },
     ],
-    validate(values: Record<string, unknown>): string | null {
-      const name = typeof values["name"] === "string" ? values["name"].trim() : "";
+    validate(values: Record<string, string>): string | null {
+      const name = values["name"]?.trim() ?? "";
       if (!name) {
         return "Name is required.";
       }
@@ -737,7 +737,11 @@ function bridgeLegacySurface(location: ShellLocation): void {
         ? "next"
         : location.state === "recall"
           ? location.recallTool
-          : "review";
+          : null;
+
+  if (!tabKey) {
+    return;
+  }
 
   elements.legacyTabs[tabKey]?.click();
 }
