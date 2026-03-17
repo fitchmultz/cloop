@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
@@ -498,10 +499,16 @@ def test_healthz_alias_matches_health(test_client: TestClient, tmp_data_dir: Pat
         assert healthz_payload["checks"][check_name]["latency_ms"] >= 0
 
 
-def test_static_js_uses_no_cache_headers(test_client: TestClient, tmp_data_dir: Path) -> None:
-    response = test_client.get("/static/js/init.js")
+def test_static_assets_use_immutable_cache_headers(
+    test_client: TestClient, tmp_data_dir: Path
+) -> None:
+    html = test_client.get("/").text
+    asset_match = re.search(r'(/static/assets/[^"\']+\.js)', html)
+    assert asset_match is not None
+
+    response = test_client.get(asset_match.group(1))
     assert response.status_code == 200
-    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_health_endpoint_with_broken_core_db(
@@ -895,10 +902,70 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert "Export data" in html
     assert "Import data" in html
 
-    # Verify modular CSS/JS is loaded (new architecture)
-    assert "chat.js" in html or "init.js" in html
-    assert "chat-rag.css" in html or "components.css" in html
-    assert "/static/js/init.js?v=" in html
+    # Verify built frontend assets are loaded from the Vite bundle.
+    assert "/static/assets/" in html
+    assert 'type="module"' in html
+    assert 'rel="stylesheet"' in html
+
+
+def test_ui_contains_operator_workspace_and_state_navigation(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    """Initial HTML should expose the operator workspace and state-driven navigation shell."""
+    response = test_client.get("/")
+    assert response.status_code == 200
+    html = response.text
+
+    assert 'id="operator-main"' in html
+    assert 'id="shell-title"' in html
+    assert 'id="shell-context"' in html
+    assert 'id="shell-primary-action"' in html
+    assert 'id="shell-command-palette-btn"' in html
+    assert 'id="shell-refresh-workspace-btn"' in html
+    assert 'id="shell-last-visit"' in html
+    assert 'data-shell-state="operator"' in html
+    assert 'data-shell-state="capture"' in html
+    assert 'data-shell-state="do"' in html
+    assert 'data-shell-state="decide"' in html
+    assert 'data-shell-state="plan"' in html
+    assert 'data-shell-state="review"' in html
+    assert 'data-shell-state="recall"' in html
+    assert 'id="operator-now"' in html
+    assert 'id="operator-decisions"' in html
+    assert 'id="operator-plan"' in html
+    assert 'id="operator-recall"' in html
+    assert 'id="operator-since-last"' in html
+    assert 'id="operator-working-set"' in html
+    assert 'id="operator-create-working-set-btn"' in html
+    assert 'id="working-set-focus-banner"' in html
+    assert 'id="working-set-focus-summary"' in html
+    assert 'id="working-set-focus-items"' in html
+    assert 'id="working-set-focus-toggle-btn"' in html
+    assert 'id="working-set-exit-focus-btn"' in html
+    assert 'id="command-palette"' in html
+    assert 'id="command-palette-overlay"' in html
+    assert 'id="command-palette-panel"' in html
+    assert 'id="command-palette-input"' in html
+    assert 'id="command-palette-results"' in html
+    assert 'id="command-palette-detail"' in html
+    assert 'id="command-palette-status"' in html
+    assert "Current surface" in html
+    assert "Decision queues with action cards" in html
+    assert "Recall suggestions and context handoffs" in html
+    assert "Durable focus sets and resume anchors" in html
+    assert 'id="review-redesign-shell"' in html
+    assert 'id="review-shell-title"' in html
+    assert 'id="review-shell-description"' in html
+    assert 'id="review-shell-status"' in html
+    assert 'id="review-shell-controls"' in html
+    assert 'id="review-shell-overview"' in html
+    assert 'id="review-shell-queue"' in html
+    assert 'id="review-shell-workspace"' in html
+    assert 'id="review-shell-impact"' in html
+    assert 'id="review-legacy-compat"' in html
+    assert "Queue rail" in html
+    assert "Impact panel" in html
 
 
 def test_ui_contains_memory_management_elements(
@@ -996,8 +1063,8 @@ def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir
     # Check for refresh button
     assert 'id="refresh-next-btn"' in html
 
-    # Verify modular JS/CSS is loaded for Next view (new architecture)
-    assert "next.js" in html or "init.js" in html
+    # Verify built frontend assets are loaded for the Next view runtime.
+    assert "/static/assets/" in html
 
 
 def test_next_view_js_supports_bucketed_api_response(
@@ -1312,10 +1379,10 @@ def test_ui_contains_snooze_and_recurrence_elements(
     assert response.status_code == 200
     html = response.text
 
-    # Verify modular JS/CSS is loaded (new architecture)
-    # Snooze and recurrence are dynamically rendered by JS modules
-    assert "init.js" in html
-    assert "loop.js" in html or "modals.js" in html or "components.css" in html
+    # Verify built frontend assets are loaded (new architecture)
+    # Snooze and recurrence are dynamically rendered by bundled frontend modules.
+    assert "/static/assets/" in html
+    assert 'rel="stylesheet"' in html
     # Check for snooze in help modal (separate span elements for text and shortcut)
     assert ">Snooze<" in html or "Snooze</span>" in html
     assert ">s</span>" in html or "help-key" in html.lower()
@@ -1469,92 +1536,79 @@ def test_web_malformed_paths(test_client: TestClient, tmp_data_dir: Path) -> Non
     assert response.status_code in [200, 404]
 
 
-def test_web_root_missing_index_html_returns_404(
+def test_web_root_missing_index_html_returns_503(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Verify GET / returns 404 when index.html is missing."""
-    # Create a temporary static dir without index.html
-    static_dir = tmp_path / "static"
-    static_dir.mkdir()
+    """Verify GET / fails loudly when the built frontend index is missing."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "manifest.json").write_text('{"name": "test"}')
+    (dist_dir / "sw.js").write_text("// test")
 
-    # Create a minimal manifest.json so other routes work
-    (static_dir / "manifest.json").write_text('{"name": "test"}')
-    (static_dir / "sw.js").write_text("// test")
-
-    # Patch the static directory
     from cloop import web
+    from cloop.main import create_app
 
-    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+    monkeypatch.setattr(web, "FRONTEND_DIST_DIR", dist_dir)
 
-    from cloop.main import app
-
-    client = TestClient(app)
+    client = TestClient(create_app())
 
     response = client.get("/")
-    assert response.status_code == 404
+    assert response.status_code == 503
 
 
-def test_web_manifest_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify GET /manifest.json returns 404 when file is missing."""
-    static_dir = tmp_path / "static"
-    static_dir.mkdir()
-
-    # Create index.html but not manifest.json
-    (static_dir / "index.html").write_text("<html></html>")
-    (static_dir / "sw.js").write_text("// test")
+def test_web_manifest_missing_returns_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /manifest.json fails loudly when the built file is missing."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html></html>")
+    (dist_dir / "sw.js").write_text("// test")
 
     from cloop import web
+    from cloop.main import create_app
 
-    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+    monkeypatch.setattr(web, "FRONTEND_DIST_DIR", dist_dir)
 
-    from cloop.main import app
-
-    client = TestClient(app)
+    client = TestClient(create_app())
 
     response = client.get("/manifest.json")
-    assert response.status_code == 404
+    assert response.status_code == 503
 
 
-def test_web_favicon_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify GET /favicon.ico returns 404 when file is missing."""
-    static_dir = tmp_path / "static"
-    static_dir.mkdir()
-
-    (static_dir / "index.html").write_text("<html></html>")
-    (static_dir / "manifest.json").write_text('{"name": "test"}')
-    (static_dir / "sw.js").write_text("// test")
+def test_web_favicon_missing_returns_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /favicon.ico fails loudly when the built file is missing."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html></html>")
+    (dist_dir / "manifest.json").write_text('{"name": "test"}')
+    (dist_dir / "sw.js").write_text("// test")
 
     from cloop import web
+    from cloop.main import create_app
 
-    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+    monkeypatch.setattr(web, "FRONTEND_DIST_DIR", dist_dir)
 
-    from cloop.main import app
-
-    client = TestClient(app)
+    client = TestClient(create_app())
 
     response = client.get("/favicon.ico")
-    assert response.status_code == 404
+    assert response.status_code == 503
 
 
-def test_web_sw_missing_returns_404(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify GET /sw.js returns 404 when file is missing."""
-    static_dir = tmp_path / "static"
-    static_dir.mkdir()
-
-    # Create index.html but not sw.js
-    (static_dir / "index.html").write_text("<html></html>")
-    (static_dir / "manifest.json").write_text('{"name": "test"}')
+def test_web_sw_missing_returns_503(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify GET /sw.js fails loudly when the built file is missing."""
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html></html>")
+    (dist_dir / "manifest.json").write_text('{"name": "test"}')
 
     from cloop import web
+    from cloop.main import create_app
 
-    monkeypatch.setattr(web, "_STATIC_DIR", static_dir)
+    monkeypatch.setattr(web, "FRONTEND_DIST_DIR", dist_dir)
 
-    from cloop.main import app
-
-    client = TestClient(app)
+    client = TestClient(create_app())
 
     response = client.get("/sw.js")
-    assert response.status_code == 404
+    assert response.status_code == 503
 
 
 def test_bulk_update_exceeds_limit(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -2211,3 +2265,59 @@ def test_loop_relationship_review_endpoints(
     assert all(
         candidate["id"] != created_ids[1] for candidate in after_payload["duplicate_candidates"]
     )
+
+
+def test_semantic_similarity_routes_handle_unavailable_embed_model(make_test_client) -> None:
+    """Similarity-backed routes should degrade or validate cleanly.
+
+    This covers optional duplicate badge checks and explicit semantic-search flows
+    when the embedding model is unavailable.
+    """
+    client = make_test_client()
+
+    created_ids: list[int] = []
+    for raw_text in [
+        "Buy milk and eggs before the weekend",
+        "Pick up groceries like milk and eggs",
+    ]:
+        response = client.post(
+            "/loops/capture",
+            json={
+                "raw_text": raw_text,
+                "captured_at": "2026-03-14T12:00:00+00:00",
+                "client_tz_offset_min": 0,
+            },
+        )
+        assert response.status_code == 200
+        created_ids.append(int(response.json()["id"]))
+
+    duplicates_response = client.get(f"/loops/{created_ids[0]}/duplicates")
+    assert duplicates_response.status_code == 200
+    assert duplicates_response.json() == {"loop_id": created_ids[0], "candidates": []}
+
+    review_response = client.get(f"/loops/{created_ids[0]}/relationships/review")
+    assert review_response.status_code == 400
+    review_payload = review_response.json()
+    assert review_payload["error"]["code"] == "validation_error"
+    assert "semantic similarity is unavailable" in review_payload["error"]["message"]
+
+    queue_response = client.get("/loops/relationships/review")
+    assert queue_response.status_code == 400
+    queue_payload = queue_response.json()
+    assert queue_payload["error"]["code"] == "validation_error"
+    assert "semantic similarity is unavailable" in queue_payload["error"]["message"]
+
+    search_response = client.post(
+        "/loops/search/semantic",
+        json={
+            "query": "groceries",
+            "status": "all",
+            "limit": 10,
+            "offset": 0,
+            "min_score": 0.0,
+        },
+    )
+    assert search_response.status_code == 400
+    search_payload = search_response.json()
+    assert search_payload["error"]["code"] == "validation_error"
+    assert "semantic similarity is unavailable" in search_payload["error"]["message"]

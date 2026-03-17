@@ -52,6 +52,7 @@ from .templates import router as templates_router
 from .timers import router as timers_router
 from .views import router as views_router
 from .webhooks import router as webhooks_router
+from .working_sets import router as working_sets_router
 
 # Create main router with prefix
 router = APIRouter(prefix="/loops", tags=["loops"])
@@ -72,7 +73,10 @@ router.include_router(views_router)
 # 4. Templates - static paths: /templates/*
 router.include_router(templates_router)
 
-# 5. Query / export / metrics / suggestion / review-session endpoints - static paths first
+# 5. Working sets - static paths: /working-sets/*
+router.include_router(working_sets_router)
+
+# 6. Query / export / metrics / suggestion / review-session endpoints - static paths first
 router.include_router(query_router)
 router.include_router(import_export_router)
 router.include_router(metrics_router)
@@ -81,13 +85,13 @@ router.include_router(planning_workflows_router)
 router.include_router(suggestions_clarifications_router)
 router.include_router(claims_router)
 
-# 6. Lifecycle router - includes dynamic /{loop_id} routes
+# 7. Lifecycle router - includes dynamic /{loop_id} routes
 router.include_router(lifecycle_router)
 
-# 7. Push subscriptions - static paths: /push/*
+# 8. Push subscriptions - static paths: /push/*
 router.include_router(push_router)
 
-# 8. Loop-specific nested routes - all start with /{loop_id}/...
+# 9. Loop-specific nested routes - all start with /{loop_id}/...
 # These are least specific and should be registered last
 router.include_router(dependencies_router)
 router.include_router(events_router)

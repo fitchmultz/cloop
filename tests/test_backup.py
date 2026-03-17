@@ -1,18 +1,34 @@
 """Tests for backup and restore functionality.
 
 Purpose:
-    Verify backup creation, restoration, verification, and rotation work correctly.
+    Verify backup creation, restore safety, verification, and rotation behavior.
 
 Responsibilities:
-    - Test backup archive creation with manifest and checksums
-    - Test restore from backup with dry-run and force options
-    - Test backup verification and integrity checking
-    - Test backup rotation based on retention settings
-    - Test CLI commands for backup operations
+    - Exercise backup archive creation with manifest and checksum coverage
+    - Verify restore preflight, schema safety, rollback, and optional rag.db handling
+    - Confirm backup verification and rotation behavior
+    - Smoke test CLI backup commands against the shared backup module
+
+Scope:
+    - Module-level backup/restore behavior and CLI integration points
+    - Regression coverage for destructive restore failure modes
 
 Non-scope:
-    - Scheduled backup triggering (future enhancement)
-    - Cloud storage sync (future enhancement)
+    - Scheduler-triggered backup workflows
+    - External/cloud backup transport integrations
+    - Full end-to-end browser/UI verification of backup flows
+
+Usage:
+    - Run `uv run --locked pytest tests/test_backup.py -q` for the focused backup suite
+    - Use the helpers in this file to create isolated temporary databases and mutate
+      backup manifests for restore safety tests
+
+Invariants/Assumptions:
+    - Each test uses an isolated CLOOP_DATA_DIR and freshly initialized SQLite files
+    - Restore tests may mutate backup manifests/IO behavior, but they must leave the
+      on-disk database set fully rolled back or fully restored
+    - Backup archives with rag.db metadata must keep manifest content and zip members
+      in sync so restore validation exercises real invariants
 """
 
 import json
@@ -35,6 +51,39 @@ def _make_settings_with_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     settings = get_settings()
     db.init_databases(settings)
     return settings
+
+
+def _rewrite_backup_manifest(
+    *,
+    source_backup: Path,
+    destination_backup: Path,
+    updates: dict[str, Any],
+) -> None:
+    """Create a backup copy with manifest overrides for schema-safety tests."""
+    with zipfile.ZipFile(str(source_backup), "r") as zf_in:
+        manifest_data = json.loads(zf_in.read("manifest.json"))
+        manifest_data.update(updates)
+
+        with zipfile.ZipFile(destination_backup, "w") as zf_out:
+            for item in zf_in.infolist():
+                if item.filename == "manifest.json":
+                    zf_out.writestr("manifest.json", json.dumps(manifest_data, indent=2))
+                else:
+                    zf_out.writestr(item, zf_in.read(item.filename))
+
+
+def _restore_temp_artifacts(db_dir: Path) -> list[Path]:
+    """Return any restore temp artifacts left beside live database files."""
+    return sorted(
+        (
+            path
+            for path in db_dir.iterdir()
+            if ".restore-staged." in path.name
+            or ".restore-rollback." in path.name
+            or path.suffix == ".bak"
+        ),
+        key=lambda path: path.name,
+    )
 
 
 def test_create_backup_basic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,28 +236,23 @@ def test_restore_backup_not_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_restore_backup_with_force(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test restore with force flag bypasses schema version check."""
+    """Test restore with force flag bypasses symmetric schema version checks."""
     settings = _make_settings_with_data(tmp_path, monkeypatch)
 
-    # Create backup
     backup_result = backup.create_backup(settings=settings)
     assert backup_result.success
+    assert backup_result.backup_path is not None
 
-    # Modify the manifest to simulate newer schema
-    manifest_data = backup_result.manifest.__dict__.copy()
-    manifest_data["core_schema_version"] = 999  # Impossibly high version
+    modified_backup = tmp_path / "modified_force.cloop.zip"
+    _rewrite_backup_manifest(
+        source_backup=backup_result.backup_path,
+        destination_backup=modified_backup,
+        updates={
+            "core_schema_version": db.SCHEMA_VERSION + 10,
+            "rag_schema_version": db.RAG_SCHEMA_VERSION + 10,
+        },
+    )
 
-    # Create new backup with modified manifest
-    modified_backup = tmp_path / "modified.cloop.zip"
-    with zipfile.ZipFile(str(backup_result.backup_path), "r") as zf_in:
-        with zipfile.ZipFile(modified_backup, "w") as zf_out:
-            for item in zf_in.namelist():
-                if item == "manifest.json":
-                    zf_out.writestr("manifest.json", json.dumps(manifest_data, indent=2))
-                else:
-                    zf_out.writestr(item, zf_in.read(item))
-
-    # Without force, should fail
     restore_result = backup.restore_backup(
         settings=settings,
         backup_path=modified_backup,
@@ -217,9 +261,8 @@ def test_restore_backup_with_force(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     )
     assert not restore_result.success
     assert restore_result.error is not None
-    assert "newer than current" in restore_result.error
+    assert "Core backup schema" in restore_result.error
 
-    # With force, should succeed
     restore_result = backup.restore_backup(
         settings=settings,
         backup_path=modified_backup,
@@ -227,6 +270,154 @@ def test_restore_backup_with_force(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         force=True,
     )
     assert restore_result.success
+    assert restore_result.core_restored
+    assert restore_result.rag_restored
+
+
+def test_restore_backup_rejects_newer_rag_schema_during_dry_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test dry-run restore rejects unsupported RAG schema before any mutation."""
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    backup_result = backup.create_backup(settings=settings)
+    assert backup_result.success
+    assert backup_result.backup_path is not None
+
+    modified_backup = tmp_path / "modified_rag_schema.cloop.zip"
+    _rewrite_backup_manifest(
+        source_backup=backup_result.backup_path,
+        destination_backup=modified_backup,
+        updates={"rag_schema_version": db.RAG_SCHEMA_VERSION + 10},
+    )
+
+    original_core_bytes = settings.core_db_path.read_bytes()
+    original_rag_bytes = settings.rag_db_path.read_bytes()
+
+    restore_result = backup.restore_backup(
+        settings=settings,
+        backup_path=modified_backup,
+        dry_run=True,
+        force=False,
+    )
+
+    assert not restore_result.success
+    assert restore_result.error is not None
+    assert "RAG backup schema" in restore_result.error
+    assert settings.core_db_path.read_bytes() == original_core_bytes
+    assert settings.rag_db_path.read_bytes() == original_rag_bytes
+    assert _restore_temp_artifacts(settings.core_db_path.parent) == []
+
+
+def test_restore_backup_rolls_back_after_mid_restore_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test restore rolls back both databases if publishing rag.db fails mid-restore."""
+    from cloop.loops.models import LoopStatus
+    from cloop.loops.service import capture_loop
+
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    backup_result = backup.create_backup(settings=settings)
+    assert backup_result.success
+    assert backup_result.backup_path is not None
+
+    with db.core_connection(settings) as conn:
+        capture_loop(
+            raw_text="rollback sentinel",
+            captured_at_iso="2026-03-15T00:00:00+00:00",
+            client_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+    with db.rag_connection(settings) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS restore_failure_marker ("
+            "id INTEGER PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        conn.execute(
+            "INSERT INTO restore_failure_marker(value) VALUES (?)",
+            ("current-state",),
+        )
+        conn.commit()
+
+    expected_core_bytes = settings.core_db_path.read_bytes()
+    expected_rag_bytes = settings.rag_db_path.read_bytes()
+
+    original_replace_path = backup._replace_path
+
+    def _fail_on_rag_publish(source: Path, destination: Path) -> None:
+        if destination == settings.rag_db_path and ".restore-staged." in source.name:
+            raise OSError("simulated rag publish failure")
+        original_replace_path(source, destination)
+
+    monkeypatch.setattr(backup, "_replace_path", _fail_on_rag_publish)
+
+    restore_result = backup.restore_backup(
+        settings=settings,
+        backup_path=backup_result.backup_path,
+        dry_run=False,
+    )
+
+    assert not restore_result.success
+    assert restore_result.error is not None
+    assert "simulated rag publish failure" in restore_result.error
+    assert settings.core_db_path.read_bytes() == expected_core_bytes
+    assert settings.rag_db_path.read_bytes() == expected_rag_bytes
+    assert _restore_temp_artifacts(settings.core_db_path.parent) == []
+
+
+def test_restore_backup_recreates_missing_rag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test restore recreates rag.db when the current install is missing it."""
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    backup_result = backup.create_backup(settings=settings)
+    assert backup_result.success
+    assert backup_result.backup_path is not None
+
+    settings.rag_db_path.unlink()
+    assert not settings.rag_db_path.exists()
+
+    restore_result = backup.restore_backup(
+        settings=settings,
+        backup_path=backup_result.backup_path,
+        dry_run=False,
+    )
+
+    assert restore_result.success
+    assert restore_result.rag_restored
+    assert settings.rag_db_path.exists()
+    assert _restore_temp_artifacts(settings.core_db_path.parent) == []
+
+
+def test_restore_backup_without_rag_removes_live_rag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test restore removes an existing rag.db when the backup snapshot has none."""
+    settings = _make_settings_with_data(tmp_path, monkeypatch)
+
+    settings.rag_db_path.unlink()
+    backup_result = backup.create_backup(settings=settings)
+    assert backup_result.success
+    assert backup_result.backup_path is not None
+    assert backup_result.manifest is not None
+    assert backup_result.manifest.rag_db_size_bytes == 0
+
+    db.init_rag_db(settings)
+    assert settings.rag_db_path.exists()
+
+    restore_result = backup.restore_backup(
+        settings=settings,
+        backup_path=backup_result.backup_path,
+        dry_run=False,
+    )
+
+    assert restore_result.success
+    assert not restore_result.rag_restored
+    assert not settings.rag_db_path.exists()
+    assert _restore_temp_artifacts(settings.core_db_path.parent) == []
 
 
 def test_verify_valid_backup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

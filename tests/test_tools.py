@@ -17,6 +17,8 @@ from cloop.tools import (
     execute_loop_update,
     execute_search_notes,
     execute_write_note,
+    get_agent_bridge_tools,
+    get_tool_definition,
     normalize_tool_arguments,
 )
 
@@ -79,6 +81,26 @@ class TestNormalizeToolArguments:
         """Should raise ValidationError for invalid JSON."""
         with pytest.raises(ValidationError, match="Invalid arguments"):
             normalize_tool_arguments("not valid json")
+
+
+class TestToolRegistry:
+    """Tests for the public tool registry helpers."""
+
+    def test_get_tool_definition_returns_expected_executor(self):
+        """The public lookup should expose the canonical tool definition."""
+        definition = get_tool_definition("loop_create")
+
+        assert definition is not None
+        assert definition.name == "loop_create"
+        assert definition.executor is execute_loop_create
+        assert definition.input_schema["additionalProperties"] is False
+
+    def test_agent_bridge_tools_omit_manual_only_tool(self):
+        """Agent bridge registry should exclude manual-only loop enrichment."""
+        bridge_tool_names = {tool.name for tool in get_agent_bridge_tools()}
+
+        assert "loop_create" in bridge_tool_names
+        assert "loop_enrich" not in bridge_tool_names
 
 
 class TestLoopCreate:

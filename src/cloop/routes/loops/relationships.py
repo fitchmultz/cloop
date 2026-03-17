@@ -21,6 +21,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
 from ...loops import relationship_review
+from ...loops.errors import ValidationError
 from ...loops.models import LoopStatus
 from ...schemas.loops import (
     LoopRelationshipReviewResponse,
@@ -32,6 +33,7 @@ from ._common import (
     IdempotencyKeyHeader,
     SettingsDep,
     build_loop_response,
+    map_validation_to_400,
     run_idempotent_loop_route,
 )
 from .query import _resolve_statuses_for_search
@@ -59,14 +61,17 @@ def review_loop_relationships_endpoint(
     from ... import db
 
     with db.core_connection(settings) as conn:
-        result = relationship_review.review_loop_relationships(
-            loop_id=loop_id,
-            statuses=statuses,
-            duplicate_limit=duplicate_limit,
-            related_limit=related_limit,
-            conn=conn,
-            settings=settings,
-        )
+        try:
+            result = relationship_review.review_loop_relationships(
+                loop_id=loop_id,
+                statuses=statuses,
+                duplicate_limit=duplicate_limit,
+                related_limit=related_limit,
+                conn=conn,
+                settings=settings,
+            )
+        except ValidationError as exc:
+            raise map_validation_to_400(exc) from None
     return LoopRelationshipReviewResponse(
         loop=build_loop_response(result["loop"]),
         indexed_count=result["indexed_count"],

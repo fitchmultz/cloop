@@ -150,6 +150,12 @@ def test_planning_workflow_endpoints(
         second_id,
     ]
     assert (
+        first_execute_payload["execution"]["rollback_cues"]["rollback_supported_operation_count"]
+        == 2
+    )
+    assert first_execute_payload["execution"]["follow_up_resources"] == []
+    assert first_execute_payload["execution"]["launch_surfaces"] == []
+    assert (
         first_execute_payload["execution"]["results"][0]["rollback_actions"][0]["kind"]
         == "loop.undo"
     )
@@ -166,7 +172,20 @@ def test_planning_workflow_endpoints(
     second_execute_payload = second_execute.json()
     assert second_execute_payload["snapshot"]["session"]["status"] == "completed"
     assert second_execute_payload["snapshot"]["session"]["executed_checkpoint_count"] == 2
-    assert second_execute_payload["execution"]["summary"]["created_review_session_ids"]
+    created_review_session_id = second_execute_payload["execution"]["summary"][
+        "created_review_session_ids"
+    ][0]
+    assert (
+        second_execute_payload["execution"]["follow_up_resources"][0]["resource_type"]
+        == "review_session"
+    )
+    assert (
+        second_execute_payload["execution"]["launch_surfaces"][0]["resource_id"]
+        == created_review_session_id
+    )
+    assert second_execute_payload["execution"]["launch_surfaces"][0]["http"]["path"] == (
+        f"/loops/review/enrichment/sessions/{created_review_session_id}"
+    )
     assert (
         second_execute_payload["snapshot"]["execution_analytics"]["follow_up_resource_count"] >= 1
     )
@@ -174,6 +193,13 @@ def test_planning_workflow_endpoints(
     review_sessions = client.get("/loops/review/enrichment/sessions")
     assert review_sessions.status_code == 200
     assert [item["name"] for item in review_sessions.json()] == ["launch-follow-up"]
+
+    get_response = client.get(f"/loops/planning/sessions/{session_id}")
+    assert get_response.status_code == 200
+    latest_history = get_response.json()["execution_history"][-1]
+    assert latest_history["follow_up_resources"]
+    assert latest_history["launch_surfaces"]
+    assert latest_history["rollback_cues"]["operations"]
 
     refresh_response = client.post(f"/loops/planning/sessions/{session_id}/refresh")
     assert refresh_response.status_code == 200

@@ -1,0 +1,195 @@
+/**
+ * operator-action-cards.ts - Typed operator action-card rendering helpers.
+ *
+ * Purpose:
+ *   Render the operator workspace's canonical action-card model so planning,
+ *   review, recall, and execution handoffs share one visual/output contract.
+ *
+ * Responsibilities:
+ *   - Render typed action cards and card decks to HTML strings.
+ *   - Encode shell-navigation and pin actions as data attributes.
+ *   - Keep card anatomy consistent across workflow-specific shell sections.
+ *
+ * Scope:
+ *   - Operator-workspace presentation helpers only.
+ *
+ * Usage:
+ *   - Import renderActionCardDeck from frontend/src/shell.ts when a workspace
+ *     zone needs executable cards instead of summary-only markup.
+ *
+ * Invariants/Assumptions:
+ *   - Action-card text is supplied as plain strings and must be escaped here.
+ *   - Shell actions are wired through data-open-* and data-pin-* attributes.
+ *   - Cards remain transport-agnostic; they describe work and launch targets
+ *     without embedding feature-local business logic.
+ */
+
+import type {
+  OperatorActionCard,
+  OperatorActionCardAction,
+  ShellLocationContract,
+} from "./contracts-ui";
+
+const KIND_LABELS = {
+  mutation: "Mutation",
+  decision: "Decision",
+  handoff: "Handoff",
+  refresh: "Refresh",
+  context: "Context",
+} as const satisfies Record<OperatorActionCard["kind"], string>;
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function locationAttributes(prefix: "open" | "pin", location: ShellLocationContract): string {
+  const attributes = [
+    ["state", location.state],
+    ["recall-tool", location.recallTool],
+    ["review-focus", location.reviewFocus ?? ""],
+    ["session-id", location.sessionId != null ? String(location.sessionId) : ""],
+    ["loop-id", location.loopId != null ? String(location.loopId) : ""],
+    ["view-id", location.viewId != null ? String(location.viewId) : ""],
+    ["memory-id", location.memoryId != null ? String(location.memoryId) : ""],
+    ["query", location.query ?? ""],
+  ] as const;
+
+  return attributes
+    .map(([name, value]) => `data-${prefix}-${name}="${escapeHtml(value)}"`)
+    .join(" ");
+}
+
+function renderActionButton(card: OperatorActionCard, action: OperatorActionCardAction): string {
+  const className = action.variant === "secondary" ? ' class="secondary"' : "";
+  if (action.type === "pin") {
+    return `
+      <button
+        type="button"
+        ${className}
+        data-pin-label="${escapeHtml(action.pinLabel ?? card.title)}"
+        data-pin-description="${escapeHtml(action.description)}"
+        ${locationAttributes("pin", action.location)}
+      >${escapeHtml(action.label)}</button>
+    `;
+  }
+
+  return `
+    <button
+      type="button"
+      ${className}
+      ${locationAttributes("open", action.location)}
+    >${escapeHtml(action.label)}</button>
+  `;
+}
+
+function renderPreview(card: OperatorActionCard): string {
+  if (!card.preview.length) {
+    return "";
+  }
+  return `
+    <section class="operator-action-section" aria-label="Preview">
+      <p class="operator-action-section-title">Preview</p>
+      <dl class="operator-action-preview-list">
+        ${card.preview
+          .map((item) => {
+            return `
+              <div class="operator-action-preview-item">
+                <dt>${escapeHtml(item.label)}</dt>
+                <dd>${escapeHtml(item.value)}</dd>
+              </div>
+            `;
+          })
+          .join("")}
+      </dl>
+    </section>
+  `;
+}
+
+function renderTrust(card: OperatorActionCard): string {
+  const trustBits = [
+    ...card.trust.contextSources.map((source) => `Context: ${source}`),
+    ...card.trust.assumptions.map((assumption) => `Assumption: ${assumption}`),
+    ...(card.trust.confidenceLabel ? [`Confidence: ${card.trust.confidenceLabel}`] : []),
+    ...(card.trust.rollbackLabel ? [`Rollback: ${card.trust.rollbackLabel}`] : []),
+    ...(card.trust.freshnessLabel ? [`Freshness: ${card.trust.freshnessLabel}`] : []),
+  ];
+
+  if (!trustBits.length) {
+    return "";
+  }
+
+  return `
+    <section class="operator-action-section" aria-label="Trust metadata">
+      <p class="operator-action-section-title">Trust metadata</p>
+      <ul class="operator-action-trust-list">
+        ${trustBits.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+      </ul>
+    </section>
+  `;
+}
+
+function renderHandoff(card: OperatorActionCard): string {
+  if (!card.handoff) {
+    return "";
+  }
+
+  const { handoff } = card;
+  return `
+    <section class="operator-action-handoff" aria-label="Workflow handoff">
+      <p class="operator-action-section-title">Workflow handoff</p>
+      <p>${escapeHtml(handoff.changeSummary)}</p>
+      ${
+        handoff.createdResources.length
+          ? `
+            <ul class="operator-action-trust-list">
+              ${handoff.createdResources.map((resource) => `<li>${escapeHtml(resource)}</li>`).join("")}
+            </ul>
+          `
+          : ""
+      }
+      ${handoff.nextStep ? `<p><strong>Next:</strong> ${escapeHtml(handoff.nextStep)}</p>` : ""}
+      ${
+        handoff.breadcrumbs.length
+          ? `<p class="operator-action-breadcrumbs">${handoff.breadcrumbs.map((crumb) => escapeHtml(crumb)).join(" / ")}</p>`
+          : ""
+      }
+    </section>
+  `;
+}
+
+function renderActionCard(card: OperatorActionCard): string {
+  return `
+    <article class="operator-action-card operator-action-card--${escapeHtml(card.kind)} operator-action-card--${escapeHtml(card.tone)}">
+      <div class="operator-action-card-header">
+        <div>
+          <p class="support-eyebrow">${escapeHtml(card.eyebrow)}</p>
+          <h3>${escapeHtml(card.title)}</h3>
+        </div>
+        <span class="operator-chip">${escapeHtml(KIND_LABELS[card.kind])}</span>
+      </div>
+      <p class="operator-action-summary">${escapeHtml(card.summary)}</p>
+      <section class="operator-action-section" aria-label="Why this exists">
+        <p class="operator-action-section-title">Why this exists</p>
+        <p>${escapeHtml(card.rationale)}</p>
+      </section>
+      ${renderPreview(card)}
+      ${renderTrust(card)}
+      ${renderHandoff(card)}
+      <div class="operator-card-actions operator-action-card-actions">
+        ${card.actions.map((action) => renderActionButton(card, action)).join("")}
+      </div>
+    </article>
+  `;
+}
+
+export function renderActionCardDeck(cards: readonly OperatorActionCard[], emptyStateHtml: string): string {
+  if (!cards.length) {
+    return emptyStateHtml;
+  }
+  return cards.map((card) => renderActionCard(card)).join("");
+}

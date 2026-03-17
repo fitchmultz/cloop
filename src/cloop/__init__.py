@@ -1,17 +1,28 @@
-"""Cloop package public exports.
-
-Purpose:
-    Provide stable package-level imports for app bootstrapping and version metadata.
+"""Purpose: Define the lightweight package root for Cloop.
 
 Responsibilities:
-    - Expose FastAPI application object for ASGI servers.
-    - Expose package version constant for runtime/version reporting.
+    - Expose runtime version metadata at package import time.
+    - Keep package-root imports free of FastAPI/app boot side effects.
+
+Scope:
+    - Package metadata exports only.
+    - No application bootstrap or runtime wiring.
 
 Non-scope:
-    - Application configuration or startup side effects beyond import wiring.
+    - FastAPI app bootstrapping.
+    - CLI, storage, or AI runtime imports.
+
+Usage:
+    - Import `cloop.__version__` or `from cloop import __version__`.
+    - Import `cloop.main.app` or `cloop.main.create_app` for FastAPI access.
+
+Invariants/Assumptions:
+    - `import cloop` must stay lightweight.
+    - The package root does not re-export the FastAPI app.
 """
 
-from ._version import __version__
-from .main import app
+from __future__ import annotations
 
-__all__ = ["app", "__version__"]
+from ._version import __version__
+
+__all__ = ["__version__"]

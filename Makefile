@@ -1,7 +1,9 @@
-.PHONY: help lock-check bridge-lock-check bridge-test sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check type quality test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.PHONY: help lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
 
 UV_RUN := uv run --locked
-NPM_BRIDGE := npm --prefix src/cloop/pi_bridge
+PNPM_BRIDGE := pnpm --dir src/cloop/pi_bridge
+PNPM_FRONTEND := pnpm --dir frontend
+DEFAULT_LOCAL_DATA_DIR := $(CURDIR)/data
 
 help:
 	@printf "%s\n" \
@@ -10,8 +12,15 @@ help:
 		"Targets:" \
 		"  sync            Sync (upgrade) all deps via uv" \
 		"  lock-check      Verify uv.lock matches pyproject metadata" \
-		"  bridge-lock-check Verify pi bridge package-lock + installability" \
+		"  bridge-lock-check Verify pi bridge pnpm lockfile + installability" \
 		"  bridge-test     Run Node bridge tests" \
+		"  frontend-lock-check Verify frontend pnpm lockfile + installability" \
+		"  frontend-contracts Generate frontend OpenAPI contracts" \
+		"  frontend-type   Run frontend TypeScript checks" \
+		"  frontend-test   Run frontend Vitest checks" \
+		"  frontend-build  Build the Vite frontend bundle" \
+		"  frontend-dev    Run the Vite frontend dev server" \
+		"  reset-local-data Delete and recreate the default repo-local data directory" \
 		"  fmt             Format code with ruff" \
 		"  fmt-check       Check formatting (no changes)" \
 		"  lint            Lint with ruff" \
@@ -21,8 +30,10 @@ help:
 		"  secrets-check   Scan tracked files for likely secrets" \
 		"  version-check   Ensure pyproject version matches runtime version" \
 		"  changelog-check Ensure current version is documented in CHANGELOG.md" \
+		"  smoke-public    Smoke test lightweight package/app/backup CLI surfaces" \
 		"  type            Type check with ty" \
 		"  quality         Run all non-test quality checks" \
+		"  test-backup-safety Run focused destructive backup restore regressions" \
 		"  test            Run CI release suite (exclude performance marker)" \
 		"  test-all        Run full pytest suite (includes performance marker)" \
 		"  test-fast       Run PR-fast suite (exclude slow/performance markers)" \
@@ -44,11 +55,36 @@ lock-check:
 	uv lock --check
 
 bridge-lock-check:
-	test -f src/cloop/pi_bridge/package-lock.json
-	$(NPM_BRIDGE) ci
+	test -f src/cloop/pi_bridge/pnpm-lock.yaml
+	$(PNPM_BRIDGE) install --frozen-lockfile
 
 bridge-test: bridge-lock-check
-	$(NPM_BRIDGE) test
+	$(PNPM_BRIDGE) test
+
+frontend-lock-check:
+	test -f frontend/package.json
+	test -f frontend/pnpm-lock.yaml
+	$(PNPM_FRONTEND) install --frozen-lockfile
+
+frontend-contracts: frontend-lock-check
+	$(PNPM_FRONTEND) generate:contracts
+
+frontend-type: frontend-contracts
+	$(PNPM_FRONTEND) typecheck
+
+frontend-test: frontend-contracts
+	$(PNPM_FRONTEND) test
+
+frontend-build: frontend-contracts
+	$(PNPM_FRONTEND) build
+
+frontend-dev: frontend-contracts
+	$(PNPM_FRONTEND) dev
+
+reset-local-data:
+	rm -rf $(DEFAULT_LOCAL_DATA_DIR)
+	mkdir -p $(DEFAULT_LOCAL_DATA_DIR)
+	@printf "Reset local repo data directory: %s\n" "$(DEFAULT_LOCAL_DATA_DIR)"
 
 fmt:
 	$(UV_RUN) ruff format .
@@ -77,18 +113,24 @@ version-check:
 changelog-check:
 	$(UV_RUN) python scripts/check_changelog_sync.py
 
+smoke-public:
+	$(UV_RUN) python scripts/check_public_surfaces.py
+
 type:
 	$(UV_RUN) ty check
 
-quality: lock-check bridge-lock-check fmt-check lint env-sync header-check secrets-check version-check changelog-check type
+quality: lock-check bridge-lock-check frontend-type fmt-check lint env-sync header-check secrets-check version-check changelog-check smoke-public type
 
-test:
+test-backup-safety:
+	$(UV_RUN) pytest tests/test_backup.py -q
+
+test: frontend-build frontend-test test-backup-safety
 	$(UV_RUN) pytest -m "not performance"
 
 test-all:
 	$(UV_RUN) pytest
 
-test-fast:
+test-fast: frontend-build frontend-test test-backup-safety
 	$(UV_RUN) pytest -m "not slow and not performance"
 
 test-slow:
@@ -100,7 +142,7 @@ test-performance:
 test-cov:
 	$(UV_RUN) pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
 
-dist:
+dist: frontend-build
 	rm -rf dist build src/cloop.egg-info
 	$(UV_RUN) python -m build --sdist --wheel
 

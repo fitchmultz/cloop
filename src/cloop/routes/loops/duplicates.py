@@ -65,6 +65,8 @@ def list_duplicate_candidates(
             )
         except LoopNotFoundError:
             raise HTTPException(status_code=404, detail="Loop not found") from None
+        except ValidationError:
+            candidates = []
 
     return DuplicatesListResponse(
         loop_id=loop_id,

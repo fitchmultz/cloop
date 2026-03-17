@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from check_headers import has_valid_header  # type: ignore
+from check_headers import has_valid_header, should_check  # type: ignore
 
 
 class TestHeaderValidation:
@@ -132,3 +132,29 @@ pass
 ''')
         valid, msg = has_valid_header(filepath)
         assert valid is True
+
+    def test_should_check_skips_nested_tests_directory(self, tmp_path: Path):
+        """Test directories are skipped regardless of path separator assumptions."""
+        filepath = tmp_path / "pkg" / "tests" / "example.py"
+        filepath.parent.mkdir(parents=True)
+        filepath.write_text("pass\n")
+        assert should_check(filepath) is False
+
+    def test_should_check_skips_named_tooling_directories(self, tmp_path: Path):
+        """Path-part based skipping works for cache and virtualenv directories."""
+        cache_file = tmp_path / "__pycache__" / "example.py"
+        cache_file.parent.mkdir(parents=True)
+        cache_file.write_text("pass\n")
+        assert should_check(cache_file) is False
+
+        venv_file = tmp_path / ".venv" / "example.py"
+        venv_file.parent.mkdir(parents=True)
+        venv_file.write_text("pass\n")
+        assert should_check(venv_file) is False
+
+    def test_should_check_allows_regular_python_modules(self, tmp_path: Path):
+        """Regular source files still participate in header validation."""
+        filepath = tmp_path / "src" / "module.py"
+        filepath.parent.mkdir(parents=True)
+        filepath.write_text("pass\n")
+        assert should_check(filepath) is True

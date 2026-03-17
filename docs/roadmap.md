@@ -1,96 +1,73 @@
 # Cloop Roadmap
 
-This is the canonical roadmap for product and interface-parity work in Cloop.
+This is the canonical roadmap for Cloop.
+
+The current priority is to turn the shipped operator shell, action cards, and workflow handoffs into a world-class decision and execution workspace: sharper review, stronger focus context, faster navigation, and deeper trust/continuity.
 
 ## Direction
 
-Cloop should use AI where it provides clear leverage, while keeping the local-first,
-deterministic core trustworthy. AI features should not stay trapped in a single
-surface when the underlying capability is already shared.
+Cloop should feel like a local-first execution OS for human + AI operational work.
 
 Current product goals:
 
-- Keep the core generative runtime centered on pi.
-- Default pi model selectors to the user's preferred provider/model combinations when Cloop needs an explicit selector, while still allowing any pi-supported provider/model combination.
-- Keep embeddings separate where that remains the best fit.
-- Prefer shared service-layer implementations over surface-specific forks.
-- Improve feature symmetry across HTTP, web UI, CLI, and MCP when the capability
-  is genuinely useful in each interface.
-- Preserve deterministic loop operations even when AI is layered on top.
+- Replace subsystem-first navigation with state-driven workflows.
+- Make the default experience answer: what should I do now, what needs a decision, and what changed.
+- Keep planning, review, chat, and enrichment outputs grounded in explicit action surfaces with previews, rationale, and rollback cues.
+- Preserve deterministic local control while letting AI accelerate preparation, synthesis, and handoff.
+- Reuse shared service and execution contracts across HTTP, web, CLI, and MCP instead of inventing per-surface workflow logic.
+- Keep the product calm by default and deep on demand through progressive disclosure.
+- Make high-frequency operator flows keyboard-fast.
+- Surface provenance, assumptions, and reversibility anywhere the system proposes or executes meaningful work.
 
-## Current AI Surface
+## UX Vision and Spec Set
 
-Legend:
-
-- `yes`: available today
-- `partial`: available with meaningful limitations
-- `no`: missing
-
-| Capability | HTTP API | Web UI | CLI | MCP | Notes |
-| --- | --- | --- | --- | --- | --- |
-| Chat completion | yes | yes | yes | yes | HTTP, CLI, and MCP now reuse the shared grounded chat execution contract. |
-| Chat streaming | yes | yes | yes | no | HTTP/web use SSE; CLI streams token output directly to stdout. MCP currently exposes the non-streaming chat contract only. |
-| Chat tool calling | yes | yes | yes | yes | MCP chat now supports both `tool_mode=llm` and explicit manual tools through shared execution. |
-| Chat with loop context | yes | yes | yes | yes | Loop grounding now shares one chat contract across HTTP/web/CLI/MCP. |
-| Chat with memory context | yes | yes | yes | yes | Memory grounding now shares one chat contract across HTTP/web/CLI/MCP. |
-| Chat with RAG context | yes | yes | yes | yes | Document grounding and scope filters now flow through the same shared chat contract everywhere except streaming. |
-| RAG ask | yes | yes | yes | yes | HTTP, CLI, and MCP now reuse the shared `rag_execution` contract on top of shared ask orchestration. |
-| RAG ingest | yes | yes | yes | yes | HTTP, CLI, and MCP now share ingest execution and bookkeeping (`files`, `chunks`, `files_skipped`, `failed_files`). |
-| Loop enrichment | yes | yes | yes | yes | Explicit enrich flows now share one synchronous orchestration contract. |
-| Suggestions and clarifications | yes | yes | yes | yes | Suggestion payloads now link persisted clarification rows, and all surfaces answer existing clarification IDs through the same review contract. |
-| Saved review workflows | yes | yes | yes | yes | Saved review actions plus guided cursor movement and session-preserving relationship/enrichment refinement now share `loops/review_workflows.py` across all operator surfaces. |
-| Planning workflows | yes | yes | yes | yes | Checkpointed planning sessions now share `loops/planning_workflows.py` across HTTP, the Review tab, CLI, and MCP with durable execution history. |
-| Memory CRUD | yes | yes | yes | yes | HTTP, web, CLI, and MCP now reuse the shared `memory_management` contract for deterministic direct memory CRUD/search. |
-| Semantic loop search | yes | yes | yes | yes | HTTP `/loops/search/semantic`, Inbox semantic mode, `cloop loop semantic-search`, and MCP `loop.semantic_search` now share the same `read_service` + `loops/similarity.py` contract with on-demand embedding backfill. |
+- Experience vision: [`docs/ux/experience-vision.md`](ux/experience-vision.md)
+- Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
 
 ## Execution Order
 
-The next work should happen in this order so that the newly stabilized shared planning,
-chat, enrichment, review, direct-memory, and pi-selector defaults can propagate outward without rework.
+### Phase 1 — Trust and continuity
 
-### Phase 1 — Extend parity for post-planning operator loops
+Goal: make the system feel credible, explainable, and alive over time now that the shell, review workspace, durable working sets, and command palette are in place.
 
-Goal: make the handoff from planning/review into subsequent execution even more seamless now that the shared planning substrate exposes broader deterministic operations plus rollback/provenance metadata.
+1. **Trust surfaces at every meaningful recommendation or mutation**
+   - Spec: [`docs/ux/trust-surfaces.md`](ux/trust-surfaces.md)
+   - Depends on: shipped action cards, workflow handoffs, the redesigned review workspace, focus-mode working sets, and the command palette.
 
-- Add transport-ready affordances wherever checkpoint execution should launch the next deterministic operator surface directly.
-- Tighten chat/review/planning examples around multi-step operator sessions, especially when saved review sessions become the next queue.
-- Teach the web Review tab and MCP clients how to surface execution summaries, rollback cues, and created follow-up resources without bespoke workflow glue.
+### Phase 2 — Cross-session intelligence
 
-Why next:
+Goal: make the system feel alive and resumable over time instead of merely fast in-session.
 
-- The planning substrate now covers broader deterministic operations and richer execution metadata.
-- The highest remaining leverage is to help operators move from executed checkpoints into the next surface with less friction.
-
-### Phase 2 — Harden non-reversible planning steps
-
-Goal: reduce remaining edge cases where planning checkpoints still rely on best-effort rollback.
-
-- Tighten the contract around non-reversible enrichment-heavy checkpoint operations.
-- Consider deeper replay / rollback handling only where the underlying shared enrichment primitives can support it cleanly.
-- Keep follow-up execution analytics aligned if new checkpoint kinds add more downstream resources.
-
-Why after Phase 1:
-
-- The current rollback/provenance substrate is strong enough for broader transport adoption.
-- Remaining rollback work should happen only after the operator handoff surfaces fully exploit the current contract.
+2. **Continuity and intelligence across sessions**
+   - Spec: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
+   - Depends on: operator workspace, durable working sets, trust surfaces, and the command palette's recent/resume model.
 
 ## Immediate Next Sessions
 
-If work is being planned session-by-session, the best short sequence is:
+If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Post-planning parity session**
-   - polish the handoff from executed checkpoints into the next saved review/chat operator surface using the new execution summaries and rollback metadata
-2. **Non-reversible-step hardening session**
-   - deepen rollback/replay handling only where enrichment-heavy checkpoint operations can support a clean shared contract
+1. **Trust-surface session**
+   - layer richer provenance, drift indicators, reversibility language, and mutation confidence into the shipped action-card, command-palette, working-set, and review-workspace model
+2. **Continuity-intelligence session**
+   - deepen since-last-visit summaries, resume suggestions, and cross-session intelligence on top of the richer operator workspace, command-palette recents, and durable working-set foundation
 
-That sequence gives the highest leverage while minimizing contract churn.
+That sequence minimizes churn by using the now-stable shell, review-workspace, working-set, and command-palette architecture as the base before layering deeper trust and continuity on top.
+
+## Delivery Model
+
+- Keep `docs/roadmap.md` concise and ordered.
+- Use linked UX specs for detailed workflows, interaction models, and contract implications.
+- Remove completed roadmap items instead of marking them done.
+- Update the relevant spec when implementation materially changes intended behavior.
+- Land UX changes as end-to-end workflow slices once a spec is accepted, not as isolated visual polish.
 
 ## Guardrails
 
-- Do not add an AI surface to an interface unless the workflow is actually useful there.
-- Prefer service-layer reuse over interface-specific prompt or tool logic.
-- Treat shared execution/orchestration modules as the canonical behavior contract,
-  then expose that behavior cleanly in HTTP, web, CLI, and MCP where appropriate.
-- Preserve clear failure modes and deterministic escape hatches for every AI-backed workflow.
-- Keep pi focused on generative runtime concerns; loop state, scheduling, storage,
-  and deterministic domain logic remain Cloop-owned.
+- Do not add UI polish without improving workflow clarity, confidence, or speed.
+- Prefer state-driven UX over feature-driven navigation.
+- Prefer action surfaces over narrative AI output.
+- Do not land major new operator shell work in the legacy plain-JS frontend once Phase 0 starts.
+- Keep all AI recommendations grounded in real loops, memory, RAG, or explicit operator context.
+- Preserve deterministic escape hatches and visible rollback cues for meaningful mutations.
+- Avoid transport-specific workflow drift; shared orchestration remains the source of truth.
+- Treat `make ci` as the release gate for every milestone.

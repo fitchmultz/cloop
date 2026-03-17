@@ -1,2 +1,8 @@
+graft frontend
+
+graft src/cloop/static/dist
+
+prune frontend/node_modules
+prune frontend/.vite
 prune src/cloop/pi_bridge/node_modules
 prune src/cloop/pi_bridge/test

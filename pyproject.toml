@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=82.0.0", "wheel>=0.46.3"]
+requires = ["setuptools>=82.0.1", "wheel>=0.46.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -26,9 +26,9 @@ dependencies = [
     "fastapi>=0.135.1",
     "uvicorn[standard]>=0.41.0",
     "pydantic>=2.12.5",
-    "numpy>=2.4.2",
-    "litellm>=1.82.0",
-    "pypdf>=6.7.5",
+    "numpy>=2.4.3",
+    "litellm>=1.82.2",
+    "pypdf>=6.9.0",
     "mcp>=1.26.0",
     "python-dateutil>=2.9.0.post0",
     "tzdata>=2025.3",
@@ -37,11 +37,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.15.5",
+    "ruff>=0.15.6",
     "pytest>=9.0.2",
     "httpx>=0.28.1",
     "hypothesis>=6.151.9",
-    "ty>=0.0.21",
+    "ty>=0.0.23",
     "freezegun>=1.5.5",
     "pytest-cov>=7.0.0",
     "build>=1.4.0",
@@ -73,7 +73,7 @@ cloop = [
     "db/migrations/**",
     "pi_bridge/bridge.mjs",
     "pi_bridge/package.json",
-    "pi_bridge/package-lock.json",
+    "pi_bridge/pnpm-lock.yaml",
 ]
 
 [tool.ruff]

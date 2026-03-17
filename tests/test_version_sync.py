@@ -18,7 +18,6 @@ import tomllib
 from pathlib import Path
 
 from cloop._version import __version__
-from cloop.main import app
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -52,4 +51,6 @@ def test_pyproject_version_matches_runtime_file() -> None:
 
 def test_runtime_version_export_matches_fastapi_version() -> None:
     """FastAPI app.version should be wired to runtime package version."""
+    from cloop.main import app
+
     assert app.version == __version__

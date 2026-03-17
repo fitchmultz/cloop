@@ -27,6 +27,7 @@ from ... import db
 from ...constants import DEFAULT_LOOP_LIST_LIMIT, DEFAULT_LOOP_NEXT_LIMIT
 from ...loops import read_service as loop_read_service
 from ...loops import relationship_review
+from ...loops.errors import ValidationError
 from ...loops.models import LoopStatus
 from ...loops.review import compute_review_cohorts
 from ...loops.utils import normalize_tag
@@ -45,7 +46,12 @@ from ...schemas.loops import (
     RelationshipReviewCandidateResponse,
     SemanticSearchLoopResponse,
 )
-from ._common import SettingsDep, build_loop_response, build_loop_responses
+from ._common import (
+    SettingsDep,
+    build_loop_response,
+    build_loop_responses,
+    map_validation_to_400,
+)
 
 router = APIRouter()
 
@@ -170,14 +176,17 @@ def loop_relationship_review_queue_endpoint(
     status_value = status.value if isinstance(status, LoopStatus) else status
     statuses = _resolve_statuses_for_search(status_value)
     with db.core_connection(settings) as conn:
-        result = relationship_review.list_relationship_review_queue(
-            statuses=statuses,
-            relationship_kind=relationship_kind,
-            limit=limit,
-            candidate_limit=candidate_limit,
-            conn=conn,
-            settings=settings,
-        )
+        try:
+            result = relationship_review.list_relationship_review_queue(
+                statuses=statuses,
+                relationship_kind=relationship_kind,
+                limit=limit,
+                candidate_limit=candidate_limit,
+                conn=conn,
+                settings=settings,
+            )
+        except ValidationError as exc:
+            raise map_validation_to_400(exc) from None
     return LoopRelationshipReviewQueueResponse(
         status=status_value,
         relationship_kind=relationship_kind,
@@ -272,15 +281,18 @@ def loop_semantic_search_endpoint(
 ) -> LoopSemanticSearchResponse:
     statuses = _resolve_statuses_for_search(request.status)
     with db.core_connection(settings) as conn:
-        result = loop_read_service.semantic_search_loops(
-            query=request.query,
-            statuses=statuses,
-            limit=request.limit,
-            offset=request.offset,
-            min_score=request.min_score,
-            conn=conn,
-            settings=settings,
-        )
+        try:
+            result = loop_read_service.semantic_search_loops(
+                query=request.query,
+                statuses=statuses,
+                limit=request.limit,
+                offset=request.offset,
+                min_score=request.min_score,
+                conn=conn,
+                settings=settings,
+            )
+        except ValidationError as exc:
+            raise map_validation_to_400(exc) from None
     return LoopSemanticSearchResponse(
         query=result["query"],
         status=request.status,

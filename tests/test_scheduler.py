@@ -1,19 +1,32 @@
-"""Tests for scheduler periodic routines.
+"""Scheduler runtime and storage tests.
 
 Purpose:
-    Verify scheduler task execution, idempotency, and event emission.
+    Verify scheduler task execution, slot ownership, deduped side effects, and
+    storage persistence through canonical scheduler APIs.
 
 Responsibilities:
-    - Test each scheduler task runs correctly
-    - Test interval enforcement (no duplicate runs)
-    - Test event emission to loop_events table
+    - Exercise scheduler task-run, schedule, and push-dedupe persistence behavior
+    - Verify scheduler event/push dedupe and runtime heartbeating
+    - Protect scheduler cancellation, escalation, and integration behavior
+
+Scope:
+    - Scheduler runtime integration and storage behavior only
+
+Usage:
+    - Run with `uv run pytest tests/test_scheduler.py`
+    - Fixtures create isolated SQLite databases for each test
+
+Invariants/Assumptions:
+    - Scheduler behavior is exercised through canonical slot-based APIs
+    - Scheduler slots remain deduped by `(task_name, slot_key)` and push kind
 
 Non-scope:
-    - Review cohort computation (see test_loop_review.py)
-    - SSE streaming (see test_app.py)
+    - Review cohort computation details (see `test_loop_review.py`)
+    - SSE streaming or non-scheduler transport behavior
 """
 
 import asyncio
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,6 +50,7 @@ from cloop.scheduler import (
 )
 from cloop.settings import get_settings
 from cloop.storage import scheduler_store
+from cloop.storage._scheduler_store import task_runs as scheduler_task_runs
 
 
 @pytest.fixture
@@ -59,9 +73,9 @@ def scheduler_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[sq
 class TestSchedulerState:
     """Tests for scheduler lease and run-state tables."""
 
-    def test_task_due_returns_true_initially(self, scheduler_db: sqlite3.Connection) -> None:
+    def test_task_ready_returns_true_initially(self, scheduler_db: sqlite3.Connection) -> None:
         assert (
-            scheduler_store.task_due(
+            scheduler_store.task_ready(
                 task_name="daily_review",
                 now_utc=datetime.now(timezone.utc),
                 conn=scheduler_db,
@@ -69,50 +83,60 @@ class TestSchedulerState:
             is True
         )
 
-    def test_acquire_task_lease_allows_single_owner(self, scheduler_db: sqlite3.Connection) -> None:
-        acquired = scheduler_store.acquire_task_lease(
+    def test_claim_task_run_allows_single_owner(self, scheduler_db: sqlite3.Connection) -> None:
+        started_at = datetime.now(timezone.utc)
+        acquired = scheduler_store.claim_task_run(
             task_name="daily_review",
+            slot_key="legacy",
             owner_token="owner-a",
+            started_at=started_at,
             lease_seconds=180,
             conn=scheduler_db,
         )
-        blocked = scheduler_store.acquire_task_lease(
+        blocked = scheduler_store.claim_task_run(
             task_name="daily_review",
+            slot_key="legacy",
             owner_token="owner-b",
+            started_at=started_at,
             lease_seconds=180,
             conn=scheduler_db,
         )
         assert acquired is True
         assert blocked is False
 
-    def test_update_task_run_state_persists_result(self, scheduler_db: sqlite3.Connection) -> None:
+    def test_update_task_schedule_persists_result(self, scheduler_db: sqlite3.Connection) -> None:
         now = datetime.now(timezone.utc)
-        scheduler_store.update_task_run_state(
+        scheduler_store.update_task_schedule(
             task_name="daily_review",
             started_at=now,
             finished_at=now,
             success=True,
             next_due_at=now + timedelta(hours=24),
+            slot_key="legacy",
             result={"status": "ok", "count": 5},
             error=None,
             conn=scheduler_db,
         )
-        state = scheduler_store.get_task_run_state(task_name="daily_review", conn=scheduler_db)
-        assert state is not None
-        assert state["runs_count"] == 1
-        assert state["last_result"]["count"] == 5
+        schedule = scheduler_store.get_task_schedule(task_name="daily_review", conn=scheduler_db)
+        assert schedule is not None
+        assert schedule["runs_count"] == 1
+        assert json.loads(schedule["last_result_json"])["count"] == 5
 
-    def test_task_execution_markers_persist_result(self, scheduler_db: sqlite3.Connection) -> None:
+    def test_task_run_markers_persist_result(self, scheduler_db: sqlite3.Connection) -> None:
         now = datetime.now(timezone.utc)
-        scheduler_store.start_task_execution(
-            run_id="run-1",
+        claimed = scheduler_store.claim_task_run(
             task_name="daily_review",
+            slot_key="run-1",
             owner_token="owner-a",
             started_at=now,
+            lease_seconds=60,
             conn=scheduler_db,
         )
-        scheduler_store.finish_task_execution(
-            run_id="run-1",
+        assert claimed is True
+
+        finished = scheduler_store.finish_task_run(
+            task_name="daily_review",
+            slot_key="run-1",
             owner_token="owner-a",
             finished_at=now,
             status="succeeded",
@@ -120,6 +144,8 @@ class TestSchedulerState:
             result={"count": 1},
             conn=scheduler_db,
         )
+        assert finished is True
+
         row = scheduler_db.execute(
             "SELECT status, result_json FROM scheduler_task_runs WHERE slot_key = ?",
             ("run-1",),
@@ -891,9 +917,9 @@ class TestSchedulerIntegration:
         )
 
         with db.core_connection(settings) as conn:
-            state = scheduler_store.get_task_run_state(task_name="daily_review", conn=conn)
-        assert state is not None
-        assert state["runs_count"] == 1
+            schedule = scheduler_store.get_task_schedule(task_name="daily_review", conn=conn)
+        assert schedule is not None
+        assert schedule["runs_count"] == 1
 
     def test_run_scheduler_task_heartbeats_long_running_task(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -912,14 +938,14 @@ class TestSchedulerIntegration:
             await asyncio.sleep(1.2)
             return {"ok": True}
 
-        original_heartbeat = scheduler_store.heartbeat_task_run
+        original_heartbeat = scheduler_task_runs.heartbeat_task_run
 
         def _record_heartbeat(*args, **kwargs):  # noqa: ANN002, ANN003
             heartbeat_times.append(kwargs["heartbeat_at"])
             return original_heartbeat(*args, **kwargs)
 
         monkeypatch.setattr("cloop.scheduler._task_runner", lambda task_name: _slow_runner)
-        monkeypatch.setattr(scheduler_store, "heartbeat_task_run", _record_heartbeat)
+        monkeypatch.setattr(scheduler_task_runs, "heartbeat_task_run", _record_heartbeat)
 
         result = asyncio.run(
             run_scheduler_task(

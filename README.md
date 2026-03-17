@@ -99,7 +99,8 @@ Cloop’s role is to keep the **context** and make retrieval effortless, so “n
 ### Prerequisites
 
 - Python 3.14+
-- Node 20+
+- Node 25.8.1+
+- `pnpm` 10.32.1+ (or Corepack-enabled Node that can provide it)
 - `uv` (recommended): https://docs.astral.sh/uv/
 - `pi` installed and authenticated for the models you plan to use
 
@@ -107,11 +108,17 @@ Cloop’s role is to keep the **context** and make retrieval effortless, so “n
 
 ```bash
 uv sync --all-groups --all-extras
-npm ci --prefix src/cloop/pi_bridge
+pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 cp .env.example .env
 ```
 
 Then edit `.env` to point at your pi and embedding configuration (see Configuration).
+
+If you ever want to wipe the default repo-local SQLite state and start fresh, run:
+
+```bash
+make reset-local-data
+```
 
 ### Minimal local-only configuration (recommended first run)
 
@@ -942,8 +949,8 @@ so answer/source semantics and ingest bookkeeping stay aligned.
 Cloop intentionally separates fast PR checks from deeper full-suite checks to avoid saturating developer machines and CI runners.
 
 - **PR required (`.github/workflows/ci.yml`)**
-  - `make quality`
-  - `make test-fast` (excludes `slow` and `performance` markers)
+  - `make quality` (includes public-surface smoke for lightweight `import cloop`, explicit `cloop.main:app`, and backup CLI help)
+  - `make test-fast` (excludes `slow` and `performance` markers, and explicitly runs the focused backup restore regression suite)
 - **Main/nightly/manual (`.github/workflows/ci_full.yml`)**
   - `make ci` (release gate: quality + tests excluding `performance` + packaging checks)
   - compatibility fast tests on additional Python versions

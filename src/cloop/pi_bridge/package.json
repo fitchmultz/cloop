@@ -2,15 +2,16 @@
   "name": "cloop-pi-bridge",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "engines": {
-    "node": ">=20.6.0"
+    "node": ">=25.8.1"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@mariozechner/pi-agent-core": "0.57.1",
-    "@mariozechner/pi-ai": "0.57.1",
-    "@mariozechner/pi-coding-agent": "0.57.1"
+    "@mariozechner/pi-agent-core": "0.58.3",
+    "@mariozechner/pi-ai": "0.58.3",
+    "@mariozechner/pi-coding-agent": "0.58.3"
   }
 }

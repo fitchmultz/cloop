@@ -7,14 +7,16 @@ This repository uses a two-tier CI model to balance fast feedback with deep conf
 Intended for deterministic, fast feedback on every pull request.
 
 Runs:
-- `make quality` (format/lint/type + config/security/version/changelog checks)
-- `make test-fast` on Python 3.14
+- `make quality` (format/lint/type + config/security/version/changelog checks + public-surface smoke)
+- `make test-fast` on Python 3.14.3 (including the focused backup restore regression suite)
 
 Runtime and resource controls:
 - Job-level timeouts (`timeout-minutes`)
 - Matrix `max-parallel: 2` to avoid runner saturation
 - Concurrency cancellation for superseded runs
-- Locked dependency installs via `uv sync --locked` with a pinned `uv` CLI version for reproducible runners
+- Locked dependency installs via `uv sync --locked`
+- Pinned `pnpm` 10.32.1 with `pnpm-lock.yaml` caching/frozen installs for the Node bridge
+- Pinned `uv` CLI version for reproducible runners
 
 Typical runtime target:
 - ~6–12 minutes depending on cache state
@@ -28,15 +30,21 @@ Runs on:
 
 Runs:
 - `make ci` (release-grade gate: quality + tests excluding `performance` + packaging checks) on Python 3.14
-- fast validation tests on Python 3.14
+- fast validation tests on Python 3.14.3
 - coverage job (`make test-cov`, excludes `performance`) with `coverage.xml` artifact upload
 - performance-marker tests on nightly/manual events via dedicated `performance` job
+
+Gate detail:
+- `make quality` now includes cheap public-surface smoke checks for a lightweight `import cloop` boundary, explicit `cloop.main:app`, and the backup CLI help entrypoint.
+- `make test-fast` / `make test` explicitly execute `tests/test_backup.py` so destructive restore regressions cannot silently fall out of the main gate.
 
 Runtime and resource controls:
 - Job-level timeouts on all jobs
 - Matrix `max-parallel: 2`
 - Concurrency cancellation for stale runs
-- Locked dependency installs via `uv sync --locked` with a pinned `uv` CLI version for reproducible runners
+- Locked dependency installs via `uv sync --locked`
+- Pinned `pnpm` 10.32.1 with `pnpm-lock.yaml` caching/frozen installs for the Node bridge
+- Pinned `uv` CLI version for reproducible runners
 
 Typical runtime target:
 - `full_gate`: ~12–25 minutes

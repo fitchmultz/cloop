@@ -76,8 +76,9 @@ def plan_session_create(
 
     Examples:
         - Create a weekly reset plan for all open launch loops.
-        - Create a query-scoped plan, then inspect `current_checkpoint` before
-          calling `plan.session.execute`.
+        - Create a query-scoped plan, inspect `current_checkpoint`, execute it,
+          then continue into any saved review queue advertised by
+          `execution.launch_surfaces`.
         - Regenerate the same request safely by reusing `request_id`.
     """
     payload = {
@@ -144,7 +145,10 @@ def plan_session_get(session_id: int) -> dict[str, Any]:
 
     Returns:
         Dict matching the shared planning-session snapshot contract, including
-        the current checkpoint and all prior execution-history entries.
+        the current checkpoint and all prior execution-history entries. Each
+        execution-history entry preserves `summary`, `follow_up_resources`,
+        `launch_surfaces`, and `rollback_cues`, so MCP clients can resume from
+        a previously created saved review session without bespoke bookkeeping.
 
     Raises:
         ToolError: If the planning session does not exist.
@@ -250,9 +254,8 @@ def plan_session_execute(
 
     This runs every operation in the current checkpoint through the shared
     planning workflow contract, records durable execution history, advances the
-    checkpoint cursor when appropriate, and returns transparent before/after
-    loop snapshots plus any created follow-up review sessions, saved views,
-    templates, rollback actions, and execution summary metadata.
+    checkpoint cursor when appropriate, and returns the canonical operator
+    handoff payload for what changed and what should happen next.
 
     Args:
         session_id: Planning session ID.
@@ -260,22 +263,30 @@ def plan_session_execute(
 
     Returns:
         Dict with:
-        - `execution`: stored execution-history item for the checkpoint just run,
-          including `summary`, per-operation `resource_refs`, `rollback_actions`,
-          and provenance details
-        - `snapshot`: updated planning-session snapshot after execution, including
-          plan-freshness and aggregate execution analytics
+        - `execution.summary`: aggregate touched-loop and created-resource counts/IDs
+        - `execution.follow_up_resources`: structured created/updated review sessions,
+          saved views, and templates emitted by this checkpoint
+        - `execution.launch_surfaces`: direct handoff affordances for next operator
+          surfaces. When a saved review session becomes the next queue, each launch
+          surface includes the HTTP session path, the exact MCP follow-up tool +
+          args, and web-launch metadata.
+        - `execution.rollback_cues`: per-operation undo/rollback hints so clients
+          can surface reversible vs best-effort changes clearly
+        - `snapshot`: updated planning-session snapshot after execution
 
     Raises:
         ToolError: If the session is missing, the checkpoint was already
             executed, or one of the shared deterministic operations fails.
 
     Examples:
-        - Execute the first checkpoint, inspect created loops, review sessions,
-          saved views, or templates in `execution.results` / `execution.summary`,
-          then decide whether to continue.
-        - Replay safely with the same `request_id` if the client lost the first
-          response.
+        - Execute a checkpoint, then immediately continue into the next saved
+          review queue:
+          `launch = result["execution"]["launch_surfaces"][0]`
+          `review = call_tool(launch["mcp"]["tool"], **launch["mcp"]["args"])`
+        - Execute a checkpoint that creates a saved view/template and show those
+          resources from `execution.follow_up_resources` without re-deriving them.
+        - If `execution.rollback_cues.rollback_supported_operation_count > 0`,
+          surface those cues before automatically moving on to later checkpoints.
     """
     payload = {"session_id": session_id}
     return run_idempotent_tool_mutation(

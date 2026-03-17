@@ -240,6 +240,12 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
             second_loop["id"],
         ]
         assert first_execution["execution"]["summary"]["rollback_supported_operation_count"] == 2
+        assert (
+            first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
+        )
+        assert first_execution["execution"]["rollback_cues"]["rollback_action_count"] == 2
+        assert first_execution["execution"]["follow_up_resources"] == []
+        assert first_execution["execution"]["launch_surfaces"] == []
         assert first_execution["execution"]["results"][0]["rollback_supported"] is True
         assert (
             first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
@@ -268,6 +274,23 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         assert len(second_snapshot["execution_history"]) == 2
         assert second_execution["execution"]["summary"]["created_loop_ids"]
         assert second_execution["execution"]["summary"]["created_review_session_ids"]
+        assert second_execution["execution"]["follow_up_resources"]
+        assert (
+            second_execution["execution"]["follow_up_resources"][0]["resource_type"]
+            == "review_session"
+        )
+        assert (
+            second_execution["execution"]["follow_up_resources"][0]["details"]["review_kind"]
+            == "enrichment"
+        )
+        assert (
+            second_execution["execution"]["launch_surfaces"][0]["surface"]
+            == "enrichment_review_session"
+        )
+        assert (
+            second_execution["execution"]["launch_surfaces"][0]["mcp"]["tool"]
+            == "review.enrichment_session.get"
+        )
 
         created_loop = repo.find_loop_by_raw_text(
             raw_text="Schedule launch retrospective",
@@ -356,6 +379,14 @@ def test_planning_session_executes_expanded_deterministic_operations(
         assert second_summary["created_view_ids"]
         assert second_summary["created_template_ids"]
         assert second_summary["created_review_session_ids"]
+        resource_types = {
+            resource["resource_type"]
+            for resource in second_execution["execution"]["follow_up_resources"]
+        }
+        assert resource_types == {"review_session", "view", "template"}
+        assert second_execution["execution"]["launch_surfaces"][0]["surface"] == (
+            "enrichment_review_session"
+        )
 
         created_view = repo.get_loop_view_by_name(name="launch-open", conn=conn)
         assert created_view is not None
@@ -372,6 +403,10 @@ def test_planning_session_executes_expanded_deterministic_operations(
         assert refreshed_snapshot["execution_analytics"]["created_template_ids"] == [
             created_template["id"]
         ]
+        latest_history = refreshed_snapshot["execution_history"][-1]
+        assert latest_history["follow_up_resources"]
+        assert latest_history["launch_surfaces"]
+        assert latest_history["rollback_cues"]["operations"]
 
 
 def test_planning_session_rolls_back_prior_operations_on_late_failure(

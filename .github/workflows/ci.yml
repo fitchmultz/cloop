@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   quality:
-    name: Quality checks (py3.14)
+    name: Quality checks (py3.14.3)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -24,19 +24,27 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          version: "0.10.8"
+          version: "0.10.10"
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: "3.14.3"
 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: src/cloop/pi_bridge/package-lock.json
+          node-version: "25.8.1"
+          cache: pnpm
+          cache-dependency-path: |
+            src/cloop/pi_bridge/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
 
       - name: Install dependencies
         run: uv sync --locked --all-groups --all-extras
@@ -52,7 +60,7 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        python-version: ["3.14"]
+        python-version: ["3.14.3"]
     steps:
       - uses: actions/checkout@v6
 
@@ -60,7 +68,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          version: "0.10.8"
+          version: "0.10.10"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -70,9 +78,17 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: src/cloop/pi_bridge/package-lock.json
+          node-version: "25.8.1"
+          cache: pnpm
+          cache-dependency-path: |
+            src/cloop/pi_bridge/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+          run_install: false
 
       - name: Install dependencies
         run: uv sync --locked --all-groups --all-extras

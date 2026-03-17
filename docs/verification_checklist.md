@@ -8,7 +8,7 @@ Use this checklist to validate the repository on a fresh machine.
 git clone https://github.com/fitchmultz/cloop.git
 cd cloop
 uv sync --all-groups --all-extras
-npm ci --prefix src/cloop/pi_bridge
+pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 cp .env.example .env
 ```
 
@@ -37,6 +37,12 @@ Fast, developer-friendly gate:
 
 ```bash
 make check-fast
+```
+
+If you need to wipe the default repo-local SQLite state and reinitialize from scratch:
+
+```bash
+make reset-local-data
 ```
 
 Full release-grade gate (CI-equivalent local command):

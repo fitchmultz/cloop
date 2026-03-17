@@ -13,7 +13,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
-from cloop.main import app
 from cloop.settings import (
     EmbedStorageMode,
     PiThinkingLevel,
@@ -24,6 +23,13 @@ from cloop.settings import (
 )
 
 STREAM_TOKENS = ["Answer ", "segment"]
+
+
+def _get_app() -> Any:
+    """Import and return the canonical FastAPI app only when a fixture needs it."""
+    from cloop.main import app
+
+    return app
 
 
 @pytest.fixture
@@ -186,7 +192,7 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
         monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
         get_settings.cache_clear()
         db.init_databases(get_settings())
-        return TestClient(app, raise_server_exceptions=raise_server_exceptions)
+        return TestClient(_get_app(), raise_server_exceptions=raise_server_exceptions)
 
     return _factory
 
@@ -326,4 +332,4 @@ def test_client(
         },
     )
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding_response)
-    return TestClient(app)
+    return TestClient(_get_app())

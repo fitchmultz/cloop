@@ -1,7 +1,7 @@
 """Static accessibility regression tests for the web UI.
 
 Purpose:
-    Guard high-value accessibility semantics in static HTML/CSS/JS assets.
+    Guard high-value accessibility semantics in frontend source assets.
 
 Responsibilities:
     - Verify skip-link and status/live-region semantics.
@@ -9,8 +9,15 @@ Responsibilities:
     - Verify tab controls declare panel relationships.
     - Verify icon-only controls in render templates have aria labels.
 
-Non-scope:
-    - Full browser-based accessibility auditing.
+Scope:
+    - Source-level HTML/CSS/JS accessibility contract checks.
+
+Usage:
+    - Run with `uv run pytest tests/test_accessibility.py`.
+
+Invariants/Assumptions:
+    - `frontend/index.html` is the canonical source shell for the Vite frontend.
+    - `frontend/src/styles/*` and `frontend/src/legacy/*.js` preserve current UX semantics.
 """
 
 from __future__ import annotations
@@ -19,20 +26,22 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-INDEX_HTML = ROOT / "src" / "cloop" / "static" / "index.html"
-BASE_CSS = ROOT / "src" / "cloop" / "static" / "css" / "base.css"
-MODALS_CSS = ROOT / "src" / "cloop" / "static" / "css" / "modals.css"
-RENDER_JS = ROOT / "src" / "cloop" / "static" / "js" / "render.js"
-STATIC_JS_DIR = ROOT / "src" / "cloop" / "static" / "js"
+INDEX_HTML = ROOT / "frontend" / "index.html"
+BASE_CSS = ROOT / "frontend" / "src" / "styles" / "base.css"
+MODALS_CSS = ROOT / "frontend" / "src" / "styles" / "modals.css"
+OPERATOR_CSS = ROOT / "frontend" / "src" / "styles" / "operator.css"
+RENDER_JS = ROOT / "frontend" / "src" / "legacy" / "render.js"
+STATIC_JS_DIR = ROOT / "frontend" / "src" / "legacy"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_skip_link_exists_and_targets_main() -> None:
+def test_skip_link_exists_and_targets_operator_workspace() -> None:
     html = _read(INDEX_HTML)
-    assert 'class="skip-link" href="#inbox-main"' in html
+    assert 'class="skip-link" href="#operator-main"' in html
+    assert 'id="operator-main"' in html
 
 
 def test_status_and_offline_banners_use_live_region_semantics() -> None:
@@ -70,8 +79,15 @@ def test_critical_form_controls_have_programmatic_labels() -> None:
         assert f'for="{control_id}"' in html or f'id="{control_id}" aria-label=' in html
 
 
-def test_tabs_expose_control_relationships() -> None:
+def test_state_navigation_and_legacy_bridge_tabs_expose_control_relationships() -> None:
     html = _read(INDEX_HTML)
+    for shell_state in ["operator", "capture", "do", "decide", "plan", "review", "recall"]:
+        assert f'data-shell-state="{shell_state}"' in html
+
+    assert 'id="recall-subnav"' in html
+    for recall_tool in ["chat", "memory", "rag"]:
+        assert f'data-recall-tool="{recall_tool}"' in html
+
     for tab_name, panel_id in {
         "inbox": "inbox-main",
         "next": "next-main",
@@ -83,6 +99,28 @@ def test_tabs_expose_control_relationships() -> None:
         assert f'id="tab-{tab_name}"' in html
         assert f'aria-controls="{panel_id}"' in html
         assert f'data-tab="{tab_name}"' in html
+
+    assert 'id="working-set-focus-banner"' in html
+    assert 'id="working-set-focus-summary"' in html
+    assert 'id="working-set-focus-items"' in html
+    assert 'id="working-set-focus-toggle-btn"' in html
+    assert 'id="working-set-exit-focus-btn"' in html
+    assert 'id="shell-command-palette-btn"' in html
+    assert 'aria-controls="command-palette"' in html
+    assert 'id="command-palette"' in html
+    assert 'id="command-palette-input"' in html
+    assert 'id="command-palette-results"' in html
+    assert 'id="command-palette-detail"' in html
+    assert 'id="command-palette-status"' in html
+    assert 'role="listbox" aria-label="Command results"' in html
+    assert 'id="review-redesign-shell"' in html
+    assert 'role="tablist" aria-label="Review workspace modes"' in html
+    assert (
+        'id="review-shell-status" class="support-status" role="status" aria-live="polite"' in html
+    )
+    assert 'id="review-shell-queue-title"' in html
+    assert 'id="review-shell-workspace-title"' in html
+    assert 'id="review-shell-impact-title"' in html
 
 
 def test_skip_link_and_focus_styles_exist() -> None:
@@ -98,6 +136,38 @@ def test_modal_styles_support_mobile_safe_dialog_layout() -> None:
     assert ".app-dialog-input:focus" in css
     assert "@media (max-width: 640px)" in css
     assert "align-items: flex-end" in css
+
+
+def test_operator_shell_styles_exist_for_state_nav_and_workspace() -> None:
+    css = _read(OPERATOR_CSS)
+    assert ".state-nav" in css
+    assert ".state-nav-btn" in css
+    assert ".operator-main" in css
+    assert ".operator-grid" in css
+    assert ".operator-action-card" in css
+    assert ".operator-action-preview-list" in css
+    assert ".working-set-focus-banner" in css
+    assert ".working-set-item-card" in css
+    assert ".working-set-card" in css
+    assert ".command-palette" in css
+    assert ".command-palette-panel" in css
+    assert ".command-palette-results" in css
+    assert ".command-palette-detail" in css
+    assert ".shell-focus-hidden" in css
+    assert "body.shell-focus-mode" in css
+    assert ".is-shell-focus" in css
+
+
+def test_review_shell_styles_exist_for_redesigned_decision_workspace() -> None:
+    css = _read(ROOT / "frontend" / "src" / "styles" / "review.css")
+    assert ".review-shell-panel" in css
+    assert ".review-shell-layout" in css
+    assert ".review-shell-pane" in css
+    assert ".review-shell-rail-card" in css
+    assert ".review-shell-focus-card" in css
+    assert ".review-shell-impact-card" in css
+    assert ".review-shell-chip" in css
+    assert ".review-legacy-compat" in css
 
 
 def test_static_web_ui_does_not_use_native_browser_dialogs() -> None:

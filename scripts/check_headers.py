@@ -37,13 +37,13 @@ from pathlib import Path
 
 REQUIRED_SECTIONS = ["Purpose:", "Responsibilities:", "Non-scope:"]
 
-# Directories/files to skip
-SKIP_PATTERNS = [
+# Directory names to skip anywhere in the path.
+SKIP_PATH_PARTS = {
     "__pycache__",
     ".venv",
     "node_modules",
-    "tests/",  # Tests have different conventions
-]
+    "tests",  # Tests have different conventions
+}
 
 
 def has_valid_header(filepath: Path) -> tuple[bool, str]:
@@ -80,14 +80,12 @@ def has_valid_header(filepath: Path) -> tuple[bool, str]:
 def should_check(filepath: Path) -> bool:
     """Determine if file should be checked."""
     # Skip non-Python files
-    if not filepath.suffix == ".py":
+    if filepath.suffix != ".py":
         return False
 
-    # Skip patterns
-    path_str = str(filepath)
-    for pattern in SKIP_PATTERNS:
-        if pattern in path_str:
-            return False
+    # Skip path segments regardless of path separator or platform.
+    if any(part in SKIP_PATH_PARTS for part in filepath.parts):
+        return False
 
     # Skip __init__.py (often just imports)
     if filepath.name == "__init__.py":

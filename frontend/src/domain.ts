@@ -1,0 +1,102 @@
+/**
+ * domain.ts - Curated aliases for generated backend contract types.
+ *
+ * Purpose:
+ *   Provide a stable frontend-facing layer over generated OpenAPI schema types so
+ *   new TypeScript code does not import raw generated schema names everywhere.
+ *
+ * Responsibilities:
+ *   - Re-export selected backend schema aliases used by the frontend shell.
+ *   - Keep generated contract imports centralized in one small file.
+ *   - Provide a typed foothold for upcoming Operator workspace/state-navigation work.
+ *
+ * Scope:
+ *   - Backend-derived contract aliases only.
+ *
+ * Usage:
+ *   - Import backend response/request aliases from this module in new TypeScript code.
+ *
+ * Invariants/Assumptions:
+ *   - frontend/src/generated/openapi.ts is generated and never hand-edited.
+ *   - New TypeScript work should import aliases from here instead of the generated file directly.
+ */
+
+import type { components } from "./generated/openapi";
+
+export type ApiSchemas = components["schemas"];
+export type ApiSchemaName = keyof ApiSchemas;
+export type ApiSchema<K extends ApiSchemaName> = ApiSchemas[K];
+
+export type LoopResponse = ApiSchema<"LoopResponse">;
+export type LoopCaptureRequest = ApiSchema<"LoopCaptureRequest">;
+export type LoopUpdateRequest = ApiSchema<"LoopUpdateRequest">;
+export type LoopSearchRequest = ApiSchema<"LoopSearchRequest">;
+export type LoopSearchResponse = ApiSchema<"LoopSearchResponse">;
+export type LoopSemanticSearchRequest = ApiSchema<"LoopSemanticSearchRequest">;
+export type LoopSemanticSearchResponse = ApiSchema<"LoopSemanticSearchResponse">;
+export type LoopMetricsResponse = ApiSchema<"LoopMetricsResponse">;
+export type LoopReviewResponse = ApiSchema<"LoopReviewResponse">;
+export type LoopReviewCohortResponse = ApiSchema<"LoopReviewCohortResponse">;
+export type LoopReviewCohortItem = ApiSchema<"LoopReviewCohortItem">;
+export type LoopViewResponse = ApiSchema<"LoopViewResponse">;
+export type NextLoopsResponse = ApiSchema<"LoopNextResponse">;
+export type ChatRequest = ApiSchema<"ChatRequest">;
+export type ChatResponse = ApiSchema<"ChatResponse">;
+export type AskResponse = ApiSchema<"AskResponse">;
+export type MemoryEntryResponse = ApiSchema<"MemoryResponse">;
+export type MemoryListResponse = ApiSchema<"MemoryListResponse">;
+export type MemorySearchResponse = ApiSchema<"MemorySearchResponse">;
+export type WorkingSetLaunchLocationResponse = ApiSchema<"WorkingSetLaunchLocationResponse">;
+export type WorkingSetItemResponse = ApiSchema<"WorkingSetItemResponse">;
+export type WorkingSetResponse = ApiSchema<"WorkingSetResponse">;
+export type WorkingSetContextResponse = ApiSchema<"WorkingSetContextResponse">;
+export type WorkingSetCreateRequest = ApiSchema<"WorkingSetCreateRequest">;
+export type WorkingSetUpdateRequest = ApiSchema<"WorkingSetUpdateRequest">;
+export type WorkingSetItemCreateRequest = ApiSchema<"WorkingSetItemCreateRequest">;
+export type WorkingSetReorderRequest = ApiSchema<"WorkingSetReorderRequest">;
+export type WorkingSetContextUpdateRequest = ApiSchema<"WorkingSetContextUpdateRequest">;
+export type BulkCloseRequest = ApiSchema<"BulkCloseRequest">;
+export type BulkCloseResponse = ApiSchema<"BulkCloseResponse">;
+export type BulkEnrichRequest = ApiSchema<"BulkEnrichRequest">;
+export type BulkEnrichResponse = ApiSchema<"BulkEnrichResponse">;
+export type BulkSnoozeRequest = ApiSchema<"BulkSnoozeRequest">;
+export type BulkSnoozeResponse = ApiSchema<"BulkSnoozeResponse">;
+export type BulkUpdateRequest = ApiSchema<"BulkUpdateRequest">;
+export type BulkUpdateResponse = ApiSchema<"BulkUpdateResponse">;
+export type PlanningCheckpointResponse = ApiSchema<"PlanningCheckpointResponse">;
+export type PlanningTargetLoopResponse = ApiSchema<"PlanningTargetLoopResponse">;
+export type PlanningExecutionHistoryItemResponse = ApiSchema<"PlanningExecutionHistoryItemResponse">;
+export type PlanningExecutionLaunchSurfaceResponse = ApiSchema<"PlanningExecutionLaunchSurfaceResponse">;
+export type PlanningExecutionFollowUpResourceResponse = ApiSchema<"PlanningExecutionFollowUpResourceResponse">;
+export type PlanningExecutionRollbackCueOperationResponse = ApiSchema<"PlanningExecutionRollbackCueOperationResponse">;
+export type PlanningExecutionRollbackCueResponse = ApiSchema<"PlanningExecutionRollbackCueResponse">;
+export type PlanningSessionCreateRequest = ApiSchema<"PlanningSessionCreateRequest">;
+export type PlanningSessionResponse = ApiSchema<"PlanningSessionResponse">;
+export type PlanningSessionSnapshotResponse = ApiSchema<"PlanningSessionSnapshotResponse">;
+export type PlanningSessionExecuteResponse = ApiSchema<"PlanningSessionExecuteResponse">;
+export type RelationshipReviewActionCreateRequest = ApiSchema<"RelationshipReviewActionCreateRequest">;
+export type RelationshipReviewActionUpdateRequest = ApiSchema<"RelationshipReviewActionUpdateRequest">;
+export type RelationshipReviewActionResponse = ApiSchema<"RelationshipReviewActionResponse">;
+export type RelationshipReviewCandidateResponse = ApiSchema<"RelationshipReviewCandidateResponse">;
+export type RelationshipReviewSessionCreateRequest = ApiSchema<"RelationshipReviewSessionCreateRequest">;
+export type RelationshipReviewSessionUpdateRequest = ApiSchema<"RelationshipReviewSessionUpdateRequest">;
+export type RelationshipReviewSessionActionRequest = ApiSchema<"RelationshipReviewSessionActionRequest">;
+export type RelationshipReviewSessionActionResponse = ApiSchema<"RelationshipReviewSessionActionResponse">;
+export type LoopRelationshipReviewQueueItemResponse = ApiSchema<"LoopRelationshipReviewQueueItemResponse">;
+export type RelationshipReviewSessionResponse = ApiSchema<"RelationshipReviewSessionResponse">;
+export type RelationshipReviewSessionSnapshotResponse = ApiSchema<"RelationshipReviewSessionSnapshotResponse">;
+export type ClarificationResponse = ApiSchema<"ClarificationResponse">;
+export type ClarificationSubmitRequest = ApiSchema<"ClarificationSubmitRequest">;
+export type SuggestionResponse = ApiSchema<"SuggestionResponse">;
+export type EnrichmentReviewActionCreateRequest = ApiSchema<"EnrichmentReviewActionCreateRequest">;
+export type EnrichmentReviewActionUpdateRequest = ApiSchema<"EnrichmentReviewActionUpdateRequest">;
+export type EnrichmentReviewActionResponse = ApiSchema<"EnrichmentReviewActionResponse">;
+export type EnrichmentReviewQueueItemResponse = ApiSchema<"EnrichmentReviewQueueItemResponse">;
+export type EnrichmentReviewSessionCreateRequest = ApiSchema<"EnrichmentReviewSessionCreateRequest">;
+export type EnrichmentReviewSessionUpdateRequest = ApiSchema<"EnrichmentReviewSessionUpdateRequest">;
+export type EnrichmentReviewSessionActionRequest = ApiSchema<"EnrichmentReviewSessionActionRequest">;
+export type EnrichmentReviewSessionActionResponse = ApiSchema<"EnrichmentReviewSessionActionResponse">;
+export type EnrichmentReviewSessionClarificationRequest = ApiSchema<"EnrichmentReviewSessionClarificationRequest">;
+export type EnrichmentReviewSessionClarificationResponse = ApiSchema<"EnrichmentReviewSessionClarificationResponse">;
+export type EnrichmentReviewSessionResponse = ApiSchema<"EnrichmentReviewSessionResponse">;
+export type EnrichmentReviewSessionSnapshotResponse = ApiSchema<"EnrichmentReviewSessionSnapshotResponse">;

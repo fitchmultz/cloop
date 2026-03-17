@@ -1,0 +1,121 @@
+/**
+ * tokens.css - Design tokens and CSS variables
+ *
+ * Purpose:
+ *   Centralized design system tokens for consistent styling.
+ *
+ * Responsibilities:
+ *   - Color palette
+ *   - Typography scale
+ *   - Spacing scale
+ *   - Border radius
+ *   - Shadows
+ *   - Z-index scale
+ */
+
+:root {
+  /* Colors - Primary */
+  --color-brand: #d66b3f;
+  --color-brand-light: #e67e5a;
+  --color-brand-dark: #b85a32;
+
+  /* Colors - Background */
+  --color-bg: #f7f4ef;
+  --color-bg-accent: #efe5d4;
+  --color-card: #fffdf9;
+  --color-card-alt: #fffefb;
+
+  /* Colors - Text */
+  --color-ink: #2f2a24;
+  --color-muted: #6e6357;
+  --color-inverse: #ffffff;
+
+  /* Colors - Semantic */
+  --color-success: #27ae60;
+  --color-success-bg: #f5fef8;
+  --color-warning: #d68910;
+  --color-warning-bg: #fefbf5;
+  --color-danger: #c0392b;
+  --color-danger-dark: #a93226;
+  --color-danger-bg: #fef5f5;
+  --color-info: #2a5a8a;
+  --color-info-bg: #e0f0ff;
+
+  /* Colors - Status */
+  --color-status-inbox-bg: #f4efe6;
+  --color-status-actionable-bg: #e6f4e6;
+  --color-status-actionable-text: #2d6b34;
+  --color-status-blocked-bg: #ffe3e3;
+  --color-status-blocked-text: #8a2a2a;
+  --color-status-scheduled-bg: #e0f0ff;
+  --color-status-scheduled-text: #2a5a8a;
+  --color-status-completed-bg: #e6f4e6;
+  --color-status-completed-text: #2d6b34;
+  --color-status-dropped-bg: #f0f0f0;
+  --color-status-dropped-text: #666666;
+
+  /* Colors - UI */
+  --color-border: #e3d8c8;
+  --color-border-focus: var(--color-brand);
+
+  /* Typography - Font Family */
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-display: "Space Grotesk", var(--font-sans);
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", monospace;
+
+  /* Typography - Size */
+  --text-xs: 0.6875rem;   /* 11px */
+  --text-sm: 0.8125rem;   /* 13px */
+  --text-base: 0.9375rem; /* 15px */
+  --text-md: 1rem;        /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.25rem;     /* 20px */
+  --text-2xl: 1.5rem;     /* 24px */
+  --text-3xl: 2rem;       /* 32px */
+
+  /* Typography - Weight */
+  --font-normal: 400;
+  --font-semibold: 600;
+
+  /* Typography - Line Height */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* Spacing - Base unit: 4px */
+  --space-0: 0;
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-5: 1.25rem;   /* 20px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+
+  /* Border Radius */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 4px rgba(47, 42, 36, 0.05);
+  --shadow-md: 0 4px 12px rgba(47, 42, 36, 0.08);
+  --shadow-lg: 0 10px 30px rgba(47, 42, 36, 0.12);
+  --shadow-focus: 0 0 0 3px rgba(214, 107, 63, 0.2);
+
+  /* Z-Index Scale */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-popover: 400;
+  --z-tooltip: 500;
+
+  /* Layout */
+  --max-width-content: 820px;
+  --header-height: 80px;
+}

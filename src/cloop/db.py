@@ -1,1551 +1,98 @@
-"""Database connection management and schema migrations.
+"""Database infrastructure public surface.
 
 Purpose:
-    Provide SQLite connection handling, schema versioning, and migrations
-    for both core (loops/notes) and RAG (documents/chunks) databases.
+    Re-export focused database infrastructure modules behind the canonical
+    `cloop.db` import surface.
 
 Responsibilities:
-    - Manage database connections with proper PRAGMA settings
-    - Track and apply schema migrations via PRAGMA user_version
-    - Support optional vector extensions (vec, vss) for similarity search
+    - Preserve stable database connection, schema, and vector APIs for callers and tests
+    - Keep facade-owned mutable schema globals patchable at this module
+    - Delegate implementation details to focused internal infrastructure modules
 
 Non-scope:
-    - Business logic and domain operations (see loops/service.py)
-    - Query construction (see loops/repo.py)
+    - Feature-level repositories or business-rule orchestration
+    - Inline ownership of the full schema SQL and migration implementations
+
+Scope:
+    - Public database facade only
+    - No transport or domain logic above infrastructure concerns
+
+Usage:
+    Import from `cloop.db` for schema bootstrapping, connection context
+    managers, vector-extension status, and health checks.
+
+Invariants/Assumptions:
+    - External callers continue using `cloop.db` instead of `cloop._db.*`
+    - `_CORE_MIGRATIONS` and `PRAGMAS` remain patchable at this facade for tests
 """
 
-import logging
+from __future__ import annotations
+
 import sqlite3
-import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Iterator
 
+from ._db.connections import apply_pragmas as _apply_pragmas_impl
+from ._db.connections import connect as _connect_impl
+from ._db.schema_data import _CORE_MIGRATIONS as _DEFAULT_CORE_MIGRATIONS
+from ._db.schema_data import _CORE_SCHEMA as _DEFAULT_CORE_SCHEMA
+from ._db.schema_data import (
+    _IDEMPOTENCY_PENDING_POLL_SECONDS as _DEFAULT_IDEMPOTENCY_PENDING_POLL_SECONDS,
+)
+from ._db.schema_data import (
+    _IDEMPOTENCY_PENDING_WAIT_SECONDS as _DEFAULT_IDEMPOTENCY_PENDING_WAIT_SECONDS,
+)
+from ._db.schema_data import _RAG_SCHEMA as _DEFAULT_RAG_SCHEMA
+from ._db.schema_data import PRAGMAS as _DEFAULT_PRAGMAS
+from ._db.schema_data import RAG_SCHEMA_VERSION as _DEFAULT_RAG_SCHEMA_VERSION
+from ._db.schema_data import SCHEMA_VERSION as _DEFAULT_SCHEMA_VERSION
+from ._db.schema_ops import assert_schema as _assert_schema_impl
+from ._db.schema_ops import ensure_core_schema as _ensure_core_schema_impl
+from ._db.schema_ops import has_application_tables as _has_application_tables_impl
+from ._db.schema_ops import initialize_schema_if_needed as _initialize_schema_if_needed_impl
+from ._db.schema_ops import migrate_core_db as _migrate_core_db_impl
+from ._db.schema_ops import split_sql_statements as _split_sql_statements_impl
+from ._db.schema_ops import user_version as _user_version_impl
+from ._db.vector import VectorBackend, VectorExtensionManager, VectorExtensionState
+from ._db.vector import detect_vector_backend as _detect_vector_backend_impl
+from ._db.vector import get_vector_backend as _get_vector_backend_impl
+from ._db.vector import get_vector_load_error as _get_vector_load_error_impl
+from ._db.vector import get_vector_manager as _get_vector_manager_impl
+from ._db.vector import maybe_load_vector_extension as _maybe_load_vector_extension_impl
+from ._db.vector import reset_vector_backend as _reset_vector_backend_impl
+from ._db.vector import vector_extension_available as _vector_extension_available_impl
 from .settings import Settings, get_settings
 
-logger = logging.getLogger(__name__)
-
-
-class VectorBackend(StrEnum):
-    NONE = "none"
-    VEC = "vec"
-    VSS = "vss"
-
-
-@dataclass(frozen=True)
-class VectorExtensionState:
-    """Immutable snapshot of vector extension state."""
-
-    attempted: bool
-    available: bool
-    backend: VectorBackend
-    load_error: str | None
-
-
-class VectorExtensionManager:
-    """Thread-safe singleton for managing vector extension state.
-
-    The extension is loaded once per process. This manager provides
-    atomic access to the state and supports reset for error recovery.
-    """
-
-    _instance: "VectorExtensionManager | None" = None
-    _lock: threading.Lock = threading.Lock()
-    _state: VectorExtensionState
-    _state_lock: threading.Lock
-
-    def __new__(cls) -> "VectorExtensionManager":
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    instance = super().__new__(cls)
-                    instance._state = VectorExtensionState(
-                        attempted=False,
-                        available=False,
-                        backend=VectorBackend.NONE,
-                        load_error=None,
-                    )
-                    instance._state_lock = threading.Lock()
-                    cls._instance = instance
-        return cls._instance
-
-    def get_state(self) -> VectorExtensionState:
-        """Return current state snapshot (thread-safe)."""
-        with self._state_lock:
-            return self._state
-
-    def attempt_load(self, conn: sqlite3.Connection, extension_path: str | None) -> None:
-        """Attempt to load vector extension (once per process, thread-safe).
-
-        This method is idempotent - subsequent calls are no-ops.
-        """
-        with self._state_lock:
-            if self._state.attempted:
-                return
-
-            if not extension_path:
-                self._state = VectorExtensionState(
-                    attempted=True,
-                    available=False,
-                    backend=VectorBackend.NONE,
-                    load_error=None,
-                )
-                return
-
-            try:
-                conn.enable_load_extension(True)
-                conn.load_extension(extension_path)
-                backend = _detect_vector_backend(conn)
-                self._state = VectorExtensionState(
-                    attempted=True,
-                    available=backend is not VectorBackend.NONE,
-                    backend=backend,
-                    load_error=None,
-                )
-            except sqlite3.Error as e:
-                self._state = VectorExtensionState(
-                    attempted=True,
-                    available=False,
-                    backend=VectorBackend.NONE,
-                    load_error=str(e),
-                )
-                logger.warning(
-                    "Failed to load SQLite vector extension from '%s': %s. "
-                    "Vector search will fall back to SQLite/Python mode.",
-                    extension_path,
-                    e,
-                )
-            finally:
-                conn.enable_load_extension(False)
-
-    def reset(self) -> None:
-        """Reset state to allow re-detection (used after errors)."""
-        with self._state_lock:
-            self._state = VectorExtensionState(
-                attempted=False,
-                available=False,
-                backend=VectorBackend.NONE,
-                load_error=None,
-            )
+SCHEMA_VERSION: int = _DEFAULT_SCHEMA_VERSION
+RAG_SCHEMA_VERSION: int = _DEFAULT_RAG_SCHEMA_VERSION
+PRAGMAS = list(_DEFAULT_PRAGMAS)
+_IDEMPOTENCY_PENDING_WAIT_SECONDS = _DEFAULT_IDEMPOTENCY_PENDING_WAIT_SECONDS
+_IDEMPOTENCY_PENDING_POLL_SECONDS = _DEFAULT_IDEMPOTENCY_PENDING_POLL_SECONDS
+_CORE_SCHEMA = _DEFAULT_CORE_SCHEMA
+_CORE_MIGRATIONS: dict[int, str] = dict(_DEFAULT_CORE_MIGRATIONS)
+_RAG_SCHEMA = _DEFAULT_RAG_SCHEMA
 
 
 def _get_vector_manager() -> VectorExtensionManager:
-    """Get the singleton manager instance."""
-    return VectorExtensionManager()
-
-
-SCHEMA_VERSION: int = 38
-RAG_SCHEMA_VERSION: int = 1
-
-PRAGMAS = [
-    ("journal_mode", "WAL"),
-    ("synchronous", "NORMAL"),
-    ("foreign_keys", "ON"),
-    ("cache_size", "-20000"),
-    ("temp_store", "MEMORY"),
-]
-
-_IDEMPOTENCY_PENDING_WAIT_SECONDS = 15.0
-_IDEMPOTENCY_PENDING_POLL_SECONDS = 0.05
-
-_CORE_SCHEMA = """
-CREATE TABLE notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    body TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE interactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    endpoint TEXT NOT NULL,
-    model TEXT,
-    latency_ms REAL,
-    request_payload TEXT,
-    response_payload TEXT,
-    tool_calls TEXT,
-    selected_chunks TEXT,
-    token_estimate INTEGER,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE projects (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE loops (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    raw_text TEXT NOT NULL,
-    title TEXT,
-    summary TEXT,
-    definition_of_done TEXT,
-    next_action TEXT,
-    status TEXT NOT NULL,
-    captured_at_utc TEXT NOT NULL,
-    captured_tz_offset_min INTEGER NOT NULL,
-    due_date TEXT,
-    due_at_utc TEXT,
-    snooze_until_utc TEXT,
-    time_minutes INTEGER,
-    activation_energy INTEGER,
-    urgency REAL,
-    importance REAL,
-    project_id INTEGER,
-    blocked_reason TEXT,
-    completion_note TEXT,
-    user_locks_json TEXT NOT NULL DEFAULT '[]',
-    provenance_json TEXT NOT NULL DEFAULT '{}',
-    enrichment_state TEXT NOT NULL DEFAULT 'idle',
-    recurrence_rrule TEXT,
-    recurrence_tz TEXT,
-    next_due_at_utc TEXT,
-    recurrence_enabled INTEGER NOT NULL DEFAULT 0,
-    parent_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    closed_at TEXT,
-    FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE SET NULL
-);
-
-CREATE INDEX idx_loops_status ON loops(status);
-CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
-CREATE INDEX idx_loops_updated_at ON loops(updated_at DESC);
-CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
-CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
-CREATE INDEX idx_loops_parent_id ON loops(parent_loop_id);
-
-CREATE TABLE loop_tags (
-    loop_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (loop_id, tag_id),
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-    FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_loop_tags_loop_id ON loop_tags(loop_id);
-CREATE INDEX idx_loop_tags_tag_id ON loop_tags(tag_id);
-
-CREATE TABLE loop_links (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
-    related_loop_id INTEGER NOT NULL,
-    relationship_type TEXT NOT NULL,
-    link_state TEXT NOT NULL DEFAULT 'active',
-    confidence REAL,
-    source TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-    FOREIGN KEY(related_loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE UNIQUE INDEX idx_loop_links_unique
-    ON loop_links(loop_id, related_loop_id, relationship_type);
-CREATE INDEX idx_loop_links_loop_type_state_confidence
-    ON loop_links(loop_id, relationship_type, link_state, confidence DESC, related_loop_id);
-
-CREATE TABLE loop_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER,
-    event_type TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    source_task_name TEXT,
-    source_slot_key TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
-CREATE INDEX idx_loop_events_type_created ON loop_events(event_type, created_at);
-CREATE UNIQUE INDEX idx_loop_events_scheduler_slot
-    ON loop_events(source_task_name, source_slot_key, event_type)
-    WHERE source_task_name IS NOT NULL AND source_slot_key IS NOT NULL;
-
-CREATE TABLE loop_suggestions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
-    suggestion_json TEXT NOT NULL,
-    model TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    resolution TEXT,
-    resolved_at TEXT,
-    resolved_fields_json TEXT,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_loop_suggestions_loop_id ON loop_suggestions(loop_id);
-CREATE INDEX idx_loop_suggestions_resolution ON loop_suggestions(resolution);
-
-CREATE TABLE loop_clarifications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
-    question TEXT NOT NULL,
-    answer TEXT,
-    answered_at TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_loop_clarifications_loop_id ON loop_clarifications(loop_id);
-CREATE INDEX idx_loop_clarifications_answered ON loop_clarifications(answered_at);
-CREATE UNIQUE INDEX idx_loop_clarifications_pending_question
-    ON loop_clarifications(loop_id, question)
-    WHERE answer IS NULL;
-
-CREATE TABLE loop_embeddings (
-    loop_id INTEGER PRIMARY KEY,
-    embedding_blob BLOB NOT NULL,
-    embedding_dim INTEGER NOT NULL,
-    embedding_norm REAL NOT NULL,
-    embed_model TEXT NOT NULL,
-    source_text_hash TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE TABLE idempotency_keys (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    scope TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL,
-    request_hash TEXT NOT NULL,
-    response_status INTEGER,
-    response_body_json TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at TEXT NOT NULL,
-    UNIQUE(scope, idempotency_key)
-);
-
-CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
-
-CREATE TABLE loop_views (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    query TEXT NOT NULL,
-    description TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_loop_views_name ON loop_views(name);
-
-CREATE TABLE review_action_presets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
-    action_type TEXT NOT NULL,
-    config_json TEXT NOT NULL DEFAULT '{}',
-    description TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_review_action_presets_kind_name
-    ON review_action_presets(review_kind, name);
-
-CREATE TABLE review_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
-    query TEXT NOT NULL,
-    options_json TEXT NOT NULL DEFAULT '{}',
-    current_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_review_sessions_kind_name
-    ON review_sessions(review_kind, name);
-CREATE INDEX idx_review_sessions_current_loop
-    ON review_sessions(current_loop_id) WHERE current_loop_id IS NOT NULL;
-
-CREATE TABLE planning_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    prompt TEXT NOT NULL,
-    query TEXT,
-    options_json TEXT NOT NULL DEFAULT '{}',
-    plan_json TEXT NOT NULL,
-    current_checkpoint_index INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_planning_sessions_updated
-    ON planning_sessions(updated_at DESC, id DESC);
-
-CREATE TABLE planning_session_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL,
-    checkpoint_index INTEGER NOT NULL,
-    result_json TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(session_id) REFERENCES planning_sessions(id) ON DELETE CASCADE,
-    UNIQUE(session_id, checkpoint_index)
-);
-
-CREATE INDEX idx_planning_session_runs_session
-    ON planning_session_runs(session_id, checkpoint_index);
-
-CREATE TABLE webhook_subscriptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    url TEXT NOT NULL,
-    secret TEXT NOT NULL,
-    event_types TEXT NOT NULL DEFAULT '["*"]',
-    active BOOLEAN NOT NULL DEFAULT 1,
-    description TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_webhook_subscriptions_active ON webhook_subscriptions(active);
-
-CREATE TABLE webhook_deliveries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    subscription_id INTEGER NOT NULL,
-    event_id INTEGER NOT NULL,
-    event_type TEXT NOT NULL,
-    source_payload_json TEXT NOT NULL,
-    last_attempt_payload_json TEXT,
-    status TEXT NOT NULL DEFAULT 'queued'
-        CHECK (status IN ('queued', 'in_flight', 'succeeded', 'dead_letter')),
-    http_status INTEGER,
-    response_body TEXT,
-    error_message TEXT,
-    signature_header TEXT,
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    active_attempt_number INTEGER,
-    last_attempted_at TEXT,
-    next_retry_at_epoch INTEGER,
-    lease_owner TEXT,
-    lease_until_epoch INTEGER,
-    last_connect_ip TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
-    FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
-);
-
-CREATE TABLE webhook_delivery_attempts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    delivery_id INTEGER NOT NULL,
-    attempt_number INTEGER NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    request_bytes BLOB,
-    signature_header TEXT,
-    http_status INTEGER,
-    response_body TEXT,
-    error_message TEXT,
-    connect_ip TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(delivery_id) REFERENCES webhook_deliveries(id) ON DELETE CASCADE,
-    UNIQUE(delivery_id, attempt_number)
-);
-
-CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
-CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at_epoch)
-    WHERE status = 'queued';
-CREATE INDEX idx_webhook_deliveries_inflight_lease ON webhook_deliveries(lease_until_epoch)
-    WHERE status = 'in_flight';
-CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
-CREATE INDEX idx_webhook_delivery_attempts_delivery ON webhook_delivery_attempts(delivery_id, attempt_number DESC);
-
-CREATE TABLE loop_claims (
-    loop_id INTEGER PRIMARY KEY,
-    owner TEXT NOT NULL,
-    claim_token TEXT NOT NULL,
-    leased_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    lease_until TEXT NOT NULL,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
-CREATE INDEX idx_loop_claims_owner_lease ON loop_claims(owner, lease_until);
-
-CREATE TABLE loop_dependencies (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
-    depends_on_loop_id INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-    FOREIGN KEY(depends_on_loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-    UNIQUE(loop_id, depends_on_loop_id)
-);
-
-CREATE INDEX idx_loop_dependencies_loop_id ON loop_dependencies(loop_id);
-CREATE INDEX idx_loop_dependencies_depends_on ON loop_dependencies(depends_on_loop_id);
-
-CREATE TABLE time_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
-    started_at TEXT NOT NULL,
-    ended_at TEXT,
-    duration_seconds INTEGER,
-    notes TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_time_sessions_loop_id ON time_sessions(loop_id);
-CREATE INDEX idx_time_sessions_active ON time_sessions(loop_id, ended_at) WHERE ended_at IS NULL;
-
-CREATE TABLE loop_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    raw_text_pattern TEXT NOT NULL DEFAULT '',
-    defaults_json TEXT NOT NULL DEFAULT '{}',
-    is_system INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_loop_templates_name ON loop_templates(name);
-CREATE INDEX idx_loop_templates_is_system ON loop_templates(is_system);
-
--- Create loop_comments table for threaded discussion on loops
-CREATE TABLE loop_comments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    loop_id INTEGER NOT NULL,
-    parent_id INTEGER REFERENCES loop_comments(id) ON DELETE CASCADE,
-    author TEXT NOT NULL,
-    body_md TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TEXT,
-    FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
-CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
-CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
-
--- Scheduler slot coordination and run-state tracking
-CREATE TABLE scheduler_task_schedule (
-    task_name TEXT PRIMARY KEY,
-    next_due_at TEXT,
-    last_slot_key TEXT,
-    last_started_at TEXT,
-    last_finished_at TEXT,
-    last_success_at TEXT,
-    last_failure_at TEXT,
-    last_result_json TEXT,
-    last_error TEXT,
-    runs_count INTEGER NOT NULL DEFAULT 0
-);
-
-CREATE INDEX idx_scheduler_task_schedule_next_due ON scheduler_task_schedule(next_due_at);
-
-CREATE TABLE scheduler_task_runs (
-    task_name TEXT NOT NULL,
-    slot_key TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'abandoned')),
-    owner_token TEXT,
-    lease_until TEXT,
-    started_at TEXT,
-    heartbeat_at TEXT,
-    finished_at TEXT,
-    result_json TEXT,
-    error TEXT,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (task_name, slot_key)
-);
-
-CREATE INDEX idx_scheduler_task_runs_status_lease
-    ON scheduler_task_runs(task_name, status, lease_until);
-
-CREATE TABLE scheduler_push_deliveries (
-    task_name TEXT NOT NULL,
-    slot_key TEXT NOT NULL,
-    push_kind TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    push_count INTEGER NOT NULL DEFAULT 0,
-    sent_at TEXT NOT NULL,
-    PRIMARY KEY (task_name, slot_key, push_kind)
-);
-
--- Nudge tracking for escalation state
-CREATE TABLE loop_nudges (
-    loop_id INTEGER NOT NULL,
-    nudge_type TEXT NOT NULL CHECK (nudge_type IN ('due_soon', 'stale', 'blocked')),
-    escalation_level INTEGER NOT NULL DEFAULT 0,
-    nudge_count INTEGER NOT NULL DEFAULT 0,
-    first_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_nudge_event_id INTEGER,
-    last_slot_key TEXT,
-    PRIMARY KEY (loop_id, nudge_type),
-    FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-    FOREIGN KEY (last_nudge_event_id) REFERENCES loop_events(id) ON DELETE SET NULL
-);
-
-CREATE INDEX idx_loop_nudges_escalation ON loop_nudges(escalation_level, nudge_type);
-CREATE INDEX idx_loop_nudges_last_nudged ON loop_nudges(last_nudged_at DESC);
-
--- Push notification subscriptions
-CREATE TABLE push_subscriptions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    endpoint TEXT NOT NULL UNIQUE,
-    p256dh TEXT NOT NULL,
-    auth TEXT NOT NULL,
-    user_agent TEXT,
-    created_at_utc TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at_utc TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE INDEX idx_push_subscriptions_endpoint ON push_subscriptions(endpoint);
-
--- Create memory_entries table for durable assistant memory
-CREATE TABLE memory_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key TEXT,
-    content TEXT NOT NULL,
-    category TEXT NOT NULL DEFAULT 'fact'
-        CHECK (category IN ('preference', 'fact', 'commitment', 'context')),
-    priority INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'user_stated'
-        CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_memory_entries_category ON memory_entries(category);
-CREATE INDEX idx_memory_entries_priority ON memory_entries(priority DESC);
-CREATE INDEX idx_memory_entries_key ON memory_entries(key) WHERE key IS NOT NULL;
-CREATE INDEX idx_memory_entries_updated ON memory_entries(updated_at DESC);
-
--- Insert system templates for fresh installations
-INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
-    ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
-    ('Weekly Review', 'Weekly review template', 'Weekly review - {{week}} of {{year}}\n\nAccomplishments:\n- \n\nPriorities for next week:\n- \n\nOpen items:\n- ', '{"tags": ["review", "weekly"], "time_minutes": 30}', 1),
-    ('Meeting Notes', 'Meeting notes template', 'Meeting: [Title]\nDate: {{date}}\nTime: {{time}}\nAttendees: \n\nAgenda:\n- \n\nNotes:\n- \n\nAction items:\n- ', '{"tags": ["meeting"], "actionable": true}', 1),
-    ('Bug Report', 'Bug report template', 'Bug: [Description]\n\nSteps to reproduce:\n1. \n\nExpected:\n\nActual:\n\nEnvironment:', '{"tags": ["bug"], "blocked": true}', 1),
-    ('Quick Task', 'Simple actionable task template', '', '{"actionable": true, "time_minutes": 30}', 1);
-"""
-
-_CORE_MIGRATIONS: dict[int, str] = {
-    38: """
-    CREATE TABLE planning_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        prompt TEXT NOT NULL,
-        query TEXT,
-        options_json TEXT NOT NULL DEFAULT '{}',
-        plan_json TEXT NOT NULL,
-        current_checkpoint_index INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_planning_sessions_updated
-        ON planning_sessions(updated_at DESC, id DESC);
-
-    CREATE TABLE planning_session_runs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id INTEGER NOT NULL,
-        checkpoint_index INTEGER NOT NULL,
-        result_json TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(session_id) REFERENCES planning_sessions(id) ON DELETE CASCADE,
-        UNIQUE(session_id, checkpoint_index)
-    );
-
-    CREATE INDEX idx_planning_session_runs_session
-        ON planning_session_runs(session_id, checkpoint_index);
-    """,
-    37: """
-    CREATE TABLE review_action_presets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
-        action_type TEXT NOT NULL,
-        config_json TEXT NOT NULL DEFAULT '{}',
-        description TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_review_action_presets_kind_name
-        ON review_action_presets(review_kind, name);
-
-    CREATE TABLE review_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        review_kind TEXT NOT NULL CHECK (review_kind IN ('relationship', 'enrichment')),
-        query TEXT NOT NULL,
-        options_json TEXT NOT NULL DEFAULT '{}',
-        current_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_review_sessions_kind_name
-        ON review_sessions(review_kind, name);
-    CREATE INDEX idx_review_sessions_current_loop
-        ON review_sessions(current_loop_id)
-        WHERE current_loop_id IS NOT NULL;
-    """,
-    36: """
-    ALTER TABLE loop_links ADD COLUMN link_state TEXT NOT NULL DEFAULT 'active';
-    ALTER TABLE loop_links ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP;
-
-    UPDATE loop_links
-    SET relationship_type = 'duplicate',
-        link_state = 'resolved'
-    WHERE relationship_type = 'duplicate_resolved';
-
-    CREATE TEMP TABLE loop_links_ranked AS
-        SELECT
-            id,
-            ROW_NUMBER() OVER (
-                PARTITION BY loop_id, related_loop_id, relationship_type
-                ORDER BY
-                    CASE link_state
-                        WHEN 'resolved' THEN 3
-                        WHEN 'active' THEN 2
-                        WHEN 'dismissed' THEN 1
-                        ELSE 0
-                    END DESC,
-                    CASE WHEN confidence IS NULL THEN -1.0 ELSE confidence END DESC,
-                    created_at DESC,
-                    id DESC
-            ) AS rank_order
-        FROM loop_links;
-
-    DELETE FROM loop_links
-    WHERE id IN (
-        SELECT id
-        FROM loop_links_ranked
-        WHERE rank_order > 1
-    );
-
-    DROP TABLE loop_links_ranked;
-    DROP INDEX idx_loop_links_unique;
-    CREATE UNIQUE INDEX idx_loop_links_unique
-        ON loop_links(loop_id, related_loop_id, relationship_type);
-    CREATE INDEX idx_loop_links_loop_type_state_confidence
-        ON loop_links(loop_id, relationship_type, link_state, confidence DESC, related_loop_id);
-    """,
-    35: """
-    ALTER TABLE loop_embeddings ADD COLUMN source_text_hash TEXT NOT NULL DEFAULT '';
-    """,
-    34: """
-    DELETE FROM loop_clarifications
-    WHERE id IN (
-        SELECT duplicate.id
-        FROM loop_clarifications AS duplicate
-        JOIN loop_clarifications AS keeper
-          ON duplicate.loop_id = keeper.loop_id
-         AND duplicate.question = keeper.question
-         AND duplicate.answer IS NULL
-         AND keeper.answer IS NULL
-         AND duplicate.id > keeper.id
-    );
-
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_loop_clarifications_pending_question
-        ON loop_clarifications(loop_id, question)
-        WHERE answer IS NULL;
-    """,
-    33: """
-    ALTER TABLE loops ADD COLUMN due_date TEXT;
-
-    UPDATE loops
-    SET due_date = substr(due_at_utc, 1, 10)
-    WHERE due_at_utc IS NOT NULL
-      AND due_date IS NULL
-      AND (time(due_at_utc) = '23:59:59' OR time(due_at_utc) = '23:59:00');
-    """,
-    32: """
-    ALTER TABLE loop_events ADD COLUMN source_task_name TEXT;
-    ALTER TABLE loop_events ADD COLUMN source_slot_key TEXT;
-    CREATE UNIQUE INDEX idx_loop_events_scheduler_slot
-        ON loop_events(source_task_name, source_slot_key, event_type)
-        WHERE source_task_name IS NOT NULL AND source_slot_key IS NOT NULL;
-
-    ALTER TABLE loop_nudges ADD COLUMN last_slot_key TEXT;
-
-    DROP TABLE IF EXISTS scheduler_push_deliveries;
-    DROP TABLE IF EXISTS scheduler_task_runs;
-    DROP TABLE IF EXISTS scheduler_task_schedule;
-    DROP TABLE IF EXISTS scheduler_task_executions;
-    DROP TABLE IF EXISTS scheduler_task_state;
-    DROP TABLE IF EXISTS scheduler_task_leases;
-
-    CREATE TABLE scheduler_task_schedule (
-        task_name TEXT PRIMARY KEY,
-        next_due_at TEXT,
-        last_slot_key TEXT,
-        last_started_at TEXT,
-        last_finished_at TEXT,
-        last_success_at TEXT,
-        last_failure_at TEXT,
-        last_result_json TEXT,
-        last_error TEXT,
-        runs_count INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE INDEX idx_scheduler_task_schedule_next_due ON scheduler_task_schedule(next_due_at);
-
-    CREATE TABLE scheduler_task_runs (
-        task_name TEXT NOT NULL,
-        slot_key TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'abandoned')),
-        owner_token TEXT,
-        lease_until TEXT,
-        started_at TEXT,
-        heartbeat_at TEXT,
-        finished_at TEXT,
-        result_json TEXT,
-        error TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (task_name, slot_key)
-    );
-
-    CREATE INDEX idx_scheduler_task_runs_status_lease
-        ON scheduler_task_runs(task_name, status, lease_until);
-
-    CREATE TABLE scheduler_push_deliveries (
-        task_name TEXT NOT NULL,
-        slot_key TEXT NOT NULL,
-        push_kind TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        push_count INTEGER NOT NULL DEFAULT 0,
-        sent_at TEXT NOT NULL,
-        PRIMARY KEY (task_name, slot_key, push_kind)
-    );
-
-    DROP TABLE IF EXISTS webhook_delivery_attempts;
-    ALTER TABLE webhook_deliveries RENAME TO webhook_deliveries_old;
-
-    CREATE TABLE webhook_deliveries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subscription_id INTEGER NOT NULL,
-        event_id INTEGER NOT NULL,
-        event_type TEXT NOT NULL,
-        source_payload_json TEXT NOT NULL,
-        last_attempt_payload_json TEXT,
-        status TEXT NOT NULL DEFAULT 'queued'
-            CHECK (status IN ('queued', 'in_flight', 'succeeded', 'dead_letter')),
-        http_status INTEGER,
-        response_body TEXT,
-        error_message TEXT,
-        signature_header TEXT,
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        active_attempt_number INTEGER,
-        last_attempted_at TEXT,
-        next_retry_at_epoch INTEGER,
-        lease_owner TEXT,
-        lease_until_epoch INTEGER,
-        last_connect_ip TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
-        FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
-    );
-
-    INSERT INTO webhook_deliveries (
-        id,
-        subscription_id,
-        event_id,
-        event_type,
-        source_payload_json,
-        last_attempt_payload_json,
-        status,
-        http_status,
-        response_body,
-        error_message,
-        signature_header,
-        attempt_count,
-        last_attempted_at,
-        next_retry_at_epoch,
-        created_at,
-        updated_at
-    )
-    SELECT
-        id,
-        subscription_id,
-        event_id,
-        event_type,
-        source_payload_json,
-        last_attempt_payload_json,
-        CASE
-            WHEN status = 'success' THEN 'succeeded'
-            WHEN status = 'pending' THEN 'queued'
-            ELSE status
-        END,
-        http_status,
-        response_body,
-        error_message,
-        signature_header,
-        attempt_count,
-        last_attempted_at,
-        CASE
-            WHEN next_retry_at IS NULL THEN NULL
-            ELSE unixepoch(next_retry_at)
-        END,
-        created_at,
-        updated_at
-    FROM webhook_deliveries_old;
-
-    DROP TABLE webhook_deliveries_old;
-
-    CREATE TABLE webhook_delivery_attempts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        delivery_id INTEGER NOT NULL,
-        attempt_number INTEGER NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed')),
-        started_at TEXT NOT NULL,
-        finished_at TEXT,
-        request_bytes BLOB,
-        signature_header TEXT,
-        http_status INTEGER,
-        response_body TEXT,
-        error_message TEXT,
-        connect_ip TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(delivery_id) REFERENCES webhook_deliveries(id) ON DELETE CASCADE,
-        UNIQUE(delivery_id, attempt_number)
-    );
-
-    CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
-    CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at_epoch)
-        WHERE status = 'queued';
-    CREATE INDEX idx_webhook_deliveries_inflight_lease ON webhook_deliveries(lease_until_epoch)
-        WHERE status = 'in_flight';
-    CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
-    CREATE INDEX idx_webhook_delivery_attempts_delivery
-        ON webhook_delivery_attempts(delivery_id, attempt_number DESC);
-    """,
-    31: """
-    CREATE TABLE scheduler_task_executions (
-        run_id TEXT PRIMARY KEY,
-        task_name TEXT NOT NULL,
-        owner_token TEXT NOT NULL,
-        started_at TEXT NOT NULL,
-        heartbeat_at TEXT,
-        finished_at TEXT,
-        status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'abandoned')),
-        error TEXT,
-        result_json TEXT
-    );
-
-    CREATE INDEX idx_scheduler_task_executions_task_started
-        ON scheduler_task_executions(task_name, started_at DESC);
-    """,
-    30: """
-    CREATE TABLE webhook_deliveries_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subscription_id INTEGER NOT NULL,
-        event_id INTEGER NOT NULL,
-        event_type TEXT NOT NULL,
-        source_payload_json TEXT NOT NULL,
-        last_attempt_payload_json TEXT,
-        status TEXT NOT NULL DEFAULT 'pending',
-        http_status INTEGER,
-        response_body TEXT,
-        error_message TEXT,
-        signature_header TEXT,
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        last_attempted_at TEXT,
-        next_retry_at TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
-        FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
-    );
-
-    INSERT INTO webhook_deliveries_new (
-        id,
-        subscription_id,
-        event_id,
-        event_type,
-        source_payload_json,
-        last_attempt_payload_json,
-        status,
-        http_status,
-        response_body,
-        error_message,
-        signature_header,
-        attempt_count,
-        last_attempted_at,
-        next_retry_at,
-        created_at,
-        updated_at
-    )
-    SELECT
-        id,
-        subscription_id,
-        event_id,
-        event_type,
-        payload_json,
-        NULL,
-        status,
-        http_status,
-        response_body,
-        error_message,
-        signature,
-        attempt_count,
-        NULL,
-        next_retry_at,
-        created_at,
-        updated_at
-    FROM webhook_deliveries;
-
-    DROP TABLE webhook_deliveries;
-    ALTER TABLE webhook_deliveries_new RENAME TO webhook_deliveries;
-
-    CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
-    CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
-        WHERE status = 'pending';
-    CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
-    """,
-    29: """
-    DROP TABLE IF EXISTS scheduler_runs;
-
-    CREATE TABLE scheduler_task_leases (
-        task_name TEXT PRIMARY KEY,
-        owner_token TEXT NOT NULL,
-        acquired_at TEXT NOT NULL,
-        heartbeat_at TEXT NOT NULL,
-        lease_until TEXT NOT NULL
-    );
-
-    CREATE INDEX idx_scheduler_task_leases_until ON scheduler_task_leases(lease_until);
-
-    CREATE TABLE scheduler_task_state (
-        task_name TEXT PRIMARY KEY,
-        last_started_at TEXT,
-        last_finished_at TEXT,
-        last_success_at TEXT,
-        last_failure_at TEXT,
-        last_error TEXT,
-        last_result_json TEXT,
-        next_due_at TEXT,
-        runs_count INTEGER NOT NULL DEFAULT 0
-    );
-
-    CREATE INDEX idx_scheduler_task_state_next_due ON scheduler_task_state(next_due_at);
-    """,
-    28: """
-    -- Make loop_id nullable to support system-level events (e.g., REVIEW_GENERATED)
-    -- SQLite requires recreating the table to drop NOT NULL constraint
-    CREATE TABLE loop_events_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER,
-        event_type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    INSERT INTO loop_events_new (id, loop_id, event_type, payload_json, created_at)
-        SELECT id, loop_id, event_type, payload_json, created_at FROM loop_events;
-
-    DROP TABLE loop_events;
-    ALTER TABLE loop_events_new RENAME TO loop_events;
-
-    CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
-    CREATE INDEX idx_loop_events_type_created ON loop_events(event_type, created_at);
-    """,
-    27: """
-    -- Create memory_entries table for durable assistant memory
-    CREATE TABLE memory_entries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        key TEXT,
-        content TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'fact'
-            CHECK (category IN ('preference', 'fact', 'commitment', 'context')),
-        priority INTEGER NOT NULL DEFAULT 0,
-        source TEXT NOT NULL DEFAULT 'user_stated'
-            CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_memory_entries_category ON memory_entries(category);
-    CREATE INDEX idx_memory_entries_priority ON memory_entries(priority DESC);
-    CREATE INDEX idx_memory_entries_key ON memory_entries(key) WHERE key IS NOT NULL;
-    CREATE INDEX idx_memory_entries_updated ON memory_entries(updated_at DESC);
-    """,
-    26: """
-    -- Create loop_clarifications table for AI clarification Q&A
-    CREATE TABLE loop_clarifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        question TEXT NOT NULL,
-        answer TEXT,
-        answered_at TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_loop_clarifications_loop_id ON loop_clarifications(loop_id);
-    CREATE INDEX idx_loop_clarifications_answered ON loop_clarifications(answered_at);
-    """,
-    25: """
-    -- Create push_subscriptions table for browser push notifications
-    CREATE TABLE push_subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        endpoint TEXT NOT NULL UNIQUE,
-        p256dh TEXT NOT NULL,
-        auth TEXT NOT NULL,
-        user_agent TEXT,
-        created_at_utc TEXT NOT NULL DEFAULT (datetime('now')),
-        updated_at_utc TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_endpoint
-    ON push_subscriptions(endpoint);
-    """,
-    24: """
-    -- Create loop_nudges table for tracking nudge escalation state
-    CREATE TABLE loop_nudges (
-        loop_id INTEGER NOT NULL,
-        nudge_type TEXT NOT NULL CHECK (nudge_type IN ('due_soon', 'stale', 'blocked')),
-        escalation_level INTEGER NOT NULL DEFAULT 0,
-        nudge_count INTEGER NOT NULL DEFAULT 0,
-        first_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        last_nudged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        last_nudge_event_id INTEGER,
-        PRIMARY KEY (loop_id, nudge_type),
-        FOREIGN KEY (loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY (last_nudge_event_id) REFERENCES loop_events(id) ON DELETE SET NULL
-    );
-
-    CREATE INDEX idx_loop_nudges_escalation ON loop_nudges(escalation_level, nudge_type);
-    CREATE INDEX idx_loop_nudges_last_nudged ON loop_nudges(last_nudged_at DESC);
-    """,
-    23: """
-    -- Index for metrics queries filtering by event_type + created_at range
-    CREATE INDEX idx_loop_events_type_created
-        ON loop_events(event_type, created_at);
-
-    -- Index for owner-filtered claim lookups
-    CREATE INDEX idx_loop_claims_owner_lease
-        ON loop_claims(owner, lease_until);
-    """,
-    22: """
-    -- Scheduler state tracking for periodic tasks
-    CREATE TABLE scheduler_runs (
-        task_name TEXT PRIMARY KEY,
-        last_run_at TEXT NOT NULL,
-        last_result_json TEXT,
-        runs_count INTEGER NOT NULL DEFAULT 0
-    );
-    """,
-    21: """
-    -- Add resolution tracking to loop_suggestions
-    ALTER TABLE loop_suggestions ADD COLUMN resolution TEXT;
-    ALTER TABLE loop_suggestions ADD COLUMN resolved_at TEXT;
-    ALTER TABLE loop_suggestions ADD COLUMN resolved_fields_json TEXT;
-    CREATE INDEX idx_loop_suggestions_resolution ON loop_suggestions(resolution);
-    """,
-    20: """
-    -- Index for ORDER BY updated_at DESC queries (list, search, cursor pagination)
-    CREATE INDEX idx_loops_updated_at ON loops(updated_at DESC);
-    """,
-    19: """
-    -- Partial index for next-loop candidate queries
-    -- Filters to actionable candidates with next_action defined
-    CREATE INDEX idx_loops_next_candidates
-        ON loops(status, updated_at DESC, captured_at_utc DESC, id DESC)
-        WHERE next_action IS NOT NULL;
-    """,
-    18: """
-    -- Create loop_comments table for threaded discussion on loops
-    CREATE TABLE loop_comments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        parent_id INTEGER REFERENCES loop_comments(id) ON DELETE CASCADE,
-        author TEXT NOT NULL,
-        body_md TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        deleted_at TEXT,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_loop_comments_loop_id ON loop_comments(loop_id);
-    CREATE INDEX idx_loop_comments_parent_id ON loop_comments(parent_id);
-    CREATE INDEX idx_loop_comments_created_at ON loop_comments(created_at);
-    """,
-    17: """
-    -- Create loop_templates table for reusable loop patterns
-    CREATE TABLE loop_templates (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        description TEXT,
-        raw_text_pattern TEXT NOT NULL DEFAULT '',
-        defaults_json TEXT NOT NULL DEFAULT '{}',
-        is_system INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_loop_templates_name ON loop_templates(name);
-    CREATE INDEX idx_loop_templates_is_system ON loop_templates(is_system);
-
-    -- Insert system templates
-    INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
-        ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),
-        ('Weekly Review', 'Weekly review template', 'Weekly review - {{week}} of {{year}}\n\nAccomplishments:\n- \n\nPriorities for next week:\n- \n\nOpen items:\n- ', '{"tags": ["review", "weekly"], "time_minutes": 30}', 1),
-        ('Meeting Notes', 'Meeting notes template', 'Meeting: [Title]\nDate: {{date}}\nTime: {{time}}\nAttendees: \n\nAgenda:\n- \n\nNotes:\n- \n\nAction items:\n- ', '{"tags": ["meeting"], "actionable": true}', 1),
-        ('Bug Report', 'Bug report template', 'Bug: [Description]\n\nSteps to reproduce:\n1. \n\nExpected:\n\nActual:\n\nEnvironment:', '{"tags": ["bug"], "blocked": true}', 1),
-        ('Quick Task', 'Simple actionable task template', '', '{"actionable": true, "time_minutes": 30}', 1);
-    """,
-    2: """
-    CREATE TABLE loops (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        raw_text TEXT NOT NULL,
-        title TEXT,
-        status TEXT NOT NULL,
-        captured_at_utc TEXT NOT NULL,
-        captured_tz_offset_min INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        closed_at TEXT
-    );
-
-    CREATE INDEX idx_loops_status ON loops(status);
-    CREATE INDEX idx_loops_captured_at ON loops(captured_at_utc);
-
-    CREATE TABLE loop_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER,
-        event_type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_loop_events_loop_id ON loop_events(loop_id);
-    """,
-    3: """
-    ALTER TABLE loops ADD COLUMN summary TEXT;
-    ALTER TABLE loops ADD COLUMN definition_of_done TEXT;
-    ALTER TABLE loops ADD COLUMN next_action TEXT;
-    ALTER TABLE loops ADD COLUMN due_at_utc TEXT;
-    ALTER TABLE loops ADD COLUMN snooze_until_utc TEXT;
-    ALTER TABLE loops ADD COLUMN time_minutes INTEGER;
-    ALTER TABLE loops ADD COLUMN activation_energy INTEGER;
-    ALTER TABLE loops ADD COLUMN urgency REAL;
-    ALTER TABLE loops ADD COLUMN importance REAL;
-    ALTER TABLE loops ADD COLUMN project_id INTEGER;
-    ALTER TABLE loops ADD COLUMN user_locks_json TEXT NOT NULL DEFAULT '[]';
-    ALTER TABLE loops ADD COLUMN provenance_json TEXT NOT NULL DEFAULT '{}';
-    ALTER TABLE loops ADD COLUMN enrichment_state TEXT NOT NULL DEFAULT 'idle';
-
-    CREATE TABLE projects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE tags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE loop_tags (
-        loop_id INTEGER NOT NULL,
-        tag_id INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (loop_id, tag_id),
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_loop_tags_loop_id ON loop_tags(loop_id);
-    CREATE INDEX idx_loop_tags_tag_id ON loop_tags(tag_id);
-
-    CREATE TABLE loop_links (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        related_loop_id INTEGER NOT NULL,
-        relationship_type TEXT NOT NULL,
-        link_state TEXT NOT NULL DEFAULT 'active',
-        confidence REAL,
-        source TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY(related_loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    CREATE UNIQUE INDEX idx_loop_links_unique
-        ON loop_links(loop_id, related_loop_id, relationship_type);
-    CREATE INDEX idx_loop_links_loop_type_state_confidence
-        ON loop_links(loop_id, relationship_type, link_state, confidence DESC, related_loop_id);
-
-    CREATE TABLE loop_suggestions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        suggestion_json TEXT NOT NULL,
-        model TEXT NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_loop_suggestions_loop_id ON loop_suggestions(loop_id);
-    """,
-    4: """
-    CREATE TABLE loop_embeddings (
-        loop_id INTEGER PRIMARY KEY,
-        embedding_blob BLOB NOT NULL,
-        embedding_dim INTEGER NOT NULL,
-        embedding_norm REAL NOT NULL,
-        embed_model TEXT NOT NULL,
-        source_text_hash TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-    """,
-    5: """
-    UPDATE loops SET status = 'actionable' WHERE status = 'active';
-    UPDATE loops SET status = 'blocked' WHERE status = 'waiting';
-    UPDATE loops SET status = 'completed' WHERE status = 'done';
-    """,
-    6: """
-    CREATE TEMP TABLE tag_merge AS
-        SELECT LOWER(name) AS lname, MIN(id) AS keep_id
-        FROM tags
-        GROUP BY LOWER(name);
-
-    UPDATE loop_tags
-    SET tag_id = (
-        SELECT keep_id
-        FROM tag_merge
-        WHERE lname = (
-            SELECT LOWER(name) FROM tags WHERE id = loop_tags.tag_id
-        )
-    );
-
-    DELETE FROM tags WHERE id NOT IN (SELECT keep_id FROM tag_merge);
-    UPDATE tags SET name = LOWER(name);
-    DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM loop_tags);
-    DROP TABLE tag_merge;
-    """,
-    7: """
-    UPDATE loops
-    SET updated_at = created_at
-    WHERE updated_at IS NULL OR updated_at = '';
-    """,
-    8: """
-    ALTER TABLE loops ADD COLUMN blocked_reason TEXT;
-    """,
-    9: """
-    ALTER TABLE loops ADD COLUMN completion_note TEXT;
-    """,
-    10: """
-    CREATE TABLE idempotency_keys (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        scope TEXT NOT NULL,
-        idempotency_key TEXT NOT NULL,
-        request_hash TEXT NOT NULL,
-        response_status INTEGER,
-        response_body_json TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        expires_at TEXT NOT NULL,
-        UNIQUE(scope, idempotency_key)
-    );
-
-    CREATE INDEX idx_idempotency_keys_expires_at ON idempotency_keys(expires_at);
-    """,
-    11: """
-    CREATE TABLE loop_views (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL UNIQUE,
-        query TEXT NOT NULL,
-        description TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_loop_views_name ON loop_views(name);
-    """,
-    12: """
-    CREATE TABLE webhook_subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        url TEXT NOT NULL,
-        secret TEXT NOT NULL,
-        event_types TEXT NOT NULL DEFAULT '["*"]',
-        active BOOLEAN NOT NULL DEFAULT 1,
-        description TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX idx_webhook_subscriptions_active ON webhook_subscriptions(active);
-
-    CREATE TABLE webhook_deliveries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        subscription_id INTEGER NOT NULL,
-        event_id INTEGER NOT NULL,
-        event_type TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        http_status INTEGER,
-        response_body TEXT,
-        error_message TEXT,
-        signature TEXT NOT NULL,
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        next_retry_at TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(subscription_id) REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
-        FOREIGN KEY(event_id) REFERENCES loop_events(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_webhook_deliveries_status ON webhook_deliveries(status);
-    CREATE INDEX idx_webhook_deliveries_next_retry ON webhook_deliveries(next_retry_at)
-        WHERE status = 'pending';
-    CREATE INDEX idx_webhook_deliveries_subscription ON webhook_deliveries(subscription_id);
-    """,
-    13: """
-    CREATE TABLE loop_claims (
-        loop_id INTEGER PRIMARY KEY,
-        owner TEXT NOT NULL,
-        claim_token TEXT NOT NULL,
-        leased_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        lease_until TEXT NOT NULL,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    CREATE INDEX idx_loop_claims_lease_until ON loop_claims(lease_until);
-    """,
-    14: """
-    ALTER TABLE loops ADD COLUMN recurrence_rrule TEXT;
-    ALTER TABLE loops ADD COLUMN recurrence_tz TEXT;
-    ALTER TABLE loops ADD COLUMN next_due_at_utc TEXT;
-    ALTER TABLE loops ADD COLUMN recurrence_enabled INTEGER NOT NULL DEFAULT 0;
-
-    CREATE INDEX idx_loops_recurrence_enabled ON loops(recurrence_enabled);
-    CREATE INDEX idx_loops_next_due_at ON loops(next_due_at_utc) WHERE recurrence_enabled = 1;
-    """,
-    15: """
-    -- Add parent_loop_id for hierarchical subtask relationships
-    ALTER TABLE loops ADD COLUMN parent_loop_id INTEGER REFERENCES loops(id) ON DELETE SET NULL;
-
-    -- Create index for parent-child queries
-    CREATE INDEX idx_loops_parent_id ON loops(parent_loop_id);
-
-    -- Create loop_dependencies table for explicit blocked-by relationships
-    CREATE TABLE loop_dependencies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        depends_on_loop_id INTEGER NOT NULL,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        FOREIGN KEY(depends_on_loop_id) REFERENCES loops(id) ON DELETE CASCADE,
-        UNIQUE(loop_id, depends_on_loop_id)
-    );
-
-    -- Index for finding what blocks a loop
-    CREATE INDEX idx_loop_dependencies_loop_id ON loop_dependencies(loop_id);
-
-    -- Index for finding what depends on a loop (for cascade checks)
-    CREATE INDEX idx_loop_dependencies_depends_on ON loop_dependencies(depends_on_loop_id);
-    """,
-    16: """
-    -- Create time_sessions table for tracking actual time spent on loops
-    CREATE TABLE time_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        loop_id INTEGER NOT NULL,
-        started_at TEXT NOT NULL,
-        ended_at TEXT,
-        duration_seconds INTEGER,
-        notes TEXT,
-        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(loop_id) REFERENCES loops(id) ON DELETE CASCADE
-    );
-
-    -- Index for finding sessions by loop
-    CREATE INDEX idx_time_sessions_loop_id ON time_sessions(loop_id);
-
-    -- Index for finding active sessions (where ended_at IS NULL)
-    CREATE INDEX idx_time_sessions_active ON time_sessions(loop_id, ended_at)
-        WHERE ended_at IS NULL;
-    """,
-}
-
-_RAG_SCHEMA = """
-CREATE TABLE documents (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    document_path TEXT UNIQUE NOT NULL,
-    mtime_ns INTEGER NOT NULL,
-    size_bytes INTEGER NOT NULL,
-    sha256 TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_documents_path ON documents(document_path);
-
-CREATE TABLE chunks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    document_path TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    content TEXT NOT NULL,
-    embedding TEXT NOT NULL,
-    embedding_dim INTEGER NOT NULL,
-    metadata TEXT,
-    doc_id INTEGER,
-    embedding_blob BLOB,
-    embedding_norm REAL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_chunks_document_path ON chunks(document_path);
-CREATE INDEX idx_chunks_docid ON chunks(doc_id);
-"""
+    return _get_vector_manager_impl()
 
 
 def _apply_pragmas(conn: sqlite3.Connection) -> None:
-    for pragma, value in PRAGMAS:
-        conn.execute(f"PRAGMA {pragma}={value}")
+    _apply_pragmas_impl(conn, pragmas=PRAGMAS)
 
 
 def _user_version(conn: sqlite3.Connection) -> int:
-    row = conn.execute("PRAGMA user_version").fetchone()
-    return int(row[0])
+    return _user_version_impl(conn)
 
 
 def _has_application_tables(conn: sqlite3.Connection) -> bool:
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
-    ).fetchall()
-    return bool(rows)
+    return _has_application_tables_impl(conn)
 
 
 def _assert_schema(conn: sqlite3.Connection, expected: int) -> None:
-    found = _user_version(conn)
-    if found != expected:
-        raise RuntimeError(f"schema_mismatch: expected={expected} found={found}")
+    _assert_schema_impl(conn, expected)
 
 
 def _initialize_schema_if_needed(
@@ -1554,51 +101,11 @@ def _initialize_schema_if_needed(
     *,
     expected_version: int,
 ) -> None:
-    version = _user_version(conn)
-    if version == 0:
-        if _has_application_tables(conn):
-            raise RuntimeError("schema_mismatch: detected unversioned tables")
-        conn.executescript(schema_sql)
-        conn.execute(f"PRAGMA user_version = {expected_version}")
-        conn.commit()
-        return
-    if version != expected_version:
-        raise RuntimeError(f"schema_mismatch: expected={expected_version} found={version}")
+    _initialize_schema_if_needed_impl(conn, schema_sql, expected_version=expected_version)
 
 
 def _split_sql_statements(script: str) -> list[str]:
-    """Split a SQL script into individual statements.
-
-    Handles comments and semicolon-separated statements, filtering out
-    empty statements. This is needed because conn.executescript() commits
-    any pending transaction, which would destroy savepoints.
-    """
-    statements: list[str] = []
-    current: list[str] = []
-
-    for line in script.splitlines():
-        # Remove inline comments (but preserve strings)
-        stripped = line.strip()
-        if stripped.startswith("--"):
-            continue
-
-        # Keep the line (even if empty for readability)
-        current.append(line)
-
-        # Check if statement ends with semicolon
-        if stripped.endswith(";"):
-            stmt = "\n".join(current).strip()
-            if stmt and stmt != ";":
-                statements.append(stmt)
-            current = []
-
-    # Handle trailing statement without semicolon
-    if current:
-        stmt = "\n".join(current).strip()
-        if stmt and stmt != ";":
-            statements.append(stmt)
-
-    return statements
+    return _split_sql_statements_impl(script)
 
 
 def migrate_core_db(
@@ -1607,78 +114,29 @@ def migrate_core_db(
     from_version: int,
     to_version: int,
 ) -> None:
-    """Apply pending schema migrations with savepoint protection.
-
-    Each migration is wrapped in a SAVEPOINT to ensure atomic per-migration
-    behavior. If a migration fails, its savepoint is rolled back before
-    re-raising the exception, leaving the database at the last successful
-    migration version.
-
-    Note: We use execute() for each statement instead of executescript()
-    because executescript() commits the pending transaction, which would
-    destroy our savepoints and prevent rollback.
-    """
-    if from_version >= to_version:
-        return
-    for version in range(from_version + 1, to_version + 1):
-        migration = _CORE_MIGRATIONS.get(version)
-        if migration is None:
-            raise RuntimeError(f"missing core migration for version {version}")
-        savepoint_name = f"migration_{version}"
-        conn.execute(f"SAVEPOINT {savepoint_name}")
-        try:
-            # Execute statements individually to preserve savepoint
-            for stmt in _split_sql_statements(migration):
-                conn.execute(stmt)
-            conn.execute(f"PRAGMA user_version = {version}")
-            conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
-        except Exception:
-            conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
-            raise
-    conn.commit()
+    _migrate_core_db_impl(
+        conn,
+        from_version=from_version,
+        to_version=to_version,
+        migrations=_CORE_MIGRATIONS,
+    )
 
 
 def ensure_core_schema(conn: sqlite3.Connection) -> None:
-    version = _user_version(conn)
-    if version == 0:
-        if _has_application_tables(conn):
-            raise RuntimeError("schema_mismatch: detected unversioned tables")
-        conn.executescript(_CORE_SCHEMA)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-        conn.commit()
-        return
-    if version > SCHEMA_VERSION:
-        raise RuntimeError(f"schema_mismatch: expected={SCHEMA_VERSION} found={version}")
-    if version < SCHEMA_VERSION:
-        migrate_core_db(conn, from_version=version, to_version=SCHEMA_VERSION)
+    _ensure_core_schema_impl(
+        conn,
+        core_schema=_CORE_SCHEMA,
+        schema_version=SCHEMA_VERSION,
+        migrations=_CORE_MIGRATIONS,
+    )
 
 
 def _detect_vector_backend(conn: sqlite3.Connection) -> VectorBackend:
-    try:
-        conn.execute("DROP TABLE IF EXISTS temp_vec_probe")
-        conn.execute("CREATE VIRTUAL TABLE temp_vec_probe USING vec0(embedding float[1])")
-        conn.execute("DROP TABLE temp_vec_probe")
-        return VectorBackend.VEC
-    except sqlite3.Error:
-        pass
-    try:
-        conn.execute("DROP TABLE IF EXISTS temp_vss_probe")
-        conn.execute("CREATE VIRTUAL TABLE temp_vss_probe USING vss0(embedding(1))")
-        conn.execute("DROP TABLE temp_vss_probe")
-        return VectorBackend.VSS
-    except sqlite3.Error:
-        return VectorBackend.NONE
+    return _detect_vector_backend_impl(conn)
 
 
 def _connect(path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path, check_same_thread=False)
-    try:
-        conn.row_factory = sqlite3.Row
-        _apply_pragmas(conn)
-        return conn
-    except Exception:
-        conn.close()
-        raise
+    return _connect_impl(path, pragmas=PRAGMAS)
 
 
 @contextmanager
@@ -1703,20 +161,20 @@ def rag_connection(settings: Settings | None = None) -> Iterator[sqlite3.Connect
 
 
 def _maybe_load_vector_extension(conn: sqlite3.Connection, settings: Settings) -> None:
-    _get_vector_manager().attempt_load(conn, settings.sqlite_vector_extension)
+    _maybe_load_vector_extension_impl(conn, extension_path=settings.sqlite_vector_extension)
 
 
 def vector_extension_available() -> bool:
-    return _get_vector_manager().get_state().available
+    return _vector_extension_available_impl()
 
 
 def get_vector_backend() -> VectorBackend:
-    return _get_vector_manager().get_state().backend
+    return _get_vector_backend_impl()
 
 
 def get_vector_load_error() -> str | None:
     """Return the error message from the last vector extension load attempt, if any."""
-    return _get_vector_manager().get_state().load_error
+    return _get_vector_load_error_impl()
 
 
 def reset_vector_backend() -> None:
@@ -1724,7 +182,7 @@ def reset_vector_backend() -> None:
 
     Call this when vector operations fail to force re-detection on next use.
     """
-    _get_vector_manager().reset()
+    _reset_vector_backend_impl()
 
 
 def init_core_db(settings: Settings | None = None) -> None:
@@ -1757,7 +215,7 @@ def get_core_schema_version(settings: Settings | None = None) -> int:
 
     Returns:
         The current schema version number (PRAGMA user_version).
-        Returns 0 if database doesn't exist or is uninitialized.
+        Returns 0 if database does not exist or is uninitialized.
     """
     settings = settings or get_settings()
     if not settings.core_db_path.exists():
@@ -1774,7 +232,7 @@ def get_rag_schema_version(settings: Settings | None = None) -> int:
 
     Returns:
         The current schema version number (PRAGMA user_version).
-        Returns 0 if database doesn't exist or is uninitialized.
+        Returns 0 if database does not exist or is uninitialized.
     """
     settings = settings or get_settings()
     if not settings.rag_db_path.exists():
@@ -1783,7 +241,7 @@ def get_rag_schema_version(settings: Settings | None = None) -> int:
         return _user_version(conn)
 
 
-def check_database_connectivity(settings: Settings | None = None) -> Dict[str, Dict[str, Any]]:
+def check_database_connectivity(settings: Settings | None = None) -> dict[str, dict[str, Any]]:
     """Check connectivity to both core and RAG databases.
 
     This function performs lightweight SELECT 1 queries to verify that
@@ -1800,10 +258,9 @@ def check_database_connectivity(settings: Settings | None = None) -> Dict[str, D
             - error: str | None - error message if check failed
     """
     settings = settings or get_settings()
-    results: Dict[str, Dict[str, Any]] = {}
+    results: dict[str, dict[str, Any]] = {}
 
-    # Check core database
-    core_result: Dict[str, Any] = {"ok": False, "latency_ms": 0.0, "error": None}
+    core_result: dict[str, Any] = {"ok": False, "latency_ms": 0.0, "error": None}
     try:
         start = time.monotonic()
         with core_connection(settings) as conn:
@@ -1814,8 +271,7 @@ def check_database_connectivity(settings: Settings | None = None) -> Dict[str, D
         core_result["error"] = f"{type(e).__name__}: {e}"
     results["core_db"] = core_result
 
-    # Check RAG database
-    rag_result: Dict[str, Any] = {"ok": False, "latency_ms": 0.0, "error": None}
+    rag_result: dict[str, Any] = {"ok": False, "latency_ms": 0.0, "error": None}
     try:
         start = time.monotonic()
         with rag_connection(settings) as conn:
@@ -1827,3 +283,42 @@ def check_database_connectivity(settings: Settings | None = None) -> Dict[str, D
     results["rag_db"] = rag_result
 
     return results
+
+
+__all__ = [
+    "VectorBackend",
+    "VectorExtensionManager",
+    "VectorExtensionState",
+    "SCHEMA_VERSION",
+    "RAG_SCHEMA_VERSION",
+    "PRAGMAS",
+    "_IDEMPOTENCY_PENDING_WAIT_SECONDS",
+    "_IDEMPOTENCY_PENDING_POLL_SECONDS",
+    "_CORE_SCHEMA",
+    "_CORE_MIGRATIONS",
+    "_RAG_SCHEMA",
+    "_get_vector_manager",
+    "_apply_pragmas",
+    "_user_version",
+    "_has_application_tables",
+    "_assert_schema",
+    "_initialize_schema_if_needed",
+    "_split_sql_statements",
+    "migrate_core_db",
+    "ensure_core_schema",
+    "_detect_vector_backend",
+    "_connect",
+    "core_connection",
+    "rag_connection",
+    "_maybe_load_vector_extension",
+    "vector_extension_available",
+    "get_vector_backend",
+    "get_vector_load_error",
+    "reset_vector_backend",
+    "init_core_db",
+    "init_rag_db",
+    "init_databases",
+    "get_core_schema_version",
+    "get_rag_schema_version",
+    "check_database_connectivity",
+]

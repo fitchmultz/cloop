@@ -23,6 +23,7 @@ import sqlite3
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+import litellm
 import numpy as np
 
 from .. import typingx
@@ -33,6 +34,25 @@ from .errors import ValidationError
 
 if TYPE_CHECKING:
     from .models import LoopRecord
+
+
+_EMBEDDING_VALIDATION_ERRORS = (
+    ValueError,
+    litellm.BadRequestError,
+    litellm.AuthenticationError,
+    litellm.APIConnectionError,
+    litellm.RateLimitError,
+    litellm.ServiceUnavailableError,
+    litellm.Timeout,
+)
+
+
+def _raise_semantic_embedding_validation_error(*, settings: Settings, exc: Exception) -> None:
+    """Raise a domain validation error for user-visible embedding failures."""
+    model = settings.embed_model
+    reason = str(exc).strip() or type(exc).__name__
+    message = f"semantic similarity is unavailable for embed model '{model}': {reason}"
+    raise ValidationError("semantic_search", message) from None
 
 
 def build_loop_semantic_text(
@@ -134,8 +154,8 @@ def ensure_loop_embeddings(
             [source_texts[loop_id] for loop_id in stale_loop_ids],
             settings=settings,
         )
-    except ValueError as exc:
-        raise ValidationError("semantic_search", str(exc)) from None
+    except _EMBEDDING_VALIDATION_ERRORS as exc:
+        _raise_semantic_embedding_validation_error(settings=settings, exc=exc)
 
     if len(vectors) != len(stale_loop_ids):
         raise ValidationError(
@@ -185,8 +205,8 @@ def rank_semantic_candidate_records(
 
     try:
         query_vectors = embed_texts([normalized_query], settings=settings)
-    except ValueError as exc:
-        raise ValidationError("semantic_search", str(exc)) from None
+    except _EMBEDDING_VALIDATION_ERRORS as exc:
+        _raise_semantic_embedding_validation_error(settings=settings, exc=exc)
     if len(query_vectors) != 1:
         raise ValidationError(
             "semantic_search",

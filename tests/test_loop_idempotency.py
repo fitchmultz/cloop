@@ -32,7 +32,6 @@ from conftest import _now_iso
 from fastapi.testclient import TestClient
 
 from cloop import db
-from cloop.main import app
 from cloop.settings import get_settings
 
 # =============================================================================
@@ -83,6 +82,8 @@ def test_loop_capture_idempotency_concurrent_replay(
         "client_tz_offset_min": 0,
     }
     headers = {"Idempotency-Key": "concurrent-key-1"}
+
+    from cloop.main import app
 
     def _capture_once() -> tuple[int, int]:
         with TestClient(app) as client:

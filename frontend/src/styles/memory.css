@@ -1,0 +1,179 @@
+.memory-panel,
+.memory-create-panel {
+  gap: 1rem;
+}
+
+.memory-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.memory-header-copy p,
+.memory-create-panel p {
+  margin: 0.4rem 0 0;
+  color: var(--color-text-muted, #666);
+}
+
+.memory-filter-form,
+.memory-create-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.memory-filter-grid,
+.memory-create-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.memory-filter-grid .memory-filter-wide,
+.memory-create-grid .memory-create-wide {
+  grid-column: 1 / -1;
+}
+
+.memory-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.memory-field-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.memory-field input,
+.memory-field select,
+.memory-field textarea {
+  width: 100%;
+}
+
+.memory-filter-actions,
+.memory-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.memory-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.memory-card {
+  border: 1px solid var(--color-border-soft, #d9d2cb);
+  border-radius: 16px;
+  background: var(--color-surface-elevated, #fffaf6);
+  padding: 1rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+}
+
+.memory-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.memory-card-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.memory-card-key {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.memory-card-key-empty {
+  color: var(--color-text-muted, #666);
+  font-weight: 500;
+}
+
+.memory-card-meta {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.memory-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(214, 107, 63, 0.12);
+  color: var(--color-text-strong, #3d2a23);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.memory-badge-source {
+  background: rgba(74, 122, 255, 0.12);
+}
+
+.memory-badge-priority {
+  background: rgba(47, 139, 97, 0.12);
+}
+
+.memory-card-content {
+  margin: 0.9rem 0 0;
+  line-height: 1.5;
+}
+
+.memory-card-details {
+  margin-top: 0.85rem;
+}
+
+.memory-card-details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.memory-card-details pre {
+  margin: 0.65rem 0 0;
+  padding: 0.85rem;
+  border-radius: 12px;
+  background: rgba(61, 42, 35, 0.05);
+  overflow-x: auto;
+  font-size: 0.85rem;
+}
+
+.memory-card-footer {
+  margin-top: 0.9rem;
+  color: var(--color-text-muted, #666);
+  font-size: 0.85rem;
+}
+
+.memory-empty-state {
+  border: 1px dashed var(--color-border-soft, #d9d2cb);
+  border-radius: 16px;
+  padding: 1.25rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 640px) {
+  .memory-header,
+  .memory-card-header,
+  .memory-filter-actions,
+  .memory-create-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .memory-card-actions {
+    justify-content: stretch;
+  }
+
+  .memory-card-actions button,
+  .memory-filter-actions button,
+  .memory-create-actions button {
+    width: 100%;
+  }
+}

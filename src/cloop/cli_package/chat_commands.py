@@ -65,15 +65,27 @@ def _parse_tool_arguments(args: Namespace) -> dict[str, Any]:
     return arguments
 
 
+def _require_string_key_mapping(value: object, *, context: str) -> dict[str, Any]:
+    """Validate that a decoded JSON value is a string-keyed object."""
+    if not isinstance(value, dict):
+        raise ValueError(f"{context} must be an object")
+
+    payload: dict[str, Any] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise ValueError(f"{context} must use string keys")
+        payload[key] = item
+    return payload
+
+
 def _load_messages_from_file(path: str) -> list[ChatMessage]:
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, list):
         raise ValueError("--messages-file must contain a JSON array of messages")
     messages: list[ChatMessage] = []
     for index, item in enumerate(raw, start=1):
-        if not isinstance(item, dict):
-            raise ValueError(f"message {index} in --messages-file must be an object")
-        messages.append(ChatMessage(**item))
+        message_payload = _require_string_key_mapping(item, context=f"message {index}")
+        messages.append(ChatMessage(**message_payload))
     return messages
 
 

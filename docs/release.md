@@ -17,7 +17,7 @@ make ci
 make test-all
 ```
 
-`make ci` includes formatting/lint/type/tests (excluding `performance`), metadata checks, and artifact validation (`twine check`).
+`make ci` includes formatting/lint/type/tests (excluding `performance`), explicit public-surface smoke checks (lightweight `import cloop`, `cloop.main:app`, backup CLI help), focused backup restore regression coverage, metadata checks, and artifact validation (`twine check`).
 
 ## 2) Update release metadata
 

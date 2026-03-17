@@ -180,6 +180,8 @@ def test_planning_workflow_cli(
     assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
     first_execution = _last_json(capsys)
     assert first_execution["execution"]["summary"]["touched_loop_ids"] == [1, 2]
+    assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
+    assert first_execution["execution"]["launch_surfaces"] == []
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
@@ -189,7 +191,11 @@ def test_planning_workflow_cli(
     second_execution = _last_json(capsys)
     assert second_execution["snapshot"]["session"]["status"] == "completed"
     assert second_execution["snapshot"]["session"]["executed_checkpoint_count"] == 2
-    assert second_execution["execution"]["summary"]["created_review_session_ids"]
+    assert second_execution["execution"]["follow_up_resources"]
+    assert (
+        second_execution["execution"]["launch_surfaces"][0]["surface"]
+        == "enrichment_review_session"
+    )
 
     with db.core_connection(settings) as conn:
         created_loop = repo.find_loop_by_raw_text(

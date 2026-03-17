@@ -288,6 +288,7 @@
 
 .planning-status-banner h3,
 .planning-loop-summary-card h5,
+.planning-follow-up-card h5,
 .planning-grounding-card strong {
   margin: 0;
 }
@@ -315,20 +316,24 @@
 .planning-grounding-card p,
 .planning-execution-result-copy,
 .planning-execution-output-label,
-.planning-loop-summary-card p {
+.planning-loop-summary-card p,
+.planning-follow-up-card p {
   color: var(--color-muted);
 }
 
 .planning-grounding-grid,
 .planning-loop-summary-grid,
-.planning-execution-output-list {
+.planning-execution-output-list,
+.planning-follow-up-grid {
   display: grid;
   gap: var(--space-3);
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
 .planning-grounding-card,
-.planning-loop-summary-card {
+.planning-loop-summary-card,
+.planning-follow-up-card,
+.planning-rollback-item {
   padding: var(--space-3);
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
@@ -367,7 +372,8 @@
 .planning-execution-history-header,
 .planning-execution-result-header,
 .planning-loop-collection-header,
-.planning-loop-summary-header {
+.planning-loop-summary-header,
+.planning-follow-up-card-header {
   display: flex;
   gap: var(--space-3);
   justify-content: space-between;
@@ -379,7 +385,8 @@
 .planning-operation-list,
 .planning-execution-history-list,
 .planning-execution-results,
-.planning-loop-collection {
+.planning-loop-collection,
+.planning-rollback-list {
   display: grid;
   gap: var(--space-3);
 }
@@ -415,8 +422,13 @@
 .planning-operation-summary,
 .planning-execution-result-copy,
 .planning-loop-summary-card p,
-.planning-grounding-card p {
+.planning-grounding-card p,
+.planning-follow-up-card p {
   margin: 0;
+}
+
+.planning-rollback-item strong {
+  color: var(--color-ink);
 }
 
 .planning-assumptions {

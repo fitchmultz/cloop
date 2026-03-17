@@ -59,7 +59,10 @@ from ...schemas.loops import (
     LoopWithDependenciesResponse,
     PlanningCheckpointExecutionResultResponse,
     PlanningCheckpointResponse,
+    PlanningExecutionFollowUpResourceResponse,
     PlanningExecutionHistoryItemResponse,
+    PlanningExecutionLaunchSurfaceResponse,
+    PlanningExecutionRollbackCueResponse,
     PlanningSessionExecuteResponse,
     PlanningSessionResponse,
     PlanningSessionSnapshotResponse,
@@ -441,6 +444,27 @@ def build_planning_checkpoint_execution_result_response(
     )
 
 
+def build_planning_execution_launch_surface_response(
+    surface: Mapping[str, Any],
+) -> PlanningExecutionLaunchSurfaceResponse:
+    """Convert one planning launch-surface payload into the response model."""
+    return PlanningExecutionLaunchSurfaceResponse.model_validate(dict(surface))
+
+
+def build_planning_execution_follow_up_resource_response(
+    resource: Mapping[str, Any],
+) -> PlanningExecutionFollowUpResourceResponse:
+    """Convert one planning follow-up resource payload into the response model."""
+    return PlanningExecutionFollowUpResourceResponse.model_validate(dict(resource))
+
+
+def build_planning_execution_rollback_cue_response(
+    rollback_cues: Mapping[str, Any],
+) -> PlanningExecutionRollbackCueResponse:
+    """Convert planning rollback cues into the response model."""
+    return PlanningExecutionRollbackCueResponse.model_validate(dict(rollback_cues))
+
+
 def build_planning_execution_history_item_response(
     item: Mapping[str, Any],
 ) -> PlanningExecutionHistoryItemResponse:
@@ -455,6 +479,17 @@ def build_planning_execution_history_item_response(
             for result in item.get("results", [])
         ],
         summary=dict(item.get("summary") or {}),
+        follow_up_resources=[
+            build_planning_execution_follow_up_resource_response(resource)
+            for resource in item.get("follow_up_resources", [])
+        ],
+        launch_surfaces=[
+            build_planning_execution_launch_surface_response(surface)
+            for surface in item.get("launch_surfaces", [])
+        ],
+        rollback_cues=build_planning_execution_rollback_cue_response(
+            item.get("rollback_cues") or {}
+        ),
     )
 
 

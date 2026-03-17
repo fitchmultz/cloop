@@ -157,6 +157,8 @@ def test_planning_workflow_tools(
 
     first_execution = plan_session_execute(session_id=session_id)
     assert first_execution["execution"]["summary"]["touched_loop_ids"] == [first_id, second_id]
+    assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
+    assert first_execution["execution"]["launch_surfaces"] == []
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
@@ -165,10 +167,22 @@ def test_planning_workflow_tools(
     second_execution = plan_session_execute(session_id=session_id)
     assert second_execution["snapshot"]["session"]["status"] == "completed"
     assert second_execution["snapshot"]["session"]["executed_checkpoint_count"] == 2
-    assert second_execution["execution"]["summary"]["created_review_session_ids"]
+    assert (
+        second_execution["execution"]["follow_up_resources"][0]["resource_type"] == "review_session"
+    )
+    assert (
+        second_execution["execution"]["launch_surfaces"][0]["surface"]
+        == "enrichment_review_session"
+    )
+    assert (
+        second_execution["execution"]["launch_surfaces"][0]["mcp"]["tool"]
+        == "review.enrichment_session.get"
+    )
 
     loaded = plan_session_get(session_id=session_id)
     assert loaded["session"]["status"] == "completed"
+    assert loaded["execution_history"][-1]["launch_surfaces"]
+    assert loaded["execution_history"][-1]["follow_up_resources"]
 
     refreshed = plan_session_refresh(session_id=session_id)
     assert refreshed["plan_title"] == "Refreshed weekly launch reset"

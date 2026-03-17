@@ -22,18 +22,25 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Shared saved review actions + sessions | `src/cloop/loops/review_workflows.py` |
 | Shared planning workflows | `src/cloop/loops/planning_workflows.py` |
 | Shared direct memory management | `src/cloop/memory_management.py`, `src/cloop/storage/memory_store.py` |
+| Backup/restore facade + internals | `src/cloop/backup.py`, `src/cloop/_backup/` |
+| LLM/manual tool executors + registry | `src/cloop/tools.py`, `src/cloop/_tools/` |
 | Shared semantic loop search + similarity indexing | `src/cloop/loops/read_service.py`, `src/cloop/loops/similarity.py` |
 | Embedding-provider resolution | `src/cloop/embedding_providers.py`, `src/cloop/litellm_retry.py`, `src/cloop/embeddings.py` |
+| CLI loop parser tree | `src/cloop/cli_package/parsers/loop.py`, `src/cloop/cli_package/parsers/_loop/` |
 | API routes | `src/cloop/routes/*.py` |
 | Schemas | `src/cloop/schemas/*.py` |
 | Loop management | `src/cloop/loops/` |
 | RAG | `src/cloop/rag/` |
-| Database schema + infra DB wiring | `src/cloop/db.py` |
+| Database schema + infra DB wiring | `src/cloop/db.py`, `src/cloop/_db/` |
 | Feature-owned persistence stores | `src/cloop/storage/` |
-| Scheduler | `src/cloop/scheduler.py` |
+| Scheduler storage facade + internals | `src/cloop/storage/scheduler_store.py`, `src/cloop/storage/_scheduler_store/` |
+| Scheduler runtime facade + internals | `src/cloop/scheduler.py`, `src/cloop/_scheduler/` |
 | CLI | `src/cloop/cli.py` |
 | MCP server | `src/cloop/mcp_server.py` |
 | Design/Architecture | `docs/architecture.md` |
+| Frontend source workspace | `frontend/` |
+| Frontend operator shell + state navigation | `frontend/src/shell.ts`, `frontend/index.html`, `frontend/src/styles/operator.css` |
+| Built frontend assets served by FastAPI | `src/cloop/static/dist/`, `src/cloop/web.py` |
 | Product roadmap | `docs/roadmap.md` |
 | Repo templates/workflows | `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/*` |
 | Public docs | `docs/architecture.md`, `docs/roadmap.md`, `docs/ci_strategy.md`, `docs/verification_checklist.md`, `docs/release.md` |
@@ -67,7 +74,14 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **CI test contract**: `make ci` runs quality + tests excluding `performance` + packaging; use `make test-all` for exhaustive marker-inclusive runs.
 - **Safe first-run defaults**: `CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false`; enable explicitly when validating automation paths.
 - **Autopilot + embeddings config**: if `CLOOP_AUTOPILOT_ENABLED=true` and `CLOOP_EMBED_MODEL` points to an unconfigured provider (e.g., `ollama/...` without `CLOOP_OLLAMA_API_BASE`), enrichment now logs a single skip warning (no traceback) and still completes organizer suggestions.
-- **Frontend cache behavior**: root HTML injects a version query onto `init.js`, and `/static` serves JS/CSS with `Cache-Control: no-cache`; browser UI verification should still prefer a fresh tab/profile if a session appears to hold stale ES module state.
+- **Frontend source of truth**: Vite + strict TypeScript tooling now lives under `frontend/`; built assets in `src/cloop/static/dist/` are the served runtime, while legacy shell modules under `frontend/src/legacy/` are temporary compatibility code and should not receive new operator-shell architecture work.
+- **Frontend shell routing**: the operator-first state navigation and workspace aggregator now live in `frontend/src/shell.ts`, using hash-based deep links (`#operator`, `#do/loop/:id`, `#plan/session/:id`, `#decide/{relationship|enrichment}/:id`, `#recall/{chat|memory|rag}`) while bridge-clicking the hidden legacy tabs for current data loading.
+- **Operator action-card source of truth**: typed shell-only card contracts live in `frontend/src/contracts-ui.ts`, rendering helpers live in `frontend/src/operator-action-cards.ts`, and the operator workspace should express planning/review/recall handoffs through that shared card model instead of ad-hoc summary markup.
+- **Review workspace source of truth**: the redesigned decision workspace for planning, relationship review, enrichment review, and hygiene cohorts lives in `frontend/src/review-workspace.ts`; keep new review UX there and treat `frontend/src/legacy/review.js` / `planning.js` as compatibility-only.
+- **Working-set source of truth**: durable working-set and focus-mode backend orchestration live in `src/cloop/loops/working_sets.py` with HTTP routes in `src/cloop/routes/loops/working_sets.py`, while the operator-shell rendering/integration lives in `frontend/src/shell.ts`; keep working-set UX there instead of reviving localStorage-only pinning.
+- **Command-palette source of truth**: the keyboard-first command model, ranking, and quick-action execution live in `frontend/src/command-palette.ts` and `frontend/src/command-palette-ranking.ts`; extend those modules instead of scattering ad-hoc hotkeys or one-off shell action launchers.
+- **Local data reset**: `make reset-local-data` is the canonical way to wipe and recreate the default repo-local `data/` directory when a developer wants a clean SQLite state.
+- **Frontend cache behavior**: FastAPI now serves the built Vite shell from `src/cloop/static/dist/`; hashed `/static/assets/*` files should be immutable, while root HTML, service worker, and mutable static files stay `no-cache`. Browser UI verification should still prefer a fresh tab/profile if a session appears to hold stale ES module state.
 - **Comments UX**: comment threads are lazy-loaded on expand; collapsed loop cards should show a neutral `Comments` label until opened, not a loading placeholder.
 - **Idempotent mutations**: shared prepare/replay/finalize flow now lives in `src/cloop/idempotency_flow.py`; MCP tools should layer on `src/cloop/mcp_tools/_idempotency.py` instead of reimplementing claim/replay logic.
 - **Mutation helpers**: loop HTTP routes should use `src/cloop/routes/loops/_common.py::run_idempotent_loop_route`, and MCP mutations should use `src/cloop/mcp_tools/_mutation.py::run_idempotent_tool_mutation` to avoid hand-rolled replay/finalize code.
@@ -79,6 +93,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Comment mutations**: `src/cloop/loops/comments.py` commits exactly once after the full comment write + loop event insert + webhook queue succeeds; do not reintroduce intermediate commits in that flow.
 - **Bulk mutations**: `src/cloop/loops/bulk.py` should delegate single-item update/close/snooze behavior to the shared mutation helpers in `src/cloop/loops/write_ops.py`; do not fork those business rules back into bulk-specific copies.
 - **Storage ownership**: notes, memory, interaction logging, idempotency, and scheduler state belong under `src/cloop/storage/*`; `src/cloop/db.py` should stay infra-only.
+- **DB facade boundary**: `src/cloop/db.py` is the canonical public DB surface, while schema SQL/constants, migration helpers, connection helpers, and vector-extension state now live under `src/cloop/_db/`; callers should keep importing the facade instead of reaching into `_db` directly.
 - **Capture orchestration**: shared capture/template/recurrence/enrichment setup lives in `src/cloop/loops/capture_orchestration.py`; HTTP, CLI, and MCP capture entrypoints should delegate there instead of maintaining parallel capture flows.
 - **Enrichment review orchestration**: suggestion listing/get/apply/reject plus clarification listing/answering belong in `src/cloop/loops/enrichment_review.py`, while answer-plus-rerun conversational refinement belongs in `src/cloop/loops/enrichment_orchestration.py`; HTTP routes, web UI, CLI, and MCP should reuse those modules instead of inventing transport-specific clarification payloads, rerun sequences, or duplicate answer rows.
 - **Direct memory orchestration**: direct memory list/search/get/create/update/delete now belong in `src/cloop/memory_management.py`; HTTP routes, web UI, CLI, MCP, and memory tool executors should reuse that module instead of talking to `storage/memory_store.py` directly or inventing transport-specific memory validation.
@@ -86,9 +101,16 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Relationship review orchestration**: duplicate/related review, queueing, confirm/dismiss decisions, and merge-resolution state now belong in `src/cloop/loops/relationship_review.py`; HTTP routes, web UI, CLI, and MCP should reuse that module instead of inventing transport-specific similarity or relationship-state logic.
 - **Saved review workflows**: durable review action presets, filtered review sessions, cursor preservation, and session-scoped relationship/enrichment review execution now belong in `src/cloop/loops/review_workflows.py`; transports should reuse `/loops/review/*`, `cloop review *`, and `review.*` instead of rebuilding ad-hoc queue state.
 - **Planning workflows**: checkpointed AI-native planning sessions, grounded plan refresh, broader deterministic checkpoint execution (loops, query-bulk mutations, saved views/templates, saved review sessions), rollback/provenance metadata, and execution history now belong in `src/cloop/loops/planning_workflows.py`; transports should reuse `/loops/planning/*`, the Review-tab planning workspace, `cloop plan session *`, and `plan.session.*` instead of inventing transport-local workflow state.
+- **Planning execution handoff**: canonical planning execution payloads should expose `summary`, `follow_up_resources`, `launch_surfaces`, and `rollback_cues`; HTTP, CLI, MCP, and web should relay or render those fields directly instead of re-deriving created review sessions, views, templates, or undo hints client-side.
+- **Saved review-session handoff**: if a planning checkpoint creates a saved relationship/enrichment review session, treat that session as the next queue and open it through the existing `src/cloop/loops/review_workflows.py` transport/state paths instead of a planning-specific fork.
 - **RAG execution orchestration**: shared retrieval ingest/ask execution and interaction logging now live in `src/cloop/rag_execution.py`, while retrieval + prompt + answer shaping live in `src/cloop/rag/ask_orchestration.py`; HTTP, CLI, and MCP retrieval flows should reuse those modules instead of forking behavior by transport.
 - **Chat execution orchestration**: shared grounded chat preparation lives in `src/cloop/chat_orchestration.py`, and shared execution/logging lives in `src/cloop/chat_execution.py`; HTTP, CLI, and MCP chat flows should reuse those modules instead of rebuilding tool handling, response shaping, or interaction logging per transport.
+- **Tool facade boundary**: `src/cloop/tools.py` is the canonical public tool surface, while tool executors/definitions/registry helpers now live under `src/cloop/_tools/`; callers should keep importing the facade instead of reaching into `_tools` directly.
+- **Backup facade boundary**: `src/cloop/backup.py` is the canonical public backup surface, while manifesting/archive/restore/inventory/verification internals now live under `src/cloop/_backup/`; callers should keep importing the facade instead of reaching into `_backup` directly.
+- **Scheduler facade boundary**: `src/cloop/scheduler.py` is the canonical public scheduler surface, while cadence/task/runtime/CLI internals now live under `src/cloop/_scheduler/`; callers should keep importing the facade instead of reaching into `_scheduler` directly.
+- **Scheduler storage facade boundary**: `src/cloop/storage/scheduler_store.py` is the canonical public scheduler storage surface, while focused task-run/schedule/push internals now live under `src/cloop/storage/_scheduler_store/`; internal scheduler runtime modules should import those focused internals instead of regrowing the facade or open-coding scheduler SQL.
 - **CLI runtime**: loop-adjacent CLI handlers should centralize connection handling, expected exception mapping, and output/render orchestration through `src/cloop/cli_package/_runtime.py` instead of open-coding `with db.core_connection(...)` and per-command stderr/exit-code trees.
+- **Loop parser facade boundary**: `src/cloop/cli_package/parsers/loop.py` is the canonical public loop-parser entrypoint, while focused parser builders now live under `src/cloop/cli_package/parsers/_loop/`; parser registration should keep importing the facade.
 - **MCP runtime**: keep FastMCP decorator/error-wrapping helpers in `src/cloop/mcp_tools/_runtime.py`; `src/cloop/mcp_server.py` should stay focused on server assembly.
 - **MCP operator docs**: docstrings on `chat.complete`, `plan.session.*`, and `review.*` are part of the operator-facing surface; keep Args/Returns/examples rich and aligned with README/workflow docs when those tools change.
 - **Generative runtime boundary**: pi owns chat/organizer generation through the local bridge (`src/cloop/ai_bridge/`, `src/cloop/pi_bridge/`), but Python remains the source of truth for loop state, tool execution, routing, and storage.
@@ -104,3 +126,4 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Mobile capture behavior**: the quick-capture form should keep raw text, core status toggles, due date, and next action visible; secondary metadata (minutes, effort, project, tags) should collapse behind an explicit `Add details` control on phone-sized widths.
 - **Mobile utility buttons**: small filter/footer utility actions should not inherit the blanket full-width mobile button treatment when that makes the UI look broken or detached.
 - **Interaction logging**: provider metadata may include non-JSON helper objects (for example LiteLLM usage objects); logging code must sanitize or serialize them safely instead of assuming plain dicts.
+nteraction logging**: provider metadata may include non-JSON helper objects (for example LiteLLM usage objects); logging code must sanitize or serialize them safely instead of assuming plain dicts.

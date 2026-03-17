@@ -1,23 +1,30 @@
-"""Cloop FastAPI application entry point.
-
-Purpose:
-    Create and configure the FastAPI application with all routers.
+"""Purpose: Define the explicit FastAPI application entrypoint for Cloop.
 
 Responsibilities:
-    - FastAPI app creation and lifespan management
-    - Router mounting for modular endpoints
-    - Static file serving for web UI
+    - Provide the explicit ASGI application factory and canonical module-level app.
+    - Register routers, static files, lifespan behavior, and exception handlers.
+    - Expose health and settings dependency helpers for transport wiring.
+
+Scope:
+    - FastAPI bootstrap and HTTP transport registration only.
+    - Health aggregation for transport-level dependency visibility.
 
 Non-scope:
-    - Business logic (see loops/service.py)
-    - Database schema (see db.py)
-- Exception handler registration
-- Health endpoint (kept here for simplicity)
+    - Business logic, persistence, and orchestration.
+    - CLI, MCP, or frontend-specific runtime entrypoints.
 
-All request/response models are in schemas/
-All route handlers are in routes/
-All exception handlers are in handlers.py
+Usage:
+    - Run `uv run uvicorn cloop.main:app --reload` for local development.
+    - Import `create_app()` when a caller needs a fresh FastAPI instance.
+    - Import `app` for ASGI servers and tests that want the canonical app surface.
+
+Invariants/Assumptions:
+    - Package-root imports stay lightweight; application boot lives here explicitly.
+    - Business logic, storage, and orchestration stay outside this module.
+    - Lifespan owns database initialization and bridge runtime shutdown.
 """
+
+from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -45,33 +52,44 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         shutdown_bridge_runtime()
 
 
-app = FastAPI(title="Cloop LLM Service", version=__version__, lifespan=lifespan)
-
-# Mount static files directly on app (APIRouter.mount doesn't propagate via include_router)
-app.mount("/static", web.CloopStaticFiles(directory=web._STATIC_DIR), name="static")
-
-app.include_router(web.router)
-app.include_router(chat_router)
-app.include_router(loops_router)
-app.include_router(memory_router)
-app.include_router(rag_router)
-register_exception_handlers(app)
-
-
 def get_app_settings() -> Settings:
+    """Return cached application settings for request-time dependency injection."""
     return get_settings()
 
 
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 
 
+def create_app() -> FastAPI:
+    """Create and configure the FastAPI application instance."""
+    app = FastAPI(title="Cloop LLM Service", version=__version__, lifespan=lifespan)
+
+    # Mount built static files directly on app.
+    # APIRouter.mount() does not propagate via include_router().
+    app.mount(
+        "/static",
+        web.CloopStaticFiles(directory=web.FRONTEND_DIST_DIR, check_dir=False),
+        name="static",
+    )
+
+    app.include_router(web.router)
+    app.include_router(chat_router)
+    app.include_router(loops_router)
+    app.include_router(memory_router)
+    app.include_router(rag_router)
+    register_exception_handlers(app)
+    return app
+
+
+app = create_app()
+
+
 @app.get("/health", response_model=HealthResponse)
 @app.get("/healthz", response_model=HealthResponse, include_in_schema=False)
 def health_endpoint(settings: SettingsDep) -> HealthResponse:
-    # Run dependency checks
+    """Report dependency and configuration health for the running application."""
     db_checks = db.check_database_connectivity(settings)
 
-    # Build check status objects
     checks: dict[str, DependencyStatus] = {}
     all_ok = True
 
@@ -102,7 +120,6 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         checks["pi_bridge"] = DependencyStatus(ok=False, latency_ms=0.0, error=str(exc))
         all_ok = False
 
-    # Get existing configuration info
     backend = db.get_vector_backend()
     vector_available = db.vector_extension_available()
     vector_load_error = db.get_vector_load_error()
@@ -117,7 +134,7 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
     )
 
     return HealthResponse(
-        ok=all_ok,  # Now based on actual dependency health
+        ok=all_ok,
         ai_backend="pi",
         chat_model=settings.pi_model,
         organizer_model=settings.pi_organizer_model,
@@ -138,3 +155,6 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         retrieval_metric=metric,
         checks=checks,
     )
+
+
+__all__ = ["app", "create_app", "get_app_settings", "SettingsDep", "health_endpoint"]

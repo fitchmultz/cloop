@@ -1,0 +1,1097 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#d66b3f">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Cloop">
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <title>Cloop Loops</title>
+
+    <!-- Styles are imported via frontend/src/main.ts -->
+  </head>
+  <body>
+    <a class="skip-link" href="#operator-main">Skip to main content</a>
+
+    <header class="app-header">
+      <div>
+        <p class="shell-kicker">Cloop operator system</p>
+        <h1>Cloop Loops <span id="sse-status" class="sse-status reconnecting" title="Connecting..."></span></h1>
+        <p id="shell-description">Open to one calm workspace, then move through capture, do, decide, plan, review, and recall without translating subsystem names.</p>
+      </div>
+      <div class="shell-header-actions">
+        <button type="button" id="shell-primary-action" data-shell-primary-action>Capture something</button>
+        <button class="secondary shell-command-palette-btn" type="button" id="shell-command-palette-btn" aria-haspopup="dialog" aria-controls="command-palette">
+          Command palette
+          <span class="shortcut-hint">⌘K</span>
+        </button>
+        <button class="secondary" type="button" id="shell-refresh-workspace-btn">Refresh workspace</button>
+      </div>
+    </header>
+
+    <div id="offline-banner" class="offline-banner" role="status" aria-live="polite" aria-atomic="true">
+      <span class="sync-status">
+        <span class="spinner"></span>
+        Offline - captures will sync when connected
+      </span>
+    </div>
+
+    <section class="shell-status-bar" aria-label="Current work state">
+      <div class="shell-status-copy">
+        <p class="support-eyebrow">Current surface</p>
+        <h2 id="shell-title">Operator workspace</h2>
+        <p id="shell-context">Start from what deserves attention now, then launch directly into the next relevant queue or work mode.</p>
+      </div>
+      <div class="shell-status-meta">
+        <span id="shell-route-pill" class="review-session-chip">Home</span>
+        <span id="shell-last-visit" class="support-status" role="status" aria-live="polite">Preparing your operator workspace…</span>
+      </div>
+    </section>
+
+    <nav class="state-nav" aria-label="Work states">
+      <button class="state-nav-btn active" type="button" data-shell-state="operator" aria-current="page">Home<span class="shortcut-hint">1</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="capture">Capture<span class="shortcut-hint">2</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="do">Do<span class="shortcut-hint">3</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="decide">Decide<span class="shortcut-hint">4</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="plan">Plan<span class="shortcut-hint">5</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="review">Review<span class="shortcut-hint">6</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="recall">Recall<span class="shortcut-hint">7</span></button>
+    </nav>
+
+    <div id="recall-subnav" class="state-subnav" hidden>
+      <p class="support-eyebrow">Recall tools</p>
+      <div class="state-subnav-actions" role="group" aria-label="Recall tools">
+        <button class="secondary state-subnav-btn active" type="button" data-recall-tool="chat">Grounded chat</button>
+        <button class="secondary state-subnav-btn" type="button" data-recall-tool="memory">Memory</button>
+        <button class="secondary state-subnav-btn" type="button" data-recall-tool="rag">Documents</button>
+      </div>
+    </div>
+
+    <section id="working-set-focus-banner" class="working-set-focus-banner" aria-label="Active working set" hidden>
+      <div id="working-set-focus-summary" class="working-set-focus-summary"></div>
+      <div class="working-set-focus-actions">
+        <button type="button" id="working-set-focus-toggle-btn">Enter focus mode</button>
+        <button class="secondary" type="button" id="working-set-exit-focus-btn">Exit set</button>
+      </div>
+      <div id="working-set-focus-items" class="working-set-focus-items"></div>
+    </section>
+
+    <nav class="tabs shell-bridge-tabs" role="tablist" aria-label="Legacy primary surfaces" hidden>
+      <button class="tab active" data-tab="inbox" role="tab" aria-selected="true" id="tab-inbox" aria-controls="inbox-main" type="button">Inbox<span class="shortcut-hint">1</span></button>
+      <button class="tab" data-tab="next" role="tab" aria-selected="false" id="tab-next" aria-controls="next-main" type="button">Next<span class="shortcut-hint">2</span></button>
+      <button class="tab" data-tab="chat" role="tab" aria-selected="false" id="tab-chat" aria-controls="chat-main" type="button">Chat<span class="shortcut-hint">3</span></button>
+      <button class="tab" data-tab="memory" role="tab" aria-selected="false" id="tab-memory" aria-controls="memory-main" type="button">Memory<span class="shortcut-hint">4</span></button>
+      <button class="tab" data-tab="rag" role="tab" aria-selected="false" id="tab-rag" aria-controls="rag-main" type="button">RAG<span class="shortcut-hint">5</span></button>
+      <button class="tab" data-tab="review" role="tab" aria-selected="false" id="tab-review" aria-controls="review-main" type="button">Review<span class="shortcut-hint">6</span></button>
+      <button class="tab" data-tab="metrics" role="tab" aria-selected="false" id="tab-metrics" aria-controls="metrics-main" type="button">Metrics<span class="shortcut-hint">7</span></button>
+    </nav>
+
+    <main class="operator-main" id="operator-main" tabindex="-1">
+      <section class="operator-zone operator-zone-hero panel">
+        <div class="operator-zone-heading">
+          <div>
+            <p class="support-eyebrow">Default landing workspace</p>
+            <h2>See the day as decisions, execution, and resume points</h2>
+            <p class="support-copy">The operator workspace aggregates deterministic queues, saved sessions, plan handoffs, and recent changes so you can launch the next useful surface without tab hunting.</p>
+          </div>
+          <div class="operator-zone-actions">
+            <button type="button" data-shell-state="capture">Capture new work</button>
+            <button class="secondary" type="button" data-shell-state="do">Open ready work</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="operator-grid">
+        <section class="operator-zone panel" aria-labelledby="operator-now-title">
+          <div class="operator-zone-heading">
+            <div>
+              <p class="support-eyebrow">Now</p>
+              <h2 id="operator-now-title">Executable next moves</h2>
+            </div>
+            <button class="secondary operator-refresh-btn" type="button" data-operator-refresh="now">Refresh</button>
+          </div>
+          <div id="operator-now" class="operator-zone-body">
+            <p class="operator-empty">Loading prioritized work…</p>
+          </div>
+        </section>
+
+        <section class="operator-zone panel" aria-labelledby="operator-decisions-title">
+          <div class="operator-zone-heading">
+            <div>
+              <p class="support-eyebrow">Decisions</p>
+              <h2 id="operator-decisions-title">Decision queues with action cards</h2>
+            </div>
+            <button class="secondary operator-refresh-btn" type="button" data-operator-refresh="decisions">Refresh</button>
+          </div>
+          <div id="operator-decisions" class="operator-zone-body">
+            <p class="operator-empty">Loading decision surfaces…</p>
+          </div>
+        </section>
+
+        <section class="operator-zone panel" aria-labelledby="operator-plan-title">
+          <div class="operator-zone-heading">
+            <div>
+              <p class="support-eyebrow">Plan in motion</p>
+              <h2 id="operator-plan-title">Planning action cards and handoffs</h2>
+            </div>
+            <button class="secondary operator-refresh-btn" type="button" data-operator-refresh="plan">Refresh</button>
+          </div>
+          <div id="operator-plan" class="operator-zone-body">
+            <p class="operator-empty">Loading planning sessions…</p>
+          </div>
+        </section>
+
+        <section class="operator-zone panel" aria-labelledby="operator-recall-title">
+          <div class="operator-zone-heading">
+            <div>
+              <p class="support-eyebrow">Recall support</p>
+              <h2 id="operator-recall-title">Recall suggestions and context handoffs</h2>
+            </div>
+            <button class="secondary operator-refresh-btn" type="button" data-operator-refresh="recall">Refresh</button>
+          </div>
+          <div id="operator-recall" class="operator-zone-body">
+            <p class="operator-empty">Preparing recall suggestions…</p>
+          </div>
+        </section>
+
+        <section class="operator-zone panel" aria-labelledby="operator-since-last-title">
+          <div class="operator-zone-heading">
+            <div>
+              <p class="support-eyebrow">Since last visit</p>
+              <h2 id="operator-since-last-title">What changed while you were away</h2>
+            </div>
+            <button class="secondary operator-refresh-btn" type="button" data-operator-refresh="changes">Refresh</button>
+          </div>
+          <div id="operator-since-last" class="operator-zone-body">
+            <p class="operator-empty">Comparing recent activity…</p>
+          </div>
+        </section>
+
+        <section class="operator-zone panel" aria-labelledby="operator-working-set-title">
+          <div class="operator-zone-heading">
+            <div>
+              <p class="support-eyebrow">Working sets</p>
+              <h2 id="operator-working-set-title">Durable focus sets and resume anchors</h2>
+            </div>
+            <button class="secondary" type="button" id="operator-create-working-set-btn">New working set</button>
+          </div>
+          <div id="operator-working-set" class="operator-zone-body">
+            <p class="operator-empty">Save a bounded slice of loops, sessions, and anchors so you can resume the exact operational context later.</p>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- Inbox Tab -->
+    <main id="inbox-main" tabindex="-1">
+      <section class="panel">
+        <h2>Quick capture</h2>
+        <form id="capture-form">
+          <div class="form-row template-row">
+            <label for="template-select" class="form-label">template:</label>
+            <select id="template-select" class="input-flex">
+              <option value="">None</option>
+            </select>
+          </div>
+          <label for="raw-text" class="sr-only">Loop text</label>
+          <textarea id="raw-text" placeholder="Drop a loop, idea, or task..." required></textarea>
+          <div class="toggles">
+            <label class="toggle">
+              <input type="checkbox" id="actionable">
+              Actionable
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="scheduled">
+              Scheduled
+            </label>
+            <label class="toggle">
+              <input type="checkbox" id="blocked">
+              Blocked
+            </label>
+          </div>
+          <div class="form-row wrap capture-core-row">
+            <label for="due-date" class="sr-only">Due date</label>
+            <input
+              type="text"
+              id="due-date"
+              class="input-flex-sm"
+              placeholder="MM/DD/YYYY"
+              inputmode="numeric"
+              autocomplete="off"
+              maxlength="10"
+            >
+            <label for="next-action" class="sr-only">Next action</label>
+            <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Next action">
+          </div>
+          <button
+            type="button"
+            id="capture-details-toggle"
+            class="secondary capture-details-toggle"
+            aria-expanded="false"
+            aria-controls="capture-details"
+          >
+            Add details
+          </button>
+          <div id="capture-details" class="form-row wrap metadata-row capture-details" hidden>
+            <label for="time-minutes" class="sr-only">Estimated minutes</label>
+            <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
+            <label for="activation-energy" class="sr-only">Activation energy</label>
+            <select id="activation-energy" class="input-w-md">
+              <option value="">Effort</option>
+              <option value="0">0 - Trivial</option>
+              <option value="1">1 - Easy</option>
+              <option value="2">2 - Medium</option>
+              <option value="3">3 - Hard</option>
+            </select>
+            <label for="project" class="sr-only">Project</label>
+            <input type="text" id="project" class="input-w-lg input-min-sm" placeholder="Project">
+            <label for="tags" class="sr-only">Tags</label>
+            <input type="text" id="tags" class="input-w-xl input-min-md" placeholder="Tags (comma sep)">
+          </div>
+          <div class="actions">
+            <span id="status" class="loop-meta" role="status" aria-live="polite" aria-atomic="true">Ready.</span>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Inbox</h2>
+        <div class="filters">
+          <label for="query-mode-filter">mode:</label>
+          <select id="query-mode-filter">
+            <option value="dsl" selected>dsl</option>
+            <option value="semantic">semantic</option>
+          </select>
+          <label for="query-filter">query:</label>
+          <input
+            type="text"
+            id="query-filter"
+            class="query-input input-flex"
+            placeholder="e.g., status:inbox due:today"
+          >
+        </div>
+        <div class="filters">
+          <label for="status-filter">show:</label>
+          <select id="status-filter">
+            <option value="open" selected>open</option>
+            <option value="inbox">inbox</option>
+            <option value="actionable">actionable</option>
+            <option value="blocked">blocked</option>
+            <option value="scheduled">scheduled</option>
+            <option value="completed">completed</option>
+            <option value="dropped">dropped</option>
+            <option value="all">all</option>
+          </select>
+          <label for="tag-filter">tag:</label>
+          <select id="tag-filter">
+            <option value="" selected>all tags</option>
+          </select>
+          <label for="view-filter">view:</label>
+          <select id="view-filter">
+            <option value="" selected>-</option>
+          </select>
+          <button class="tag-add" type="button" id="save-view-btn">save</button>
+        </div>
+        <div id="inbox" class="inbox-list"></div>
+      </section>
+    </main>
+
+    <!-- Chat Tab -->
+    <main class="workspace-main chat-main" id="chat-main">
+      <div class="workspace-primary">
+        <section class="panel chat-panel">
+          <div class="chat-header">
+            <div class="chat-header-copy">
+              <h2>Chat</h2>
+              <p id="chat-thread-status" class="chat-thread-status">No saved thread yet. Send a message to keep this conversation across reloads.</p>
+            </div>
+            <button type="button" id="chat-reset-btn" class="secondary chat-reset-btn" hidden>New thread</button>
+          </div>
+          <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat conversation">
+            <div class="chat-placeholder">
+              <strong class="chat-placeholder-title">No saved thread in this browser yet.</strong>
+              <p class="chat-placeholder-body">Send your first message to save this conversation across reloads. Ask about your real work: "What should I focus on next?", "What is blocked?", or "What is due soon?"</p>
+            </div>
+          </div>
+          <form id="chat-form" class="chat-form">
+            <label for="chat-input" class="sr-only">Chat message</label>
+            <input
+              type="text"
+              id="chat-input"
+              placeholder="Type a message..."
+              autocomplete="off"
+              required
+            >
+            <button type="submit">Send</button>
+          </form>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Chat support">
+        <section class="panel support-panel support-panel-feature chat-controls-panel">
+          <p class="support-eyebrow">Conversation controls</p>
+          <h3>Choose how grounded and how tool-capable this thread should be</h3>
+          <p class="support-copy">Loop and memory grounding stay on by default. Enable document grounding when you want knowledge-base evidence in the same thread, or let the assistant use tools when you want it to act instead of only advise.</p>
+          <div class="chat-controls-grid">
+            <label class="chat-control chat-control-block" for="chat-tool-mode">
+              <span class="chat-control-label">Tool mode</span>
+              <select id="chat-tool-mode">
+                <option value="none">Assistant only</option>
+                <option value="llm">Assistant + tools</option>
+              </select>
+            </label>
+            <label class="chat-control toggle" for="chat-loop-context">
+              <input type="checkbox" id="chat-loop-context" checked>
+              Include loop context
+            </label>
+            <label class="chat-control toggle" for="chat-memory-context">
+              <input type="checkbox" id="chat-memory-context" checked>
+              Include memory context
+            </label>
+            <label class="chat-control chat-control-inline" for="chat-memory-limit">
+              <span class="chat-control-label">Memory limit</span>
+              <input type="number" id="chat-memory-limit" min="1" max="50" step="1" value="10">
+            </label>
+            <label class="chat-control toggle" for="chat-rag-context">
+              <input type="checkbox" id="chat-rag-context">
+              Include document context
+            </label>
+            <label class="chat-control chat-control-inline" for="chat-rag-k">
+              <span class="chat-control-label">Document chunks</span>
+              <input type="number" id="chat-rag-k" min="1" max="20" step="1" value="5">
+            </label>
+            <label class="chat-control chat-control-block chat-control-span" for="chat-rag-scope">
+              <span class="chat-control-label">Document scope</span>
+              <input type="text" id="chat-rag-scope" placeholder="Optional path filter or doc:ID">
+            </label>
+          </div>
+          <p id="chat-controls-status" class="support-status" role="status" aria-live="polite">Assistant only · loops · memory (10)</p>
+          <p id="chat-runtime-status" class="support-status">Loading backend defaults…</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Create a local JSON snapshot before experiments, or import a saved export to restore your loop state.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" id="export-btn" aria-label="Export loops" data-export-loops>Export data</button>
+            <button class="secondary" type="button" id="import-btn" aria-label="Import loops" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Local-only JSON snapshots for loops and loop metadata.</p>
+        </section>
+      </aside>
+    </main>
+
+    <!-- Memory Tab -->
+    <main class="workspace-main memory-main" id="memory-main">
+      <div class="workspace-primary">
+        <section class="panel memory-panel">
+          <div class="memory-header">
+            <div class="memory-header-copy">
+              <h2>Memory</h2>
+              <p>Create, review, search, and clean up durable memory entries through the shared direct-memory contract.</p>
+            </div>
+            <button class="secondary" id="memory-refresh-btn" type="button">Refresh</button>
+          </div>
+          <form id="memory-filter-form" class="memory-filter-form">
+            <div class="memory-filter-grid">
+              <label class="memory-field memory-filter-wide" for="memory-query">
+                <span class="memory-field-label">Search</span>
+                <input type="text" id="memory-query" placeholder="Search memory by key or content">
+              </label>
+              <label class="memory-field" for="memory-category-filter">
+                <span class="memory-field-label">Category</span>
+                <select id="memory-category-filter">
+                  <option value="">All categories</option>
+                  <option value="fact">Fact</option>
+                  <option value="preference">Preference</option>
+                  <option value="commitment">Commitment</option>
+                  <option value="context">Context</option>
+                </select>
+              </label>
+              <label class="memory-field" for="memory-source-filter">
+                <span class="memory-field-label">Source</span>
+                <select id="memory-source-filter">
+                  <option value="">All sources</option>
+                  <option value="user_stated">User stated</option>
+                  <option value="inferred">Inferred</option>
+                  <option value="imported">Imported</option>
+                  <option value="system">System</option>
+                </select>
+              </label>
+              <label class="memory-field" for="memory-min-priority">
+                <span class="memory-field-label">Min priority</span>
+                <input type="number" id="memory-min-priority" min="0" max="100" step="1" placeholder="0-100">
+              </label>
+            </div>
+            <div class="memory-filter-actions">
+              <p id="memory-status" class="support-status" role="status" aria-live="polite">Direct memory CRUD uses the shared memory-management contract.</p>
+              <div class="support-actions">
+                <button class="secondary" type="button" id="memory-clear-filters-btn">Clear</button>
+                <button type="submit">Apply</button>
+              </div>
+            </div>
+          </form>
+          <div id="memory-list" class="memory-list"></div>
+          <div class="support-actions">
+            <button class="secondary" type="button" id="memory-load-more-btn" hidden>Load more</button>
+          </div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Memory support">
+        <section class="panel support-panel support-panel-feature memory-create-panel">
+          <p class="support-eyebrow">Direct management</p>
+          <h3>Capture durable facts, preferences, commitments, and context</h3>
+          <p class="support-copy">Use this when memory deserves first-class storage instead of only living inside a chat thread. The same canonical contract now powers HTTP, web, CLI, and MCP.</p>
+          <form id="memory-create-form" class="memory-create-form">
+            <div class="memory-create-grid">
+              <label class="memory-field" for="memory-key">
+                <span class="memory-field-label">Key</span>
+                <input type="text" id="memory-key" maxlength="120" placeholder="Optional identifier">
+              </label>
+              <label class="memory-field" for="memory-category">
+                <span class="memory-field-label">Category</span>
+                <select id="memory-category">
+                  <option value="fact" selected>Fact</option>
+                  <option value="preference">Preference</option>
+                  <option value="commitment">Commitment</option>
+                  <option value="context">Context</option>
+                </select>
+              </label>
+              <label class="memory-field" for="memory-priority">
+                <span class="memory-field-label">Priority</span>
+                <input type="number" id="memory-priority" min="0" max="100" step="1" value="0">
+              </label>
+              <label class="memory-field" for="memory-source">
+                <span class="memory-field-label">Source</span>
+                <select id="memory-source">
+                  <option value="user_stated" selected>User stated</option>
+                  <option value="inferred">Inferred</option>
+                  <option value="imported">Imported</option>
+                  <option value="system">System</option>
+                </select>
+              </label>
+              <label class="memory-field memory-create-wide" for="memory-content">
+                <span class="memory-field-label">Content</span>
+                <textarea id="memory-content" rows="4" maxlength="4000" placeholder="Store a durable fact, preference, commitment, or context note..." required></textarea>
+              </label>
+              <label class="memory-field memory-create-wide" for="memory-metadata">
+                <span class="memory-field-label">Metadata JSON</span>
+                <textarea id="memory-metadata" rows="5" placeholder='{"source_app": "web"}'></textarea>
+              </label>
+            </div>
+            <div class="memory-create-actions">
+              <p class="support-status">Structured metadata is optional. Use it when a future filter or audit trail will matter.</p>
+              <button type="submit">Create memory</button>
+            </div>
+          </form>
+        </section>
+      </aside>
+    </main>
+
+    <!-- Next Tab -->
+    <main class="workspace-main next-main" id="next-main">
+      <div class="workspace-primary">
+        <section class="panel">
+          <div class="next-header">
+            <h2>What should I do now?</h2>
+            <button class="secondary" id="refresh-next-btn" type="button">Refresh</button>
+          </div>
+          <div id="next-buckets" class="next-buckets"></div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Next support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Momentum</p>
+          <h3>Use this view when you need a sharp next move</h3>
+          <p class="support-copy">Buckets stay intentionally short so you can scan for urgency and leverage without digging through the full Inbox.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Export a snapshot before reorganizing work, or import one when you need to restore or compare a saved state.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Use exports to preserve context before major cleanup or review passes.</p>
+        </section>
+      </aside>
+    </main>
+
+    <!-- RAG Tab -->
+    <main class="workspace-main rag-main" id="rag-main">
+      <div class="workspace-primary">
+        <section class="panel rag-panel">
+          <div class="rag-header">
+            <div>
+              <h2>Ask Your Knowledge Base</h2>
+              <p class="rag-intro">Search your indexed local documents and answer from retrieved source context.</p>
+            </div>
+          </div>
+          <form id="rag-form" class="rag-form">
+            <label for="rag-input" class="sr-only">RAG question</label>
+            <input
+              type="text"
+              id="rag-input"
+              placeholder="Ask a question about your documents..."
+              autocomplete="off"
+              required
+            >
+            <button type="submit">Ask</button>
+          </form>
+          <div id="rag-answer" class="rag-answer hidden" role="region" aria-live="polite" aria-label="RAG answer">
+            <div class="rag-answer-text"></div>
+            <div id="rag-empty-state" class="rag-empty-state hidden">
+              <p class="rag-empty-title">No indexed knowledge yet.</p>
+              <p class="rag-empty-copy">Point Cloop at a local file or folder, then ask again once indexing finishes.</p>
+              <div class="rag-empty-actions">
+                <button type="button" class="secondary" id="rag-focus-ingest-btn">Index files or folders</button>
+              </div>
+              <p class="rag-empty-hint">Try a folder like <code>~/Documents/notes</code> or a file like <code>/Users/you/manual.md</code>.</p>
+            </div>
+            <div class="rag-sources">
+              <h3>Sources</h3>
+              <div class="rag-sources-list"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Knowledge base support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Knowledge base</p>
+          <h3>Index files or folders for grounded answers</h3>
+          <p class="support-copy">RAG stays local-first. Add a document set from your machine, reindex when content changes, or sync a directory to keep answers current.</p>
+          <form id="rag-ingest-form" class="rag-ingest-form">
+            <label for="rag-ingest-path" class="sr-only">Path to ingest</label>
+            <input
+              type="text"
+              id="rag-ingest-path"
+              placeholder="~/Documents/notes or /Users/you/notes.md"
+              autocomplete="off"
+              required
+            >
+            <div class="rag-ingest-options">
+              <label for="rag-ingest-mode" class="sr-only">Ingest mode</label>
+              <select id="rag-ingest-mode">
+                <option value="add" selected>Add</option>
+                <option value="sync">Sync</option>
+                <option value="reindex">Reindex</option>
+                <option value="purge">Purge</option>
+              </select>
+              <label class="toggle rag-ingest-toggle">
+                <input type="checkbox" id="rag-ingest-recursive" checked>
+                Recursive
+              </label>
+            </div>
+            <div class="support-actions">
+              <button type="submit">Index knowledge</button>
+            </div>
+            <p id="rag-ingest-status" class="support-status" role="status" aria-live="polite">Supports individual files or whole directories.</p>
+          </form>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Loop exports are separate from document indexing, but they are still useful when you want to preserve or restore task context around your research.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Loop exports preserve tasks and metadata. Knowledge indexing is managed above.</p>
+        </section>
+      </aside>
+    </main>
+
+    <!-- Review Tab -->
+    <main class="workspace-main review-main" id="review-main">
+      <div class="workspace-primary review-workspace-primary">
+        <section class="panel review-shell-panel" id="review-redesign-shell">
+          <div class="review-shell-header">
+            <div>
+              <p class="support-eyebrow">Decision workspace</p>
+              <h2 id="review-shell-title">Relationship review</h2>
+              <p id="review-shell-description" class="support-copy">Duplicate and related-loop decisions with confidence, queue health, and impact previews.</p>
+            </div>
+            <div class="review-shell-mode-tabs" role="tablist" aria-label="Review workspace modes">
+              <button class="secondary active" type="button" data-review-shell-mode="planning">Plan</button>
+              <button class="secondary" type="button" data-review-shell-mode="relationship">Relationship</button>
+              <button class="secondary" type="button" data-review-shell-mode="enrichment">Enrichment</button>
+              <button class="secondary" type="button" data-review-shell-mode="cohorts">Hygiene</button>
+            </div>
+          </div>
+          <p id="review-shell-status" class="support-status" role="status" aria-live="polite">Preparing the review workspace…</p>
+          <div id="review-shell-controls" class="review-shell-toolbar"></div>
+          <div id="review-shell-overview" class="review-shell-overview"></div>
+          <div class="review-shell-layout">
+            <aside class="review-shell-pane review-shell-pane-queue" aria-labelledby="review-shell-queue-title">
+              <div class="review-shell-pane-header">
+                <h3 id="review-shell-queue-title">Queue rail</h3>
+              </div>
+              <div id="review-shell-queue"></div>
+            </aside>
+            <section class="review-shell-pane review-shell-pane-workspace" aria-labelledby="review-shell-workspace-title">
+              <div class="review-shell-pane-header">
+                <h3 id="review-shell-workspace-title">Decision workspace</h3>
+              </div>
+              <div id="review-shell-workspace"></div>
+            </section>
+            <aside class="review-shell-pane review-shell-pane-impact" aria-labelledby="review-shell-impact-title">
+              <div class="review-shell-pane-header">
+                <h3 id="review-shell-impact-title">Impact panel</h3>
+              </div>
+              <div id="review-shell-impact"></div>
+            </aside>
+          </div>
+        </section>
+        <div id="review-legacy-compat" class="review-legacy-compat" hidden aria-hidden="true">
+        <section class="panel review-panel bulk-enrichment-panel">
+          <div class="review-header bulk-enrichment-header">
+            <div>
+              <p class="support-eyebrow">Operator workflow</p>
+              <h2>Bulk enrichment across filtered loops</h2>
+              <p class="support-copy">Preview a DSL-selected loop set, then re-run explicit enrichment across that slice without jumping surface-by-surface.</p>
+            </div>
+            <div class="review-controls-row bulk-enrichment-actions">
+              <button class="secondary" type="button" id="review-bulk-enrich-preview">Preview</button>
+              <button type="button" id="review-bulk-enrich-run">Enrich matched loops</button>
+            </div>
+          </div>
+          <div class="bulk-enrichment-form">
+            <label class="bulk-enrichment-field" for="review-bulk-enrich-query">
+              <span>DSL query</span>
+              <input
+                type="text"
+                id="review-bulk-enrich-query"
+                value="status:open"
+                placeholder="status:open tag:deep-work"
+                autocomplete="off"
+              >
+            </label>
+            <label class="bulk-enrichment-field bulk-enrichment-limit-field" for="review-bulk-enrich-limit">
+              <span>Limit</span>
+              <input type="number" id="review-bulk-enrich-limit" min="1" max="100" step="1" value="25">
+            </label>
+          </div>
+          <p id="review-bulk-enrich-status" class="support-status" role="status" aria-live="polite">Preview a filtered loop set before running a shared enrichment pass.</p>
+          <div id="review-bulk-enrich-preview-results" class="bulk-enrichment-results"></div>
+          <div id="review-bulk-enrich-run-results" class="bulk-enrichment-results"></div>
+        </section>
+        <section class="panel review-panel planning-review-panel">
+          <div class="review-header planning-review-header">
+            <div>
+              <p class="support-eyebrow">AI-native planning</p>
+              <h2>Checkpointed planning sessions</h2>
+              <p class="support-copy">Generate durable plans grounded in your current loops, then execute deterministic checkpoints one step at a time with transparent results and execution history.</p>
+            </div>
+            <div class="review-session-toolbar">
+              <label class="review-session-select-field" for="review-planning-session-select">
+                <span>Session</span>
+                <select id="review-planning-session-select">
+                  <option value="">No saved session</option>
+                </select>
+              </label>
+              <div class="review-session-toolbar-actions">
+                <button class="secondary" type="button" id="review-planning-session-new">New session</button>
+                <button class="secondary" type="button" id="review-planning-session-delete">Delete</button>
+                <button class="secondary" type="button" id="review-planning-session-refresh">Refresh</button>
+                <button type="button" id="review-planning-session-execute">Execute checkpoint</button>
+              </div>
+            </div>
+          </div>
+          <p id="review-planning-session-status" class="support-status" role="status" aria-live="polite">Create a planning session to generate a checkpointed workflow grounded in your current loops.</p>
+          <div id="review-planning-session-summary" class="review-session-summary"></div>
+          <div class="review-session-workspace">
+            <div id="review-planning-session-list" class="review-session-list"></div>
+            <div id="review-planning-session-detail" class="review-session-detail"></div>
+          </div>
+        </section>
+        <section class="panel review-panel relationship-review-panel">
+          <div class="review-header relationship-review-header">
+            <div>
+              <p class="support-eyebrow">Similarity review</p>
+              <h2>Saved duplicate & related review sessions</h2>
+              <p class="support-copy">Create filtered review sessions that preserve your place while you step through duplicate and related-loop decisions, with reusable action presets for consistent handling.</p>
+            </div>
+            <div class="review-session-toolbar">
+              <label class="review-session-select-field" for="review-relationship-session-select">
+                <span>Session</span>
+                <select id="review-relationship-session-select">
+                  <option value="">No saved session</option>
+                </select>
+              </label>
+              <div class="review-session-toolbar-actions">
+                <button class="secondary" type="button" id="review-relationship-session-new">New session</button>
+                <button class="secondary" type="button" id="review-relationship-session-edit">Edit</button>
+                <button class="secondary" type="button" id="review-relationship-session-delete">Delete</button>
+                <button class="secondary" type="button" id="review-relationship-session-refresh">Refresh</button>
+              </div>
+            </div>
+          </div>
+          <div class="review-action-toolbar">
+            <label class="review-session-select-field" for="review-relationship-action-select">
+              <span>Saved action</span>
+              <select id="review-relationship-action-select">
+                <option value="">No saved action</option>
+              </select>
+            </label>
+            <div class="review-session-toolbar-actions">
+              <button class="secondary" type="button" id="review-relationship-action-new">New action</button>
+              <button class="secondary" type="button" id="review-relationship-action-edit">Edit</button>
+              <button class="secondary" type="button" id="review-relationship-action-delete">Delete</button>
+            </div>
+          </div>
+          <p id="review-relationship-session-status" class="support-status" role="status" aria-live="polite">Create a saved relationship-review session to preserve your filtered worklist.</p>
+          <div id="review-relationship-session-summary" class="review-session-summary"></div>
+          <div class="review-session-workspace">
+            <div id="review-relationship-session-list" class="review-session-list"></div>
+            <div id="review-relationship-session-detail" class="review-session-detail"></div>
+          </div>
+        </section>
+        <section class="panel review-panel enrichment-review-panel">
+          <div class="review-header enrichment-review-header">
+            <div>
+              <p class="support-eyebrow">Enrichment follow-up</p>
+              <h2>Saved suggestion & clarification review sessions</h2>
+              <p class="support-copy">Preserve filtered enrichment worklists while you apply saved suggestion actions, answer clarifications, and keep your follow-up queue anchored to a real session.</p>
+            </div>
+            <div class="review-session-toolbar">
+              <label class="review-session-select-field" for="review-enrichment-session-select">
+                <span>Session</span>
+                <select id="review-enrichment-session-select">
+                  <option value="">No saved session</option>
+                </select>
+              </label>
+              <div class="review-session-toolbar-actions">
+                <button class="secondary" type="button" id="review-enrichment-session-new">New session</button>
+                <button class="secondary" type="button" id="review-enrichment-session-edit">Edit</button>
+                <button class="secondary" type="button" id="review-enrichment-session-delete">Delete</button>
+                <button class="secondary" type="button" id="review-enrichment-session-refresh">Refresh</button>
+              </div>
+            </div>
+          </div>
+          <div class="review-action-toolbar">
+            <label class="review-session-select-field" for="review-enrichment-action-select">
+              <span>Saved action</span>
+              <select id="review-enrichment-action-select">
+                <option value="">No saved action</option>
+              </select>
+            </label>
+            <div class="review-session-toolbar-actions">
+              <button class="secondary" type="button" id="review-enrichment-action-new">New action</button>
+              <button class="secondary" type="button" id="review-enrichment-action-edit">Edit</button>
+              <button class="secondary" type="button" id="review-enrichment-action-delete">Delete</button>
+            </div>
+          </div>
+          <p id="review-enrichment-session-status" class="support-status" role="status" aria-live="polite">Create a saved enrichment-review session to step through pending suggestions and clarifications.</p>
+          <div id="review-enrichment-session-summary" class="review-session-summary"></div>
+          <div class="review-session-workspace">
+            <div id="review-enrichment-session-list" class="review-session-list"></div>
+            <div id="review-enrichment-session-detail" class="review-session-detail"></div>
+          </div>
+        </section>
+        <section class="panel review-panel">
+          <div class="review-header">
+            <h2>Loop Review</h2>
+            <div class="review-toggle">
+              <button class="toggle-btn active" data-review-mode="daily">Daily</button>
+              <button class="toggle-btn" data-review-mode="weekly">Weekly</button>
+            </div>
+          </div>
+          <div id="review-cohorts" class="review-cohorts"></div>
+        </section>
+        </div>
+      </div>
+      <aside class="workspace-support" aria-label="Review support">
+        <section class="panel support-panel support-panel-feature review-guide-panel">
+          <p class="support-eyebrow">AI workflow guide</p>
+          <h3>Plan, execute, review, then chat against the live state</h3>
+          <p class="support-copy">Use the shared planning, review, and grounded-chat contracts as one operator loop instead of treating them as isolated surfaces.</p>
+          <ol class="review-guide-list">
+            <li><strong>Create a planning session</strong><span>Start with a query-scoped checkpointed plan when you need a structured multi-step pass.</span></li>
+            <li><strong>Execute one deterministic checkpoint at a time</strong><span>Review focus loops, success criteria, and operation payloads before committing the next step.</span></li>
+            <li><strong>Follow the generated review outputs</strong><span>If a checkpoint creates relationship or enrichment sessions, move directly into those saved queues instead of open-coding follow-up work.</span></li>
+            <li><strong>Refresh when reality changes</strong><span>Regenerate the plan after major loop edits so the checkpoint list stays grounded in the current state.</span></li>
+          </ol>
+          <p class="support-status">Planning sessions are durable. The plan snapshot and execution history are meant to survive tab reloads and resume later.</p>
+        </section>
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Review rhythm</p>
+          <h3>Turn drift into an action list</h3>
+          <p class="support-copy">Use relationship review to collapse duplicate work before it fans out, then use daily and weekly cohorts to clean up stale or blocked loops.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Capture an export before sweeping status changes, or import a saved state if you need to recover a prior review baseline.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Exports help preserve comparison points before larger review cleanups.</p>
+        </section>
+      </aside>
+    </main>
+
+    <!-- Metrics Tab -->
+    <main class="workspace-main metrics-main" id="metrics-main">
+      <div class="workspace-primary">
+        <section class="panel">
+          <div class="metrics-header">
+            <h2>Loop Health Metrics</h2>
+            <button class="secondary" id="refresh-metrics-btn" type="button">Refresh</button>
+          </div>
+          <div id="metrics-content" class="metrics-content"></div>
+        </section>
+      </div>
+      <aside class="workspace-support" aria-label="Metrics support">
+        <section class="panel support-panel support-panel-feature">
+          <p class="support-eyebrow">Signal</p>
+          <h3>Use metrics to decide where cleanup matters</h3>
+          <p class="support-copy">Metrics show whether the system is healthy enough to trust, or whether you need to reduce backlog, stale work, or status imbalance first.</p>
+        </section>
+        <section class="panel support-panel data-management-panel">
+          <p class="support-eyebrow">Workspace tools</p>
+          <h3>Move loop data safely</h3>
+          <p class="support-copy">Export a baseline before structural changes, or import a prior snapshot when you want to compare metrics against an earlier state.</p>
+          <div class="support-actions">
+            <button class="secondary" type="button" data-export-loops>Export data</button>
+            <button class="secondary" type="button" data-import-loops>Import data</button>
+          </div>
+          <p class="support-status" data-data-management-status role="status" aria-live="polite">Use exports when you want a stable checkpoint before broad changes.</p>
+        </section>
+      </aside>
+    </main>
+
+    <section
+      id="command-palette"
+      class="command-palette"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="command-palette-title"
+      aria-describedby="command-palette-status"
+      hidden
+    >
+      <div id="command-palette-overlay" class="command-palette-overlay" data-command-palette-close></div>
+      <div id="command-palette-panel" class="command-palette-panel" tabindex="-1">
+        <div class="command-palette-header">
+          <div>
+            <p class="support-eyebrow">Keyboard-first control</p>
+            <h2 id="command-palette-title">Command palette</h2>
+            <p class="support-copy">Jump to states, sessions, working sets, searches, and quick actions without leaving the keyboard.</p>
+          </div>
+          <button class="secondary" type="button" data-command-palette-close>Close</button>
+        </div>
+        <div class="command-palette-input-row">
+          <label class="sr-only" for="command-palette-input">Search commands</label>
+          <input
+            type="text"
+            id="command-palette-input"
+            placeholder="Jump to a state, loop, working set, session, or quick action…"
+            autocomplete="off"
+            spellcheck="false"
+          >
+          <div class="command-palette-shortcuts" aria-hidden="true">
+            <span>⌘K</span>
+            <span>/</span>
+            <span>↑↓</span>
+            <span>↵</span>
+          </div>
+        </div>
+        <p id="command-palette-status" class="support-status" role="status" aria-live="polite">Preparing commands…</p>
+        <div class="command-palette-layout">
+          <div id="command-palette-results" class="command-palette-results" role="listbox" aria-label="Command results"></div>
+          <aside id="command-palette-detail" class="command-palette-detail">
+            <p class="command-palette-empty-detail">Choose a command to see why it belongs here and what it will do.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <input type="file" id="import-file" accept="application/json" hidden>
+
+    <!-- Bulk Action Bar -->
+    <div class="bulk-action-bar" id="bulk-action-bar">
+      <span class="bulk-count">0 loops selected</span>
+      <div class="bulk-actions">
+        <button class="bulk-btn" data-bulk-action="complete" title="Complete selected">Complete</button>
+        <button class="bulk-btn" data-bulk-action="drop" title="Drop selected">Drop</button>
+        <button class="bulk-btn" data-bulk-action="status" title="Change status">Status</button>
+        <button class="bulk-btn" data-bulk-action="snooze" title="Snooze selected">Snooze</button>
+        <button class="bulk-btn" data-bulk-action="enrich" title="Enrich selected">Enrich</button>
+        <button class="bulk-btn" data-bulk-action="tags" title="Add tags">+ Tags</button>
+        <button class="bulk-btn bulk-btn-cancel" data-bulk-action="clear">Cancel</button>
+      </div>
+    </div>
+
+    <div
+      class="app-dialog-overlay"
+      id="app-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="app-dialog-title"
+      aria-describedby="app-dialog-description"
+      hidden
+    >
+      <div class="app-dialog" tabindex="-1">
+        <div class="app-dialog-header">
+          <div class="app-dialog-heading">
+            <p id="app-dialog-eyebrow" class="app-dialog-eyebrow" hidden></p>
+            <h2 id="app-dialog-title">Dialog</h2>
+          </div>
+          <button class="app-dialog-close" type="button" data-action="close-app-dialog" aria-label="Close dialog">&times;</button>
+        </div>
+        <p id="app-dialog-description" class="app-dialog-description" hidden></p>
+        <form id="app-dialog-form" class="app-dialog-form" novalidate>
+          <div id="app-dialog-fields" class="app-dialog-fields"></div>
+          <p id="app-dialog-error" class="app-dialog-error" role="alert" hidden></p>
+          <div class="app-dialog-actions">
+            <button id="app-dialog-cancel" class="secondary" type="button" data-action="cancel-app-dialog">Cancel</button>
+            <button id="app-dialog-confirm" class="app-dialog-confirm" type="submit">Continue</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Keyboard Shortcuts Help Modal -->
+    <div class="help-modal-overlay" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+      <div class="help-modal" tabindex="-1">
+        <h2 id="help-modal-title">
+          Keyboard Shortcuts
+          <button class="help-modal-close" data-action="close-help" aria-label="Close keyboard shortcuts help">&times;</button>
+        </h2>
+        <div class="help-section">
+          <h3>Navigation</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Inbox</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">i</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Next</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">n</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Chat</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">c</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Memory</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">e</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to RAG</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">r</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Review</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">v</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Go to Metrics</span>
+            <div class="help-keys"><span class="help-key">g</span><span class="help-key">m</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Switch tabs (1-7)</span>
+            <div class="help-keys"><span class="help-key">1</span><span class="help-key">2</span><span class="help-key">3</span><span class="help-key">4</span><span class="help-key">5</span><span class="help-key">6</span><span class="help-key">7</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>Capture & Search</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">New loop (focus capture)</span>
+            <div class="help-keys"><span class="help-key">n</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Search / query</span>
+            <div class="help-keys"><span class="help-key">/</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>Actions (on selected loop)</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Complete</span>
+            <div class="help-keys"><span class="help-key">c</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Enrich</span>
+            <div class="help-keys"><span class="help-key">e</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Refresh</span>
+            <div class="help-keys"><span class="help-key">r</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Toggle timer</span>
+            <div class="help-keys"><span class="help-key">t</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Snooze</span>
+            <div class="help-keys"><span class="help-key">s</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>Bulk Selection</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Select all visible loops</span>
+            <div class="help-keys"><span class="help-key">Ctrl</span><span class="help-key">A</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Clear selection</span>
+            <div class="help-keys"><span class="help-key">Esc</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Range select</span>
+            <div class="help-keys"><span class="help-key">Shift</span><span class="help-desc">+Click</span></div>
+          </div>
+        </div>
+        <div class="help-section">
+          <h3>General</h3>
+          <div class="help-shortcut">
+            <span class="help-desc">Show this help</span>
+            <div class="help-keys"><span class="help-key">?</span></div>
+          </div>
+          <div class="help-shortcut">
+            <span class="help-desc">Close modal / blur input</span>
+            <div class="help-keys"><span class="help-key">Esc</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Merge Confirmation Modal -->
+    <div id="mergeModal" class="merge-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="merge-modal-title">
+      <div class="merge-modal" tabindex="-1">
+        <h2 id="merge-modal-title">
+          <span>Merge Loops</span>
+          <button class="merge-modal-close" onclick="window.closeMergeModal()" aria-label="Close merge dialog">&times;</button>
+        </h2>
+        <div class="merge-warning">
+          This will close the duplicate loop as "dropped" and merge its content into the surviving loop.
+          This action cannot be undone.
+        </div>
+        <div class="merge-comparison">
+          <div class="merge-column surviving">
+            <h4>Surviving Loop</h4>
+            <div id="mergeSurvivingContent"></div>
+          </div>
+          <div class="merge-column duplicate">
+            <h4>Duplicate (will be closed)</h4>
+            <div id="mergeDuplicateContent"></div>
+          </div>
+        </div>
+        <div class="merge-actions">
+          <button class="merge-btn-cancel" onclick="window.closeMergeModal()">Cancel</button>
+          <button class="merge-btn-confirm" onclick="window.confirmMerge()">Merge & Close Duplicate</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

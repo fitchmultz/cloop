@@ -36,7 +36,7 @@ through to pi, and pi remains responsible for provider resolution, auth, and run
 The bridge depends on local runtime prerequisites, not hosted infrastructure:
 
 - Python 3.14+
-- Node 20+
+- Node 25.8.1+
 - `uv`
 - `pi` installed locally
 - `pi` authenticated/configured for the model selectors you plan to use
@@ -45,7 +45,7 @@ Setup commands:
 
 ```bash
 uv sync --all-groups --all-extras
-npm ci --prefix src/cloop/pi_bridge
+pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 cp .env.example .env
 ```
 

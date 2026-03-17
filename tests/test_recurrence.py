@@ -125,6 +125,22 @@ class TestParseRecurrenceSchedule:
         result = parse_recurrence_schedule("FREQ=WEEKLY;BYDAY=MO,WE,FR")
         assert "FREQ=WEEKLY" in result.rrule
 
+    def test_parse_normalizes_whitespace_and_case(self) -> None:
+        """Parser should normalize whitespace and case before matching."""
+        result = parse_recurrence_schedule("  EvErY   2   WeEkS  ")
+        assert result.rrule == "FREQ=WEEKLY;INTERVAL=2"
+        assert result.description == "Every 2 weeks"
+
+    def test_parse_invalid_business_day_position_raises_error(self) -> None:
+        """Business-day recurrence positions must stay within monthly bounds."""
+        with pytest.raises(RecurrenceError):
+            parse_recurrence_schedule("every 0 business day")
+
+    def test_parse_invalid_raw_rrule_raises_error(self) -> None:
+        """Raw RRULE input should be validated eagerly."""
+        with pytest.raises(RecurrenceError):
+            parse_recurrence_schedule("FREQ=MONTHLY;BYDAY=MO;BYSETPOS=0")
+
     def test_parse_empty_raises_error(self) -> None:
         """Empty phrase raises RecurrenceError."""
         with pytest.raises(RecurrenceError):

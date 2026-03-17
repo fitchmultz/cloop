@@ -1,25 +1,34 @@
-"""
-Natural-language recurrence parsing and rrule generation.
+"""Natural-language recurrence parsing and RRULE utilities.
 
 Purpose:
     Parse human-friendly schedule phrases into RFC 5545 RRULE format and
     compute next due dates with timezone/DST awareness.
 
 Responsibilities:
-    - Parse natural-language schedule phrases (e.g., "every weekday", "every 2 weeks")
+    - Parse natural-language schedule phrases (for example `every weekday` or
+      `every 2 weeks`)
     - Validate and normalize RRULE strings
     - Compute next occurrence dates respecting timezone and DST transitions
     - Convert timezone offsets to IANA timezone names
 
-Non-scope:
-    - Date arithmetic outside of recurrence (use datetime directly)
-    - Calendar UI or display formatting
-    - Recurrence storage or persistence
+Scope:
+    - Recurrence parsing, validation, and next-occurrence computation
+    - Timezone-name validation for recurrence scheduling
 
-Invariants:
-    - All datetime values are UTC internally
-    - RRULE strings are always valid RFC 5545 format after validation
-    - Timezone names are valid IANA identifiers
+Non-scope:
+    - Date arithmetic outside of recurrence workflows
+    - Calendar UI or display formatting
+    - Recurrence persistence concerns
+
+Usage:
+    - Call `parse_recurrence_schedule(...)` for human-friendly schedule input.
+    - Call `validate_rrule(...)` and `compute_next_due(...)` for RRULE-backed
+      recurrence workflows.
+
+Invariants/Assumptions:
+    - All datetime values are UTC internally.
+    - RRULE strings are valid RFC 5545 after validation.
+    - Timezone names are valid IANA identifiers when accepted.
 """
 
 from __future__ import annotations
@@ -89,9 +98,6 @@ DAY_MAP: dict[str, int] = {
     "u": 6,
 }
 
-# Ordinal suffixes for position parsing
-ORDINAL_PATTERN = re.compile(r"^(\d+)(?:st|nd|rd|th)?$", re.IGNORECASE)
-
 
 @dataclass(frozen=True, slots=True)
 class ParsedRecurrence:
@@ -99,6 +105,56 @@ class ParsedRecurrence:
 
     rrule: str
     description: str
+
+
+NAMED_RECURRENCE_MAP: dict[str, tuple[str, str]] = {
+    "day": ("FREQ=DAILY", "Daily"),
+    "daily": ("FREQ=DAILY", "Daily"),
+    "weekday": ("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "Every weekday"),
+    "weekdays": ("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "Every weekday"),
+    "business day": ("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "Every weekday"),
+    "weekend": ("FREQ=WEEKLY;BYDAY=SA,SU", "Every weekend"),
+    "weekends": ("FREQ=WEEKLY;BYDAY=SA,SU", "Every weekend"),
+    "week": ("FREQ=WEEKLY", "Weekly"),
+    "weekly": ("FREQ=WEEKLY", "Weekly"),
+    "month": ("FREQ=MONTHLY", "Monthly"),
+    "monthly": ("FREQ=MONTHLY", "Monthly"),
+    "year": ("FREQ=YEARLY", "Yearly"),
+    "yearly": ("FREQ=YEARLY", "Yearly"),
+    "annual": ("FREQ=YEARLY", "Yearly"),
+    "annually": ("FREQ=YEARLY", "Yearly"),
+}
+POSITION_MAP: dict[str, int] = {
+    "first": 1,
+    "1st": 1,
+    "second": 2,
+    "2nd": 2,
+    "third": 3,
+    "3rd": 3,
+    "fourth": 4,
+    "4th": 4,
+    "fifth": 5,
+    "5th": 5,
+    "last": -1,
+}
+INTERVAL_PATTERN = re.compile(r"^(\d+)\s+(day|days|week|weeks|month|months|year|years)$")
+DAY_LIST_PATTERN = re.compile(
+    r"^(?:(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|"
+    r"thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,\s]*)+$"
+)
+DAY_NAME_TOKEN_PATTERN = re.compile(
+    r"(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|"
+    r"thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)"
+)
+ORDINAL_DAY_PATTERN = re.compile(
+    r"^(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last|-?\d+)[,\s]+"
+    r"(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|"
+    r"fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:of\s+)?(?:the\s+)?month)?$"
+)
+BUSINESS_DAY_PATTERN = re.compile(
+    r"^(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last|-?\d+)"
+    r"[,\s]+(?:business\s+day|weekday)(?:\s+(?:of\s+)?(?:the\s+)?month)?$"
+)
 
 
 def parse_recurrence_schedule(phrase: str) -> ParsedRecurrence:
@@ -114,7 +170,7 @@ def parse_recurrence_schedule(phrase: str) -> ParsedRecurrence:
     - "every N months" -> FREQ=MONTHLY;INTERVAL=N
     - "every year" / "yearly" / "annually" -> FREQ=YEARLY
     - "every monday,wednesday,friday" -> FREQ=WEEKLY;BYDAY=MO,WE,FR
-    - "every 1st business day" -> FREQ=MONTHLY;BYDAY=1MO (first Monday)
+    - "every 1st business day" -> FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1
     - "every last friday" -> FREQ=MONTHLY;BYDAY=-1FR
 
     Args:
@@ -124,188 +180,169 @@ def parse_recurrence_schedule(phrase: str) -> ParsedRecurrence:
         ParsedRecurrence with rrule and description
 
     Raises:
-        ValidationError: If the phrase cannot be parsed
+        RecurrenceError: If the phrase cannot be parsed
     """
+    _require_rrule_support()
+    normalized_phrase = _normalize_schedule_phrase(phrase)
+    working_phrase = _remove_every_prefix(normalized_phrase)
+
+    for parser in (
+        _parse_named_recurrence,
+        _parse_interval_recurrence,
+        _parse_day_list_recurrence,
+        _parse_ordinal_day_recurrence,
+        _parse_business_day_recurrence,
+        _parse_raw_rrule_recurrence,
+    ):
+        parsed = parser(working_phrase)
+        if parsed is not None:
+            return parsed
+
+    raise RecurrenceError(f"Could not parse schedule phrase: '{normalized_phrase}'")
+
+
+def _require_rrule_support() -> None:
+    """Raise the canonical error when python-dateutil recurrence support is unavailable."""
     if not RRULE_AVAILABLE:
         raise RecurrenceError(
             "Recurrence support requires python-dateutil. Install it with: uv add python-dateutil"
         )
 
-    phrase = phrase.strip().lower()
-    if not phrase:
+
+def _normalize_schedule_phrase(phrase: str) -> str:
+    """Trim, lowercase, and collapse whitespace in one schedule phrase."""
+    normalized_phrase = re.sub(r"\s+", " ", phrase.strip().lower())
+    if not normalized_phrase:
         raise RecurrenceError("Schedule phrase cannot be empty")
+    return normalized_phrase
 
-    # Normalize common variations
-    phrase = re.sub(r"\s+", " ", phrase)
 
-    # Remove "every " prefix if present for easier matching
-    working = phrase
-    if working.startswith("every "):
-        working = working[6:]
+def _remove_every_prefix(phrase: str) -> str:
+    """Strip an optional leading `every ` prefix for simpler parser matching."""
+    if phrase.startswith("every "):
+        return phrase[6:]
+    return phrase
 
-    # Handle "daily"
-    if working in ("day", "daily"):
-        return ParsedRecurrence(rrule="FREQ=DAILY", description="Daily")
 
-    # Handle "weekday" / "weekdays" (Monday-Friday)
-    if working in ("weekday", "weekdays", "business day"):
-        return ParsedRecurrence(
-            rrule="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", description="Every weekday"
-        )
+def _parse_named_recurrence(phrase: str) -> ParsedRecurrence | None:
+    """Parse direct named schedules like `daily`, `weekly`, or `weekend`."""
+    mapping = NAMED_RECURRENCE_MAP.get(phrase)
+    if mapping is None:
+        return None
+    rrule, description = mapping
+    return ParsedRecurrence(rrule=rrule, description=description)
 
-    # Handle "weekend" (Saturday-Sunday)
-    if working in ("weekend", "weekends"):
-        return ParsedRecurrence(rrule="FREQ=WEEKLY;BYDAY=SA,SU", description="Every weekend")
 
-    # Handle "week" / "weekly"
-    if working in ("week", "weekly"):
-        return ParsedRecurrence(rrule="FREQ=WEEKLY", description="Weekly")
+def _parse_interval_recurrence(phrase: str) -> ParsedRecurrence | None:
+    """Parse interval schedules like `2 weeks` or `3 months`."""
+    interval_match = INTERVAL_PATTERN.match(phrase)
+    if interval_match is None:
+        return None
 
-    # Handle "month" / "monthly"
-    if working in ("month", "monthly"):
-        return ParsedRecurrence(rrule="FREQ=MONTHLY", description="Monthly")
+    count = int(interval_match.group(1))
+    unit = interval_match.group(2)
+    if count < 1:
+        raise RecurrenceError(f"Interval must be at least 1, got {count}")
 
-    # Handle "year" / "yearly" / "annual" / "annually"
-    if working in ("year", "yearly", "annual", "annually"):
-        return ParsedRecurrence(rrule="FREQ=YEARLY", description="Yearly")
+    if unit in ("day", "days"):
+        freq = "DAILY"
+        description = _pluralized_description(count=count, unit="day")
+    elif unit in ("week", "weeks"):
+        freq = "WEEKLY"
+        description = _pluralized_description(count=count, unit="week")
+    elif unit in ("month", "months"):
+        freq = "MONTHLY"
+        description = _pluralized_description(count=count, unit="month")
+    else:
+        freq = "YEARLY"
+        description = _pluralized_description(count=count, unit="year")
 
-    # Match "N weeks" or "N months" or "N days" or "N years"
-    interval_match = re.match(r"^(\d+)\s+(day|days|week|weeks|month|months|year|years)$", working)
-    if interval_match:
-        count = int(interval_match.group(1))
-        unit = interval_match.group(2)
+    interval_suffix = f";INTERVAL={count}" if count > 1 else ""
+    return ParsedRecurrence(rrule=f"FREQ={freq}{interval_suffix}", description=description)
 
-        if count < 1:
-            raise RecurrenceError(f"Interval must be at least 1, got {count}")
 
-        if unit in ("day", "days"):
-            freq = "DAILY"
-            desc = f"Every {count} day{'s' if count > 1 else ''}"
-        elif unit in ("week", "weeks"):
-            freq = "WEEKLY"
-            desc = f"Every {count} week{'s' if count > 1 else ''}"
-        elif unit in ("month", "months"):
-            freq = "MONTHLY"
-            desc = f"Every {count} month{'s' if count > 1 else ''}"
-        else:  # year/years
-            freq = "YEARLY"
-            desc = f"Every {count} year{'s' if count > 1 else ''}"
+def _parse_day_list_recurrence(phrase: str) -> ParsedRecurrence | None:
+    """Parse comma- or space-delimited weekday lists into BYDAY schedules."""
+    if DAY_LIST_PATTERN.match(phrase) is None:
+        return None
 
-        rrule_str = f"FREQ={freq}"
-        if count > 1:
-            rrule_str += f";INTERVAL={count}"
+    day_numbers: list[int] = []
+    for day_match in DAY_NAME_TOKEN_PATTERN.finditer(phrase):
+        day_name = day_match.group(1)
+        day_number = DAY_MAP.get(day_name)
+        if day_number is not None and day_number not in day_numbers:
+            day_numbers.append(day_number)
 
-        return ParsedRecurrence(rrule=rrule_str, description=desc)
+    if not day_numbers:
+        raise RecurrenceError(f"Could not parse any valid days from: {phrase}")
 
-    # Match day names: "monday,wednesday,friday" or "mon wed fri"
-    day_pattern = (
-        r"^(?:(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|"
-        r"thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)[,\s]*)+$"
+    day_abbreviations = [_weekday_to_abbr(day_number) for day_number in sorted(day_numbers)]
+    return ParsedRecurrence(
+        rrule=f"FREQ=WEEKLY;BYDAY={','.join(day_abbreviations)}",
+        description=f"Every {', '.join(day_abbreviations)}",
     )
-    if re.match(day_pattern, working):
-        # Extract day abbreviations
-        days: list[int] = []
-        for day_match in re.finditer(
-            r"(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)",
-            working,
-        ):
-            day_name = day_match.group(1)
-            if day_name in DAY_MAP:
-                day_num = DAY_MAP[day_name]
-                if day_num not in days:
-                    days.append(day_num)
 
-        if not days:
-            raise RecurrenceError(f"Could not parse any valid days from: {phrase}")
 
-        days.sort()
-        day_abbrs = [_weekday_to_abbr(d) for d in days]
-        return ParsedRecurrence(
-            rrule=f"FREQ=WEEKLY;BYDAY={','.join(day_abbrs)}",
-            description=f"Every {', '.join(day_abbrs)}",
-        )
+def _parse_ordinal_day_recurrence(phrase: str) -> ParsedRecurrence | None:
+    """Parse schedules like `1st monday` or `last friday`."""
+    ordinal_match = ORDINAL_DAY_PATTERN.match(phrase)
+    if ordinal_match is None:
+        return None
 
-    # Match ordinal + day: "1st monday", "last friday", "2nd tuesday"
-    ordinal_day_pattern = (
-        r"^(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last|-?\d+)[,\s]+"
-        r"(mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nesday)?|thu(?:rs(?:day)?)?|"
-        r"fri(?:day)?|sat(?:urday)?|sun(?:day)?)(?:\s+(?:of\s+)?(?:the\s+)?month)?$"
+    position_token, day_name = ordinal_match.groups()
+    position = _parse_position_token(position_token)
+
+    day_number = DAY_MAP.get(day_name)
+    if day_number is None:
+        raise RecurrenceError(f"Unknown day name: {day_name}")
+
+    day_abbreviation = _weekday_to_abbr(day_number)
+    return ParsedRecurrence(
+        rrule=f"FREQ=MONTHLY;BYDAY={position}{day_abbreviation}",
+        description=f"Every {position_token} {day_name.capitalize()}",
     )
-    ordinal_match = re.match(ordinal_day_pattern, working)
-    if ordinal_match:
-        pos_str = ordinal_match.group(1)
-        day_name = ordinal_match.group(2)
 
-        # Convert position
-        position_map = {
-            "first": 1,
-            "1st": 1,
-            "second": 2,
-            "2nd": 2,
-            "third": 3,
-            "3rd": 3,
-            "fourth": 4,
-            "4th": 4,
-            "fifth": 5,
-            "5th": 5,
-            "last": -1,
-        }
-        if pos_str in position_map:
-            pos = position_map[pos_str]
-        else:
-            pos = int(pos_str)
 
-        if pos < -1 or pos > 5 or pos == 0:
-            raise RecurrenceError(f"Invalid ordinal position: {pos_str}")
+def _parse_business_day_recurrence(phrase: str) -> ParsedRecurrence | None:
+    """Parse schedules like `1st business day` or `last weekday of month`."""
+    business_day_match = BUSINESS_DAY_PATTERN.match(phrase)
+    if business_day_match is None:
+        return None
 
-        day_num = DAY_MAP.get(day_name)
-        if day_num is None:
-            raise RecurrenceError(f"Unknown day name: {day_name}")
-
-        day_abbr = _weekday_to_abbr(day_num)
-        return ParsedRecurrence(
-            rrule=f"FREQ=MONTHLY;BYDAY={pos}{day_abbr}",
-            description=f"Every {pos_str} {day_name.capitalize()}",
-        )
-
-    # Match "Nth business day" / "Nth weekday of month"
-    business_day_pattern = (
-        r"^(first|1st|second|2nd|third|3rd|fourth|4th|fifth|5th|last|-?\d+)"
-        r"[,\s]+(?:business\s+day|weekday)(?:\s+(?:of\s+)?(?:the\s+)?month)?$"
+    position_token = business_day_match.group(1)
+    position = _parse_position_token(position_token)
+    return ParsedRecurrence(
+        rrule=f"FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS={position}",
+        description=f"Every {position_token} business day",
     )
-    if re.match(business_day_pattern, working):
-        pos_str = re.match(business_day_pattern, working).group(1)  # type: ignore[union-attr]
 
-        position_map = {
-            "first": 1,
-            "1st": 1,
-            "second": 2,
-            "2nd": 2,
-            "third": 3,
-            "3rd": 3,
-            "fourth": 4,
-            "4th": 4,
-            "fifth": 5,
-            "5th": 5,
-            "last": -1,
-        }
-        if pos_str in position_map:
-            pos = position_map[pos_str]
-        else:
-            pos = int(pos_str)
 
-        # For "Nth business day", we use BYDAY with MO-FR and BYSETPOS
-        # FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS=1 means first business day
-        return ParsedRecurrence(
-            rrule=f"FREQ=MONTHLY;BYDAY=MO,TU,WE,TH,FR;BYSETPOS={pos}",
-            description=f"Every {pos_str} business day",
-        )
+def _parse_raw_rrule_recurrence(phrase: str) -> ParsedRecurrence | None:
+    """Accept raw RRULE phrases after validating them eagerly."""
+    if not phrase.upper().startswith("FREQ="):
+        return None
 
-    # Handle raw RRULE strings (pass through with validation)
-    if working.upper().startswith("FREQ="):
-        return ParsedRecurrence(rrule=working.upper(), description=f"Custom: {working}")
+    rrule = phrase.upper()
+    validate_rrule(rrule)
+    return ParsedRecurrence(rrule=rrule, description=f"Custom: {rrule}")
 
-    raise RecurrenceError(f"Could not parse schedule phrase: '{phrase}'")
+
+def _pluralized_description(*, count: int, unit: str) -> str:
+    """Build one `Every N unit(s)` recurrence description."""
+    suffix = "s" if count != 1 else ""
+    return f"Every {count} {unit}{suffix}"
+
+
+def _parse_position_token(position_token: str) -> int:
+    """Parse and validate one ordinal position token used in monthly schedules."""
+    if position_token in POSITION_MAP:
+        position = POSITION_MAP[position_token]
+    else:
+        position = int(position_token)
+
+    if position < -1 or position > 5 or position == 0:
+        raise RecurrenceError(f"Invalid ordinal position: {position_token}")
+    return position
 
 
 def validate_rrule(rrule_str: str) -> str:
@@ -321,10 +358,7 @@ def validate_rrule(rrule_str: str) -> str:
     Raises:
         ValidationError: If the RRULE is invalid
     """
-    if not RRULE_AVAILABLE:
-        raise RecurrenceError(
-            "Recurrence support requires python-dateutil. Install it with: uv add python-dateutil"
-        )
+    _require_rrule_support()
 
     if not rrule_str or not rrule_str.strip():
         raise RecurrenceError("RRULE cannot be empty")
@@ -370,10 +404,7 @@ def compute_next_due(
     Raises:
         ValidationError: If RRULE or timezone is invalid
     """
-    if not RRULE_AVAILABLE:
-        raise RecurrenceError(
-            "Recurrence support requires python-dateutil. Install it with: uv add python-dateutil"
-        )
+    _require_rrule_support()
 
     # Validate timezone
     if not is_valid_timezone(timezone_name):
