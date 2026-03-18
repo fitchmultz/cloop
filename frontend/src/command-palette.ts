@@ -67,6 +67,7 @@ import {
   type PaletteRankingContext,
 } from "./command-palette-ranking";
 import * as modals from "./modals";
+import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { updateBulkActionBar } from "./bulk-actions";
 import { clearLoopSelection, selectedLoopIds } from "./selection-state";
 
@@ -239,27 +240,6 @@ function buildElements(): CommandPaletteElements {
     status: requireElement("command-palette-status", HTMLElement),
     closeButtons: Array.from(root.querySelectorAll<HTMLButtonElement>("[data-command-palette-close]")),
   };
-}
-
-function createLocation(overrides: Partial<ShellLocationContract>): ShellLocationContract {
-  return {
-    state: overrides.state ?? "operator",
-    recallTool: overrides.recallTool ?? "chat",
-    reviewFocus: overrides.reviewFocus ?? null,
-    sessionId: overrides.sessionId ?? null,
-    loopId: overrides.loopId ?? null,
-    viewId: overrides.viewId ?? null,
-    memoryId: overrides.memoryId ?? null,
-    workingSetId: overrides.workingSetId ?? null,
-    query: overrides.query ?? null,
-  };
-}
-
-function workingSetSessionLocation(workingSetId: number): ShellLocationContract {
-  return createLocation({
-    state: "working_set",
-    workingSetId,
-  });
 }
 
 function loopTitle(loop: LoopResponse): string {

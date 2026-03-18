@@ -98,16 +98,18 @@ describe("continuity-intelligence", () => {
   });
 
   it("persists planning and review resume anchors", () => {
-    rememberPlanningAnchor(41);
+    rememberPlanningAnchor(41, 3);
     vi.setSystemTime(new Date("2026-03-17T12:05:00Z"));
-    rememberReviewAnchor("relationship", 7);
+    rememberReviewAnchor("relationship", 7, 5);
 
     expect(readResumeAnchors()).toEqual({
       lastPlanningSessionId: 41,
       lastPlanningVisitedAtUtc: "2026-03-17T12:00:00.000Z",
+      lastPlanningWorkingSetId: 3,
       lastReviewFocus: "relationship",
       lastReviewSessionId: 7,
       lastReviewVisitedAtUtc: "2026-03-17T12:05:00.000Z",
+      lastReviewWorkingSetId: 5,
     });
   });
 

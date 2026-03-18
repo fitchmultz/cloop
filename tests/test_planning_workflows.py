@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from cloop import db
-from cloop.loops import planning_workflows, repo, review_workflows, service
+from cloop.loops import planning_workflows, repo, review_workflows, service, working_sets
 from cloop.loops.errors import ValidationError
 from cloop.loops.models import LoopStatus
 from cloop.settings import Settings, get_settings
@@ -177,6 +177,11 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
             _planner_payload(
                 first_loop["id"],
                 second_loop["id"],
+                title="Weekly launch reset with context",
+            ),
+            _planner_payload(
+                first_loop["id"],
+                second_loop["id"],
                 title="Refreshed weekly launch reset",
             ),
         ]
@@ -320,6 +325,54 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         enrichment_sessions = review_workflows.list_enrichment_review_sessions(conn=conn)
         assert [item["name"] for item in enrichment_sessions] == ["launch-follow-up"]
 
+        active_working_set = working_sets.create_working_set(
+            name="Launch reset",
+            description="Keep launch planning bounded.",
+            conn=conn,
+        )
+        working_sets.update_working_set_context(
+            active_working_set_id=active_working_set["id"],
+            focus_mode_enabled=False,
+            conn=conn,
+        )
+
+        planning_with_context = planning_workflows.create_planning_session(
+            name="weekly-reset-with-context",
+            prompt="Build a checkpointed plan for the launch work.",
+            query="status:open",
+            loop_limit=10,
+            include_memory_context=True,
+            include_rag_context=False,
+            rag_k=5,
+            rag_scope=None,
+            conn=conn,
+            settings=settings,
+        )
+        planning_workflows.move_planning_session(
+            session_id=planning_with_context["session"]["id"],
+            direction="next",
+            conn=conn,
+        )
+        context_execution = planning_workflows.execute_planning_session_checkpoint(
+            session_id=planning_with_context["session"]["id"],
+            conn=conn,
+            settings=settings,
+        )
+        attached_resource = context_execution["execution"]["follow_up_resources"][0]
+        assert attached_resource["details"]["working_set_id"] == active_working_set["id"]
+        attached_surface = context_execution["execution"]["launch_surfaces"][0]
+        assert attached_surface["web"]["working_set_id"] == active_working_set["id"]
+        attached_working_set = working_sets.get_working_set(
+            working_set_id=active_working_set["id"],
+            conn=conn,
+        )
+        assert [item["item_type"] for item in attached_working_set["items"]] == [
+            "enrichment_review_session"
+        ]
+        assert (
+            attached_working_set["items"][0]["launch"]["working_set_id"] == active_working_set["id"]
+        )
+
         refreshed = planning_workflows.refresh_planning_session(
             session_id=snapshot["session"]["id"],
             conn=conn,
@@ -335,6 +388,14 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
             conn=conn,
         )
         assert deleted == {"deleted": True, "session_id": snapshot["session"]["id"]}
+        deleted_with_context = planning_workflows.delete_planning_session(
+            session_id=planning_with_context["session"]["id"],
+            conn=conn,
+        )
+        assert deleted_with_context == {
+            "deleted": True,
+            "session_id": planning_with_context["session"]["id"],
+        }
         assert planning_workflows.list_planning_sessions(conn=conn) == []
 
 
@@ -506,3 +567,91 @@ def test_planning_session_rolls_back_prior_operations_on_late_failure(
             repo.list_planning_session_runs(session_id=int(snapshot["session"]["id"]), conn=conn)
             == []
         )
+
+
+def test_planning_session_rollback_cleans_auto_attached_review_queue_membership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    failing_payload = {
+        "title": "Review rollback test",
+        "summary": "Create a review queue, then fail so its working-set attachment is removed.",
+        "assumptions": [],
+        "checkpoints": [
+            {
+                "title": "Rollback review attachment",
+                "summary": "The created review session should not linger in the working set.",
+                "success_criteria": "No saved review session or working-set membership remains.",
+                "operations": [
+                    {
+                        "kind": "create_enrichment_review_session",
+                        "summary": "Create the transient review queue.",
+                        "name": "rollback-review",
+                        "query": "status:open",
+                        "pending_kind": "all",
+                        "suggestion_limit": 3,
+                        "clarification_limit": 3,
+                        "item_limit": 25,
+                    },
+                    {
+                        "kind": "create_loop_view",
+                        "summary": "This operation will fail after validation.",
+                        "name": "rollback-view-2",
+                        "query": "status:open",
+                    },
+                ],
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        "cloop.loops.planning_workflows.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(failing_payload),
+            {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+    monkeypatch.setattr(
+        "cloop.loops.planning_workflows.loop_views.create_loop_view",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("view creation exploded")),
+    )
+
+    with db.core_connection(settings) as conn:
+        working_set = working_sets.create_working_set(
+            name="Rollback set",
+            description="Track rollback cleanup.",
+            conn=conn,
+        )
+        working_sets.update_working_set_context(
+            active_working_set_id=working_set["id"],
+            focus_mode_enabled=False,
+            conn=conn,
+        )
+        snapshot = planning_workflows.create_planning_session(
+            name="rollback-review-plan",
+            prompt="Trigger rollback cleanup for review queue pinning.",
+            query="status:open",
+            loop_limit=10,
+            include_memory_context=True,
+            include_rag_context=False,
+            rag_k=5,
+            rag_scope=None,
+            conn=conn,
+            settings=settings,
+        )
+
+        with pytest.raises(ValidationError) as exc_info:
+            planning_workflows.execute_planning_session_checkpoint(
+                session_id=int(snapshot["session"]["id"]),
+                conn=conn,
+                settings=settings,
+            )
+
+        assert "rollback completed" in exc_info.value.message
+        assert review_workflows.list_enrichment_review_sessions(conn=conn) == []
+        cleaned_working_set = working_sets.get_working_set(
+            working_set_id=working_set["id"], conn=conn
+        )
+        assert cleaned_working_set["items"] == []

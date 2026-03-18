@@ -31,7 +31,7 @@ import sqlite3
 from typing import Any
 
 from ... import typingx
-from .. import repo
+from .. import repo, working_sets
 from ..errors import ResourceNotFoundError, ValidationError
 from .shared import (
     _UNSET,
@@ -65,6 +65,7 @@ def create_relationship_review_session(
     current_loop_id: int | None,
     conn: sqlite3.Connection,
     settings: Any,
+    working_set_id: int | None = None,
 ) -> dict[str, Any]:
     normalized_name = _normalize_name(name, field="name")
     normalized_query = _validate_query(query)
@@ -76,6 +77,11 @@ def create_relationship_review_session(
         }
     )
     _ensure_loop_exists(loop_id=current_loop_id, conn=conn)
+    if (
+        working_set_id is not None
+        and repo.get_working_set(working_set_id=working_set_id, conn=conn) is None
+    ):
+        raise ValidationError("working_set_id", f"working set {working_set_id} not found")
     try:
         with conn:
             row = repo.create_review_session(
@@ -86,6 +92,16 @@ def create_relationship_review_session(
                 current_loop_id=current_loop_id,
                 conn=conn,
             )
+            if working_set_id is not None:
+                working_sets._add_working_set_item_impl(
+                    working_set_id=working_set_id,
+                    item_type="relationship_review_session",
+                    item_id=int(row["id"]),
+                    label=None,
+                    description=None,
+                    metadata=None,
+                    conn=conn,
+                )
     except sqlite3.IntegrityError:
         raise ValidationError(
             "name", f"review session '{normalized_name}' already exists"
@@ -207,6 +223,11 @@ def delete_relationship_review_session(
 ) -> dict[str, Any]:
     _require_relationship_session_row(session_id=session_id, conn=conn)
     with conn:
+        working_sets._delete_working_set_items_for_target(
+            item_type="relationship_review_session",
+            item_id=session_id,
+            conn=conn,
+        )
         repo.delete_review_session(session_id=session_id, conn=conn)
     return {"deleted": True, "session_id": session_id}
 
@@ -222,6 +243,7 @@ def create_enrichment_review_session(
     item_limit: int,
     current_loop_id: int | None,
     conn: sqlite3.Connection,
+    working_set_id: int | None = None,
 ) -> dict[str, Any]:
     normalized_name = _normalize_name(name, field="name")
     normalized_query = _validate_query(query)
@@ -234,6 +256,11 @@ def create_enrichment_review_session(
         }
     )
     _ensure_loop_exists(loop_id=current_loop_id, conn=conn)
+    if (
+        working_set_id is not None
+        and repo.get_working_set(working_set_id=working_set_id, conn=conn) is None
+    ):
+        raise ValidationError("working_set_id", f"working set {working_set_id} not found")
     try:
         with conn:
             row = repo.create_review_session(
@@ -244,6 +271,16 @@ def create_enrichment_review_session(
                 current_loop_id=current_loop_id,
                 conn=conn,
             )
+            if working_set_id is not None:
+                working_sets._add_working_set_item_impl(
+                    working_set_id=working_set_id,
+                    item_type="enrichment_review_session",
+                    item_id=int(row["id"]),
+                    label=None,
+                    description=None,
+                    metadata=None,
+                    conn=conn,
+                )
     except sqlite3.IntegrityError:
         raise ValidationError(
             "name", f"review session '{normalized_name}' already exists"
@@ -363,6 +400,11 @@ def delete_enrichment_review_session(
 ) -> dict[str, Any]:
     _require_enrichment_session_row(session_id=session_id, conn=conn)
     with conn:
+        working_sets._delete_working_set_items_for_target(
+            item_type="enrichment_review_session",
+            item_id=session_id,
+            conn=conn,
+        )
         repo.delete_review_session(session_id=session_id, conn=conn)
     return {"deleted": True, "session_id": session_id}
 

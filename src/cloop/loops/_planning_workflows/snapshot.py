@@ -387,6 +387,9 @@ def _build_follow_up_resource_details(
         )
         if review_kind is not None:
             details["review_kind"] = review_kind
+        working_set_id = metadata_mapping.get("working_set_id")
+        if isinstance(working_set_id, int):
+            details["working_set_id"] = working_set_id
         if session.get("name") is not None or resource.get("label") is not None:
             details["name"] = session.get("name") or resource.get("label")
         if session.get("query") is not None:
@@ -431,6 +434,7 @@ def _build_launch_surface(
 
     resource_id = int(resource["resource_id"])
     review_kind = str(details.get("review_kind") or "").strip()
+    working_set_id = details.get("working_set_id")
     label = str(resource.get("label") or details.get("name") or f"Review session #{resource_id}")
 
     if review_kind == "relationship":
@@ -452,6 +456,7 @@ def _build_launch_surface(
                 "surface": "review_session",
                 "review_kind": "relationship",
                 "session_id": resource_id,
+                "working_set_id": working_set_id,
             },
         }
 
@@ -474,6 +479,7 @@ def _build_launch_surface(
                 "surface": "review_session",
                 "review_kind": "enrichment",
                 "session_id": resource_id,
+                "working_set_id": working_set_id,
             },
         }
 

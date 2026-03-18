@@ -60,12 +60,14 @@ def _execute_plan_operation(
     index: int,
     conn: sqlite3.Connection,
     settings: Settings,
+    active_working_set_id: int | None = None,
 ) -> dict[str, Any]:
     loop_result = execute_loop_focused_operation(
         operation=operation,
         index=index,
         conn=conn,
         settings=settings,
+        active_working_set_id=active_working_set_id,
     )
     if loop_result is not None:
         return dict(loop_result)
@@ -75,6 +77,7 @@ def _execute_plan_operation(
         index=index,
         conn=conn,
         settings=settings,
+        active_working_set_id=active_working_set_id,
     )
     if resource_result is not None:
         return dict(resource_result)

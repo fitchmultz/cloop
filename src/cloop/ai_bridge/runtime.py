@@ -277,17 +277,24 @@ class BridgeRuntime:
 
         deadline = time.monotonic() + self.startup_timeout_s
         while time.monotonic() < deadline:
-            if process.poll() is not None:
-                stderr_text = "\n".join(self._stderr_lines).strip()
-                detail = f": {stderr_text}" if stderr_text else ""
-                raise BridgeStartupError(f"Pi bridge exited during startup{detail}")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
             try:
-                line, error = handshake_queue.get(timeout=min(0.05, deadline - time.monotonic()))
+                line, error = handshake_queue.get(timeout=min(0.05, remaining))
             except queue.Empty:
+                if process.poll() is not None:
+                    stderr_text = "\n".join(self._stderr_lines).strip()
+                    detail = f": {stderr_text}" if stderr_text else ""
+                    raise BridgeStartupError(f"Pi bridge exited during startup{detail}") from None
                 continue
             if error is not None:
                 raise BridgeStartupError(f"Failed reading pi bridge handshake: {error}") from error
             if not line:
+                if process.poll() is not None:
+                    stderr_text = "\n".join(self._stderr_lines).strip()
+                    detail = f": {stderr_text}" if stderr_text else ""
+                    raise BridgeStartupError(f"Pi bridge exited during startup{detail}")
                 time.sleep(0.01)
                 continue
             payload = parse_line(line.decode("utf-8"))

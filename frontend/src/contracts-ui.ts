@@ -122,9 +122,11 @@ export type RecentShellActionKind =
 export interface ResumeAnchorState {
   lastPlanningSessionId: number | null;
   lastPlanningVisitedAtUtc: string | null;
+  lastPlanningWorkingSetId: number | null;
   lastReviewFocus: Extract<ReviewFocus, "relationship" | "enrichment"> | null;
   lastReviewSessionId: number | null;
   lastReviewVisitedAtUtc: string | null;
+  lastReviewWorkingSetId: number | null;
 }
 
 export interface RecentShellActionEntry {

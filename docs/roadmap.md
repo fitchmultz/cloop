@@ -38,12 +38,12 @@ Goal: turn the first continuity slice into a sharper operator decision surface o
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Shell decomposition session**
-   - split `frontend/src/shell.ts` into focused modules for routing/location state, working-set session rendering, operator-card assembly, and shell event wiring before more operator-shell workflow work lands there
-2. **Working-set-aware workflow propagation session**
-   - automatically carry the active working set through planning executions, review queues, and follow-up resource creation so new downstream work stays attached to the bounded context without manual repinning
+1. **Manual working-set handoff dogfood session**
+   - verify end-to-end operator-shell behavior for planning execution → review queue launch → working-set resume so the new propagation path is trustworthy before further polish
+2. **Continuity signal refinement session**
+   - tighten the operator workspace’s since-last and handoff cards around the propagated working-set context so resume cues stay explicit after downstream workflow creation
 
-That next session minimizes churn by reducing shell-file hotspot risk before deeper working-set propagation and handoff work adds more logic to the operator runtime.
+That next session order validates the new propagation slice first, then refines the higher-signal continuity surfaces that depend on the richer downstream context.
 
 ## Delivery Model
 

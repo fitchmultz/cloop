@@ -36,7 +36,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from ... import typingx
 from ...settings import Settings
-from .. import repo
+from .. import repo, working_sets
 from ..errors import ResourceNotFoundError, ValidationError
 from .execution import (
     _execute_plan_operation,
@@ -234,6 +234,12 @@ def execute_planning_session_checkpoint(
 
     _validate_checkpoint_for_execution(checkpoint=checkpoint, conn=conn)
 
+    working_set_context = working_sets.get_working_set_context(conn=conn)
+    active_working_set_id = working_set_context.get("active_working_set_id")
+    resolved_working_set_id = (
+        int(active_working_set_id) if active_working_set_id is not None else None
+    )
+
     results: list[dict[str, Any]] = []
     try:
         for operation_index, operation in enumerate(checkpoint.operations):
@@ -243,6 +249,7 @@ def execute_planning_session_checkpoint(
                     index=operation_index,
                     conn=conn,
                     settings=settings,
+                    active_working_set_id=resolved_working_set_id,
                 )
             )
     except Exception as exc:  # noqa: BLE001

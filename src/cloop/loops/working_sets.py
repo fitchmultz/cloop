@@ -127,6 +127,12 @@ def _required_working_set(*, working_set_id: int, conn: sqlite3.Connection) -> d
     return row
 
 
+def _row_working_set_id(row: Mapping[str, Any]) -> int | None:
+    """Read the parent working-set id from one membership row when present."""
+    raw_value = row.get("working_set_id")
+    return int(raw_value) if raw_value is not None else None
+
+
 def _required_metadata_string(
     metadata: Mapping[str, Any],
     *,
@@ -194,6 +200,7 @@ def _resolve_working_set_item(
     item_type = str(row["item_type"])
     item_id = int(row["item_id"]) if row.get("item_id") is not None else None
     metadata = _parse_json(row.get("metadata_json"))
+    working_set_id = _row_working_set_id(row)
     fallback_label = str(row.get("label") or "").strip() or "Untitled working-set item"
     fallback_description = str(row.get("description") or "").strip()
 
@@ -212,7 +219,11 @@ def _resolve_working_set_item(
                 "position": row["position"],
                 "created_at_utc": row["created_at"],
                 "metadata": metadata,
-                "launch": _build_launch(state="do", loop_id=item_id),
+                "launch": _build_launch(
+                    state="do",
+                    loop_id=item_id,
+                    working_set_id=working_set_id,
+                ),
             }
         return {
             "id": row["id"],
@@ -231,7 +242,11 @@ def _resolve_working_set_item(
             "position": row["position"],
             "created_at_utc": row["created_at"],
             "metadata": metadata,
-            "launch": _build_launch(state="do", loop_id=item_id),
+            "launch": _build_launch(
+                state="do",
+                loop_id=item_id,
+                working_set_id=working_set_id,
+            ),
         }
 
     if item_type == "planning_session":
@@ -254,7 +269,12 @@ def _resolve_working_set_item(
                 "position": row["position"],
                 "created_at_utc": row["created_at"],
                 "metadata": metadata,
-                "launch": _build_launch(state="plan", review_focus="planning", session_id=item_id),
+                "launch": _build_launch(
+                    state="plan",
+                    review_focus="planning",
+                    session_id=item_id,
+                    working_set_id=working_set_id,
+                ),
             }
         plan_json = _parse_json(str(session_row.get("plan_json") or "{}"))
         checkpoints_value = plan_json.get("checkpoints")
@@ -278,7 +298,12 @@ def _resolve_working_set_item(
             "position": row["position"],
             "created_at_utc": row["created_at"],
             "metadata": metadata,
-            "launch": _build_launch(state="plan", review_focus="planning", session_id=item_id),
+            "launch": _build_launch(
+                state="plan",
+                review_focus="planning",
+                session_id=item_id,
+                working_set_id=working_set_id,
+            ),
         }
 
     if item_type in {"relationship_review_session", "enrichment_review_session"}:
@@ -308,6 +333,7 @@ def _resolve_working_set_item(
                     state="decide",
                     review_focus=expected_kind,
                     session_id=item_id,
+                    working_set_id=working_set_id,
                 ),
             }
         options = _parse_json(str(session_row.get("options_json") or "{}"))
@@ -334,6 +360,7 @@ def _resolve_working_set_item(
                 state="decide",
                 review_focus=expected_kind,
                 session_id=item_id,
+                working_set_id=working_set_id,
             ),
         }
 
@@ -352,7 +379,11 @@ def _resolve_working_set_item(
                 "position": row["position"],
                 "created_at_utc": row["created_at"],
                 "metadata": metadata,
-                "launch": _build_launch(state="capture", view_id=item_id),
+                "launch": _build_launch(
+                    state="capture",
+                    view_id=item_id,
+                    working_set_id=working_set_id,
+                ),
             }
         return {
             "id": row["id"],
@@ -368,7 +399,11 @@ def _resolve_working_set_item(
             "position": row["position"],
             "created_at_utc": row["created_at"],
             "metadata": metadata,
-            "launch": _build_launch(state="capture", view_id=item_id),
+            "launch": _build_launch(
+                state="capture",
+                view_id=item_id,
+                working_set_id=working_set_id,
+            ),
         }
 
     if item_type == "memory":
@@ -386,7 +421,12 @@ def _resolve_working_set_item(
                 "position": row["position"],
                 "created_at_utc": row["created_at"],
                 "metadata": metadata,
-                "launch": _build_launch(state="recall", recall_tool="memory", memory_id=item_id),
+                "launch": _build_launch(
+                    state="recall",
+                    recall_tool="memory",
+                    memory_id=item_id,
+                    working_set_id=working_set_id,
+                ),
             }
         label = str(memory_row.get("key") or "").strip() or f"Memory #{item_id}"
         return {
@@ -401,7 +441,12 @@ def _resolve_working_set_item(
             "position": row["position"],
             "created_at_utc": row["created_at"],
             "metadata": metadata,
-            "launch": _build_launch(state="recall", recall_tool="memory", memory_id=item_id),
+            "launch": _build_launch(
+                state="recall",
+                recall_tool="memory",
+                memory_id=item_id,
+                working_set_id=working_set_id,
+            ),
         }
 
     if item_type == "query_anchor":
@@ -421,7 +466,11 @@ def _resolve_working_set_item(
             "position": row["position"],
             "created_at_utc": row["created_at"],
             "metadata": metadata,
-            "launch": _build_launch(state=state, query=query),
+            "launch": _build_launch(
+                state=state,
+                query=query,
+                working_set_id=working_set_id,
+            ),
         }
 
     if item_type == "state_anchor":
@@ -446,7 +495,7 @@ def _resolve_working_set_item(
                 loop_id=anchor["loop_id"],
                 view_id=anchor["view_id"],
                 memory_id=anchor["memory_id"],
-                working_set_id=anchor["working_set_id"],
+                working_set_id=anchor["working_set_id"] or working_set_id,
                 query=anchor["query"],
             ),
         }
@@ -565,6 +614,76 @@ def _item_signature(row: Mapping[str, Any]) -> tuple[str, int | None, str]:
     return str(row["item_type"]), item_id, normalized_metadata
 
 
+def _add_working_set_item_impl(
+    *,
+    working_set_id: int,
+    item_type: str,
+    item_id: int | None,
+    label: str | None,
+    description: str | None,
+    metadata: Mapping[str, Any] | None,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Create one membership row inside an existing transaction."""
+    if item_type not in _WORKING_SET_ITEM_TYPES:
+        raise ValidationError("item_type", f"unsupported working-set item type: {item_type}")
+    _required_working_set(working_set_id=working_set_id, conn=conn)
+    metadata_dict = dict(metadata or {})
+    default_label, default_description = _default_item_fields(
+        item_type=item_type,
+        item_id=item_id,
+        metadata=metadata_dict,
+        conn=conn,
+    )
+    resolved_label = (label or "").strip() or default_label
+    resolved_description = (description or "").strip() or default_description
+
+    signature = (item_type, item_id, json.dumps(metadata_dict, sort_keys=True))
+    existing_rows = repo.list_working_set_items(working_set_id=working_set_id, conn=conn)
+    duplicate_row = next((row for row in existing_rows if _item_signature(row) == signature), None)
+    if duplicate_row is not None:
+        repo.delete_working_set_item(
+            working_set_id=working_set_id,
+            item_id=int(duplicate_row["id"]),
+            conn=conn,
+        )
+    row = repo.create_working_set_item(
+        working_set_id=working_set_id,
+        item_type=item_type,
+        item_id=item_id,
+        label=resolved_label,
+        description=resolved_description,
+        metadata_json=metadata_dict,
+        conn=conn,
+    )
+    repo.update_working_set(
+        working_set_id=working_set_id,
+        last_activated_at=_utc_now_iso(),
+        conn=conn,
+    )
+    return row
+
+
+def _delete_working_set_items_for_target(
+    *,
+    item_type: str,
+    item_id: int,
+    conn: sqlite3.Connection,
+) -> None:
+    """Remove all working-set memberships for one durable referenced target."""
+    for working_set in repo.list_working_sets(conn=conn):
+        working_set_id = int(working_set["id"])
+        for row in repo.list_working_set_items(working_set_id=working_set_id, conn=conn):
+            row_item_id = int(row["item_id"]) if row.get("item_id") is not None else None
+            if str(row["item_type"]) != item_type or row_item_id != item_id:
+                continue
+            repo.delete_working_set_item(
+                working_set_id=working_set_id,
+                item_id=int(row["id"]),
+                conn=conn,
+            )
+
+
 @typingx.validate_io()
 def create_working_set(
     *,
@@ -637,42 +756,14 @@ def add_working_set_item(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
     """Add one item to a working set, de-duplicating identical membership rows."""
-    if item_type not in _WORKING_SET_ITEM_TYPES:
-        raise ValidationError("item_type", f"unsupported working-set item type: {item_type}")
-    _required_working_set(working_set_id=working_set_id, conn=conn)
-    metadata_dict = dict(metadata or {})
-    default_label, default_description = _default_item_fields(
-        item_type=item_type,
-        item_id=item_id,
-        metadata=metadata_dict,
-        conn=conn,
-    )
-    resolved_label = (label or "").strip() or default_label
-    resolved_description = (description or "").strip() or default_description
-
-    signature = (item_type, item_id, json.dumps(metadata_dict, sort_keys=True))
-    existing_rows = repo.list_working_set_items(working_set_id=working_set_id, conn=conn)
-    duplicate_row = next((row for row in existing_rows if _item_signature(row) == signature), None)
-
     with conn:
-        if duplicate_row is not None:
-            repo.delete_working_set_item(
-                working_set_id=working_set_id,
-                item_id=int(duplicate_row["id"]),
-                conn=conn,
-            )
-        row = repo.create_working_set_item(
+        row = _add_working_set_item_impl(
             working_set_id=working_set_id,
             item_type=item_type,
             item_id=item_id,
-            label=resolved_label,
-            description=resolved_description,
-            metadata_json=metadata_dict,
-            conn=conn,
-        )
-        repo.update_working_set(
-            working_set_id=working_set_id,
-            last_activated_at=_utc_now_iso(),
+            label=label,
+            description=description,
+            metadata=metadata,
             conn=conn,
         )
     return _resolve_working_set_item(row, conn=conn)

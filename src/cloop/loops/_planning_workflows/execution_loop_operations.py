@@ -489,6 +489,7 @@ def execute_loop_focused_operation(
     index: int,
     conn: sqlite3.Connection,
     settings: Settings,
+    active_working_set_id: int | None = None,
 ) -> dict[str, object] | None:
     if isinstance(operation, CreateLoopOperationModel):
         return _execute_create_loop_operation(operation=operation, index=index, conn=conn)

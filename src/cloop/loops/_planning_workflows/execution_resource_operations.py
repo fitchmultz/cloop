@@ -58,6 +58,7 @@ def _execute_create_relationship_review_session_operation(
     index: int,
     conn: sqlite3.Connection,
     settings: Settings,
+    active_working_set_id: int | None = None,
 ) -> dict[str, Any]:
     existing_names = {
         str(session["name"])
@@ -76,6 +77,7 @@ def _execute_create_relationship_review_session_operation(
         current_loop_id=None,
         conn=conn,
         settings=settings,
+        working_set_id=active_working_set_id,
     )
     session_id = int(result["session"]["id"])
     return _operation_result_payload(
@@ -88,7 +90,14 @@ def _execute_create_relationship_review_session_operation(
                 resource_id=session_id,
                 role="created",
                 label=str(result["session"]["name"]),
-                metadata={"review_kind": "relationship"},
+                metadata={
+                    "review_kind": "relationship",
+                    **(
+                        {"working_set_id": active_working_set_id}
+                        if active_working_set_id is not None
+                        else {}
+                    ),
+                },
             )
         ],
         rollback_actions=[
@@ -103,6 +112,11 @@ def _execute_create_relationship_review_session_operation(
             "review_kind": "relationship",
             "query": operation.query,
             "loop_count": int(result.get("loop_count") or 0),
+            **(
+                {"working_set_id": active_working_set_id}
+                if active_working_set_id is not None
+                else {}
+            ),
         },
         undoable=False,
     )
@@ -114,6 +128,7 @@ def _execute_create_enrichment_review_session_operation(
     index: int,
     conn: sqlite3.Connection,
     settings: Settings,
+    active_working_set_id: int | None = None,
 ) -> dict[str, Any]:
     existing_names = {
         str(session["name"])
@@ -132,6 +147,7 @@ def _execute_create_enrichment_review_session_operation(
         item_limit=operation.item_limit,
         current_loop_id=None,
         conn=conn,
+        working_set_id=active_working_set_id,
     )
     session_id = int(result["session"]["id"])
     return _operation_result_payload(
@@ -144,7 +160,14 @@ def _execute_create_enrichment_review_session_operation(
                 resource_id=session_id,
                 role="created",
                 label=str(result["session"]["name"]),
-                metadata={"review_kind": "enrichment"},
+                metadata={
+                    "review_kind": "enrichment",
+                    **(
+                        {"working_set_id": active_working_set_id}
+                        if active_working_set_id is not None
+                        else {}
+                    ),
+                },
             )
         ],
         rollback_actions=[
@@ -159,6 +182,11 @@ def _execute_create_enrichment_review_session_operation(
             "review_kind": "enrichment",
             "query": operation.query,
             "loop_count": int(result.get("loop_count") or 0),
+            **(
+                {"working_set_id": active_working_set_id}
+                if active_working_set_id is not None
+                else {}
+            ),
         },
         undoable=False,
     )
@@ -356,6 +384,7 @@ def execute_resource_focused_operation(
     index: int,
     conn: sqlite3.Connection,
     settings: Settings,
+    active_working_set_id: int | None = None,
 ) -> dict[str, object] | None:
     if isinstance(operation, CreateRelationshipReviewSessionOperationModel):
         return _execute_create_relationship_review_session_operation(
@@ -363,6 +392,7 @@ def execute_resource_focused_operation(
             index=index,
             conn=conn,
             settings=settings,
+            active_working_set_id=active_working_set_id,
         )
     if isinstance(operation, CreateEnrichmentReviewSessionOperationModel):
         return _execute_create_enrichment_review_session_operation(
@@ -370,6 +400,7 @@ def execute_resource_focused_operation(
             index=index,
             conn=conn,
             settings=settings,
+            active_working_set_id=active_working_set_id,
         )
     if isinstance(operation, CreateLoopViewOperationModel):
         return _execute_create_loop_view_operation(operation=operation, index=index, conn=conn)

@@ -69,6 +69,7 @@ import {
   rememberPlanningAnchor,
   rememberReviewAnchor,
 } from "./continuity-intelligence";
+import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { renderTrustSurface } from "./trust-surface";
 import * as modals from "./modals";
 import { openMergeModal, setupMergeHandlers } from "./duplicates";
@@ -300,43 +301,66 @@ function parseOptionalInteger(value: string | null | undefined): number | null {
   return Number.isInteger(parsed) ? parsed : null;
 }
 
-function toReviewHash(focus: ReviewFocus, sessionId: number | null = null): string {
+function currentWorkingSetId(): number | null {
+  return parseHash(window.location.hash)?.workingSetId ?? null;
+}
+
+function toReviewHash(
+  focus: ReviewFocus,
+  sessionId: number | null = null,
+  workingSetId: number | null = currentWorkingSetId(),
+): string {
   switch (focus) {
     case "planning":
-      return sessionId != null ? `#plan/session/${sessionId}` : "#plan";
+      return locationToHash(createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId,
+        workingSetId,
+      }));
     case "relationship":
-      return sessionId != null ? `#decide/relationship/${sessionId}` : "#decide/relationship";
+      return locationToHash(createLocation({
+        state: "decide",
+        reviewFocus: "relationship",
+        sessionId,
+        workingSetId,
+      }));
     case "enrichment":
-      return sessionId != null ? `#decide/enrichment/${sessionId}` : "#decide/enrichment";
+      return locationToHash(createLocation({
+        state: "decide",
+        reviewFocus: "enrichment",
+        sessionId,
+        workingSetId,
+      }));
     case "cohorts":
-      return "#review";
+      return locationToHash(createLocation({
+        state: "review",
+        reviewFocus: "cohorts",
+        workingSetId,
+      }));
   }
 }
 
+function toDoHash(loopId: number, workingSetId: number | null = currentWorkingSetId()): string {
+  return locationToHash(createLocation({ state: "do", loopId, workingSetId }));
+}
+
 function parseHashToFocus(hash: string): ReviewFocusDetail | null {
-  const cleaned = hash.replace(/^#/, "").trim();
-  if (!cleaned) {
+  const location = parseHash(hash);
+  if (!location) {
     return null;
   }
-  const parts = cleaned.split("/").filter(Boolean);
-  const [first, second, third] = parts;
-
-  if (first === "plan") {
-    return {
-      focus: "planning",
-      sessionId: second === "session" ? parseOptionalInteger(third) : null,
-    };
+  if (location.state === "plan") {
+    return { focus: "planning", sessionId: location.sessionId ?? null };
   }
-  if (first === "review") {
+  if (location.state === "review") {
     return { focus: "cohorts", sessionId: null };
   }
-  if (first === "decide") {
-    if (second === "relationship") {
-      return { focus: "relationship", sessionId: parseOptionalInteger(third) };
-    }
-    if (second === "enrichment") {
-      return { focus: "enrichment", sessionId: parseOptionalInteger(third) };
-    }
+  if (location.state === "decide" && location.reviewFocus === "relationship") {
+    return { focus: "relationship", sessionId: location.sessionId ?? null };
+  }
+  if (location.state === "decide" && location.reviewFocus === "enrichment") {
+    return { focus: "enrichment", sessionId: location.sessionId ?? null };
   }
   return null;
 }
@@ -346,25 +370,23 @@ function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): 
     return;
   }
 
+  const workingSetId = currentWorkingSetId();
+
   if (focus === "planning") {
     if (state.planningSessionId === sessionId) {
       return;
     }
-    rememberPlanningAnchor(sessionId);
+    rememberPlanningAnchor(sessionId, workingSetId);
     recordRecentShellAction({
       kind: "planning",
       label: `Resumed plan #${sessionId}`,
       description: "Switched planning sessions inside the review workspace.",
-      location: {
+      location: createLocation({
         state: "plan",
-        recallTool: "chat",
         reviewFocus: "planning",
         sessionId,
-        loopId: null,
-        viewId: null,
-        memoryId: null,
-        query: null,
-      },
+        workingSetId,
+      }),
     });
     return;
   }
@@ -377,21 +399,17 @@ function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): 
   if (previousSessionId === sessionId) {
     return;
   }
-  rememberReviewAnchor(focus, sessionId);
+  rememberReviewAnchor(focus, sessionId, workingSetId);
   recordRecentShellAction({
     kind: "review",
     label: `Opened ${focus} queue #${sessionId}`,
     description: "Switched saved review sessions inside the review workspace.",
-    location: {
+    location: createLocation({
       state: "decide",
-      recallTool: "chat",
       reviewFocus: focus,
       sessionId,
-      loopId: null,
-      viewId: null,
-      memoryId: null,
-      query: null,
-    },
+      workingSetId,
+    }),
   });
 }
 
@@ -1602,7 +1620,7 @@ function renderWorkspace(): void {
                 <div class="review-shell-inline-actions">
                   <button type="button" class="secondary" data-review-action="relationship-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
                   <button type="button" class="secondary" data-review-action="relationship-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
-                  <button type="button" class="secondary" ${queueItemButtonAttributes(`#do/loop/${item.loop.id}`)}>Open loop in Do</button>
+                  <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
                 </div>
                 ${renderPanelTrust(relationshipTrustMetadata(snapshot, item))}
               </article>
@@ -1649,7 +1667,7 @@ function renderWorkspace(): void {
                 <div class="review-shell-inline-actions">
                   <button type="button" class="secondary" data-review-action="enrichment-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
                   <button type="button" class="secondary" data-review-action="enrichment-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
-                  <button type="button" class="secondary" ${queueItemButtonAttributes(`#do/loop/${item.loop.id}`)}>Open loop in Do</button>
+                  <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
                 </div>
                 ${renderPanelTrust(enrichmentTrustMetadata(snapshot, item))}
               </article>
@@ -1710,10 +1728,11 @@ function renderLaunchSurface(surface: PlanningExecutionLaunchSurfaceResponse): s
   const web = surface.web && typeof surface.web === "object" ? surface.web : {};
   const sessionId = typeof web["session_id"] === "number" ? web["session_id"] : null;
   const reviewKind = typeof web["review_kind"] === "string" ? web["review_kind"] : null;
+  const workingSetId = typeof web["working_set_id"] === "number" ? web["working_set_id"] : currentWorkingSetId();
   const hash = reviewKind === "relationship"
-    ? toReviewHash("relationship", sessionId)
+    ? toReviewHash("relationship", sessionId, workingSetId)
     : reviewKind === "enrichment"
-      ? toReviewHash("enrichment", sessionId)
+      ? toReviewHash("enrichment", sessionId, workingSetId)
       : null;
 
   return `
@@ -1991,7 +2010,7 @@ function renderCohortLoopCard(item: LoopReviewCohortItem): string {
       </div>
       <p>${escapeHtml(item.next_action?.trim() || item.raw_text)}</p>
       <div class="review-shell-inline-actions">
-        <button type="button" ${queueItemButtonAttributes(`#do/loop/${item.id}`)}>Open in Do</button>
+        <button type="button" ${queueItemButtonAttributes(toDoHash(item.id))}>Open in Do</button>
       </div>
     </article>
   `;
@@ -3008,7 +3027,7 @@ async function handleControlClick(event: Event): Promise<void> {
       case "cohort-open-top": {
         const topLoop = selectedCohort()?.items[0] ?? null;
         if (topLoop) {
-          window.location.hash = `#do/loop/${topLoop.id}`;
+          window.location.hash = toDoHash(topLoop.id);
         }
         break;
       }

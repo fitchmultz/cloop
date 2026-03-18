@@ -49,9 +49,11 @@ const MAX_RECENT_ACTIONS = 12;
 const DEFAULT_RESUME_ANCHORS: ResumeAnchorState = {
   lastPlanningSessionId: null,
   lastPlanningVisitedAtUtc: null,
+  lastPlanningWorkingSetId: null,
   lastReviewFocus: null,
   lastReviewSessionId: null,
   lastReviewVisitedAtUtc: null,
+  lastReviewWorkingSetId: null,
 };
 
 export interface ContinuitySnapshotInput {
@@ -225,18 +227,23 @@ function writeResumeAnchors(value: ResumeAnchorState): void {
   window.localStorage.setItem(RESUME_ANCHORS_STORAGE_KEY, JSON.stringify(value));
 }
 
-export function rememberPlanningAnchor(sessionId: number): void {
+export function rememberPlanningAnchor(
+  sessionId: number,
+  workingSetId: number | null = null,
+): void {
   const current = readResumeAnchors();
   writeResumeAnchors({
     ...current,
     lastPlanningSessionId: sessionId,
     lastPlanningVisitedAtUtc: new Date().toISOString(),
+    lastPlanningWorkingSetId: workingSetId,
   });
 }
 
 export function rememberReviewAnchor(
   reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">,
   sessionId: number,
+  workingSetId: number | null = null,
 ): void {
   const current = readResumeAnchors();
   writeResumeAnchors({
@@ -244,6 +251,7 @@ export function rememberReviewAnchor(
     lastReviewFocus: reviewFocus,
     lastReviewSessionId: sessionId,
     lastReviewVisitedAtUtc: new Date().toISOString(),
+    lastReviewWorkingSetId: workingSetId,
   });
 }
 

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from cloop import db
-from cloop.loops import enrichment_review, repo, review_workflows, service
+from cloop.loops import enrichment_review, repo, review_workflows, service, working_sets
 from cloop.loops.models import LoopStatus
 from cloop.settings import Settings, get_settings
 
@@ -238,6 +238,62 @@ def test_review_session_move_helpers_step_through_saved_cursors(
     assert moved_relationship["current_item"]["loop"]["id"] == relationship_target
     assert moved_enrichment["session"]["current_loop_id"] == enrichment_target
     assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
+
+
+def test_enrichment_review_session_can_attach_to_and_cleanup_from_working_set(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        loop_record = _capture_loop(
+            "Clarify launch date",
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        repo.insert_loop_suggestion(
+            loop_id=loop_record["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=loop_record["id"],
+            question="When should this happen?",
+            conn=conn,
+        )
+        working_set = working_sets.create_working_set(
+            name="Launch review",
+            description="Keep launch review work bounded.",
+            conn=conn,
+        )
+
+        snapshot = review_workflows.create_enrichment_review_session(
+            name="launch-enrich",
+            query="status:open",
+            pending_kind="clarifications",
+            suggestion_limit=3,
+            clarification_limit=3,
+            item_limit=25,
+            current_loop_id=loop_record["id"],
+            conn=conn,
+            working_set_id=working_set["id"],
+        )
+
+        attached = working_sets.get_working_set(working_set_id=working_set["id"], conn=conn)
+        assert [item["item_type"] for item in attached["items"]] == ["enrichment_review_session"]
+        assert attached["items"][0]["item_id"] == snapshot["session"]["id"]
+        assert attached["items"][0]["launch"]["working_set_id"] == working_set["id"]
+
+        deleted = review_workflows.delete_enrichment_review_session(
+            session_id=snapshot["session"]["id"],
+            conn=conn,
+        )
+        assert deleted == {"deleted": True, "session_id": snapshot["session"]["id"]}
+
+        cleaned = working_sets.get_working_set(working_set_id=working_set["id"], conn=conn)
+        assert cleaned["items"] == []
 
 
 def test_enrichment_review_action_preset_applies_suggestion_and_refreshes_session(

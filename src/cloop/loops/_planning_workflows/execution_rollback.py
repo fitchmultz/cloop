@@ -32,7 +32,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .. import events as loop_events
-from .. import repo
+from .. import repo, working_sets
 from ..errors import ResourceNotFoundError
 
 
@@ -78,6 +78,15 @@ def _execute_rollback_action(*, action: Mapping[str, Any], conn: sqlite3.Connect
             raise ResourceNotFoundError("loop", f"Loop not found for rollback: {resource_id}")
         return
     if kind in {"review.relationship.session.delete", "review.enrichment.session.delete"}:
+        working_sets._delete_working_set_items_for_target(
+            item_type=(
+                "relationship_review_session"
+                if kind == "review.relationship.session.delete"
+                else "enrichment_review_session"
+            ),
+            item_id=resource_id,
+            conn=conn,
+        )
         if not repo.delete_review_session(session_id=resource_id, conn=conn):
             raise ResourceNotFoundError(
                 "review session", f"Review session not found for rollback: {resource_id}"
