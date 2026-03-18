@@ -17,7 +17,7 @@ Usage:
 
 Invariants/Assumptions:
     - `frontend/index.html` is the canonical source shell for the Vite frontend.
-    - `frontend/src/styles/*` and `frontend/src/legacy/*.js` preserve current UX semantics.
+    - `frontend/src/styles/*` and `frontend/src/surfaces/*.ts` preserve current UX semantics.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ INDEX_HTML = ROOT / "frontend" / "index.html"
 BASE_CSS = ROOT / "frontend" / "src" / "styles" / "base.css"
 MODALS_CSS = ROOT / "frontend" / "src" / "styles" / "modals.css"
 OPERATOR_CSS = ROOT / "frontend" / "src" / "styles" / "operator.css"
-RENDER_JS = ROOT / "frontend" / "src" / "legacy" / "render.js"
-STATIC_JS_DIR = ROOT / "frontend" / "src" / "legacy"
+RENDER_TS = ROOT / "frontend" / "src" / "surfaces" / "render.ts"
+STATIC_SURFACE_DIR = ROOT / "frontend" / "src" / "surfaces"
 
 
 def _read(path: Path) -> str:
@@ -79,7 +79,7 @@ def test_critical_form_controls_have_programmatic_labels() -> None:
         assert f'for="{control_id}"' in html or f'id="{control_id}" aria-label=' in html
 
 
-def test_state_navigation_and_legacy_bridge_tabs_expose_control_relationships() -> None:
+def test_state_navigation_and_surface_roots_expose_control_relationships() -> None:
     html = _read(INDEX_HTML)
     for shell_state in ["operator", "capture", "do", "decide", "plan", "review", "recall"]:
         assert f'data-shell-state="{shell_state}"' in html
@@ -88,18 +88,17 @@ def test_state_navigation_and_legacy_bridge_tabs_expose_control_relationships() 
     for recall_tool in ["chat", "memory", "rag"]:
         assert f'data-recall-tool="{recall_tool}"' in html
 
-    for tab_name, panel_id in {
-        "inbox": "inbox-main",
-        "next": "next-main",
-        "chat": "chat-main",
-        "rag": "rag-main",
-        "review": "review-main",
-        "metrics": "metrics-main",
-    }.items():
-        assert f'id="tab-{tab_name}"' in html
-        assert f'aria-controls="{panel_id}"' in html
-        assert f'data-tab="{tab_name}"' in html
+    for panel_id in [
+        "inbox-main",
+        "next-main",
+        "chat-main",
+        "memory-main",
+        "rag-main",
+        "review-main",
+    ]:
+        assert f'id="{panel_id}"' in html
 
+    assert 'id="do-query-filter"' in html
     assert 'id="working-set-focus-banner"' in html
     assert 'id="working-set-focus-summary"' in html
     assert 'id="working-set-focus-items"' in html
@@ -167,14 +166,13 @@ def test_review_shell_styles_exist_for_redesigned_decision_workspace() -> None:
     assert ".review-shell-focus-card" in css
     assert ".review-shell-impact-card" in css
     assert ".review-shell-chip" in css
-    assert ".review-legacy-compat" in css
 
 
 def test_static_web_ui_does_not_use_native_browser_dialogs() -> None:
     native_dialog_pattern = re.compile(r"\b(prompt|alert|confirm)\s*\(")
     offenders: list[str] = []
 
-    for path in STATIC_JS_DIR.glob("*.js"):
+    for path in STATIC_SURFACE_DIR.glob("*.ts"):
         if native_dialog_pattern.search(_read(path)):
             offenders.append(path.name)
 
@@ -182,7 +180,7 @@ def test_static_web_ui_does_not_use_native_browser_dialogs() -> None:
 
 
 def test_render_templates_have_accessible_labels_for_icon_controls() -> None:
-    js = _read(RENDER_JS)
+    js = _read(RENDER_TS)
     assert "compact-card" in js
     assert "mobile-text-collapsible" in js
     assert "compact-actions-menu" in js

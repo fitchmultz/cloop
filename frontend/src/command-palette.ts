@@ -51,12 +51,14 @@ import type {
 } from "./domain";
 import type {
   RecallTool,
+  RecentShellActionKind,
   ReviewFocus,
   ShellLocationContract,
   ShellState,
   TrustSurfaceMetadata,
   TrustTone,
 } from "./contracts-ui";
+import { recordRecentShellAction } from "./continuity-intelligence";
 import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
@@ -248,8 +250,16 @@ function createLocation(overrides: Partial<ShellLocationContract>): ShellLocatio
     loopId: overrides.loopId ?? null,
     viewId: overrides.viewId ?? null,
     memoryId: overrides.memoryId ?? null,
+    workingSetId: overrides.workingSetId ?? null,
     query: overrides.query ?? null,
   };
+}
+
+function workingSetSessionLocation(workingSetId: number): ShellLocationContract {
+  return createLocation({
+    state: "working_set",
+    workingSetId,
+  });
 }
 
 function loopTitle(loop: LoopResponse): string {
@@ -321,6 +331,95 @@ function storeRecentCommand(command: CommandPaletteCommand): void {
   writeStoredRecentCommands([updated, ...stored.filter((record) => record.id !== command.id)]);
 }
 
+function commandHistoryKind(command: CommandPaletteCommand): RecentShellActionKind {
+  const action = command.recentAction;
+  if (action?.kind === "bulk-snooze") {
+    return "snooze";
+  }
+  if (action?.kind === "bulk-close" || action?.kind === "bulk-status" || action?.kind === "bulk-enrich") {
+    return "bulk";
+  }
+  if (action?.kind === "working-set-context") {
+    return action.workingSetId != null ? "working_set_session" : "working_set";
+  }
+  if (action?.kind === "pin-current-location" || action?.kind === "pin-selected-loops") {
+    return "working_set";
+  }
+  if (action?.kind === "create-planning-session") {
+    return "planning";
+  }
+  if (action?.kind === "ask-chat" || action?.kind === "memory-search" || action?.kind === "document-ask") {
+    return "recall";
+  }
+  if (action?.kind === "open-location") {
+    if (action.location.state === "plan") {
+      return "planning";
+    }
+    if (action.location.state === "decide") {
+      return "review";
+    }
+    if (action.location.state === "recall") {
+      return "recall";
+    }
+    if (action.location.state === "working_set") {
+      return "working_set_session";
+    }
+    return "navigation";
+  }
+  return "command";
+}
+
+function commandHistoryLocation(command: CommandPaletteCommand, currentLocation: ShellLocationContract): ShellLocationContract | null {
+  const action = command.recentAction;
+  if (command.location) {
+    return command.location;
+  }
+  if (action?.kind === "open-location") {
+    return action.location;
+  }
+  if (action?.kind === "working-set-context") {
+    return action.workingSetId != null
+      ? workingSetSessionLocation(action.workingSetId)
+      : createLocation({ state: "operator" });
+  }
+  if (action?.kind === "ask-chat") {
+    return createLocation({ state: "recall", recallTool: "chat" });
+  }
+  if (action?.kind === "memory-search") {
+    return createLocation({ state: "recall", recallTool: "memory", query: action.query });
+  }
+  if (action?.kind === "document-ask") {
+    return createLocation({ state: "recall", recallTool: "rag", query: action.query });
+  }
+  return currentLocation;
+}
+
+function commandHistoryLabel(command: CommandPaletteCommand, location: ShellLocationContract | null): string {
+  const action = command.recentAction;
+  const usesLocationLabel = action?.kind === "open-location"
+    || action?.kind === "ask-chat"
+    || action?.kind === "memory-search"
+    || action?.kind === "document-ask"
+    || action?.kind === "create-planning-session"
+    || action?.kind === "working-set-context";
+  if (!usesLocationLabel || !location) {
+    return command.title;
+  }
+  if (location.state === "working_set" && location.workingSetId != null) {
+    return `Opened working set #${location.workingSetId}`;
+  }
+  if (location.state === "plan" && location.sessionId != null) {
+    return `Resumed plan #${location.sessionId}`;
+  }
+  if (location.state === "decide" && location.sessionId != null) {
+    return `Opened ${location.reviewFocus ?? "review"} queue #${location.sessionId}`;
+  }
+  if (location.state === "recall") {
+    return `Opened recall · ${location.recallTool}`;
+  }
+  return `Opened ${location.state}`;
+}
+
 function requestSubmit(form: HTMLFormElement): void {
   if (typeof form.requestSubmit === "function") {
     form.requestSubmit();
@@ -361,6 +460,9 @@ function defaultCommandContextSources(command: CommandPaletteCommand, selectedCo
   }
   if (command.location?.memoryId != null) {
     sources.push(`Memory entry #${command.location.memoryId}`);
+  }
+  if (command.location?.workingSetId != null) {
+    sources.push(`Working set #${command.location.workingSetId}`);
   }
   if (command.location?.query) {
     sources.push(`Query anchor: ${command.location.query}`);
@@ -733,6 +835,7 @@ function rankingContext(
       loopId: item.launch.loop_id ?? null,
       viewId: item.launch.view_id ?? null,
       memoryId: item.launch.memory_id ?? null,
+      workingSetId: item.launch.working_set_id ?? null,
       query: item.launch.query ?? null,
     });
   });
@@ -831,6 +934,9 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         return;
       case "working-set-context":
         await bindings.setWorkingSetContext(action.workingSetId, action.focusModeEnabled);
+        if (action.workingSetId != null) {
+          await bindings.openLocation(workingSetSessionLocation(action.workingSetId));
+        }
         return;
       case "ask-chat":
         await bindings.askGroundedChat(action.query);
@@ -1161,17 +1267,19 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
 
     const activeSet = context.workingSetContext?.active_working_set ?? null;
     if (activeSet) {
+      const location = workingSetSessionLocation(activeSet.id);
       commands.push({
         id: `working-set-active-${activeSet.id}`,
         group: "navigate",
-        title: `Resume ${activeSet.name}`,
-        subtitle: "Return to the active working set and its saved anchors",
-        keywords: ["working set", "resume", activeSet.name],
+        title: `Resume working set · ${activeSet.name}`,
+        subtitle: "Open the dedicated working-set session surface",
+        keywords: ["working set", "resume", "session", activeSet.name],
         badge: "Set",
+        location,
         contextBoost: 20,
         detail: {
           eyebrow: "Navigate",
-          description: "Resume the currently active working set and its saved focus anchors.",
+          description: "Restore the full working-set context as a dedicated shell session, not as a single anchor item.",
           meta: [
             `${activeSet.item_count} item${activeSet.item_count === 1 ? "" : "s"}`,
             context.workingSetContext?.focus_mode_enabled ? "Focus mode already enabled" : "Focus mode currently paused",
@@ -1182,23 +1290,26 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           workingSetId: activeSet.id,
           focusModeEnabled: Boolean(context.workingSetContext?.focus_mode_enabled),
         },
-        execute: () => bindings.setWorkingSetContext(activeSet.id, Boolean(context.workingSetContext?.focus_mode_enabled)),
+        execute: () => bindings.openLocation(location),
       });
     }
 
     context.workingSets.forEach((workingSet) => {
+      const location = workingSetSessionLocation(workingSet.id);
+
       commands.push({
         id: `working-set-open-${workingSet.id}`,
         group: "navigate",
-        title: `Activate working set · ${workingSet.name}`,
+        title: `Open working set · ${workingSet.name}`,
         subtitle: workingSet.description ?? "Saved cross-surface resume context",
-        keywords: ["working set", "focus", "resume", workingSet.name],
+        keywords: ["working set", "focus", "resume", "session", workingSet.name],
         badge: "Set",
+        location,
         contextBoost:
           context.workingSetContext?.active_working_set_id === workingSet.id ? 60 : 0,
         detail: {
           eyebrow: "Navigate",
-          description: "Make this named working set the active resume context without necessarily entering focus mode.",
+          description: "Open this working set as its own session surface and restore the full bounded context.",
           meta: [
             `${workingSet.item_count} item${workingSet.item_count === 1 ? "" : "s"}`,
             workingSet.missing_item_count ? `${workingSet.missing_item_count} missing anchor${workingSet.missing_item_count === 1 ? "" : "s"}` : "No missing anchors",
@@ -1209,15 +1320,16 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           workingSetId: workingSet.id,
           focusModeEnabled: false,
         },
-        execute: () => bindings.setWorkingSetContext(workingSet.id, false),
+        execute: () => bindings.openLocation(location),
       });
       commands.push({
         id: `working-set-focus-${workingSet.id}`,
         group: "navigate",
         title: `Focus working set · ${workingSet.name}`,
-        subtitle: "Activate the set and turn on focus mode",
-        keywords: ["working set", "focus", workingSet.name],
+        subtitle: "Open the working-set session and turn on focus mode",
+        keywords: ["working set", "focus", "session", workingSet.name],
         badge: "Set",
+        location,
         contextBoost:
           context.workingSetContext?.active_working_set_id === workingSet.id
           && context.workingSetContext?.focus_mode_enabled
@@ -1225,7 +1337,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             : 0,
         detail: {
           eyebrow: "Navigate",
-          description: "Enter focus mode around this working set so the shell emphasizes the bounded context you selected.",
+          description: "Restore the session surface and explicitly enter focus mode for this bounded context.",
           meta: [
             `${workingSet.item_count} item${workingSet.item_count === 1 ? "" : "s"}`,
             workingSet.last_activated_at_utc ? `Last resumed ${formatRelativeTime(workingSet.last_activated_at_utc)}` : "Not resumed yet",
@@ -1236,7 +1348,10 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           workingSetId: workingSet.id,
           focusModeEnabled: true,
         },
-        execute: () => bindings.setWorkingSetContext(workingSet.id, true),
+        execute: async () => {
+          await bindings.setWorkingSetContext(workingSet.id, true);
+          await bindings.openLocation(location);
+        },
       });
     });
 
@@ -1870,6 +1985,20 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     try {
       await command.execute();
       storeRecentCommand(command);
+      const currentContext = bindings.getContext();
+      const historyLocation = commandHistoryLocation(command, currentContext.currentLocation);
+      recordRecentShellAction({
+        kind: commandHistoryKind(command),
+        label: commandHistoryLabel(command, historyLocation),
+        description: command.subtitle,
+        location: historyLocation,
+        metadata: {
+          source: "command-palette",
+          commandId: command.id,
+          group: command.group,
+          badge: command.badge,
+        },
+      });
       setOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Command failed";

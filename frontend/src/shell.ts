@@ -2,13 +2,12 @@
  * shell.ts - Operator workspace and state-driven navigation bootstrap.
  *
  * Purpose:
- *   Establish the new operator-first shell on top of the Vite + TypeScript
- *   frontend, while isolating only the still-unported capture/do/recall
- *   surfaces behind a residual legacy runtime.
+ *   Establish the operator-first shell on top of the TypeScript-owned frontend runtime.
  *
  * Responsibilities:
  *   - Drive the top-level state-oriented navigation model.
  *   - Render the operator workspace using typed backend contracts.
+ *   - Launch capture, do, and recall through typed surface contracts.
  *   - Preserve deep-linkable context for plan/review/recall launches.
  *   - Maintain durable working-set/focus-mode context and since-last-visit summary.
  *
@@ -17,13 +16,10 @@
  *     keyboard/navigation behaviors.
  *
  * Usage:
- *   - Imported and invoked from frontend/src/main.ts before the legacy init
- *     compatibility layer is loaded.
+ *   - Imported and invoked from frontend/src/main.ts.
  *
  * Invariants/Assumptions:
  *   - Existing deep-work DOM surfaces remain present in frontend/index.html.
- *   - Residual legacy tab ids remain available only for still-unported
- *     capture/do/recall loaders.
  *   - Hash routes are the canonical shareable/deep-link format for shell state.
  */
 
@@ -35,10 +31,13 @@ import type {
   ClarificationResponse,
   EnrichmentReviewSessionResponse,
   EnrichmentReviewSessionSnapshotResponse,
+  LoopMetricsResponse,
   LoopResponse,
+  LoopReviewCohortItem,
   LoopReviewCohortResponse,
   LoopReviewResponse,
   NextLoopsResponse,
+  PlanningContextFreshnessTargetChangeResponse,
   PlanningExecutionFollowUpResourceResponse,
   PlanningExecutionHistoryItemResponse,
   PlanningExecutionLaunchSurfaceResponse,
@@ -56,13 +55,35 @@ import type {
   WorkingSetResponse,
 } from "./domain";
 import type {
+  ContinuityBaselineSnapshot,
   OperatorActionCard,
   OperatorActionCardAction,
+  RecentShellActionEntry,
   RecallTool,
   ReviewFocus,
   ShellLocationContract,
   ShellState,
+  WorkingSetSessionMetadata,
 } from "./contracts-ui";
+import {
+  buildContinuityBaseline,
+  readContinuityBaseline,
+  readRecentShellActions,
+  readResumeAnchors,
+  recordRecentShellAction,
+  rememberPlanningAnchor,
+  rememberReviewAnchor,
+  writeContinuityBaseline,
+} from "./continuity-intelligence";
+import {
+  buildChangedCountPreviewItems,
+  buildGroupedChangePreviewItems,
+  buildPlanningResourcePreviewItems,
+  buildRepeatedSnoozeSignal,
+  mergePlanningResourceChangeGroups,
+  sortLoopsByMostRecentUpdate,
+} from "./continuity-card-helpers";
+import { contractFromLocation, type FrontendSurfaceRegistry } from "./surface-runtime";
 
 type ShellLocation = ShellLocationContract;
 
@@ -74,12 +95,14 @@ interface ShellLocationInput {
   loopId?: number | null | undefined;
   viewId?: number | null | undefined;
   memoryId?: number | null | undefined;
+  workingSetId?: number | null | undefined;
   query?: string | null | undefined;
 }
 
 interface WorkspaceData {
   nextLoops: NextLoopsResponse;
   reviewData: LoopReviewResponse;
+  metrics: LoopMetricsResponse;
   planningSessions: PlanningSessionResponse[];
   planningSnapshot: PlanningSessionSnapshotResponse | null;
   relationshipSessions: RelationshipReviewSessionResponse[];
@@ -97,7 +120,7 @@ interface ShellElements {
   chatMain: HTMLElement;
   memoryMain: HTMLElement;
   ragMain: HTMLElement;
-  metricsMain: HTMLElement | null;
+  workingSetMain: HTMLElement;
   shellTitle: HTMLElement;
   shellDescription: HTMLElement;
   shellContext: HTMLElement;
@@ -121,7 +144,10 @@ interface ShellElements {
   workingSetFocusItems: HTMLElement;
   workingSetFocusToggleButton: HTMLButtonElement;
   workingSetExitFocusButton: HTMLButtonElement;
-  legacyTabs: Record<string, HTMLButtonElement>;
+}
+
+interface ShellRuntimeDependencies {
+  surfaces: FrontendSurfaceRegistry;
 }
 
 interface StateDescriptor {
@@ -145,6 +171,7 @@ const DEFAULT_LOCATION: ShellLocation = {
   reviewFocus: null,
   sessionId: null,
   loopId: null,
+  workingSetId: null,
 };
 
 const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
@@ -248,14 +275,37 @@ const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
       reviewFocus: null,
       sessionId: null,
       loopId: null,
+      workingSetId: null,
     },
+  },
+  working_set: {
+    title: "Working-set session",
+    description:
+      "Restore a bounded cross-surface context as one dedicated session surface.",
+    context:
+      "Review the full set, then jump into any member without losing the surrounding context.",
+    pill: "Working set",
+    primaryActionLabel: "Return home",
+    primaryActionLocation: DEFAULT_LOCATION,
   },
 };
 
+interface PrioritizedCard {
+  priority: number;
+  card: OperatorActionCard;
+}
+
+type DecisionSessionSnapshot =
+  | RelationshipReviewSessionSnapshotResponse
+  | EnrichmentReviewSessionSnapshotResponse;
+
 let elements: ShellElements | null = null;
+let runtimeDependencies: ShellRuntimeDependencies | null = null;
 let currentLocation: ShellLocation = DEFAULT_LOCATION;
 let suppressHashChange = false;
 let visitBaseline: Date | null = null;
+let continuityBaseline: ContinuityBaselineSnapshot | null = null;
+let visitStatePersisted = false;
 let workspaceLoading = false;
 let latestWorkspaceData: WorkspaceData | null = null;
 let latestWorkingSets: WorkingSetResponse[] = [];
@@ -273,8 +323,34 @@ function createLocation(overrides: ShellLocationInput = {}): ShellLocation {
     loopId: overrides.loopId ?? DEFAULT_LOCATION.loopId,
     viewId: overrides.viewId ?? null,
     memoryId: overrides.memoryId ?? null,
+    workingSetId: overrides.workingSetId ?? null,
     query: overrides.query ?? null,
   };
+}
+
+function workingSetSessionLocation(workingSetId: number | null): ShellLocation {
+  return createLocation({
+    state: "working_set",
+    workingSetId,
+  });
+}
+
+function openLocationAttributes(location: ShellLocation): string {
+  const attributes = [
+    ["state", location.state],
+    ["recall-tool", location.recallTool],
+    ["review-focus", location.reviewFocus ?? ""],
+    ["session-id", location.sessionId != null ? String(location.sessionId) : ""],
+    ["loop-id", location.loopId != null ? String(location.loopId) : ""],
+    ["view-id", location.viewId != null ? String(location.viewId) : ""],
+    ["memory-id", location.memoryId != null ? String(location.memoryId) : ""],
+    ["working-set-id", location.workingSetId != null ? String(location.workingSetId) : ""],
+    ["query", location.query ?? ""],
+  ] as const;
+
+  return attributes
+    .map(([name, value]) => `data-open-${name}="${escapeHtml(value)}"`)
+    .join(" ");
 }
 
 function requireElement<T extends HTMLElement>(id: string, ctor: { new (): T }): T {
@@ -357,7 +433,7 @@ function buildShellElements(): ShellElements {
     chatMain: requireElement("chat-main", HTMLElement),
     memoryMain: requireElement("memory-main", HTMLElement),
     ragMain: requireElement("rag-main", HTMLElement),
-    metricsMain: document.getElementById("metrics-main"),
+    workingSetMain: requireElement("working-set-main", HTMLElement),
     shellTitle: requireElement("shell-title", HTMLElement),
     shellDescription: requireElement("shell-description", HTMLElement),
     shellContext: requireElement("shell-context", HTMLElement),
@@ -381,15 +457,6 @@ function buildShellElements(): ShellElements {
     workingSetFocusItems: requireElement("working-set-focus-items", HTMLElement),
     workingSetFocusToggleButton: requireElement("working-set-focus-toggle-btn", HTMLButtonElement),
     workingSetExitFocusButton: requireElement("working-set-exit-focus-btn", HTMLButtonElement),
-    legacyTabs: {
-      inbox: requireElement("tab-inbox", HTMLButtonElement),
-      next: requireElement("tab-next", HTMLButtonElement),
-      chat: requireElement("tab-chat", HTMLButtonElement),
-      memory: requireElement("tab-memory", HTMLButtonElement),
-      rag: requireElement("tab-rag", HTMLButtonElement),
-      review: requireElement("tab-review", HTMLButtonElement),
-      metrics: requireElement("tab-metrics", HTMLButtonElement),
-    },
   };
 }
 
@@ -505,6 +572,9 @@ async function refreshWorkingSetState(): Promise<void> {
   renderWorkingSet(latestWorkspaceData);
   renderWorkingSetFocusBanner();
   syncFocusModeClass();
+  if (currentLocation.state === "working_set") {
+    renderWorkingSetSessionSurface();
+  }
 }
 
 function readLastVisit(): Date | null {
@@ -522,7 +592,7 @@ function writeLastVisitNow(): void {
 
 function normalizeLocation(value: ShellLocationInput): ShellLocation {
   const state =
-    value.state && ["operator", "capture", "do", "decide", "plan", "review", "recall"].includes(value.state)
+    value.state && ["operator", "capture", "do", "decide", "plan", "review", "recall", "working_set"].includes(value.state)
       ? value.state
       : DEFAULT_LOCATION.state;
   const recallTool =
@@ -541,6 +611,10 @@ function normalizeLocation(value: ShellLocationInput): ShellLocation {
     loopId: typeof value.loopId === "number" && Number.isInteger(value.loopId) ? value.loopId : null,
     viewId: typeof value.viewId === "number" && Number.isInteger(value.viewId) ? value.viewId : null,
     memoryId: typeof value.memoryId === "number" && Number.isInteger(value.memoryId) ? value.memoryId : null,
+    workingSetId:
+      typeof value.workingSetId === "number" && Number.isInteger(value.workingSetId)
+        ? value.workingSetId
+        : null,
     query: typeof value.query === "string" && value.query.trim() ? value.query.trim() : null,
   };
 }
@@ -585,6 +659,8 @@ function locationToHash(location: ShellLocation): string {
         return `#recall/${location.recallTool}/query/${encodeURIComponent(location.query)}`;
       }
       return `#recall/${location.recallTool}`;
+    case "working_set":
+      return location.workingSetId != null ? `#working-set/${location.workingSetId}` : "#working-set";
   }
 }
 
@@ -648,6 +724,11 @@ function parseHash(hash: string): ShellLocation | null {
         query: parts[2] === "query" && parts[3] ? decodeURIComponent(parts[3]) : null,
       });
     }
+    case "working-set":
+      return createLocation({
+        state: "working_set",
+        workingSetId: second ? Number.parseInt(second, 10) || null : null,
+      });
     default:
       return null;
   }
@@ -676,6 +757,8 @@ function updateShellHeader(location: ShellLocation): void {
     descriptor.primaryActionLocation.viewId != null ? String(descriptor.primaryActionLocation.viewId) : "";
   elements.shellPrimaryAction.dataset["primaryMemoryId"] =
     descriptor.primaryActionLocation.memoryId != null ? String(descriptor.primaryActionLocation.memoryId) : "";
+  elements.shellPrimaryAction.dataset["primaryWorkingSetId"] =
+    descriptor.primaryActionLocation.workingSetId != null ? String(descriptor.primaryActionLocation.workingSetId) : "";
   elements.shellPrimaryAction.dataset["primaryQuery"] = descriptor.primaryActionLocation.query ?? "";
 }
 
@@ -722,28 +805,20 @@ function syncVisiblePanels(location: ShellLocation): void {
     "grid",
   );
   displayElement(elements.ragMain, location.state === "recall" && location.recallTool === "rag", "grid");
-  displayElement(elements.metricsMain, false, "grid");
+  displayElement(elements.workingSetMain, location.state === "working_set", "grid");
 }
 
-function bridgeLegacySurface(location: ShellLocation): void {
-  if (!elements || location.state === "operator") {
+async function activateOwnedSurface(location: ShellLocation): Promise<void> {
+  if (!runtimeDependencies) {
     return;
   }
 
-  const tabKey =
-    location.state === "capture"
-      ? "inbox"
-      : location.state === "do"
-        ? "next"
-        : location.state === "recall"
-          ? location.recallTool
-          : null;
-
-  if (!tabKey) {
+  const contract = contractFromLocation(location);
+  if (!contract) {
     return;
   }
 
-  elements.legacyTabs[tabKey]?.click();
+  await runtimeDependencies.surfaces.activate(contract);
 }
 
 function clearReviewFocusClasses(): void {
@@ -857,7 +932,12 @@ async function applyQueryAnchor(state: ShellState, query: string | null): Promis
   if (!query) {
     return;
   }
-  const inputId = state === "review" ? "review-bulk-enrich-query" : "query-filter";
+  const inputId =
+    state === "review"
+      ? "review-bulk-enrich-query"
+      : state === "do"
+        ? "do-query-filter"
+        : "query-filter";
   const available = await waitForCondition(() => {
     const input = document.getElementById(inputId);
     return input instanceof HTMLInputElement;
@@ -974,11 +1054,11 @@ async function selectReviewSession(focus: ReviewFocus | null, sessionId: number 
 
   const selectId =
     focus === "planning"
-      ? "review-planning-session-select"
+      ? "review-shell-planning-session-select"
       : focus === "relationship"
-        ? "review-relationship-session-select"
+        ? "review-shell-relationship-session-select"
         : focus === "enrichment"
-          ? "review-enrichment-session-select"
+          ? "review-shell-enrichment-session-select"
           : null;
 
   if (!selectId) {
@@ -1040,12 +1120,26 @@ function workingSetItemLocation(item: WorkingSetItemResponse): ShellLocation {
     loopId: launch.loop_id,
     viewId: launch.view_id,
     memoryId: launch.memory_id,
+    workingSetId: launch.working_set_id,
     query: launch.query,
   });
 }
 
 function focusModeActiveSet(): WorkingSetResponse | null {
   return workingSetContext?.active_working_set ?? null;
+}
+
+function workingSetFromLocation(location: ShellLocation): WorkingSetResponse | null {
+  const requestedId =
+    location.state === "working_set"
+      ? (location.workingSetId ?? workingSetContext?.active_working_set_id ?? null)
+      : null;
+  if (requestedId == null) {
+    return null;
+  }
+  return latestWorkingSets.find((set) => set.id === requestedId)
+    ?? (workingSetContext?.active_working_set_id === requestedId ? workingSetContext.active_working_set : null)
+    ?? null;
 }
 
 function renderWorkingSetItemCard(workingSetId: number, item: WorkingSetItemResponse): string {
@@ -1061,22 +1155,81 @@ function renderWorkingSetItemCard(workingSetId: number, item: WorkingSetItemResp
         <span class="operator-chip">${escapeHtml(item.missing ? "Missing" : item.status_label ?? "Ready")}</span>
       </div>
       <div class="operator-card-actions">
-        <button
-          type="button"
-          data-open-state="${escapeHtml(location.state)}"
-          data-open-recall-tool="${escapeHtml(location.recallTool)}"
-          data-open-review-focus="${escapeHtml(location.reviewFocus ?? "")}"
-          data-open-session-id="${location.sessionId != null ? String(location.sessionId) : ""}"
-          data-open-loop-id="${location.loopId != null ? String(location.loopId) : ""}"
-          data-open-view-id="${location.viewId != null ? String(location.viewId) : ""}"
-          data-open-memory-id="${location.memoryId != null ? String(location.memoryId) : ""}"
-          data-open-query="${escapeHtml(location.query ?? "")}"
-        >Open</button>
+        <button type="button" ${openLocationAttributes(location)}>Open</button>
         <button class="secondary" type="button" data-working-set-move="${workingSetId}:${item.id}:up">Earlier</button>
         <button class="secondary" type="button" data-working-set-move="${workingSetId}:${item.id}:down">Later</button>
         <button class="secondary" type="button" data-remove-working-set-item="${workingSetId}:${item.id}">Remove</button>
       </div>
     </article>
+  `;
+}
+
+function renderWorkingSetSessionSurface(): void {
+  if (!elements) {
+    return;
+  }
+
+  const workingSet = workingSetFromLocation(currentLocation);
+  if (!workingSet) {
+    elements.workingSetMain.innerHTML = `
+      <section class="working-set-session-hero">
+        <p class="operator-empty">This working-set session is no longer available. Return home and choose another working set.</p>
+        <div class="operator-inline-actions">
+          <button type="button" data-open-state="operator">Return home</button>
+        </div>
+      </section>
+    `;
+    return;
+  }
+
+  const focusEnabled =
+    Boolean(workingSetContext?.focus_mode_enabled)
+    && workingSetContext?.active_working_set_id === workingSet.id;
+  const firstLaunchable = (workingSet.items ?? []).find((item) => !item.missing)
+    ?? workingSet.items?.[0]
+    ?? null;
+
+  elements.workingSetMain.innerHTML = `
+    <section class="working-set-session-hero panel">
+      <div class="working-set-card-header">
+        <div>
+          <p class="support-eyebrow">Working-set session</p>
+          <h2>${escapeHtml(workingSet.name)}</h2>
+          <p>${escapeHtml(workingSet.description ?? "Saved bounded cross-surface context.")}</p>
+        </div>
+        <div class="operator-chip-row">
+          <span class="operator-chip">${workingSet.item_count} item${workingSet.item_count === 1 ? "" : "s"}</span>
+          ${workingSet.missing_item_count ? `<span class="operator-chip">${workingSet.missing_item_count} missing</span>` : ""}
+          ${focusEnabled ? '<span class="operator-chip">Focus mode</span>' : '<span class="operator-chip">Session</span>'}
+        </div>
+      </div>
+      <div class="operator-card-actions">
+        <button type="button" data-working-set-focus="${workingSet.id}">${focusEnabled ? "Pause focus mode" : "Enter focus mode"}</button>
+        ${
+          firstLaunchable
+            ? `<button class="secondary" type="button" ${openLocationAttributes(workingSetItemLocation(firstLaunchable))}>Open first item</button>`
+            : ""
+        }
+        <button class="secondary" type="button" data-open-state="operator">Return home</button>
+      </div>
+    </section>
+
+    <section class="working-set-session-list panel">
+      <div class="working-set-card-header">
+        <div>
+          <p class="support-eyebrow">Ordered context</p>
+          <h3>All anchors</h3>
+          <p>Launch any member without losing the rest of the working set.</p>
+        </div>
+      </div>
+      <div class="working-set-item-grid">
+        ${
+          (workingSet.items ?? []).length
+            ? (workingSet.items ?? []).map((item) => renderWorkingSetItemCard(workingSet.id, item)).join("")
+            : '<p class="operator-empty">This working set is empty. Pin loops, sessions, views, or anchors to make it resumable.</p>'
+        }
+      </div>
+    </section>
   `;
 }
 
@@ -1156,7 +1309,7 @@ function renderWorkingSet(_data: WorkspaceData | null): void {
               : '<p class="operator-empty">This set is empty. Add a loop, session, or anchor from the operator workspace.</p>'}
           </div>
           <div class="operator-card-actions">
-            <button type="button" data-working-set-activate="${set.id}">${isActive ? "Resume set" : "Make active"}</button>
+            <button type="button" ${openLocationAttributes(workingSetSessionLocation(set.id))}>${isActive ? "Resume set" : "Open session"}</button>
             <button class="secondary" type="button" data-working-set-focus="${set.id}">${isFocused ? "Pause focus" : "Focus"}</button>
             <button class="secondary" type="button" data-working-set-edit="${set.id}">Rename</button>
             <button class="secondary" type="button" data-working-set-delete="${set.id}">Delete</button>
@@ -1175,6 +1328,7 @@ function locationsMatch(left: ShellLocationContract, right: ShellLocationContrac
     && left.loopId === right.loopId
     && (left.viewId ?? null) === (right.viewId ?? null)
     && (left.memoryId ?? null) === (right.memoryId ?? null)
+    && (left.workingSetId ?? null) === (right.workingSetId ?? null)
     && (left.query ?? null) === (right.query ?? null);
 }
 
@@ -1195,11 +1349,12 @@ function buildOpenAction(
   label: string,
   location: ShellLocation,
   description: string,
+  variant: OperatorActionCardAction["variant"] = "primary",
 ): OperatorActionCardAction {
   return {
     type: "open",
     label,
-    variant: "primary",
+    variant,
     location,
     description,
   };
@@ -1221,6 +1376,64 @@ function buildPinAction(
   };
 }
 
+function buildLocationAction(location: ShellLocation): Omit<RecentShellActionEntry, "occurredAt"> {
+  if (location.state === "working_set" && location.workingSetId != null) {
+    const workingSet = latestWorkingSets.find((set) => set.id === location.workingSetId)
+      ?? (workingSetContext?.active_working_set_id === location.workingSetId ? workingSetContext.active_working_set : null)
+      ?? null;
+    return {
+      kind: "working_set_session",
+      label: `Opened working set · ${workingSet?.name ?? `#${location.workingSetId}`}`,
+      description: "Opened the dedicated working-set session surface.",
+      location,
+    };
+  }
+  if (location.state === "plan" && location.sessionId != null) {
+    return {
+      kind: "planning",
+      label: `Resumed plan #${location.sessionId}`,
+      description: "Opened a saved planning session from the shell.",
+      location,
+    };
+  }
+  if (location.state === "decide" && location.sessionId != null) {
+    return {
+      kind: "review",
+      label: `Opened ${location.reviewFocus ?? "review"} queue #${location.sessionId}`,
+      description: "Opened a saved review session from the shell.",
+      location,
+    };
+  }
+  if (location.state === "recall") {
+    return {
+      kind: "recall",
+      label: `Opened recall · ${location.recallTool}`,
+      description: "Moved into a recall surface.",
+      location,
+    };
+  }
+  return {
+    kind: "navigation",
+    label: `Opened ${location.state}`,
+    description: "Navigated within the operator shell.",
+    location,
+  };
+}
+
+function rememberLocationAnchor(location: ShellLocation): void {
+  if (location.state === "plan" && location.sessionId != null) {
+    rememberPlanningAnchor(location.sessionId);
+    return;
+  }
+  if (
+    location.state === "decide"
+    && location.sessionId != null
+    && (location.reviewFocus === "relationship" || location.reviewFocus === "enrichment")
+  ) {
+    rememberReviewAnchor(location.reviewFocus, location.sessionId);
+  }
+}
+
 function summarizeFollowUpResources(resources: PlanningExecutionFollowUpResourceResponse[] | undefined): string[] {
   return (resources ?? []).slice(0, 3).map((resource) => {
     return `${resource.label || `${resource.resource_type} #${resource.resource_id}`}: ${resource.operation_summary}`;
@@ -1238,6 +1451,58 @@ function summarizeRollbackCue(cues: PlanningExecutionRollbackCueResponse | null 
     return `${cues.rollback_supported_operation_count} operation${cues.rollback_supported_operation_count === 1 ? "" : "s"} include guided rollback cues.`;
   }
   return "No explicit rollback path was captured for this execution.";
+}
+
+function formatChangedFieldLabel(field: string): string {
+  return field.replaceAll("_", " ");
+}
+
+function recentPlanningExecutions(data: WorkspaceData): PlanningExecutionHistoryItemResponse[] {
+  if (!visitBaseline) {
+    return [];
+  }
+  const baselineTime = visitBaseline.getTime();
+  return (data.planningSnapshot?.execution_history ?? []).filter((item) => {
+    return Date.parse(item.executed_at_utc) > baselineTime;
+  });
+}
+
+function buildPlanningReplacementCue(
+  baseline: NonNullable<ContinuityBaselineSnapshot["planningSession"]>,
+  current: PlanningSessionSnapshotResponse,
+): { summary: string; detail: string; overlapLabel: string } {
+  const previousName = baseline.sessionName || `Plan #${baseline.sessionId}`;
+  const baselineTargetIds = baseline.targetLoopIds ?? [];
+  const currentTargetIds = new Set((current.target_loops ?? []).map((loop) => loop.id));
+  const overlapCount = baselineTargetIds.filter((loopId) => currentTargetIds.has(loopId)).length;
+  const overlapLabel = `${overlapCount}/${Math.max(baselineTargetIds.length, current.target_loops?.length ?? 0, 1)} overlapping targets`;
+
+  if (baseline.status === "completed") {
+    return {
+      summary: `${current.session.name} replaced the completed plan you last saw.`,
+      detail: overlapLabel,
+      overlapLabel,
+    };
+  }
+  if (overlapCount === 0) {
+    return {
+      summary: `${current.session.name} targets a different slice of work than ${previousName}.`,
+      detail: "No prior target loops overlap",
+      overlapLabel,
+    };
+  }
+  if (overlapCount < baselineTargetIds.length) {
+    return {
+      summary: `${current.session.name} partially overlaps ${previousName} while refreshing the work mix.`,
+      detail: overlapLabel,
+      overlapLabel,
+    };
+  }
+  return {
+    summary: `${current.session.name} is a newer grounded version of ${previousName}.`,
+    detail: overlapLabel,
+    overlapLabel,
+  };
 }
 
 function relationCandidateLabel(candidate: RelationshipReviewCandidateResponse | null): string {
@@ -1806,9 +2071,9 @@ function buildRecallCards(data: WorkspaceData): OperatorActionCard[] {
   ] satisfies OperatorActionCard[];
 }
 
-function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
+function buildCompletedSinceLastCard(data: WorkspaceData): PrioritizedCard | null {
   if (!visitBaseline) {
-    return [];
+    return null;
   }
 
   const baselineTime = visitBaseline.getTime();
@@ -1816,19 +2081,14 @@ function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
     .filter((loop) => loop.closed_at_utc && new Date(loop.closed_at_utc).getTime() > baselineTime)
     .sort((left, right) => right.updated_at_utc.localeCompare(left.updated_at_utc))
     .slice(0, 3);
-  const blocked = data.allLoops
-    .filter((loop) => loop.status === "blocked" && new Date(loop.updated_at_utc).getTime() > baselineTime)
-    .sort((left, right) => right.updated_at_utc.localeCompare(left.updated_at_utc))
-    .slice(0, 3);
-  const recentExecution = data.planningSnapshot?.execution_history?.filter((item) => {
-    return new Date(item.executed_at_utc).getTime() > baselineTime;
-  }) ?? [];
-  const followUpResources = recentExecution.flatMap((item) => item.follow_up_resources ?? []).slice(0, 3);
+  if (!completed.length) {
+    return null;
+  }
 
-  const cards: OperatorActionCard[] = [];
-  if (completed.length) {
-    const location = createLocation({ state: "do" });
-    cards.push({
+  const location = createLocation({ state: "do" });
+  return {
+    priority: 55,
+    card: {
       id: "since-last-completed",
       kind: "context",
       tone: "progress",
@@ -1855,11 +2115,28 @@ function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
         buildOpenAction("Open ready work", location, "Review what to do after recent completions"),
         buildPinAction("Pin recap", location, "Resume context after recent completions", "Resume · completed work"),
       ],
-    });
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildBlockedSinceLastCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!visitBaseline) {
+    return null;
   }
-  if (blocked.length) {
-    const location = createLocation({ state: "review", reviewFocus: "cohorts" });
-    cards.push({
+
+  const baselineTime = visitBaseline.getTime();
+  const blocked = data.allLoops
+    .filter((loop) => loop.status === "blocked" && new Date(loop.updated_at_utc).getTime() > baselineTime)
+    .sort((left, right) => right.updated_at_utc.localeCompare(left.updated_at_utc))
+    .slice(0, 3);
+  if (!blocked.length) {
+    return null;
+  }
+
+  const location = createLocation({ state: "review", reviewFocus: "cohorts" });
+  return {
+    priority: 84,
+    card: {
       id: "since-last-blocked",
       kind: "decision",
       tone: "attention",
@@ -1886,48 +2163,891 @@ function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
         buildOpenAction("Open review", location, "Inspect newly blocked loops"),
         buildPinAction("Pin blocker recap", location, "Return to newly blocked-loop recap", "Resume · blocked work"),
       ],
-    });
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildFollowUpSinceLastCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!visitBaseline) {
+    return null;
   }
-  if (followUpResources.length) {
-    const launchLocation = recentExecution
-      .flatMap((item) => item.launch_surfaces ?? [])
-      .map((surface) => launchSurfaceToLocation(surface))
-      .find((location) => location != null)
-      ?? createLocation({ state: "plan", reviewFocus: "planning", sessionId: data.planningSnapshot?.session?.id ?? null });
-    cards.push({
+
+  const recentExecution = recentPlanningExecutions(data);
+  const downstreamGroups = mergePlanningResourceChangeGroups(
+    recentExecution.flatMap((item) => item.resource_change_summary?.downstream_groups ?? []),
+  );
+  const followUpResources = recentExecution
+    .flatMap((item) => item.follow_up_resources ?? [])
+    .slice(0, 3);
+
+  if (!downstreamGroups.length && !followUpResources.length) {
+    return null;
+  }
+
+  const launchLocation = recentExecution
+    .flatMap((item) => item.launch_surfaces ?? [])
+    .map((surface) => launchSurfaceToLocation(surface))
+    .find((location) => location != null)
+    ?? createLocation({ state: "plan", reviewFocus: "planning", sessionId: data.planningSnapshot?.session?.id ?? null });
+
+  const latestDownstreamSummary = recentExecution.at(-1)?.resource_change_summary?.downstream_summary_label;
+
+  return {
+    priority: 80,
+    card: {
       id: "since-last-handoffs",
       kind: "handoff",
       tone: "progress",
       eyebrow: "Resume signal",
-      title: "Plan-created follow-ups",
-      summary: `${followUpResources.length} downstream resource${followUpResources.length === 1 ? "" : "s"} were created after your last visit.`,
+      title: "Plan-created downstream handoffs",
+      summary: latestDownstreamSummary
+        ?? `${downstreamGroups.reduce((sum, group) => sum + group.count, 0)} downstream resources were created or updated after your last visit.`,
       rationale:
-        "Downstream resources are the clearest sign that the system prepared new work for you while you were away.",
-      preview: followUpResources.map((resource, index) => ({
-        label: `Follow-up ${index + 1}`,
-        value: resource.label || `${resource.resource_type} #${resource.resource_id}`,
-      })),
+        "Downstream resources are the clearest sign that planning already prepared the next surface or durable artifact for the operator.",
+      preview: followUpResources.length
+        ? followUpResources.map((resource, index) => ({
+            label: `Follow-up ${index + 1}`,
+            value: resource.label || `${resource.resource_type} #${resource.resource_id}`,
+          }))
+        : buildPlanningResourcePreviewItems(downstreamGroups),
       trust: {
-        contextSources: ["Planning execution history", "Last-visit browser baseline"],
-        assumptions: ["The downstream resources still exist and are the best resume target."],
+        contextSources: [
+          "Planning execution history",
+          "Typed downstream resource-change summaries",
+          "Last-visit browser baseline",
+        ],
+        assumptions: ["The downstream resources still exist and remain valid resume targets."],
         confidenceLabel: "Prepared resume handoff",
         rollbackLabel: summarizeRollbackCue(recentExecution.at(-1)?.rollback_cues),
         freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
       },
       handoff: {
-        changeSummary: "A planning execution produced durable follow-up work while you were away.",
-        createdResources: followUpResources.map((resource) => resource.operation_summary),
+        changeSummary: "Planning execution produced durable follow-up work while you were away.",
+        createdResources: downstreamGroups.length
+          ? downstreamGroups.map((group) => group.display_label)
+          : followUpResources.map((resource) => resource.operation_summary),
         nextStep: "Open the prepared handoff or resume the planning workspace to inspect the execution trail.",
-        breadcrumbs: ["Home", "Since last visit", "Handoffs"],
+        breadcrumbs: ["Home", "Since last visit", "Planning handoffs"],
       },
       actions: [
         buildOpenAction("Open handoff", launchLocation, "Open the newest downstream planning handoff"),
         buildPinAction("Pin handoff recap", launchLocation, "Return to the latest plan-created handoff recap", "Resume · plan handoffs"),
       ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+type ContinuityCohortName = keyof ContinuityBaselineSnapshot["cohorts"];
+
+function cohortByName(
+  reviewData: LoopReviewResponse,
+  cohortName: ContinuityCohortName,
+): LoopReviewCohortResponse | null {
+  return [...reviewData.daily, ...reviewData.weekly].find((item) => item.cohort === cohortName) ?? null;
+}
+
+function cohortCountDelta(data: WorkspaceData, cohortName: ContinuityCohortName): number {
+  const previousCount = continuityBaseline?.cohorts[cohortName].count ?? 0;
+  return (cohortByName(data.reviewData, cohortName)?.count ?? 0) - previousCount;
+}
+
+function previewLoopValue(loop: LoopReviewCohortItem | LoopResponse | null | undefined): string {
+  return loop ? loopTitle(loop) : "No loop preview available";
+}
+
+function planningFreshness(snapshot: PlanningSessionSnapshotResponse | null): {
+  isStale: boolean;
+  label: string;
+  staleTargetLoopCount: number;
+  missingTargetLoopCount: number;
+  changedTargets: PlanningContextFreshnessTargetChangeResponse[];
+  summaryLabel: string;
+} {
+  const freshness = snapshot?.context_freshness;
+  if (!freshness) {
+    return {
+      isStale: false,
+      label: "No planning freshness metadata",
+      staleTargetLoopCount: 0,
+      missingTargetLoopCount: 0,
+      changedTargets: [],
+      summaryLabel: "No planning freshness metadata",
+    };
+  }
+
+  return {
+    isStale: freshness.is_stale,
+    label: freshness.summary_label
+      ?? `Generated ${formatRelativeTime(snapshot?.session.generated_at_utc ?? snapshot?.session.updated_at_utc ?? null)}`,
+    staleTargetLoopCount: freshness.stale_target_loop_count,
+    missingTargetLoopCount: freshness.missing_target_loop_count,
+    changedTargets: freshness.changed_targets ?? [],
+    summaryLabel: freshness.summary_label ?? "Planning freshness available",
+  };
+}
+
+function buildNewlyStaleCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!continuityBaseline) {
+    return null;
+  }
+
+  const staleCohort = cohortByName(data.reviewData, "stale");
+  const previousIds = new Set(continuityBaseline.cohorts.stale.itemIds);
+  const newlyStale = (staleCohort?.items ?? []).filter((item) => !previousIds.has(item.id));
+  const delta = Math.max(0, cohortCountDelta(data, "stale"));
+  if (!newlyStale.length && delta <= 0) {
+    return null;
+  }
+
+  const location = createLocation({ state: "review", reviewFocus: "cohorts" });
+  return {
+    priority: 82,
+    card: {
+      id: "since-last-newly-stale",
+      kind: "decision",
+      tone: "attention",
+      eyebrow: "Drift signal",
+      title: "Loops aged into stale review",
+      summary: `${delta || newlyStale.length} loop${(delta || newlyStale.length) === 1 ? "" : "s"} entered the stale cohort since your last visit.`,
+      rationale:
+        "Stale loops quietly lose trust. Surfacing newly stale items makes drift visible before it turns into backlog fog.",
+      preview: (newlyStale.length ? newlyStale : staleCohort?.items ?? []).slice(0, 3).map((item, index) => ({
+        label: `Stale ${index + 1}`,
+        value: previewLoopValue(item),
+      })),
+      trust: {
+        contextSources: ["Live review cohorts", "Stored continuity cohort baseline"],
+        assumptions: ["Cohort counts stay deterministic across refreshes in the same browser."],
+        confidenceLabel: "New stale-work drift detected",
+        rollbackLabel: "Opening Review remains non-mutating until you edit or close a loop.",
+        freshnessLabel: `Previous stale count ${continuityBaseline.cohorts.stale.count} → ${staleCohort?.count ?? 0}`,
+      },
+      handoff: {
+        changeSummary: "More loops now require stale-work cleanup than when you last visited.",
+        createdResources: newlyStale.slice(0, 3).map((item) => previewLoopValue(item)),
+        nextStep: "Open Review and decide whether to revive, clarify, or close the newly stale work.",
+        breadcrumbs: ["Home", "Since last visit", "Stale drift"],
+      },
+      actions: [
+        buildOpenAction("Open stale review", location, "Review loops that aged into the stale cohort"),
+        buildPinAction("Pin stale drift", location, "Return to the stale-drift recap", "Resume · stale drift"),
+      ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildRiskCohortCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!continuityBaseline) {
+    return null;
+  }
+
+  const blockedDelta = Math.max(0, data.metrics.blocked_too_long_count - continuityBaseline.metrics.blockedTooLongCount);
+  const noNextDelta = Math.max(0, data.metrics.no_next_action_count - continuityBaseline.metrics.noNextActionCount);
+  const dueSoonDelta = Math.max(0, cohortCountDelta(data, "due_soon_unplanned"));
+  const staleDelta = Math.max(0, data.metrics.stale_open_count - continuityBaseline.metrics.staleOpenCount);
+  const changes = [
+    blockedDelta ? `${blockedDelta} more blocked-too-long` : null,
+    noNextDelta ? `${noNextDelta} more missing next action` : null,
+    dueSoonDelta ? `${dueSoonDelta} more due-soon under-planned` : null,
+    staleDelta ? `${staleDelta} more stale open` : null,
+  ].filter((value): value is string => value != null);
+  if (!changes.length) {
+    return null;
+  }
+
+  const location = createLocation({ state: "review", reviewFocus: "cohorts" });
+  return {
+    priority: 78,
+    card: {
+      id: "since-last-risk-cohorts",
+      kind: "decision",
+      tone: "attention",
+      eyebrow: "Risk growth",
+      title: "Higher-risk cohorts grew",
+      summary: changes.join(" · "),
+      rationale:
+        "Growth in risk cohorts is a stronger continuity signal than raw backlog size because it changes where cleanup work should start.",
+      preview: buildChangedCountPreviewItems([
+        {
+          label: "Blocked too long",
+          previous: continuityBaseline.metrics.blockedTooLongCount,
+          current: data.metrics.blocked_too_long_count,
+        },
+        {
+          label: "Missing next action",
+          previous: continuityBaseline.metrics.noNextActionCount,
+          current: data.metrics.no_next_action_count,
+        },
+        {
+          label: "Due soon under-planned",
+          previous: continuityBaseline.cohorts.due_soon_unplanned.count,
+          current: cohortByName(data.reviewData, "due_soon_unplanned")?.count ?? 0,
+        },
+        {
+          label: "Stale open",
+          previous: continuityBaseline.metrics.staleOpenCount,
+          current: data.metrics.stale_open_count,
+        },
+      ]),
+      trust: {
+        contextSources: ["/loops/metrics", "/loops/review cohorts", "Stored continuity baseline"],
+        assumptions: ["Metric deltas are compared only against the last successful browser-local visit baseline."],
+        confidenceLabel: "Deterministic cohort growth",
+        rollbackLabel: "This is diagnostic only until you act inside Review or Do.",
+        freshnessLabel: `Compared to ${formatTimestamp(continuityBaseline.recordedAtUtc)}`,
+      },
+      handoff: {
+        changeSummary: "The system has more hygiene risk than it did on your last visit.",
+        createdResources: changes,
+        nextStep: "Open Review and start with the fastest cohort that reduces trust drift.",
+        breadcrumbs: ["Home", "Since last visit", "Risk growth"],
+      },
+      actions: [
+        buildOpenAction("Open risk review", location, "Inspect the cohorts that grew since your last visit"),
+        buildPinAction("Pin risk recap", location, "Return to the risk-growth recap", "Resume · risk growth"),
+      ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!continuityBaseline?.planningSession || !data.planningSnapshot?.session) {
+    return null;
+  }
+
+  const baseline = continuityBaseline.planningSession;
+  const current = data.planningSnapshot;
+  const freshness = planningFreshness(current);
+  const sameSession = baseline.sessionId === current.session.id;
+  const becameStale = freshness.isStale && (!baseline.contextIsStale || !sameSession);
+  const movedPrimarySession = !sameSession;
+  if (!becameStale && !movedPrimarySession) {
+    return null;
+  }
+
+  const replacementCue = movedPrimarySession ? buildPlanningReplacementCue(baseline, current) : null;
+  const changedTargetPreview = freshness.changedTargets.slice(0, 2).map((target, index) => ({
+    label: `Changed target ${index + 1}`,
+    value: `${target.label} · ${(target.changed_fields ?? []).map((field) => formatChangedFieldLabel(field)).join(", ")}`,
+  }));
+
+  const location = createLocation({
+    state: "plan",
+    reviewFocus: "planning",
+    sessionId: current.session.id,
+  });
+
+  return {
+    priority: 90,
+    card: {
+      id: "since-last-planning-drift",
+      kind: "handoff",
+      tone: freshness.isStale ? "attention" : "neutral",
+      eyebrow: "Plan drift",
+      title: movedPrimarySession ? "A different planning session became primary" : "Planning context drifted",
+      summary: movedPrimarySession
+        ? replacementCue?.summary ?? `${current.session.name} replaced the prior planning session.`
+        : freshness.summaryLabel,
+      rationale:
+        "Saved plans are only trustworthy when their grounding still matches the real loop state and the operator still knows why this plan is the active one.",
+      preview: [
+        { label: "Plan", value: current.session.name },
+        {
+          label: movedPrimarySession ? "Replacement cue" : "Freshness",
+          value: movedPrimarySession
+            ? replacementCue?.detail ?? replacementCue?.overlapLabel ?? "Newer planning session"
+            : freshness.label,
+        },
+        ...(changedTargetPreview.length
+          ? changedTargetPreview
+          : [
+              {
+                label: "Checkpoint",
+                value: current.current_checkpoint?.title || `Checkpoint ${current.session.current_checkpoint_index + 1}`,
+              },
+            ]),
+      ],
+      trust: {
+        contextSources: [
+          "Planning session snapshot",
+          "Typed planning context freshness",
+          "Stored browser-local planning baseline",
+        ],
+        assumptions: [
+          "Refreshing the plan is the safest next step when target-loop grounding no longer matches current loop state.",
+        ],
+        confidenceLabel: freshness.isStale ? freshness.summaryLabel : "Primary planning session shifted",
+        rollbackLabel: "Opening Plan remains non-mutating until you refresh or execute a checkpoint.",
+        freshnessLabel: sameSession
+          ? `Previous plan freshness: ${baseline.contextIsStale ? "stale" : "fresh"}`
+          : `Previous plan: ${baseline.sessionName || `Plan #${baseline.sessionId}`}`,
+      },
+      handoff: {
+        changeSummary: freshness.isStale
+          ? freshness.summaryLabel
+          : replacementCue?.summary ?? "The operator-visible primary planning session changed.",
+        createdResources: movedPrimarySession
+          ? [
+              `${baseline.sessionName || `Plan #${baseline.sessionId}`} → ${current.session.name}`,
+              replacementCue?.overlapLabel ?? "Target overlap unavailable",
+            ]
+          : freshness.changedTargets.slice(0, 3).map((target) => {
+              return `${target.label}: ${(target.changed_fields ?? []).map((field) => formatChangedFieldLabel(field)).join(", ")}`;
+            }),
+        nextStep: freshness.isStale
+          ? "Open the plan and refresh its context before trusting the next checkpoint."
+          : "Open the current plan and confirm it is the right workflow to resume.",
+        breadcrumbs: ["Home", "Since last visit", "Planning drift"],
+      },
+      actions: [
+        buildOpenAction(
+          freshness.isStale ? "Refresh plan context" : "Open current plan",
+          location,
+          freshness.label,
+        ),
+        buildPinAction("Pin planning drift", location, freshness.label, `Plan · ${current.session.name}`),
+      ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildPlanningResourceRollupCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!visitBaseline) {
+    return null;
+  }
+
+  const recentExecution = recentPlanningExecutions(data);
+  const groupedChanges = mergePlanningResourceChangeGroups(
+    recentExecution.flatMap((item) => item.resource_change_summary?.groups ?? []),
+  );
+  if (!groupedChanges.length) {
+    return null;
+  }
+
+  const latestSummary = recentExecution.at(-1)?.resource_change_summary?.summary_label;
+  const location = createLocation({
+    state: "plan",
+    reviewFocus: "planning",
+    sessionId: data.planningSnapshot?.session?.id ?? null,
+  });
+
+  return {
+    priority: 81,
+    card: {
+      id: "since-last-planning-resource-rollup",
+      kind: "handoff",
+      tone: "progress",
+      eyebrow: "Changed resources",
+      title: "Planning execution changed durable resources",
+      summary: latestSummary
+        ?? `${groupedChanges.reduce((sum, group) => sum + group.count, 0)} planning-driven resource changes landed since your last visit.`,
+      rationale:
+        "Checkpoint execution can mutate loops and create durable objects. A grouped rollup shows the true post-execution state without forcing the operator to reconstruct it manually.",
+      preview: buildPlanningResourcePreviewItems(groupedChanges),
+      trust: {
+        contextSources: [
+          "Planning execution history",
+          "Typed planning resource-change summaries",
+          "Last-visit browser baseline",
+        ],
+        assumptions: [
+          "Planning execution history still reflects the canonical durable mutations created after your last visit.",
+        ],
+        confidenceLabel: "Grouped planning change rollup",
+        rollbackLabel: summarizeRollbackCue(recentExecution.at(-1)?.rollback_cues),
+        freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
+        impactSummary: groupedChanges.map((group) => group.display_label).join(" · "),
+      },
+      handoff: {
+        changeSummary: "Planning checkpoints changed real loops and saved resources while you were away.",
+        createdResources: groupedChanges.map((group) => group.display_label),
+        nextStep: "Open the planning workspace to inspect the execution trail, then launch into the next updated queue or loop.",
+        breadcrumbs: ["Home", "Since last visit", "Planning resource changes"],
+      },
+      actions: [
+        buildOpenAction("Open planning activity", location, "Inspect grouped planning-driven resource changes"),
+        buildPinAction("Pin resource rollup", location, "Return to the planning resource rollup", "Resume · planning changes"),
+      ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+interface GroupedChangeTheme {
+  label: string;
+  summary: string;
+  tone: OperatorActionCard["tone"];
+  location: ShellLocation;
+}
+
+function buildGroupedChangeRollupCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!visitBaseline) {
+    return null;
+  }
+
+  const themes: GroupedChangeTheme[] = [];
+
+  const planningDrift = buildPlanningDriftCard(data);
+  if (planningDrift?.card.actions[0]) {
+    themes.push({
+      label: "Planning drift",
+      summary: planningDrift.card.summary,
+      tone: planningDrift.card.tone,
+      location: planningDrift.card.actions[0].location,
     });
   }
 
-  return cards;
+  const planningResourceRollup = buildPlanningResourceRollupCard(data);
+  if (planningResourceRollup?.card.actions[0]) {
+    themes.push({
+      label: "Planning activity",
+      summary: planningResourceRollup.card.summary,
+      tone: planningResourceRollup.card.tone,
+      location: planningResourceRollup.card.actions[0].location,
+    });
+  }
+
+  const queueChange = buildQueueChangeCard(data);
+  if (queueChange?.card.actions[0]) {
+    themes.push({
+      label: "Review queues",
+      summary: queueChange.card.summary,
+      tone: queueChange.card.tone,
+      location: queueChange.card.actions[0].location,
+    });
+  }
+
+  const riskChange = buildRiskCohortCard(data) ?? buildNewlyStaleCard(data) ?? buildBlockedSinceLastCard(data);
+  if (riskChange?.card.actions[0]) {
+    themes.push({
+      label: "Loop risk",
+      summary: riskChange.card.summary,
+      tone: riskChange.card.tone,
+      location: riskChange.card.actions[0].location,
+    });
+  }
+
+  const completed = buildCompletedSinceLastCard(data);
+  if (completed?.card.actions[0]) {
+    themes.push({
+      label: "Progress",
+      summary: completed.card.summary,
+      tone: completed.card.tone,
+      location: completed.card.actions[0].location,
+    });
+  }
+
+  if (themes.length < 2) {
+    return null;
+  }
+
+  const primary = themes.find((theme) => theme.tone === "attention") ?? themes[0] ?? null;
+  if (!primary) {
+    return null;
+  }
+
+  return {
+    priority: 88,
+    card: {
+      id: "since-last-grouped-rollup",
+      kind: "context",
+      tone: themes.some((theme) => theme.tone === "attention") ? "attention" : "neutral",
+      eyebrow: "Change rollup",
+      title: "Several change themes landed while you were away",
+      summary: `${themes.length} grouped change themes were detected since your last visit.`,
+      rationale:
+        "When multiple deterministic signals land at once, one grouped rollup helps the operator orient before drilling into specific continuity cards.",
+      preview: buildGroupedChangePreviewItems(
+        themes.map((theme) => ({ label: theme.label, summary: theme.summary })),
+      ),
+      trust: {
+        contextSources: [
+          "Planning continuity signals",
+          "Review queue/session deltas",
+          "Loop state and completion deltas",
+          "Last-visit browser baseline",
+        ],
+        assumptions: ["A grouped summary is useful only when multiple continuity themes changed."],
+        confidenceLabel: "Grouped deterministic continuity rollup",
+        rollbackLabel: "This rollup is navigational only; mutations remain explicit in downstream surfaces.",
+        freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
+      },
+      handoff: {
+        changeSummary: "Planning activity, queue shifts, and/or loop-state drift all moved while you were away.",
+        createdResources: themes.map((theme) => `${theme.label}: ${theme.summary}`),
+        nextStep: "Open the highest-signal theme first, then work down the rest of the continuity deck.",
+        breadcrumbs: ["Home", "Since last visit", "Grouped rollup"],
+      },
+      actions: [
+        buildOpenAction(
+          `Open ${primary.label.toLowerCase()}`,
+          primary.location,
+          primary.summary,
+        ),
+        buildPinAction("Pin grouped rollup", primary.location, "Return to the grouped continuity rollup", "Resume · grouped change rollup"),
+      ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+interface QueueShiftSummary {
+  key: string;
+  label: string;
+  summary: string;
+  detail: string;
+  tone: OperatorActionCard["tone"];
+  location: ShellLocation;
+}
+
+function summarizeQueueShift(
+  label: string,
+  reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">,
+  snapshot: DecisionSessionSnapshot | null,
+  baseline: ContinuityBaselineSnapshot["relationshipSession"] | ContinuityBaselineSnapshot["enrichmentSession"],
+): QueueShiftSummary | null {
+  const session = snapshot?.session ?? null;
+  const currentLoopId = snapshot?.current_item?.loop.id ?? session?.current_loop_id ?? null;
+  const location = createLocation({
+    state: "decide",
+    reviewFocus,
+    sessionId: session?.id ?? baseline?.sessionId ?? null,
+  });
+
+  if (!session && !baseline) {
+    return null;
+  }
+  if (session && !baseline) {
+    const loopCount = snapshot?.loop_count ?? 0;
+    return {
+      key: reviewFocus,
+      label,
+      summary: `${session.name} is now active with ${loopCount} queued item${loopCount === 1 ? "" : "s"}.`,
+      detail: "A saved queue appeared since your last visit.",
+      tone: "attention",
+      location,
+    };
+  }
+  if (!session && baseline) {
+    return {
+      key: reviewFocus,
+      label,
+      summary: `The previously active ${label.toLowerCase()} queue is no longer active.`,
+      detail: `Queue #${baseline.sessionId} was active on your last visit.`,
+      tone: "progress",
+      location,
+    };
+  }
+  if (!session || !baseline) {
+    return null;
+  }
+  if (session.id !== baseline.sessionId) {
+    return {
+      key: reviewFocus,
+      label,
+      summary: `${session.name} replaced queue #${baseline.sessionId} as the active ${label.toLowerCase()} workflow.`,
+      detail: `${snapshot?.loop_count ?? 0} item${(snapshot?.loop_count ?? 0) === 1 ? "" : "s"} are queued now.`,
+      tone: "attention",
+      location,
+    };
+  }
+
+  const loopDelta = (snapshot?.loop_count ?? 0) - baseline.loopCount;
+  if (loopDelta !== 0) {
+    return {
+      key: reviewFocus,
+      label,
+      summary: `${label} queue ${loopDelta > 0 ? "grew" : "shrank"} by ${Math.abs(loopDelta)} item${Math.abs(loopDelta) === 1 ? "" : "s"}.`,
+      detail: `${baseline.loopCount} → ${snapshot?.loop_count ?? 0}`,
+      tone: loopDelta > 0 ? "attention" : "progress",
+      location,
+    };
+  }
+  if (baseline.currentLoopId !== currentLoopId && currentLoopId != null) {
+    return {
+      key: reviewFocus,
+      label,
+      summary: `${label} queue advanced to a different loop while keeping the same size.`,
+      detail: `Current loop #${currentLoopId}`,
+      tone: "neutral",
+      location,
+    };
+  }
+  return null;
+}
+
+function buildQueueChangeCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!continuityBaseline) {
+    return null;
+  }
+
+  const shifts = [
+    summarizeQueueShift("Relationship", "relationship", data.relationshipSnapshot, continuityBaseline.relationshipSession),
+    summarizeQueueShift("Enrichment", "enrichment", data.enrichmentSnapshot, continuityBaseline.enrichmentSession),
+  ].filter((item): item is QueueShiftSummary => item != null);
+  if (!shifts.length) {
+    return null;
+  }
+
+  const actions: OperatorActionCardAction[] = [];
+  shifts.forEach((shift, index) => {
+    pushUniqueAction(
+      actions,
+      buildOpenAction(
+        `Open ${shift.label.toLowerCase()} queue`,
+        shift.location,
+        shift.summary,
+        index === 0 ? "primary" : "secondary",
+      ),
+    );
+  });
+
+  return {
+    priority: 77,
+    card: {
+      id: "since-last-queue-changes",
+      kind: "decision",
+      tone: shifts.some((shift) => shift.tone === "attention") ? "attention" : "neutral",
+      eyebrow: "Queue change",
+      title: "Saved review queues shifted",
+      summary: shifts.map((shift) => shift.summary).join(" · "),
+      rationale:
+        "Saved queues are durable operator workflows, so changes to their size or active session are high-signal continuity events.",
+      preview: shifts.map((shift) => ({ label: shift.label, value: shift.detail })),
+      trust: {
+        contextSources: ["Saved review session snapshots", "Stored continuity baseline"],
+        assumptions: ["The newest relationship and enrichment sessions remain the operator-visible queues to resume."],
+        confidenceLabel: `${shifts.length} queue change${shifts.length === 1 ? "" : "s"} detected`,
+        rollbackLabel: "Opening a queue remains non-mutating until you confirm or reject work inside it.",
+        freshnessLabel: `Compared to ${formatTimestamp(continuityBaseline.recordedAtUtc)}`,
+      },
+      handoff: {
+        changeSummary: "The saved review queues no longer match the state you last saw.",
+        createdResources: shifts.map((shift) => `${shift.label}: ${shift.detail}`),
+        nextStep: "Open the queue that changed most and confirm whether it is still the right next workflow.",
+        breadcrumbs: ["Home", "Since last visit", "Queue changes"],
+      },
+      actions,
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildRepeatedSnoozeCard(data: WorkspaceData): PrioritizedCard | null {
+  if (!visitBaseline) {
+    return null;
+  }
+
+  const baselineTime = visitBaseline.getTime();
+  const snoozeActions = readRecentShellActions().filter((entry) => {
+    return entry.kind === "snooze" && Date.parse(entry.occurredAt) > baselineTime;
+  });
+  const baselineSnoozedIds = new Set((continuityBaseline?.snoozedLoops ?? []).map((item) => item.id));
+  const newlySnoozedLoops = sortLoopsByMostRecentUpdate(data.allLoops.filter((loop) => {
+    return typeof loop.snooze_until_utc === "string"
+      && loop.snooze_until_utc.trim().length > 0
+      && !baselineSnoozedIds.has(loop.id);
+  }));
+  if (snoozeActions.length < 2 && newlySnoozedLoops.length < 2) {
+    return null;
+  }
+
+  const snoozeSignal = buildRepeatedSnoozeSignal(snoozeActions, newlySnoozedLoops, loopTitle);
+  const primaryLocation = snoozeActions.find((entry) => entry.location)?.location
+    ?? (newlySnoozedLoops[0] ? createLocation({ state: "do", loopId: newlySnoozedLoops[0].id }) : createLocation({ state: "do" }));
+  return {
+    priority: 70,
+    card: {
+      id: "since-last-repeated-snooze",
+      kind: "context",
+      tone: "attention",
+      eyebrow: "Deferral signal",
+      title: "Repeated snoozes may be hiding drift",
+      summary: snoozeActions.length
+        ? `${snoozeActions.length} snooze action${snoozeActions.length === 1 ? "" : "s"} were recorded since your last visit.`
+        : `${newlySnoozedLoops.length} additional loop${newlySnoozedLoops.length === 1 ? "" : "s"} are currently snoozed.`,
+      rationale:
+        "Repeated deferral is often a sign that a loop needs reframing, a stronger next action, or an explicit drop decision.",
+      preview: snoozeSignal.preview,
+      trust: {
+        contextSources: snoozeSignal.contextSources,
+        assumptions: snoozeSignal.assumptions,
+        confidenceLabel: "Deterministic deferral pattern",
+        rollbackLabel: "This card is diagnostic only; inspect the loops before changing anything.",
+        freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
+      },
+      handoff: {
+        changeSummary: "More work has been deferred since your last visit.",
+        createdResources: newlySnoozedLoops.slice(0, 3).map((loop) => loopTitle(loop)),
+        nextStep: "Open the most recent deferred loop and decide whether to resume, reframe, or drop it.",
+        breadcrumbs: ["Home", "Since last visit", "Repeated snoozes"],
+      },
+      actions: [
+        buildOpenAction("Inspect deferred work", createLocation(primaryLocation), "Review the most recent snoozed loop or queue"),
+        buildPinAction("Pin deferral recap", createLocation(primaryLocation), "Return to the repeated-snooze recap", "Resume · deferred work"),
+      ],
+    },
+  } satisfies PrioritizedCard;
+}
+
+function pushUniqueAction(actions: OperatorActionCardAction[], action: OperatorActionCardAction): void {
+  const existing = actions.some((candidate) => {
+    return candidate.type === action.type && locationsMatch(candidate.location, action.location);
+  });
+  if (!existing) {
+    actions.push(action);
+  }
+}
+
+function currentWorkingSetHandoffMetadata(): WorkingSetSessionMetadata | null {
+  const activeSet = workingSetContext?.active_working_set ?? null;
+  if (!activeSet) {
+    return null;
+  }
+  return {
+    workingSetId: activeSet.id,
+    workingSetName: activeSet.name,
+    itemCount: activeSet.item_count,
+    missingItemCount: activeSet.missing_item_count,
+  };
+}
+
+function withWorkingSetHandoff(cards: OperatorActionCard[]): OperatorActionCard[] {
+  const workingSet = currentWorkingSetHandoffMetadata();
+  if (!workingSet) {
+    return cards;
+  }
+  return cards.map((card) => {
+    if (!card.handoff) {
+      return card;
+    }
+    return {
+      ...card,
+      handoff: {
+        ...card.handoff,
+        workingSet,
+      },
+    };
+  });
+}
+
+function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
+  const resumeAnchors = readResumeAnchors();
+  const recentActions = readRecentShellActions();
+  const actions: OperatorActionCardAction[] = [];
+  const preview: Array<{ label: string; value: string }> = [];
+  const createdResources: string[] = [];
+
+  const workingSetId = workingSetContext?.active_working_set_id ?? continuityBaseline?.activeWorkingSetId ?? null;
+  const anchoredWorkingSet = workingSetId != null
+    ? latestWorkingSets.find((set) => set.id === workingSetId) ?? null
+    : null;
+  const workingSetLocation = anchoredWorkingSet ? workingSetSessionLocation(anchoredWorkingSet.id) : null;
+  if (anchoredWorkingSet && workingSetLocation) {
+    preview.push({ label: "Working set", value: anchoredWorkingSet.name });
+    createdResources.push(`Working set: ${anchoredWorkingSet.name}`);
+    pushUniqueAction(
+      actions,
+      buildOpenAction("Open active working set", workingSetLocation, anchoredWorkingSet.description ?? anchoredWorkingSet.name),
+    );
+  }
+
+  if (resumeAnchors.lastPlanningSessionId != null) {
+    const location = createLocation({
+      state: "plan",
+      reviewFocus: "planning",
+      sessionId: resumeAnchors.lastPlanningSessionId,
+    });
+    preview.push({
+      label: "Planning",
+      value: `Session #${resumeAnchors.lastPlanningSessionId} · ${formatRelativeTime(resumeAnchors.lastPlanningVisitedAtUtc)}`,
+    });
+    createdResources.push(`Plan session #${resumeAnchors.lastPlanningSessionId}`);
+    pushUniqueAction(actions, buildOpenAction("Resume plan", location, "Return to the last planning session you visited"));
+  }
+
+  if (resumeAnchors.lastReviewFocus && resumeAnchors.lastReviewSessionId != null) {
+    const location = createLocation({
+      state: "decide",
+      reviewFocus: resumeAnchors.lastReviewFocus,
+      sessionId: resumeAnchors.lastReviewSessionId,
+    });
+    preview.push({
+      label: "Review",
+      value: `${resumeAnchors.lastReviewFocus} #${resumeAnchors.lastReviewSessionId} · ${formatRelativeTime(resumeAnchors.lastReviewVisitedAtUtc)}`,
+    });
+    createdResources.push(`${resumeAnchors.lastReviewFocus} session #${resumeAnchors.lastReviewSessionId}`);
+    pushUniqueAction(actions, buildOpenAction("Resume review", location, "Return to the last saved review queue you opened", actions.length ? "secondary" : "primary"));
+  }
+
+  recentActions
+    .filter((entry) => entry.location)
+    .slice(0, 3)
+    .forEach((entry) => {
+      preview.push({ label: "Recent action", value: entry.label });
+      createdResources.push(entry.label);
+      if (entry.location) {
+        pushUniqueAction(
+          actions,
+          buildOpenAction(entry.label, createLocation(entry.location), entry.description, actions.length ? "secondary" : "primary"),
+        );
+      }
+    });
+
+  if (!preview.length || !actions.length) {
+    return null;
+  }
+
+  return {
+    priority: 95,
+    card: {
+      id: "since-last-resume-anchors",
+      kind: "handoff",
+      tone: "attention",
+      eyebrow: "Resume anchors",
+      title: "Pick up where you left off",
+      summary: `${actions.length} explicit resume anchor${actions.length === 1 ? "" : "s"} are ready in this browser.`,
+      rationale:
+        "Resume anchors keep cross-session work lightweight by surfacing the exact planning, review, and shell locations you recently used.",
+      preview: preview.slice(0, 4),
+      trust: {
+        contextSources: ["Browser-local resume anchors", "Recent shell action history", "Working-set context"],
+        assumptions: ["Resume anchors are local to this browser and may not reflect work done elsewhere."],
+        confidenceLabel: "Deterministic resume shortcuts",
+        rollbackLabel: "Opening an anchor only restores context; downstream mutations remain explicit.",
+        freshnessLabel: recentActions[0] ? `Latest action ${formatRelativeTime(recentActions[0].occurredAt)}` : "Browser-local continuity state",
+      },
+      handoff: {
+        changeSummary: "You do not need to reconstruct your prior context manually.",
+        createdResources,
+        nextStep: "Open the strongest resume anchor or pivot into the newest risk/change signal below.",
+        breadcrumbs: ["Home", "Since last visit", "Resume anchors"],
+      },
+      actions: actions.slice(0, 4),
+    },
+  } satisfies PrioritizedCard;
+}
+
+function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
+  const prioritized: PrioritizedCard[] = [];
+  const maybeCards = [
+    buildResumeAnchorsCard(data),
+    buildPlanningDriftCard(data),
+    buildGroupedChangeRollupCard(data),
+    buildBlockedSinceLastCard(data),
+    buildNewlyStaleCard(data),
+    buildPlanningResourceRollupCard(data),
+    buildFollowUpSinceLastCard(data),
+    buildRiskCohortCard(data),
+    buildQueueChangeCard(data),
+    buildRepeatedSnoozeCard(data),
+    buildCompletedSinceLastCard(data),
+  ];
+  maybeCards.forEach((entry) => {
+    if (entry) {
+      prioritized.push(entry);
+    }
+  });
+  return prioritized
+    .sort((left, right) => right.priority - left.priority)
+    .map((entry) => entry.card);
 }
 
 function renderNowZone(data: WorkspaceData): void {
@@ -1936,7 +3056,7 @@ function renderNowZone(data: WorkspaceData): void {
   }
 
   elements.operatorNow.innerHTML = renderActionCardDeck(
-    filterCardsForFocus(buildNowCards(data)),
+    withWorkingSetHandoff(filterCardsForFocus(buildNowCards(data))),
     `
       <p class="operator-empty">No ready work surfaced right now. Capture something new or use Recall to ask the system what changed.</p>
       <div class="operator-inline-actions">
@@ -1953,7 +3073,7 @@ function renderDecisionsZone(data: WorkspaceData): void {
   }
 
   elements.operatorDecisions.innerHTML = renderActionCardDeck(
-    filterCardsForFocus(buildDecisionCards(data)),
+    withWorkingSetHandoff(filterCardsForFocus(buildDecisionCards(data))),
     `
       <p class="operator-empty">No saved decision queues are active right now. Review remains available when you want a broader hygiene pass.</p>
       <div class="operator-inline-actions">
@@ -1970,7 +3090,7 @@ function renderPlanZone(data: WorkspaceData): void {
   }
 
   elements.operatorPlan.innerHTML = renderActionCardDeck(
-    filterCardsForFocus(buildPlanCards(data)),
+    withWorkingSetHandoff(filterCardsForFocus(buildPlanCards(data))),
     `
       <p class="operator-empty">No saved planning session is active yet. Start a checkpointed plan when you need a multi-step operational pass.</p>
       <div class="operator-inline-actions">
@@ -1986,7 +3106,7 @@ function renderRecallZone(data: WorkspaceData): void {
   }
 
   elements.operatorRecall.innerHTML = renderActionCardDeck(
-    filterCardsForFocus(buildRecallCards(data)),
+    withWorkingSetHandoff(filterCardsForFocus(buildRecallCards(data))),
     `
       <p class="operator-empty">Recall suggestions will appear here when chat, memory, or documents are the clearest next support surface.</p>
       <div class="operator-inline-actions">
@@ -2013,7 +3133,7 @@ function renderSinceLastVisit(data: WorkspaceData): void {
   }
 
   elements.operatorSinceLast.innerHTML = renderActionCardDeck(
-    filterCardsForFocus(buildSinceLastCards(data)),
+    withWorkingSetHandoff(filterCardsForFocus(buildSinceLastCards(data))),
     `
       <p class="operator-empty">No major changes were recorded since your last visit. This is a calm resume state.</p>
       <div class="operator-inline-actions">
@@ -2037,53 +3157,80 @@ function sortSessionsByUpdated<T extends { updated_at_utc: string }>(items: T[])
 }
 
 async function loadWorkspaceData(): Promise<WorkspaceData> {
-  const [nextLoops, reviewData, planningSessionsRaw, relationshipSessionsRaw, enrichmentSessionsRaw, allLoops] =
-    await Promise.all([
-      safeRequest(
-        () => requestJson<NextLoopsResponse>("/loops/next?limit=8", {}, "Failed to load next actions"),
-        { due_soon: [], high_leverage: [], quick_wins: [], standard: [] },
-      ),
-      safeRequest(
-        () =>
-          requestJson<LoopReviewResponse>(
-            "/loops/review?daily=true&weekly=true&limit=8",
-            {},
-            "Failed to load review data",
-          ),
-        { daily: [], generated_at_utc: new Date(0).toISOString(), weekly: [] },
-      ),
-      safeRequest(
-        () =>
-          requestJson<PlanningSessionResponse[]>(
-            "/loops/planning/sessions",
-            {},
-            "Failed to load planning sessions",
-          ),
-        [],
-      ),
-      safeRequest(
-        () =>
-          requestJson<RelationshipReviewSessionResponse[]>(
-            "/loops/review/relationship/sessions",
-            {},
-            "Failed to load relationship review sessions",
-          ),
-        [],
-      ),
-      safeRequest(
-        () =>
-          requestJson<EnrichmentReviewSessionResponse[]>(
-            "/loops/review/enrichment/sessions",
-            {},
-            "Failed to load enrichment review sessions",
-          ),
-        [],
-      ),
-      safeRequest(
-        () => requestJson<LoopResponse[]>("/loops/?status=all", {}, "Failed to load loops"),
-        [],
-      ),
-    ]);
+  const [
+    nextLoops,
+    reviewData,
+    metrics,
+    planningSessionsRaw,
+    relationshipSessionsRaw,
+    enrichmentSessionsRaw,
+    allLoops,
+  ] = await Promise.all([
+    safeRequest(
+      () => requestJson<NextLoopsResponse>("/loops/next?limit=8", {}, "Failed to load next actions"),
+      { due_soon: [], high_leverage: [], quick_wins: [], standard: [] },
+    ),
+    safeRequest(
+      () =>
+        requestJson<LoopReviewResponse>(
+          "/loops/review?daily=true&weekly=true&limit=50",
+          {},
+          "Failed to load review data",
+        ),
+      { daily: [], generated_at_utc: new Date(0).toISOString(), weekly: [] },
+    ),
+    safeRequest(
+      () => requestJson<LoopMetricsResponse>("/loops/metrics", {}, "Failed to load loop metrics"),
+      {
+        generated_at_utc: new Date(0).toISOString(),
+        total_loops: 0,
+        status_counts: {
+          inbox: 0,
+          actionable: 0,
+          blocked: 0,
+          scheduled: 0,
+          completed: 0,
+          dropped: 0,
+        },
+        stale_open_count: 0,
+        blocked_too_long_count: 0,
+        no_next_action_count: 0,
+        enrichment_pending_count: 0,
+        enrichment_failed_count: 0,
+        capture_count_24h: 0,
+        completion_count_24h: 0,
+        avg_age_open_hours: null,
+        project_breakdown: null,
+        trend_metrics: null,
+      },
+    ),
+    safeRequest(
+      () => requestJson<PlanningSessionResponse[]>("/loops/planning/sessions", {}, "Failed to load planning sessions"),
+      [],
+    ),
+    safeRequest(
+      () =>
+        requestJson<RelationshipReviewSessionResponse[]>(
+          "/loops/review/relationship/sessions",
+          {},
+          "Failed to load relationship review sessions",
+        ),
+      [],
+    ),
+    safeRequest(
+      () =>
+        requestJson<EnrichmentReviewSessionResponse[]>(
+          "/loops/review/enrichment/sessions",
+          {},
+          "Failed to load enrichment review sessions",
+        ),
+      [],
+    ),
+    safeRequest(
+      () => requestJson<LoopResponse[]>("/loops/?status=all", {}, "Failed to load loops"),
+      [],
+    ),
+  ]);
 
   const planningSessions = sortSessionsByUpdated(planningSessionsRaw);
   const relationshipSessions = sortSessionsByUpdated(relationshipSessionsRaw);
@@ -2131,6 +3278,7 @@ async function loadWorkspaceData(): Promise<WorkspaceData> {
   return {
     nextLoops,
     reviewData,
+    metrics,
     planningSessions,
     planningSnapshot,
     relationshipSessions,
@@ -2139,6 +3287,26 @@ async function loadWorkspaceData(): Promise<WorkspaceData> {
     enrichmentSnapshot,
     allLoops,
   };
+}
+
+function persistVisitStateOnce(): void {
+  if (visitStatePersisted || !latestWorkspaceData) {
+    return;
+  }
+  writeContinuityBaseline(
+    buildContinuityBaseline({
+      metrics: latestWorkspaceData.metrics,
+      reviewData: latestWorkspaceData.reviewData,
+      planningSnapshot: latestWorkspaceData.planningSnapshot,
+      relationshipSnapshot: latestWorkspaceData.relationshipSnapshot,
+      enrichmentSnapshot: latestWorkspaceData.enrichmentSnapshot,
+      allLoops: latestWorkspaceData.allLoops,
+      workingSetContext,
+    }),
+  );
+  continuityBaseline = readContinuityBaseline();
+  writeLastVisitNow();
+  visitStatePersisted = true;
 }
 
 async function renderOperatorWorkspace(): Promise<void> {
@@ -2163,6 +3331,10 @@ async function renderOperatorWorkspace(): Promise<void> {
     renderWorkingSet(latestWorkspaceData);
     renderWorkingSetFocusBanner();
     syncFocusModeClass();
+    if (currentLocation.state === "working_set") {
+      renderWorkingSetSessionSurface();
+    }
+    persistVisitStateOnce();
   } finally {
     workspaceLoading = false;
   }
@@ -2183,6 +3355,7 @@ function workingSetIdFromButton(button: HTMLButtonElement, key: string): number 
 async function setWorkingSetContext(
   activeWorkingSetId: number | null,
   focusModeEnabled: boolean,
+  options: { recordHistory?: boolean } = {},
 ): Promise<void> {
   await requestJson<WorkingSetContextResponse, WorkingSetContextUpdateRequest>(
     "/loops/working-sets/context",
@@ -2196,6 +3369,28 @@ async function setWorkingSetContext(
     "Failed to update working-set focus state",
   );
   await refreshWorkingSetState();
+
+  if (options.recordHistory === false) {
+    return;
+  }
+
+  recordRecentShellAction({
+    kind: activeWorkingSetId != null ? "working_set_session" : "working_set",
+    label: workingSetContext?.active_working_set
+      ? `${focusModeEnabled ? "Focused" : "Opened"} working set · ${workingSetContext.active_working_set.name}`
+      : "Cleared active working set",
+    description:
+      workingSetContext?.active_working_set?.description
+      ?? "Updated the active working-set session context.",
+    location:
+      activeWorkingSetId != null
+        ? workingSetSessionLocation(activeWorkingSetId)
+        : createLocation({ state: "operator" }),
+    metadata: {
+      focusModeEnabled,
+      workingSetId: activeWorkingSetId,
+    },
+  });
 }
 
 async function createWorkingSetViaDialog(): Promise<WorkingSetResponse | null> {
@@ -2225,7 +3420,7 @@ async function ensureActiveWorkingSetId(): Promise<number | null> {
     return null;
   }
   activeWorkingSetId = created.id;
-  await setWorkingSetContext(created.id, false);
+  await setWorkingSetContext(created.id, false, { recordHistory: false });
   return activeWorkingSetId;
 }
 
@@ -2286,6 +3481,7 @@ async function pinLocationToWorkingSet(
     metadata["loop_id"] = location.loopId;
     metadata["view_id"] = location.viewId;
     metadata["memory_id"] = location.memoryId;
+    metadata["working_set_id"] = location.workingSetId;
     metadata["query"] = location.query;
   }
 
@@ -2304,6 +3500,13 @@ async function pinLocationToWorkingSet(
     "Failed to add item to working set",
   );
   await refreshWorkingSetState();
+
+  recordRecentShellAction({
+    kind: "working_set",
+    label: `Pinned ${label}`,
+    description: description ?? "Added a resume anchor to the active working set.",
+    location,
+  });
 }
 
 async function addLoopIdsToActiveWorkingSet(loopIds: readonly number[]): Promise<void> {
@@ -2350,6 +3553,7 @@ async function pinFromButton(button: HTMLButtonElement): Promise<void> {
     loopId: parseOptionalInteger(button.dataset["pinLoopId"]),
     viewId: parseOptionalInteger(button.dataset["pinViewId"]),
     memoryId: parseOptionalInteger(button.dataset["pinMemoryId"]),
+    workingSetId: parseOptionalInteger(button.dataset["pinWorkingSetId"]),
     query: button.dataset["pinQuery"]?.trim() || null,
   });
   const label = button.dataset["pinLabel"]?.trim();
@@ -2370,24 +3574,41 @@ function locationFromButton(button: HTMLButtonElement): ShellLocation {
     loopId: parseOptionalInteger(button.dataset["openLoopId"]),
     viewId: parseOptionalInteger(button.dataset["openViewId"]),
     memoryId: parseOptionalInteger(button.dataset["openMemoryId"]),
+    workingSetId: parseOptionalInteger(button.dataset["openWorkingSetId"]),
     query: button.dataset["openQuery"]?.trim() || null,
   });
 }
 
 async function applyLocation(
   input: Partial<ShellLocation>,
-  options: { syncHash?: boolean; bridge?: boolean; refreshWorkspace?: boolean } = {},
+  options: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean } = {},
 ): Promise<void> {
   currentLocation = normalizeLocation(input);
-  updateShellHeader(currentLocation);
-  syncNavState(currentLocation);
 
-  if (options.bridge ?? true) {
-    bridgeLegacySurface(currentLocation);
+  if (currentLocation.state === "working_set" && currentLocation.workingSetId != null) {
+    const activeId = workingSetContext?.active_working_set_id ?? null;
+    const desiredFocus =
+      activeId === currentLocation.workingSetId
+        ? Boolean(workingSetContext?.focus_mode_enabled)
+        : false;
+
+    if (activeId !== currentLocation.workingSetId || !latestWorkingSets.length) {
+      await setWorkingSetContext(currentLocation.workingSetId, desiredFocus, {
+        recordHistory: false,
+      });
+    }
   }
 
+  updateShellHeader(currentLocation);
+  syncNavState(currentLocation);
   syncVisiblePanels(currentLocation);
+  await activateOwnedSurface(currentLocation);
   persistLocation(currentLocation);
+
+  if (options.recordHistory ?? true) {
+    rememberLocationAnchor(currentLocation);
+    recordRecentShellAction(buildLocationAction(currentLocation));
+  }
 
   if (options.syncHash ?? true) {
     suppressHashChange = true;
@@ -2395,6 +3616,10 @@ async function applyLocation(
     window.setTimeout(() => {
       suppressHashChange = false;
     }, 0);
+  }
+
+  if (currentLocation.state === "working_set") {
+    renderWorkingSetSessionSurface();
   }
 
   if (currentLocation.state === "operator" || options.refreshWorkspace) {
@@ -2497,7 +3722,7 @@ async function handleShellClick(event: Event): Promise<void> {
   if (createButton) {
     const created = await createWorkingSetViaDialog();
     if (created) {
-      await setWorkingSetContext(created.id, false);
+      await applyLocation(workingSetSessionLocation(created.id));
     }
     return;
   }
@@ -2505,7 +3730,7 @@ async function handleShellClick(event: Event): Promise<void> {
   const activateButton = target.closest<HTMLButtonElement>("[data-working-set-activate]");
   const activateId = activateButton ? workingSetIdFromButton(activateButton, "workingSetActivate") : null;
   if (activateButton && activateId != null) {
-    await setWorkingSetContext(activateId, Boolean(workingSetContext?.focus_mode_enabled));
+    await applyLocation(workingSetSessionLocation(activateId));
     return;
   }
 
@@ -2513,7 +3738,8 @@ async function handleShellClick(event: Event): Promise<void> {
   const focusId = focusButton ? workingSetIdFromButton(focusButton, "workingSetFocus") : null;
   if (focusButton && focusId != null) {
     const shouldEnable = !(workingSetContext?.focus_mode_enabled && workingSetContext?.active_working_set_id === focusId);
-    await setWorkingSetContext(focusId, shouldEnable);
+    await setWorkingSetContext(focusId, shouldEnable, { recordHistory: false });
+    await applyLocation(workingSetSessionLocation(focusId));
     return;
   }
 
@@ -2648,6 +3874,7 @@ function handlePrimaryActionClick(): void {
     loopId: parseOptionalInteger(elements.shellPrimaryAction.dataset["primaryLoopId"]),
     viewId: parseOptionalInteger(elements.shellPrimaryAction.dataset["primaryViewId"]),
     memoryId: parseOptionalInteger(elements.shellPrimaryAction.dataset["primaryMemoryId"]),
+    workingSetId: parseOptionalInteger(elements.shellPrimaryAction.dataset["primaryWorkingSetId"]),
     query: elements.shellPrimaryAction.dataset["primaryQuery"]?.trim() || null,
   });
   void applyLocation(location);
@@ -2709,6 +3936,8 @@ function handleShellHotkeys(event: KeyboardEvent): void {
 function initializeShell(): void {
   elements = buildShellElements();
   visitBaseline = readLastVisit();
+  continuityBaseline = readContinuityBaseline();
+  visitStatePersisted = false;
   updateLastVisitStatus();
   commandPaletteController = bootstrapCommandPalette({
     getContext: () => ({
@@ -2755,7 +3984,7 @@ function initializeShell(): void {
     void (async () => {
       const created = await createWorkingSetViaDialog();
       if (created) {
-        await setWorkingSetContext(created.id, false);
+        await applyLocation(workingSetSessionLocation(created.id));
       }
     })();
   });
@@ -2775,6 +4004,9 @@ function initializeShell(): void {
   elements.operatorWorkingSet.addEventListener("click", (event) => {
     void handleShellClick(event);
   });
+  elements.workingSetMain.addEventListener("click", (event) => {
+    void handleShellClick(event);
+  });
   elements.workingSetFocusItems.addEventListener("click", (event) => {
     void handleShellClick(event);
   });
@@ -2787,14 +4019,17 @@ function initializeShell(): void {
   const initialLocation = parseHash(window.location.hash) ?? readPersistedLocation() ?? DEFAULT_LOCATION;
 
   window.setTimeout(() => {
-    void applyLocation(initialLocation, { syncHash: !window.location.hash, refreshWorkspace: true });
+    void applyLocation(initialLocation, {
+      syncHash: !window.location.hash,
+      refreshWorkspace: true,
+      recordHistory: false,
+    });
   }, 0);
-  window.setTimeout(() => {
-    writeLastVisitNow();
-  }, 300);
 }
 
-export function bootstrapShell(): void {
+export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
+  runtimeDependencies = dependencies;
+
   if (typeof window === "undefined") {
     return;
   }

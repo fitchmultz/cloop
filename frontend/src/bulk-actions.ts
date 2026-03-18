@@ -15,7 +15,7 @@
  *
  * Usage:
  *   - Imported by TypeScript surfaces that clear or mutate loop selections.
- *   - Re-exported by frontend/src/legacy/bulk.js for untouched legacy flows.
+ *   - Re-exported by frontend/src/surfaces/bulk.ts for shared surface flows.
  *
  * Invariants/Assumptions:
  *   - The bulk action bar uses the `#bulk-action-bar` id.

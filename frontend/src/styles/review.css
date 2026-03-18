@@ -1,14 +1,14 @@
 /**
- * review.css - Review tab, metrics, and cohort styles
+ * review.css - Review workspace and cohort styles.
  *
  * Purpose:
- *   Provide styling for review cohorts, metrics panel, and related components.
+ *   Provide styling for the TypeScript-owned review workspace, review cohorts,
+ *   and related operator-review components.
  *
  * Responsibilities:
  *   - Review header and toggle
  *   - Cohort cards and items
- *   - Metrics panel and cards
- *   - Status badges
+ *   - Review workspace rails, panes, and cards
  *   - Next bucket styles
  *   - Priority indicators
  *   - Comments section
@@ -838,123 +838,6 @@
   text-align: center;
 }
 
-/* Metrics Panel */
-.metrics-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-4);
-}
-
-.metrics-header h2 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-weight: var(--font-semibold);
-}
-
-.metrics-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-}
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-4);
-  margin-bottom: var(--space-1);
-}
-
-.metric-card {
-  background: var(--color-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-4);
-  text-align: center;
-  transition: all 150ms ease;
-}
-
-.metric-card:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
-}
-
-.metric-value {
-  font-size: var(--text-3xl);
-  font-weight: var(--font-semibold);
-  font-family: var(--font-display);
-  color: var(--color-ink);
-}
-
-.metric-label {
-  font-size: var(--text-sm);
-  color: var(--color-muted);
-  margin-top: var(--space-1);
-  line-height: var(--leading-normal);
-}
-
-.metric-card.alert {
-  border-color: var(--color-danger);
-  background: var(--color-danger-bg);
-}
-
-.metric-card.alert .metric-value {
-  color: var(--color-danger);
-}
-
-.metric-card.warning {
-  border-color: var(--color-warning);
-  background: var(--color-warning-bg);
-}
-
-.metric-card.warning .metric-value {
-  color: var(--color-warning);
-}
-
-.metric-card.success {
-  border-color: var(--color-success);
-  background: var(--color-success-bg);
-}
-
-.metric-card.success .metric-value {
-  color: var(--color-success);
-}
-
-.metrics-status-row {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  background: var(--color-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-}
-
-.status-badge {
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-}
-
-.status-badge.inbox { background: var(--color-status-inbox-bg); color: var(--color-muted); }
-.status-badge.actionable { background: var(--color-status-actionable-bg); color: var(--color-status-actionable-text); }
-.status-badge.blocked { background: var(--color-status-blocked-bg); color: var(--color-status-blocked-text); }
-.status-badge.scheduled { background: var(--color-status-scheduled-bg); color: var(--color-status-scheduled-text); }
-.status-badge.completed { background: var(--color-status-completed-bg); color: var(--color-status-completed-text); }
-.status-badge.dropped { background: var(--color-status-dropped-bg); color: var(--color-status-dropped-text); }
-
-.metrics-section-title {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--font-semibold);
-  color: var(--color-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: var(--space-2) 0 var(--space-1);
-}
-
 /* Next Bucket Styles */
 .next-header {
   display: flex;
@@ -1716,9 +1599,6 @@
   color: var(--color-muted);
 }
 
-.review-legacy-compat {
-  display: none;
-}
 
 @media (max-width: 1200px) {
   .review-main .workspace-support {

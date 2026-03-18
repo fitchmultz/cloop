@@ -876,10 +876,10 @@ def test_ui_contains_chat_and_rag_elements(test_client: TestClient, tmp_data_dir
     assert response.status_code == 200
     html = response.text
 
-    # Check for tab navigation
-    assert 'data-tab="inbox"' in html
-    assert 'data-tab="chat"' in html
-    assert 'data-tab="rag"' in html
+    # Check for surface roots
+    assert 'id="inbox-main"' in html
+    assert 'id="chat-main"' in html
+    assert 'id="rag-main"' in html
 
     # Check for chat elements (static structure - dynamic elements rendered by JS)
     assert 'id="chat-form"' in html
@@ -963,7 +963,6 @@ def test_ui_contains_operator_workspace_and_state_navigation(
     assert 'id="review-shell-queue"' in html
     assert 'id="review-shell-workspace"' in html
     assert 'id="review-shell-impact"' in html
-    assert 'id="review-legacy-compat"' in html
     assert "Queue rail" in html
     assert "Impact panel" in html
 
@@ -977,7 +976,7 @@ def test_ui_contains_memory_management_elements(
     assert response.status_code == 200
     html = response.text
 
-    assert 'data-tab="memory"' in html
+    assert 'data-recall-tool="memory"' in html
     assert 'id="memory-main"' in html
     assert 'id="memory-list"' in html
     assert 'id="memory-filter-form"' in html
@@ -990,19 +989,18 @@ def test_ui_contains_planning_workspace_elements(
     test_client: TestClient,
     tmp_data_dir: Path,
 ) -> None:
-    """Initial HTML should expose the checkpointed planning workspace controls."""
+    """Initial HTML should expose the TS-owned planning workspace shell controls."""
     response = test_client.get("/")
     assert response.status_code == 200
     html = response.text
 
-    assert 'id="review-planning-session-select"' in html
-    assert 'id="review-planning-session-new"' in html
-    assert 'id="review-planning-session-delete"' in html
-    assert 'id="review-planning-session-refresh"' in html
-    assert 'id="review-planning-session-execute"' in html
-    assert 'id="review-planning-session-list"' in html
-    assert 'id="review-planning-session-detail"' in html
-    assert "Checkpointed planning sessions" in html
+    assert 'data-review-shell-mode="planning"' in html
+    assert 'id="review-shell-controls"' in html
+    assert 'id="review-shell-overview"' in html
+    assert 'id="review-shell-queue"' in html
+    assert 'id="review-shell-workspace"' in html
+    assert 'id="review-shell-impact"' in html
+    assert "Decision workspace" in html
 
 
 def test_review_support_sidebar_explains_ai_workflow_loop(
@@ -1020,17 +1018,17 @@ def test_review_support_sidebar_explains_ai_workflow_loop(
     assert "Refresh when reality changes" in html
 
 
-def test_planning_workspace_js_includes_freshness_and_execution_output_cues() -> None:
-    """The planning workspace frontend should render freshness and execution-output helpers."""
-    planning_js = (
-        Path(__file__).resolve().parent.parent / "src" / "cloop" / "static" / "js" / "planning.js"
+def test_review_workspace_ts_includes_planning_execution_output_cues() -> None:
+    """The TS review workspace should render planning execution history and handoff cues."""
+    review_workspace_ts = (
+        Path(__file__).resolve().parent.parent / "frontend" / "src" / "review-workspace.ts"
     ).read_text(encoding="utf-8")
 
-    assert "Plan generated" in planning_js
-    assert "Grounding snapshot" in planning_js
-    assert "Execution history" in planning_js
-    assert "summarizePlanningExecutionOutputs" in planning_js
-    assert "Focus loops" in planning_js
+    assert "Current checkpoint" in review_workspace_ts
+    assert "Focus loops" in review_workspace_ts
+    assert "Execution history carries rollback cues when available" in review_workspace_ts
+    assert "Launch surfaces" in review_workspace_ts
+    assert "follow-up resource" in review_workspace_ts
 
 
 def test_chat_empty_state_copy_is_consistent_on_initial_html(
@@ -1053,11 +1051,10 @@ def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir
     assert response.status_code == 200
     html = response.text
 
-    # Check for Next tab
-    assert 'data-tab="next"' in html
-
     # Check for Next view container (static structure)
+    assert 'data-shell-state="do"' in html
     assert 'id="next-main"' in html
+    assert 'id="do-query-filter"' in html
     assert 'id="next-buckets"' in html
 
     # Check for refresh button
@@ -1070,12 +1067,12 @@ def test_ui_contains_next_actions_elements(test_client: TestClient, tmp_data_dir
 def test_next_view_js_supports_bucketed_api_response(
     test_client: TestClient, tmp_data_dir: Path
 ) -> None:
-    """The Next tab frontend must normalize the keyed /loops/next API payload."""
+    """The do-surface runtime must normalize the keyed /loops/next API payload."""
     next_js = (
-        Path(__file__).resolve().parent.parent / "src" / "cloop" / "static" / "js" / "next.js"
+        Path(__file__).resolve().parent.parent / "frontend" / "src" / "surfaces" / "next.ts"
     ).read_text(encoding="utf-8")
 
-    assert "function normalizeBuckets(data)" in next_js
+    assert "function normalizeBuckets(data: NextLoopsResponse): NextBucket[]" in next_js
     assert "due_soon" in next_js
     assert "quick_wins" in next_js
     assert "high_leverage" in next_js
@@ -1831,28 +1828,28 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
     assert "Avoid motivational filler" in messages[0]["content"]
 
 
-def test_chat_ui_requests_grounding_and_control_options_in_static_client() -> None:
-    api_path = Path(__file__).resolve().parents[1] / "src" / "cloop" / "static" / "js" / "api.js"
+def test_chat_ui_requests_grounding_and_control_options_in_surface_runtime_client() -> None:
+    api_path = Path(__file__).resolve().parents[1] / "frontend" / "src" / "surfaces" / "api.ts"
     api_js = api_path.read_text(encoding="utf-8")
-    assert "tool_mode: options.toolMode ?? undefined" in api_js
     assert "include_loop_context: options.includeLoopContext ?? true" in api_js
     assert "include_memory_context: options.includeMemoryContext ?? true" in api_js
     assert "memory_limit: options.memoryLimit ?? 10" in api_js
     assert "include_rag_context: options.includeRagContext ?? false" in api_js
     assert "rag_k: options.ragK ?? 5" in api_js
-    assert "rag_scope: options.ragScope?.trim() ? options.ragScope.trim() : undefined" in api_js
+    assert 'body["tool_mode"] = options.toolMode;' in api_js
+    assert 'body["rag_scope"] = options.ragScope.trim();' in api_js
 
 
 def test_memory_ui_uses_direct_memory_api_helpers() -> None:
-    api_path = Path(__file__).resolve().parents[1] / "src" / "cloop" / "static" / "js" / "api.js"
+    api_path = Path(__file__).resolve().parents[1] / "frontend" / "src" / "surfaces" / "api.ts"
     api_js = api_path.read_text(encoding="utf-8")
 
-    assert "export async function fetchMemoryEntries(options = {})" in api_js
-    assert "export async function searchMemoryEntries(query, options = {})" in api_js
-    assert "export async function fetchMemoryEntry(entryId)" in api_js
-    assert "export async function createMemoryEntry(payload)" in api_js
-    assert "export async function updateMemoryEntry(entryId, payload)" in api_js
-    assert "export async function deleteMemoryEntry(entryId)" in api_js
+    assert "export async function fetchMemoryEntries(" in api_js
+    assert "export async function searchMemoryEntries(" in api_js
+    assert "export async function fetchMemoryEntry(entryId: number | string)" in api_js
+    assert "export async function createMemoryEntry(payload: MemoryMutationRequest)" in api_js
+    assert "export async function updateMemoryEntry(" in api_js
+    assert "export async function deleteMemoryEntry(entryId: number | string)" in api_js
 
 
 def test_chat_logging_tolerates_non_json_usage_objects(

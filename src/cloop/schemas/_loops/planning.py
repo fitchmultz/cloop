@@ -7,8 +7,8 @@ Purpose:
 Responsibilities:
     - Validate planning-session creation payloads
     - Shape checkpoint, snapshot, and execution-history responses
-    - Model follow-up resources, launch surfaces, and rollback cues for
-      planning execution handoff
+    - Model follow-up resources, launch surfaces, rollback cues, and continuity
+      summaries for planning execution handoff
     - Keep planning contracts isolated from other review workflows
 
 Scope:
@@ -168,6 +168,67 @@ class PlanningExecutionRollbackCueResponse(BaseModel):
     operations: List[PlanningExecutionRollbackCueOperationResponse] = Field(default_factory=list)
 
 
+class PlanningContextFreshnessTargetChangeResponse(BaseModel):
+    """One target loop that changed after the plan was generated."""
+
+    loop_id: int
+    label: str
+    changed_fields: List[str] = Field(default_factory=list)
+    previous_updated_at_utc: str | None = None
+    current_updated_at_utc: str | None = None
+
+
+class PlanningContextFreshnessResponse(BaseModel):
+    """Deterministic freshness summary for a planning session's target loops."""
+
+    generated_at_utc: str | None = None
+    target_loop_count: int = 0
+    stale_target_loop_ids: List[int] = Field(default_factory=list)
+    stale_target_loop_count: int = 0
+    missing_target_loop_ids: List[int] = Field(default_factory=list)
+    missing_target_loop_count: int = 0
+    latest_target_loop_update_at_utc: str | None = None
+    changed_targets: List[PlanningContextFreshnessTargetChangeResponse] = Field(
+        default_factory=list
+    )
+    changed_field_counts: Dict[str, int] = Field(default_factory=dict)
+    status_changed_count: int = 0
+    next_action_changed_count: int = 0
+    summary_label: str | None = None
+    is_stale: bool = False
+
+
+class PlanningResourceChangeGroupResponse(BaseModel):
+    """Grouped deterministic resource changes emitted by planning execution."""
+
+    resource_type: str
+    resource_type_label: str
+    role: str
+    role_label: str
+    display_label: str
+    count: int
+    resource_ids: List[int] = Field(default_factory=list)
+    preview_labels: List[str] = Field(default_factory=list)
+    operation_indexes: List[int] = Field(default_factory=list)
+    operation_summaries: List[str] = Field(default_factory=list)
+
+
+class PlanningResourceChangeSummaryResponse(BaseModel):
+    """Summary of durable resources changed by planning execution."""
+
+    total_change_count: int = 0
+    loop_change_count: int = 0
+    downstream_change_count: int = 0
+    group_count: int = 0
+    created_resource_count: int = 0
+    updated_resource_count: int = 0
+    groups: List[PlanningResourceChangeGroupResponse] = Field(default_factory=list)
+    loop_groups: List[PlanningResourceChangeGroupResponse] = Field(default_factory=list)
+    downstream_groups: List[PlanningResourceChangeGroupResponse] = Field(default_factory=list)
+    summary_label: str | None = None
+    downstream_summary_label: str | None = None
+
+
 class PlanningExecutionHistoryItemResponse(BaseModel):
     """Stored execution history for one checkpoint."""
 
@@ -177,6 +238,9 @@ class PlanningExecutionHistoryItemResponse(BaseModel):
     operation_count: int
     results: List[PlanningCheckpointExecutionResultResponse] = Field(default_factory=list)
     summary: Dict[str, Any] = Field(default_factory=dict)
+    resource_change_summary: PlanningResourceChangeSummaryResponse = Field(
+        default_factory=PlanningResourceChangeSummaryResponse
+    )
     follow_up_resources: List[PlanningExecutionFollowUpResourceResponse] = Field(
         default_factory=list
     )
@@ -194,8 +258,13 @@ class PlanningSessionSnapshotResponse(BaseModel):
     plan_summary: str
     assumptions: List[str] = Field(default_factory=list)
     context_summary: Dict[str, Any] = Field(default_factory=dict)
-    context_freshness: Dict[str, Any] = Field(default_factory=dict)
+    context_freshness: PlanningContextFreshnessResponse = Field(
+        default_factory=PlanningContextFreshnessResponse
+    )
     execution_analytics: Dict[str, Any] = Field(default_factory=dict)
+    resource_change_summary: PlanningResourceChangeSummaryResponse = Field(
+        default_factory=PlanningResourceChangeSummaryResponse
+    )
     target_loops: List[PlanningTargetLoopResponse] = Field(default_factory=list)
     sources: List[Dict[str, Any]] = Field(default_factory=list)
     checkpoints: List[PlanningCheckpointResponse] = Field(default_factory=list)

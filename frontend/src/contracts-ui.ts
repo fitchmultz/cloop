@@ -42,7 +42,8 @@ export type ShellState =
   | "decide"
   | "plan"
   | "review"
-  | "recall";
+  | "recall"
+  | "working_set";
 
 export type RecallTool = "chat" | "memory" | "rag";
 export type ReviewFocus = "planning" | "relationship" | "enrichment" | "cohorts";
@@ -55,7 +56,84 @@ export interface ShellLocationContract {
   loopId: number | null;
   viewId?: number | null;
   memoryId?: number | null;
+  workingSetId?: number | null;
   query?: string | null;
+}
+
+export interface ContinuityCohortBaseline {
+  count: number;
+  itemIds: number[];
+}
+
+export interface ContinuitySessionBaseline {
+  sessionId: number;
+  loopCount: number;
+  currentLoopId: number | null;
+  updatedAtUtc: string;
+}
+
+export interface ContinuityPlanningBaseline extends ContinuitySessionBaseline {
+  sessionName: string;
+  status: "draft" | "in_progress" | "completed";
+  generatedAtUtc: string | null;
+  contextIsStale: boolean;
+  staleTargetLoopCount: number;
+  missingTargetLoopCount: number;
+  targetLoopIds: number[];
+  lastExecutedAtUtc: string | null;
+  resourceChangeCount: number;
+  downstreamResourceChangeCount: number;
+}
+
+export interface ContinuityBaselineSnapshot {
+  recordedAtUtc: string;
+  metrics: {
+    staleOpenCount: number;
+    blockedTooLongCount: number;
+    noNextActionCount: number;
+  };
+  cohorts: {
+    stale: ContinuityCohortBaseline;
+    blocked_too_long: ContinuityCohortBaseline;
+    due_soon_unplanned: ContinuityCohortBaseline;
+    no_next_action: ContinuityCohortBaseline;
+  };
+  planningSession: ContinuityPlanningBaseline | null;
+  relationshipSession: ContinuitySessionBaseline | null;
+  enrichmentSession: ContinuitySessionBaseline | null;
+  activeWorkingSetId: number | null;
+  snoozedLoops: Array<{
+    id: number;
+    snoozeUntilUtc: string;
+  }>;
+}
+
+export type RecentShellActionKind =
+  | "navigation"
+  | "planning"
+  | "review"
+  | "recall"
+  | "working_set"
+  | "working_set_session"
+  | "command"
+  | "bulk"
+  | "snooze";
+
+export interface ResumeAnchorState {
+  lastPlanningSessionId: number | null;
+  lastPlanningVisitedAtUtc: string | null;
+  lastReviewFocus: Extract<ReviewFocus, "relationship" | "enrichment"> | null;
+  lastReviewSessionId: number | null;
+  lastReviewVisitedAtUtc: string | null;
+}
+
+export interface RecentShellActionEntry {
+  kind: RecentShellActionKind;
+  label: string;
+  description: string;
+  location: ShellLocationContract | null;
+  metadata?: Record<string, unknown> | null;
+  occurredAt: string;
 }
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context";
@@ -86,11 +164,19 @@ export interface TrustSurfaceMetadata {
 
 export type OperatorActionTrustMetadata = TrustSurfaceMetadata;
 
+export interface WorkingSetSessionMetadata {
+  workingSetId: number;
+  workingSetName: string;
+  itemCount: number;
+  missingItemCount: number;
+}
+
 export interface OperatorActionHandoff {
   changeSummary: string;
   createdResources: string[];
   nextStep: string | null;
   breadcrumbs: string[];
+  workingSet?: WorkingSetSessionMetadata | null;
 }
 
 export interface OperatorActionCardAction {

@@ -59,10 +59,12 @@ from ...schemas.loops import (
     LoopWithDependenciesResponse,
     PlanningCheckpointExecutionResultResponse,
     PlanningCheckpointResponse,
+    PlanningContextFreshnessResponse,
     PlanningExecutionFollowUpResourceResponse,
     PlanningExecutionHistoryItemResponse,
     PlanningExecutionLaunchSurfaceResponse,
     PlanningExecutionRollbackCueResponse,
+    PlanningResourceChangeSummaryResponse,
     PlanningSessionExecuteResponse,
     PlanningSessionResponse,
     PlanningSessionSnapshotResponse,
@@ -479,6 +481,9 @@ def build_planning_execution_history_item_response(
             for result in item.get("results", [])
         ],
         summary=dict(item.get("summary") or {}),
+        resource_change_summary=PlanningResourceChangeSummaryResponse.model_validate(
+            dict(item.get("resource_change_summary") or {})
+        ),
         follow_up_resources=[
             build_planning_execution_follow_up_resource_response(resource)
             for resource in item.get("follow_up_resources", [])
@@ -503,8 +508,13 @@ def build_planning_session_snapshot_response(
         plan_summary=str(snapshot.get("plan_summary") or ""),
         assumptions=[str(item) for item in snapshot.get("assumptions", [])],
         context_summary=dict(snapshot.get("context_summary") or {}),
-        context_freshness=dict(snapshot.get("context_freshness") or {}),
+        context_freshness=PlanningContextFreshnessResponse.model_validate(
+            dict(snapshot.get("context_freshness") or {})
+        ),
         execution_analytics=dict(snapshot.get("execution_analytics") or {}),
+        resource_change_summary=PlanningResourceChangeSummaryResponse.model_validate(
+            dict(snapshot.get("resource_change_summary") or {})
+        ),
         target_loops=[
             build_planning_target_loop_response(loop) for loop in snapshot.get("target_loops", [])
         ],

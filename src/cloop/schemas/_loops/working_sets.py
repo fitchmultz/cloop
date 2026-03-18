@@ -43,21 +43,31 @@ WorkingSetItemType = Literal[
     "state_anchor",
 ]
 
-WorkingSetShellState = Literal["operator", "capture", "do", "decide", "plan", "review", "recall"]
+WorkingSetShellState = Literal[
+    "operator",
+    "capture",
+    "do",
+    "decide",
+    "plan",
+    "review",
+    "recall",
+    "working_set",
+]
 WorkingSetRecallTool = Literal["chat", "memory", "rag"]
 WorkingSetReviewFocus = Literal["planning", "relationship", "enrichment", "cohorts"]
 
 
 class WorkingSetLaunchLocationResponse(BaseModel):
-    """Frontend launch target for one working-set item."""
+    """Frontend launch target for one working-set item or the set itself."""
 
     state: WorkingSetShellState
     recall_tool: WorkingSetRecallTool = "chat"
     review_focus: WorkingSetReviewFocus | None = None
-    session_id: int | None = None
-    loop_id: int | None = None
-    view_id: int | None = None
-    memory_id: int | None = None
+    session_id: int | None = Field(default=None, ge=1)
+    loop_id: int | None = Field(default=None, ge=1)
+    view_id: int | None = Field(default=None, ge=1)
+    memory_id: int | None = Field(default=None, ge=1)
+    working_set_id: int | None = Field(default=None, ge=1)
     query: str | None = None
 
 
@@ -109,7 +119,7 @@ class WorkingSetReorderRequest(BaseModel):
 
 
 class WorkingSetResponse(BaseModel):
-    """Resolved working-set payload with ordered items."""
+    """Resolved working-set payload with ordered items and a session launch target."""
 
     id: int
     name: str
@@ -120,6 +130,7 @@ class WorkingSetResponse(BaseModel):
     created_at_utc: str
     updated_at_utc: str
     items: list[WorkingSetItemResponse] = Field(default_factory=list)
+    launch: WorkingSetLaunchLocationResponse
 
 
 class WorkingSetContextUpdateRequest(BaseModel):

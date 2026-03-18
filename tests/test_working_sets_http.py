@@ -58,6 +58,8 @@ def test_working_set_endpoints(make_test_client) -> None:
     created = create_response.json()
     working_set_id = created["id"]
     assert created["item_count"] == 0
+    assert created["launch"]["state"] == "working_set"
+    assert created["launch"]["working_set_id"] == working_set_id
 
     add_loop_response = client.post(
         f"/loops/working-sets/{working_set_id}/items",
@@ -159,6 +161,31 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert cleared_context_response.status_code == 200
     assert cleared_context_response.json()["active_working_set_id"] is None
     assert cleared_context_response.json()["focus_mode_enabled"] is False
+
+
+def test_working_set_state_anchor_requires_working_set_id_for_working_set_launch(
+    make_test_client,
+) -> None:
+    client = make_test_client()
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Session launch", "description": "Validate working-set state anchors."},
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    response = client.post(
+        f"/loops/working-sets/{working_set_id}/items",
+        json={
+            "item_type": "state_anchor",
+            "label": "Resume this working set",
+            "description": "Open the dedicated working-set session.",
+            "metadata": {"state": "working_set"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "working_set_id" in response.text
 
 
 def test_working_set_returns_missing_items_instead_of_breaking(make_test_client) -> None:

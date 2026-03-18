@@ -57,6 +57,7 @@ function locationAttributes(prefix: "open" | "pin", location: ShellLocationContr
     ["loop-id", location.loopId != null ? String(location.loopId) : ""],
     ["view-id", location.viewId != null ? String(location.viewId) : ""],
     ["memory-id", location.memoryId != null ? String(location.memoryId) : ""],
+    ["working-set-id", location.workingSetId != null ? String(location.workingSetId) : ""],
     ["query", location.query ?? ""],
   ] as const;
 
@@ -149,10 +150,22 @@ function renderHandoff(card: OperatorActionCard): string {
   }
 
   const { handoff } = card;
+  const workingSetLine = handoff.workingSet
+    ? `
+      <p>
+        <strong>Working set:</strong>
+        ${escapeHtml(handoff.workingSet.workingSetName)}
+        · ${handoff.workingSet.itemCount} item${handoff.workingSet.itemCount === 1 ? "" : "s"}
+        ${handoff.workingSet.missingItemCount ? ` · ${handoff.workingSet.missingItemCount} missing` : ""}
+      </p>
+    `
+    : "";
+
   return `
     <section class="operator-action-handoff" aria-label="Workflow handoff">
       <p class="operator-action-section-title">Workflow handoff</p>
       <p>${escapeHtml(handoff.changeSummary)}</p>
+      ${workingSetLine}
       ${
         handoff.createdResources.length
           ? `

@@ -6,7 +6,7 @@ Real work rarely happens one loop at a time. Users operate on a temporary, meani
 
 ## Outcome
 
-Users can create, save, resume, and share a temporary operational slice containing the objects that matter for one effort.
+Users can create, save, resume, and share a temporary operational slice containing the objects that matter for one effort, with a dedicated working-set session surface that restores the full bounded context.
 
 ## User jobs
 
@@ -50,6 +50,7 @@ Working sets should support:
 Current implementation defaults:
 
 - one durable active working-set context is stored alongside the named sets
+- a dedicated shell route (`#working-set/:id`) restores the set as a first-class session surface
 - focus mode is explicit and can be toggled on/off without deleting the active set
 - sets may contain both durable object references and lightweight state/query anchors when the shell needs a reusable launch target
 
@@ -73,8 +74,8 @@ Focus mode should:
 ### Resume a working set
 
 1. User returns later.
-2. Operator workspace surfaces recent or pinned working sets.
-3. User restores the set and enters focus mode.
+2. Operator workspace, continuity cards, or command palette surface a working-set session launch.
+3. User opens the dedicated session surface, sees the full ordered membership, and optionally enters focus mode.
 
 ### Use a working set during planning
 

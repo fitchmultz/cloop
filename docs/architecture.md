@@ -16,7 +16,7 @@ Persistent state is local SQLite (`core.db`, `rag.db`), not an external database
 
 ```mermaid
 flowchart LR
-  UI[Static Web UI\nsrc/cloop/static] --> API[FastAPI\nsrc/cloop/main.py]
+  UI[Frontend source: frontend/\nBuilt assets: src/cloop/static/dist] --> API[FastAPI\nsrc/cloop/main.py]
   API --> ROUTES[Routes\nsrc/cloop/routes/*]
   CLI[CLI\ncloop] --> LOOPS[Shared loop domain\nsrc/cloop/loops/*]
   CLI --> RAG[RAG services\nsrc/cloop/rag/*]

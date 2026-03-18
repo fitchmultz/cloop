@@ -69,7 +69,7 @@ namespaces = false
 
 [tool.setuptools.package-data]
 cloop = [
-    "static/**",
+    "static/dist/**",
     "db/migrations/**",
     "pi_bridge/bridge.mjs",
     "pi_bridge/package.json",

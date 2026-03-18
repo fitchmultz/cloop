@@ -252,7 +252,17 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         )
         assert first_snapshot["session"]["executed_checkpoint_count"] == 1
         assert first_snapshot["session"]["current_checkpoint_index"] == 1
-        assert first_snapshot["context_freshness"]["generated_at_utc"]
+        freshness = first_snapshot["context_freshness"]
+        assert freshness["generated_at_utc"]
+        assert freshness["is_stale"] is True
+        assert freshness["stale_target_loop_count"] == 2
+        assert freshness["missing_target_loop_count"] == 0
+        assert freshness["status_changed_count"] == 1
+        assert freshness["next_action_changed_count"] == 1
+        assert {item["loop_id"] for item in freshness["changed_targets"]} == {
+            first_loop["id"],
+            second_loop["id"],
+        }
         assert set(first_snapshot["execution_analytics"]["executed_checkpoint_indexes"]) == {0}
 
         updated_first = repo.read_loop(loop_id=first_loop["id"], conn=conn)
@@ -274,6 +284,14 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         assert len(second_snapshot["execution_history"]) == 2
         assert second_execution["execution"]["summary"]["created_loop_ids"]
         assert second_execution["execution"]["summary"]["created_review_session_ids"]
+        resource_summary = second_execution["execution"]["resource_change_summary"]
+        assert resource_summary["downstream_change_count"] == 1
+        assert resource_summary["group_count"] >= 2
+        assert any(group["resource_type"] == "loop" for group in resource_summary["groups"])
+        assert any(
+            group["resource_type"] == "review_session"
+            for group in resource_summary["downstream_groups"]
+        )
         assert second_execution["execution"]["follow_up_resources"]
         assert (
             second_execution["execution"]["follow_up_resources"][0]["resource_type"]
@@ -407,6 +425,13 @@ def test_planning_session_executes_expanded_deterministic_operations(
         assert latest_history["follow_up_resources"]
         assert latest_history["launch_surfaces"]
         assert latest_history["rollback_cues"]["operations"]
+        session_resource_summary = refreshed_snapshot["resource_change_summary"]
+        assert {
+            group["resource_type"] for group in session_resource_summary["downstream_groups"]
+        } == {"review_session", "view", "template"}
+        assert session_resource_summary["downstream_change_count"] == 3
+        assert session_resource_summary["group_count"] >= 4
+        assert session_resource_summary["summary_label"]
 
 
 def test_planning_session_rolls_back_prior_operations_on_late_failure(

@@ -105,6 +105,7 @@ export function locationsMatch(
     && left.loopId === right.loopId
     && (left.viewId ?? null) === (right.viewId ?? null)
     && (left.memoryId ?? null) === (right.memoryId ?? null)
+    && (left.workingSetId ?? null) === (right.workingSetId ?? null)
     && (left.query ?? null) === (right.query ?? null);
 }
 

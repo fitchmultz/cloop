@@ -9,7 +9,7 @@ Responsibilities:
     - Return cohorts with counts and loop items
 
 Non-scope:
-    - UI rendering (see static/index.html)
+    - UI rendering (see frontend/index.html and frontend/src/review-workspace.ts)
     - CLI formatting (see cli.py)
     - HTTP routing (see routes/loops.py)
 """

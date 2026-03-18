@@ -2,11 +2,11 @@
  * main.ts - Frontend application bootstrap entrypoint.
  *
  * Purpose:
- *   Load the stylesheet stack and bootstrap the TypeScript-bundled Cloop web UI.
+ *   Load the stylesheet stack and bootstrap the TypeScript-owned Cloop web UI.
  *
  * Responsibilities:
  *   - Import the current CSS modules through Vite.
- *   - Bootstrap the TypeScript-owned shell and review workspaces.
+ *   - Bootstrap the shell, review workspace, PWA runtime, and typed work-surface registry.
  *   - Keep browser startup behavior aligned with the Vite-built operator shell.
  *
  * Scope:
@@ -17,8 +17,7 @@
  *
  * Invariants/Assumptions:
  *   - The DOM structure in frontend/index.html preserves the current UI ids/classes.
- *   - Residual legacy-only surfaces, if any, are bootstrapped through their own
- *     dedicated entrypoint rather than through this TypeScript bootstrap.
+ *   - This is the only frontend module entrypoint loaded by the browser.
  */
 
 import "./styles/tokens.css";
@@ -34,8 +33,20 @@ import "./styles/memory.css";
 import "./styles/comments.css";
 import "./styles/modals.css";
 
+import { bootstrapPwaRuntime } from "./pwa";
 import { bootstrapReviewWorkspace } from "./review-workspace";
 import { bootstrapShell } from "./shell";
+import { bootstrapFrontendSurfaceRegistry } from "./surface-runtime";
 
-bootstrapShell();
-bootstrapReviewWorkspace();
+function bootstrapFrontend(): void {
+  bootstrapPwaRuntime();
+  const surfaces = bootstrapFrontendSurfaceRegistry();
+  bootstrapShell({ surfaces });
+  bootstrapReviewWorkspace();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootstrapFrontend, { once: true });
+} else {
+  bootstrapFrontend();
+}

@@ -2,8 +2,8 @@
  * selection-state.ts - Shared loop-selection state for bulk actions.
  *
  * Purpose:
- *   Centralize loop-selection state so TypeScript surfaces and residual legacy
- *   modules observe the same selected-loop set during the frontend cutover.
+ *   Centralize loop-selection state so shell, review, and work surfaces observe
+ *   the same selected-loop set.
  *
  * Responsibilities:
  *   - Hold the canonical selected-loop id set.
@@ -16,7 +16,7 @@
  *
  * Usage:
  *   - Imported directly by TypeScript modules.
- *   - Re-exported by frontend/src/legacy/state.js for untouched legacy code.
+ *   - Re-exported by frontend/src/surfaces/state.ts for shared surface code.
  *
  * Invariants/Assumptions:
  *   - Loop cards expose integer ids through `data-loop-id`.

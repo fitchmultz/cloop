@@ -161,7 +161,12 @@ def test_planning_workflow_endpoints(
     )
     assert first_execute_payload["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execute_payload["snapshot"]["session"]["current_checkpoint_index"] == 1
-    assert first_execute_payload["snapshot"]["context_freshness"]["generated_at_utc"]
+    freshness = first_execute_payload["snapshot"]["context_freshness"]
+    assert freshness["generated_at_utc"]
+    assert freshness["is_stale"] is True
+    assert freshness["stale_target_loop_count"] == 2
+    assert freshness["status_changed_count"] == 1
+    assert freshness["next_action_changed_count"] == 1
 
     loop_response = client.get(f"/loops/{first_id}")
     assert loop_response.status_code == 200
@@ -186,6 +191,13 @@ def test_planning_workflow_endpoints(
     assert second_execute_payload["execution"]["launch_surfaces"][0]["http"]["path"] == (
         f"/loops/review/enrichment/sessions/{created_review_session_id}"
     )
+    resource_summary = second_execute_payload["execution"]["resource_change_summary"]
+    assert resource_summary["downstream_change_count"] == 1
+    assert any(group["resource_type"] == "loop" for group in resource_summary["groups"])
+    assert any(
+        group["resource_type"] == "review_session"
+        for group in resource_summary["downstream_groups"]
+    )
     assert (
         second_execute_payload["snapshot"]["execution_analytics"]["follow_up_resource_count"] >= 1
     )
@@ -196,10 +208,13 @@ def test_planning_workflow_endpoints(
 
     get_response = client.get(f"/loops/planning/sessions/{session_id}")
     assert get_response.status_code == 200
-    latest_history = get_response.json()["execution_history"][-1]
+    loaded_payload = get_response.json()
+    latest_history = loaded_payload["execution_history"][-1]
     assert latest_history["follow_up_resources"]
     assert latest_history["launch_surfaces"]
     assert latest_history["rollback_cues"]["operations"]
+    assert latest_history["resource_change_summary"]["summary_label"]
+    assert loaded_payload["resource_change_summary"]["summary_label"]
 
     refresh_response = client.post(f"/loops/planning/sessions/{session_id}/refresh")
     assert refresh_response.status_code == 200

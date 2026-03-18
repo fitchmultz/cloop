@@ -50,7 +50,7 @@ _WORKING_SET_ITEM_TYPES = {
     "state_anchor",
 }
 
-_SHELL_STATES = {"operator", "capture", "do", "decide", "plan", "review", "recall"}
+_SHELL_STATES = {"operator", "capture", "do", "decide", "plan", "review", "recall", "working_set"}
 _RECALL_TOOLS = {"chat", "memory", "rag"}
 _REVIEW_FOCUSES = {"planning", "relationship", "enrichment", "cohorts"}
 
@@ -102,6 +102,7 @@ def _build_launch(
     loop_id: int | None = None,
     view_id: int | None = None,
     memory_id: int | None = None,
+    working_set_id: int | None = None,
     query: str | None = None,
 ) -> dict[str, Any]:
     """Create the frontend launch payload for one working-set item."""
@@ -113,6 +114,7 @@ def _build_launch(
         "loop_id": loop_id,
         "view_id": view_id,
         "memory_id": memory_id,
+        "working_set_id": working_set_id,
         "query": query,
     }
 
@@ -162,7 +164,7 @@ def _validate_state_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, An
         "recall_tool": recall_tool,
         "review_focus": review_focus,
     }
-    for numeric_key in ("session_id", "loop_id", "view_id", "memory_id"):
+    for numeric_key in ("session_id", "loop_id", "view_id", "memory_id", "working_set_id"):
         numeric_value = metadata.get(numeric_key)
         if numeric_value is None:
             parsed[numeric_key] = None
@@ -175,6 +177,13 @@ def _validate_state_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, An
     if query_value is not None and not isinstance(query_value, str):
         raise ValidationError("metadata.query", "must be a string when provided")
     parsed["query"] = query_value.strip() if isinstance(query_value, str) else None
+
+    if state == "working_set" and parsed["working_set_id"] is None:
+        raise ValidationError(
+            "metadata.working_set_id",
+            "is required when state is working_set",
+        )
+
     return parsed
 
 
@@ -437,6 +446,7 @@ def _resolve_working_set_item(
                 loop_id=anchor["loop_id"],
                 view_id=anchor["view_id"],
                 memory_id=anchor["memory_id"],
+                working_set_id=anchor["working_set_id"],
                 query=anchor["query"],
             ),
         }
@@ -451,8 +461,9 @@ def _working_set_payload(row: Mapping[str, Any], *, conn: sqlite3.Connection) ->
         for item_row in repo.list_working_set_items(working_set_id=int(row["id"]), conn=conn)
     ]
     missing_count = sum(1 for item in items if bool(item.get("missing")))
+    working_set_id = int(row["id"])
     return {
-        "id": row["id"],
+        "id": working_set_id,
         "name": row["name"],
         "description": row.get("description"),
         "item_count": len(items),
@@ -461,6 +472,7 @@ def _working_set_payload(row: Mapping[str, Any], *, conn: sqlite3.Connection) ->
         "created_at_utc": row["created_at"],
         "updated_at_utc": row["updated_at"],
         "items": items,
+        "launch": _build_launch(state="working_set", working_set_id=working_set_id),
     }
 
 

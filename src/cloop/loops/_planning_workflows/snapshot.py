@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -41,6 +42,75 @@ from .inputs import _validate_options
 from .models import PlanningMoveDirection, PlanningSessionStatus
 
 _FOLLOW_UP_RESOURCE_TYPES = {"review_session", "view", "template"}
+_RESOURCE_TYPE_ORDER = {
+    "loop": 0,
+    "review_session": 1,
+    "view": 2,
+    "template": 3,
+}
+_ROLE_ORDER = {
+    "created": 0,
+    "updated": 1,
+    "transitioned": 2,
+    "closed": 3,
+    "enriched": 4,
+    "snoozed": 5,
+}
+_TARGET_COMPARE_FIELDS = (
+    "title",
+    "raw_text",
+    "summary",
+    "next_action",
+    "status",
+    "due_date",
+    "due_at_utc",
+    "project",
+    "tags",
+    "blocked_reason",
+    "enrichment_state",
+)
+
+
+def _resource_type_label(resource_type: str) -> str:
+    return resource_type.replace("_", " ")
+
+
+def _role_label(role: str) -> str:
+    return role.replace("_", " ")
+
+
+def _normalize_change_role(role: str) -> str:
+    return "created" if role == "created" else "updated"
+
+
+def _resource_display_label(*, count: int, resource_type: str, role: str) -> str:
+    resource_type_label = _resource_type_label(resource_type)
+    pluralized_type = resource_type_label if count == 1 else f"{resource_type_label}s"
+    return f"{count} {pluralized_type} {_role_label(role)}"
+
+
+def _resource_preview_label(resource: Mapping[str, Any]) -> str | None:
+    label = resource.get("label")
+    if isinstance(label, str) and label.strip():
+        return label.strip()
+    return None
+
+
+def _loop_snapshot_field_value(loop: Mapping[str, Any], field: str) -> Any:
+    value = loop.get(field)
+    if field == "tags":
+        return sorted(str(tag) for tag in list(value or []))
+    return value
+
+
+def _changed_target_label(loop: Mapping[str, Any], loop_id: int) -> str:
+    title = loop.get("title")
+    if isinstance(title, str) and title.strip():
+        return title.strip()
+    raw_text = loop.get("raw_text")
+    if isinstance(raw_text, str) and raw_text.strip():
+        return raw_text.strip()
+    return f"Loop #{loop_id}"
 
 
 def _require_planning_session_row(*, session_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
@@ -139,6 +209,144 @@ def _build_execution_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, 
             + len(created_template_ids)
             + len(updated_template_ids)
         ),
+    }
+
+
+def _build_resource_change_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+
+    for result in results:
+        operation_index = int(result.get("index") or 0)
+        operation_summary = str(result.get("summary") or "")
+        for raw_resource in result.get("resource_refs", []):
+            resource = raw_resource if isinstance(raw_resource, Mapping) else {}
+            resource_type = str(resource.get("resource_type") or "").strip()
+            role = str(resource.get("role") or "").strip()
+            resource_id = resource.get("resource_id")
+            if not resource_type or not role or not isinstance(resource_id, int):
+                continue
+
+            key = (resource_type, role)
+            existing = grouped.get(key)
+            if existing is None:
+                existing = {
+                    "resource_type": resource_type,
+                    "resource_type_label": _resource_type_label(resource_type),
+                    "role": role,
+                    "role_label": _role_label(role),
+                    "resource_ids": set(),
+                    "preview_labels": [],
+                    "operation_indexes": set(),
+                    "operation_summaries": [],
+                }
+                grouped[key] = existing
+
+            resource_ids = existing["resource_ids"]
+            preview_labels = existing["preview_labels"]
+            operation_indexes = existing["operation_indexes"]
+            operation_summaries = existing["operation_summaries"]
+            if not isinstance(resource_ids, set):
+                continue
+            if not isinstance(preview_labels, list):
+                continue
+            if not isinstance(operation_indexes, set):
+                continue
+            if not isinstance(operation_summaries, list):
+                continue
+
+            if resource_id not in resource_ids:
+                resource_ids.add(resource_id)
+                preview_label = _resource_preview_label(resource)
+                if preview_label and preview_label not in preview_labels:
+                    preview_labels.append(preview_label)
+
+            operation_indexes.add(operation_index)
+            if operation_summary and operation_summary not in operation_summaries:
+                operation_summaries.append(operation_summary)
+
+    groups: list[dict[str, Any]] = []
+    created_resource_count = 0
+    updated_resource_count = 0
+    loop_change_count = 0
+    downstream_change_count = 0
+
+    for group in sorted(
+        grouped.values(),
+        key=lambda item: (
+            _RESOURCE_TYPE_ORDER.get(str(item["resource_type"]), 99),
+            _ROLE_ORDER.get(str(item["role"]), 99),
+            str(item["resource_type"]),
+            str(item["role"]),
+        ),
+    ):
+        count = len(group["resource_ids"])
+        normalized_role = _normalize_change_role(str(group["role"]))
+        payload = {
+            "resource_type": group["resource_type"],
+            "resource_type_label": group["resource_type_label"],
+            "role": group["role"],
+            "role_label": group["role_label"],
+            "display_label": _resource_display_label(
+                count=count,
+                resource_type=str(group["resource_type"]),
+                role=str(group["role"]),
+            ),
+            "count": count,
+            "resource_ids": sorted(int(resource_id) for resource_id in group["resource_ids"]),
+            "preview_labels": list(group["preview_labels"])[:3],
+            "operation_indexes": sorted(int(index) for index in group["operation_indexes"]),
+            "operation_summaries": list(group["operation_summaries"])[:3],
+        }
+        groups.append(payload)
+        if normalized_role == "created":
+            created_resource_count += count
+        else:
+            updated_resource_count += count
+        if payload["resource_type"] == "loop":
+            loop_change_count += count
+        elif payload["resource_type"] in _FOLLOW_UP_RESOURCE_TYPES:
+            downstream_change_count += count
+
+    loop_groups = [group for group in groups if group["resource_type"] == "loop"]
+    downstream_groups = [
+        group for group in groups if group["resource_type"] in _FOLLOW_UP_RESOURCE_TYPES
+    ]
+    total_change_count = sum(int(group["count"]) for group in groups)
+
+    summary_parts: list[str] = []
+    if loop_change_count:
+        summary_parts.append(
+            f"{loop_change_count} loop change{'s' if loop_change_count != 1 else ''}"
+        )
+    if downstream_change_count:
+        summary_parts.append(
+            (
+                f"{downstream_change_count} downstream resource "
+                f"change{'s' if downstream_change_count != 1 else ''}"
+            )
+        )
+    summary_label = " · ".join(summary_parts) or "No durable planning resource changes recorded"
+    downstream_summary_label = (
+        (
+            f"{downstream_change_count} downstream resource "
+            f"change{'s' if downstream_change_count != 1 else ''}"
+        )
+        if downstream_change_count
+        else "No downstream planning resource changes recorded"
+    )
+
+    return {
+        "total_change_count": total_change_count,
+        "loop_change_count": loop_change_count,
+        "downstream_change_count": downstream_change_count,
+        "group_count": len(groups),
+        "created_resource_count": created_resource_count,
+        "updated_resource_count": updated_resource_count,
+        "groups": groups,
+        "loop_groups": loop_groups,
+        "downstream_groups": downstream_groups,
+        "summary_label": summary_label,
+        "downstream_summary_label": downstream_summary_label,
     }
 
 
@@ -434,6 +642,9 @@ def _build_execution_history(
             )
         )
         rollback_cues = dict(payload.get("rollback_cues") or _build_rollback_cues(results))
+        resource_change_summary = dict(
+            payload.get("resource_change_summary") or _build_resource_change_summary(results)
+        )
 
         history.append(
             {
@@ -443,6 +654,7 @@ def _build_execution_history(
                 "operation_count": len(results),
                 "results": results,
                 "summary": dict(payload.get("summary") or _build_execution_summary(results)),
+                "resource_change_summary": resource_change_summary,
                 "follow_up_resources": [dict(item) for item in follow_up_resources],
                 "launch_surfaces": [dict(item) for item in launch_surfaces],
                 "rollback_cues": rollback_cues,
@@ -464,23 +676,66 @@ def _build_context_freshness(
     try:
         generated_at = parse_utc_datetime(str(generated_at_utc))
     except ValueError:
-        return {"generated_at_utc": generated_at_utc, "is_stale": False}
+        return {"generated_at_utc": str(generated_at_utc), "is_stale": False}
 
     target_loop_ids = [int(loop["id"]) for loop in target_loops if loop.get("id") is not None]
     records = repo.read_loops_batch(loop_ids=target_loop_ids, conn=conn)
     stale_target_loop_ids: list[int] = []
     missing_target_loop_ids: list[int] = []
     latest_target_update = None
+    changed_targets: list[dict[str, Any]] = []
+    changed_field_counts: Counter[str] = Counter()
+
+    stored_targets = {int(loop["id"]): loop for loop in target_loops if loop.get("id") is not None}
 
     for loop_id in target_loop_ids:
         record = records.get(loop_id)
         if record is None:
             missing_target_loop_ids.append(loop_id)
             continue
+
+        current_loop = read_service.get_loop(loop_id=loop_id, conn=conn)
         if latest_target_update is None or record.updated_at_utc > latest_target_update:
             latest_target_update = record.updated_at_utc
-        if record.updated_at_utc > generated_at:
+
+        stored_loop = stored_targets.get(loop_id, {})
+        changed_fields = [
+            field
+            for field in _TARGET_COMPARE_FIELDS
+            if _loop_snapshot_field_value(stored_loop, field)
+            != _loop_snapshot_field_value(current_loop, field)
+        ]
+        if changed_fields:
+            changed_field_counts.update(changed_fields)
+            changed_targets.append(
+                {
+                    "loop_id": loop_id,
+                    "label": _changed_target_label(current_loop, loop_id),
+                    "changed_fields": changed_fields,
+                    "previous_updated_at_utc": str(stored_loop.get("updated_at_utc") or "") or None,
+                    "current_updated_at_utc": str(current_loop.get("updated_at_utc") or "") or None,
+                }
+            )
+
+        if record.updated_at_utc > generated_at or changed_fields:
             stale_target_loop_ids.append(loop_id)
+
+    summary_parts: list[str] = []
+    if changed_targets:
+        summary_parts.append(
+            f"{len(changed_targets)} target loop{'s' if len(changed_targets) != 1 else ''} changed"
+        )
+    elif stale_target_loop_ids:
+        summary_parts.append(
+            (
+                f"{len(stale_target_loop_ids)} target loop"
+                f"{'s' if len(stale_target_loop_ids) != 1 else ''} updated"
+            )
+        )
+    else:
+        summary_parts.append("Planning context matches the stored target loops")
+    if missing_target_loop_ids:
+        summary_parts.append(f"{len(missing_target_loop_ids)} missing")
 
     return {
         "generated_at_utc": str(generated_at_utc),
@@ -488,9 +743,15 @@ def _build_context_freshness(
         "stale_target_loop_ids": stale_target_loop_ids,
         "stale_target_loop_count": len(stale_target_loop_ids),
         "missing_target_loop_ids": missing_target_loop_ids,
+        "missing_target_loop_count": len(missing_target_loop_ids),
         "latest_target_loop_update_at_utc": (
             format_utc_datetime(latest_target_update) if latest_target_update is not None else None
         ),
+        "changed_targets": changed_targets,
+        "changed_field_counts": dict(changed_field_counts),
+        "status_changed_count": changed_field_counts.get("status", 0),
+        "next_action_changed_count": changed_field_counts.get("next_action", 0),
+        "summary_label": " · ".join(summary_parts),
         "is_stale": bool(stale_target_loop_ids or missing_target_loop_ids),
     }
 
@@ -538,6 +799,9 @@ def _build_planning_session_snapshot(
     execution_history = _build_execution_history(execution_rows, checkpoints=checkpoints)
     context_summary = dict(workflow.get("context_summary") or {})
     target_loops = list(workflow.get("target_loops") or [])
+    all_results = [
+        result for item in execution_history for result in list(item.get("results") or [])
+    ]
 
     return {
         "session": session,
@@ -554,6 +818,7 @@ def _build_planning_session_snapshot(
             execution_history=execution_history,
             checkpoints=checkpoints,
         ),
+        "resource_change_summary": _build_resource_change_summary(all_results),
         "target_loops": target_loops,
         "sources": list(workflow.get("sources") or []),
         "checkpoints": checkpoints,
@@ -635,6 +900,7 @@ __all__ = [
     "_next_unexecuted_checkpoint_index",
     "_collect_resource_ids",
     "_build_execution_summary",
+    "_build_resource_change_summary",
     "_build_follow_up_resources",
     "_build_launch_surfaces",
     "_build_rollback_cues",

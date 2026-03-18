@@ -38,6 +38,7 @@ function location(overrides: Partial<ShellLocationContract> = {}): ShellLocation
     loopId: overrides.loopId ?? null,
     viewId: overrides.viewId ?? null,
     memoryId: overrides.memoryId ?? null,
+    workingSetId: overrides.workingSetId ?? null,
     query: overrides.query ?? null,
   };
 }
@@ -63,6 +64,15 @@ describe("locationsMatch", () => {
       locationsMatch(
         location({ state: "review", query: "status:blocked" }),
         location({ state: "review", query: "status:open" }),
+      ),
+    ).toBe(false);
+  });
+
+  it("treats different working-set sessions as different locations", () => {
+    expect(
+      locationsMatch(
+        location({ state: "working_set", workingSetId: 1 }),
+        location({ state: "working_set", workingSetId: 2 }),
       ),
     ).toBe(false);
   });

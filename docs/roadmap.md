@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn the shipped operator shell, trust surfaces, and workflow handoffs into a world-class cross-session decision and execution workspace: stronger continuity, sharper review, and deeper operational memory.
+The current priority is to turn the shipped operator shell, trust surfaces, workflow handoffs, and first deterministic continuity slice into a world-class cross-session decision and execution workspace: sharper drift handling, tighter resume cues, and deeper operational memory.
 
 ## Direction
 
@@ -26,23 +26,24 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Cross-session intelligence
+### Phase 1 — Continuity signal refinement and workflow handoff polish
 
-Goal: make the system feel alive and resumable over time instead of merely fast in-session now that the shell, trust surfaces, durable working sets, and command palette are in place.
+Goal: turn the first continuity slice into a sharper operator decision surface once the deterministic baseline is stable.
 
-1. **Continuity and intelligence across sessions**
-   - Spec: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-   - Depends on: operator workspace, durable working sets, trust surfaces, and the command palette's recent/resume model.
-   - Build this phase on the now-TypeScript-native shell/review/command-palette/trust-surface runtime; keep any still-unported legacy capture/do/recall code isolated behind the residual compatibility entrypoint instead of reintroducing shared shell dependencies on it.
+1. **Planning / review / working-set handoff tightening**
+   - Deepen explicit launch surfaces between review queues, planning sessions, working-set sessions, and recall tools.
+   - Prefer typed shared contracts over client-side re-derivation for any new handoff UI.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Continuity-intelligence session**
-   - deepen since-last-visit summaries, resume suggestions, and cross-session intelligence on top of the shipped shell, trust surfaces, command palette, and durable working-set foundation
+1. **Shell decomposition session**
+   - split `frontend/src/shell.ts` into focused modules for routing/location state, working-set session rendering, operator-card assembly, and shell event wiring before more operator-shell workflow work lands there
+2. **Working-set-aware workflow propagation session**
+   - automatically carry the active working set through planning executions, review queues, and follow-up resource creation so new downstream work stays attached to the bounded context without manual repinning
 
-That sequence minimizes churn by building directly on the now-stable shell, trust-surface, review-workspace, working-set, and command-palette architecture before introducing heavier cross-session behavior.
+That next session minimizes churn by reducing shell-file hotspot risk before deeper working-set propagation and handoff work adds more logic to the operator runtime.
 
 ## Delivery Model
 
@@ -57,7 +58,7 @@ That sequence minimizes churn by building directly on the now-stable shell, trus
 - Do not add UI polish without improving workflow clarity, confidence, or speed.
 - Prefer state-driven UX over feature-driven navigation.
 - Prefer action surfaces over narrative AI output.
-- Do not land major new operator shell work in the legacy plain-JS frontend once Phase 0 starts.
+- Do not reintroduce legacy plain-JS frontend paths; all operator-shell and work-surface runtime work belongs in the TypeScript/Vite frontend.
 - Keep all AI recommendations grounded in real loops, memory, RAG, or explicit operator context.
 - Preserve deterministic escape hatches and visible rollback cues for meaningful mutations.
 - Avoid transport-specific workflow drift; shared orchestration remains the source of truth.

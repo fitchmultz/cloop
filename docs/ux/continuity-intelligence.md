@@ -34,7 +34,8 @@ Users can return to Cloop and immediately understand what changed, what is aging
 
 A compact summary should highlight:
 
-- newly created follow-up resources
+- newly created or updated follow-up resources
+- grouped planning-driven resource rollups when checkpoint execution changed multiple durable objects
 - newly blocked or stale loops
 - completed work
 - plans or sessions that drifted
@@ -44,7 +45,7 @@ A compact summary should highlight:
 
 The app should remember and surface:
 
-- last active working set
+- last active working-set session
 - last active planning session
 - last active review session
 - recent command/action history
@@ -53,7 +54,9 @@ The app should remember and surface:
 
 The system should surface when:
 
-- a plan’s grounding no longer reflects current loop state
+- a plan’s grounding no longer reflects current loop state, including which target loops changed and which fields drifted
+- a newer planning session replaced the prior primary plan with partial or zero target overlap
+- checkpoint execution changed downstream durable resources such as review sessions, views, or templates
 - a saved session’s queue meaningfully changed
 - loops silently aged into higher-risk cohorts
 - repeated defer/snooze behavior suggests avoidance or drift
@@ -82,7 +85,7 @@ The system should surface when:
 
 - **First session**: no continuity module; emphasize setup and capture.
 - **No meaningful changes**: show a calm state rather than synthetic activity.
-- **Large change burst**: summarize at a higher level and allow drill-down.
+- **Large change burst**: summarize at a higher level with grouped change themes, then allow drill-down.
 - **Unavailable AI**: continuity should still work from deterministic signals.
 
 ## Contract implications

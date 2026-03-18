@@ -57,6 +57,7 @@ from .snapshot import (
     _build_follow_up_resources,
     _build_launch_surfaces,
     _build_planning_session_snapshot,
+    _build_resource_change_summary,
     _build_rollback_cues,
     _move_checkpoint_index,
     _next_checkpoint_index,
@@ -263,6 +264,7 @@ def execute_planning_session_checkpoint(
         ) from exc
 
     follow_up_resources = _build_follow_up_resources(results)
+    resource_change_summary = _build_resource_change_summary(results)
     execution_payload = {
         "session_id": session_id,
         "checkpoint_index": checkpoint_index,
@@ -271,6 +273,7 @@ def execute_planning_session_checkpoint(
         "success_criteria": checkpoint.success_criteria,
         "results": results,
         "summary": _build_execution_summary(results),
+        "resource_change_summary": resource_change_summary,
         "follow_up_resources": follow_up_resources,
         "launch_surfaces": _build_launch_surfaces(
             results=results,

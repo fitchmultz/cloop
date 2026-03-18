@@ -162,7 +162,12 @@ def test_planning_workflow_tools(
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
-    assert first_execution["snapshot"]["context_freshness"]["generated_at_utc"]
+    freshness = first_execution["snapshot"]["context_freshness"]
+    assert freshness["generated_at_utc"]
+    assert freshness["is_stale"] is True
+    assert freshness["stale_target_loop_count"] == 2
+    assert freshness["status_changed_count"] == 1
+    assert freshness["next_action_changed_count"] == 1
 
     second_execution = plan_session_execute(session_id=session_id)
     assert second_execution["snapshot"]["session"]["status"] == "completed"
@@ -178,11 +183,20 @@ def test_planning_workflow_tools(
         second_execution["execution"]["launch_surfaces"][0]["mcp"]["tool"]
         == "review.enrichment_session.get"
     )
+    resource_summary = second_execution["execution"]["resource_change_summary"]
+    assert resource_summary["downstream_change_count"] == 1
+    assert any(group["resource_type"] == "loop" for group in resource_summary["groups"])
+    assert any(
+        group["resource_type"] == "review_session"
+        for group in resource_summary["downstream_groups"]
+    )
 
     loaded = plan_session_get(session_id=session_id)
     assert loaded["session"]["status"] == "completed"
     assert loaded["execution_history"][-1]["launch_surfaces"]
     assert loaded["execution_history"][-1]["follow_up_resources"]
+    assert loaded["execution_history"][-1]["resource_change_summary"]["summary_label"]
+    assert loaded["resource_change_summary"]["summary_label"]
 
     refreshed = plan_session_refresh(session_id=session_id)
     assert refreshed["plan_title"] == "Refreshed weekly launch reset"

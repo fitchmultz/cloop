@@ -3,21 +3,20 @@
  *
  * Purpose:
  *   Own duplicate detection badges and the merge confirmation modal in
- *   TypeScript so review workspace flows no longer depend on legacy JS.
+ *   TypeScript so review workspace flows no longer depend on a second JS runtime.
  *
  * Responsibilities:
  *   - Fetch duplicate candidates for visible loop cards.
  *   - Open, render, confirm, and close the merge modal.
- *   - Notify the shell, review workspace, and residual legacy surfaces when a
- *     merge changes loop state.
+ *   - Notify the shell, review workspace, and capture/do surfaces when a merge
+ *     changes loop state.
  *
  * Scope:
  *   - Browser-only duplicate review helpers and merge-modal orchestration.
  *
  * Usage:
  *   - Imported by frontend/src/review-workspace.ts.
- *   - Re-exported from frontend/src/legacy/duplicates.js for untouched legacy
- *     duplicate-badge surfaces.
+ *   - Re-exported from frontend/src/surfaces/duplicates.ts for capture/do duplicate-badge surfaces.
  *
  * Invariants/Assumptions:
  *   - frontend/index.html preserves the merge-modal DOM ids.
@@ -59,7 +58,7 @@ interface MergeResultResponse {
   fields_updated: string[];
 }
 
-export const LEGACY_RUNTIME_REFRESH_EVENT = "cloop:legacy-runtime-refresh-requested";
+export const SURFACE_RUNTIME_REFRESH_EVENT = "cloop:surface-runtime-refresh-requested";
 const REVIEW_WORKSPACE_REFRESH_EVENT = "cloop:review-workspace-refresh-requested";
 const WORKSPACE_REFRESH_EVENT = "cloop:workspace-refresh-requested";
 
@@ -195,7 +194,7 @@ function requestRuntimeRefresh(): void {
   window.dispatchEvent(new CustomEvent(WORKSPACE_REFRESH_EVENT));
   window.dispatchEvent(new CustomEvent(REVIEW_WORKSPACE_REFRESH_EVENT));
   window.dispatchEvent(
-    new CustomEvent(LEGACY_RUNTIME_REFRESH_EVENT, {
+    new CustomEvent(SURFACE_RUNTIME_REFRESH_EVENT, {
       detail: {
         inbox: true,
         next: true,

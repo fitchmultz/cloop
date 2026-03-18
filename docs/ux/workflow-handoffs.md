@@ -53,6 +53,7 @@ Every handoff-capable workflow result should render:
 
 - planning checkpoint → saved review session
 - planning checkpoint → newly created loop in working set
+- continuity / command-palette handoff → dedicated working-set session surface
 - review decision → next item in queue
 - chat recommendation → edit/execute surface
 - enrichment clarification answer → refreshed suggestion queue
@@ -63,6 +64,7 @@ Every handoff-capable workflow result should render:
 - Secondary CTA should show details or keep the user in the current surface.
 - Breadcrumbs should preserve prior session identity and cursor where relevant.
 - Handoffs should prefer existing saved session IDs and resource references, not inferred client state.
+- When several deterministic handoff themes changed at once, the operator shell may surface a grouped rollup card before deeper workflow-specific cards.
 
 ## States and edge cases
 

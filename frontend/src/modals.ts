@@ -1,5 +1,5 @@
 /**
- * modals.ts - Typed modal runtime shared by the shell and residual legacy UI.
+ * modals.ts - Typed modal runtime shared by the shell and work-surface UI.
  *
  * Purpose:
  *   Provide one TypeScript-owned modal implementation for help, confirm, alert,
@@ -9,15 +9,14 @@
  *   - Initialize and manage the shared help modal and app-dialog overlay.
  *   - Render typed dialog fields and collect validated form values.
  *   - Preserve focus, dismissal behavior, and keyboard trapping.
- *   - Expose a stable modal API that both TypeScript and residual legacy
- *     surfaces can share during the remaining frontend cutover.
+ *   - Expose a stable modal API that shell, review, and work surfaces share.
  *
  * Scope:
  *   - Browser-only modal orchestration for frontend/index.html surfaces.
  *
  * Usage:
  *   - Imported by TypeScript UI modules directly.
- *   - Re-exported from frontend/src/legacy/modals.js for untouched legacy code.
+ *   - Re-exported from frontend/src/surfaces/modals.ts for shared surface code.
  *
  * Invariants/Assumptions:
  *   - frontend/index.html preserves the shared app-dialog and help-modal DOM ids.

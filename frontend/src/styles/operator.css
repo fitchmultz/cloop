@@ -212,6 +212,17 @@
   padding: var(--space-4) var(--space-5) var(--space-10);
 }
 
+#working-set-main {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.working-set-session-hero,
+.working-set-session-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
 .operator-grid {
   display: grid;
   gap: var(--space-4);

@@ -22,8 +22,7 @@
  * Invariants/Assumptions:
  *   - Saved sessions remain the canonical queue state for planning,
  *     relationship review, and enrichment review.
- *   - Legacy review/planning DOM remains present but hidden for compatibility.
- *   - Modal helpers from legacy modules are available after legacy init loads.
+ *   - The shared modal and merge runtimes are available from the TypeScript frontend.
  */
 
 import { requestJson } from "./http";
@@ -65,6 +64,11 @@ import type {
   RelationshipReviewSessionUpdateRequest,
 } from "./domain";
 import type { ReviewFocus, TrustSurfaceMetadata } from "./contracts-ui";
+import {
+  recordRecentShellAction,
+  rememberPlanningAnchor,
+  rememberReviewAnchor,
+} from "./continuity-intelligence";
 import { renderTrustSurface } from "./trust-surface";
 import * as modals from "./modals";
 import { openMergeModal, setupMergeHandlers } from "./duplicates";
@@ -337,6 +341,60 @@ function parseHashToFocus(hash: string): ReviewFocusDetail | null {
   return null;
 }
 
+function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): void {
+  if (sessionId == null) {
+    return;
+  }
+
+  if (focus === "planning") {
+    if (state.planningSessionId === sessionId) {
+      return;
+    }
+    rememberPlanningAnchor(sessionId);
+    recordRecentShellAction({
+      kind: "planning",
+      label: `Resumed plan #${sessionId}`,
+      description: "Switched planning sessions inside the review workspace.",
+      location: {
+        state: "plan",
+        recallTool: "chat",
+        reviewFocus: "planning",
+        sessionId,
+        loopId: null,
+        viewId: null,
+        memoryId: null,
+        query: null,
+      },
+    });
+    return;
+  }
+
+  if (focus !== "relationship" && focus !== "enrichment") {
+    return;
+  }
+
+  const previousSessionId = focus === "relationship" ? state.relationshipSessionId : state.enrichmentSessionId;
+  if (previousSessionId === sessionId) {
+    return;
+  }
+  rememberReviewAnchor(focus, sessionId);
+  recordRecentShellAction({
+    kind: "review",
+    label: `Opened ${focus} queue #${sessionId}`,
+    description: "Switched saved review sessions inside the review workspace.",
+    location: {
+      state: "decide",
+      recallTool: "chat",
+      reviewFocus: focus,
+      sessionId,
+      loopId: null,
+      viewId: null,
+      memoryId: null,
+      query: null,
+    },
+  });
+}
+
 function setStatus(message: string, isError = false): void {
   if (!elements) {
     return;
@@ -347,15 +405,6 @@ function setStatus(message: string, isError = false): void {
 
 function requestWorkspaceRefresh(): void {
   window.dispatchEvent(new CustomEvent(WORKSPACE_REFRESH_EVENT));
-}
-
-function hideLegacyReviewPanels(): void {
-  const legacy = document.getElementById("review-legacy-compat");
-  if (!legacy) {
-    return;
-  }
-  legacy.setAttribute("hidden", "true");
-  legacy.setAttribute("aria-hidden", "true");
 }
 
 async function fetchPlanningSessions(): Promise<PlanningSessionResponse[]> {
@@ -762,16 +811,10 @@ function describeRollbackCue(cues: PlanningExecutionRollbackCueResponse | null |
 
 function planningTrustMetadata(snapshot: PlanningSessionSnapshotResponse | null): TrustSurfaceMetadata {
   const currentCheckpoint = snapshot?.current_checkpoint ?? null;
-  const freshness = snapshot?.context_freshness && typeof snapshot.context_freshness === "object"
-    ? snapshot.context_freshness
-    : {};
-  const staleTargetLoopCount = typeof freshness["stale_target_loop_count"] === "number"
-    ? freshness["stale_target_loop_count"]
-    : 0;
-  const missingTargetLoopCount = typeof freshness["missing_target_loop_count"] === "number"
-    ? freshness["missing_target_loop_count"]
-    : 0;
-  const isStale = Boolean(freshness["is_stale"]);
+  const freshness = snapshot?.context_freshness;
+  const staleTargetLoopCount = freshness?.stale_target_loop_count ?? 0;
+  const missingTargetLoopCount = freshness?.missing_target_loop_count ?? 0;
+  const isStale = freshness?.is_stale ?? false;
   const sourceCount = Array.isArray(snapshot?.sources) ? snapshot.sources.length : 0;
   const assumptions = snapshot?.assumptions ?? [];
   const operationCount = currentCheckpoint?.operations?.length ?? 0;
@@ -2781,11 +2824,15 @@ async function handleControlChange(event: Event): Promise<void> {
   }
 
   if (target.id === "review-shell-planning-session-select") {
-    window.location.hash = toReviewHash("planning", parseOptionalInteger(target.value));
+    const sessionId = parseOptionalInteger(target.value);
+    noteActiveReviewSession("planning", sessionId);
+    window.location.hash = toReviewHash("planning", sessionId);
     return;
   }
   if (target.id === "review-shell-relationship-session-select") {
-    window.location.hash = toReviewHash("relationship", parseOptionalInteger(target.value));
+    const sessionId = parseOptionalInteger(target.value);
+    noteActiveReviewSession("relationship", sessionId);
+    window.location.hash = toReviewHash("relationship", sessionId);
     return;
   }
   if (target.id === "review-shell-relationship-action-select") {
@@ -2794,7 +2841,9 @@ async function handleControlChange(event: Event): Promise<void> {
     return;
   }
   if (target.id === "review-shell-enrichment-session-select") {
-    window.location.hash = toReviewHash("enrichment", parseOptionalInteger(target.value));
+    const sessionId = parseOptionalInteger(target.value);
+    noteActiveReviewSession("enrichment", sessionId);
+    window.location.hash = toReviewHash("enrichment", sessionId);
     return;
   }
   if (target.id === "review-shell-enrichment-action-select") {
@@ -3007,7 +3056,6 @@ function handleReviewWorkspaceRefresh(): void {
 function initialize(): void {
   elements = buildElements();
   setupMergeHandlers();
-  hideLegacyReviewPanels();
   renderHeader();
   elements.shell.addEventListener("click", (event) => {
     void handleControlClick(event);

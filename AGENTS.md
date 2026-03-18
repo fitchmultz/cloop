@@ -40,6 +40,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Design/Architecture | `docs/architecture.md` |
 | Frontend source workspace | `frontend/` |
 | Frontend operator shell + state navigation | `frontend/src/shell.ts`, `frontend/index.html`, `frontend/src/styles/operator.css` |
+| Frontend browser-global PWA runtime | `frontend/src/pwa.ts`, `frontend/public/sw.js` |
 | Built frontend assets served by FastAPI | `src/cloop/static/dist/`, `src/cloop/web.py` |
 | Product roadmap | `docs/roadmap.md` |
 | Repo templates/workflows | `.github/ISSUE_TEMPLATE/*`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/*` |
@@ -54,6 +55,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - Use `make check-fast` for rapid local iteration before running full `make ci`
 - Runtime/toolchain policy is now Python 3.14+ only; align local env, docs, and workflow references to 3.14 when touching versioned setup
 - CI and release workflows use locked `uv` installs with a pinned `uv` CLI version; keep lockfile drift explicit instead of letting runners resolve live
+- Frontend work surfaces are now fully owned by strict TypeScript under `frontend/src/surfaces/*.ts`; do not reintroduce raw JavaScript modules or temporary `allowJs` support
 - When Cloop needs explicit pi selector defaults, keep `src/cloop/settings.py`, `.env.example`, local `.env` guidance, and public docs aligned on the current project preference (`zai/glm-5`, then `kimi-coding/k2p5`, then `openai-codex/gpt-5.4` as documented alternatives); still allow any pi-supported selector override
 
 ## Non-Obvious Patterns
@@ -74,14 +76,15 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **CI test contract**: `make ci` runs quality + tests excluding `performance` + packaging; use `make test-all` for exhaustive marker-inclusive runs.
 - **Safe first-run defaults**: `CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false`; enable explicitly when validating automation paths.
 - **Autopilot + embeddings config**: if `CLOOP_AUTOPILOT_ENABLED=true` and `CLOOP_EMBED_MODEL` points to an unconfigured provider (e.g., `ollama/...` without `CLOOP_OLLAMA_API_BASE`), enrichment now logs a single skip warning (no traceback) and still completes organizer suggestions.
-- **Frontend source of truth**: Vite + strict TypeScript tooling now lives under `frontend/`; built assets in `src/cloop/static/dist/` are the served runtime, while legacy shell modules under `frontend/src/legacy/` are temporary compatibility code and should not receive new operator-shell architecture work.
-- **Frontend shell routing**: the operator-first state navigation and workspace aggregator now live in `frontend/src/shell.ts`, using hash-based deep links (`#operator`, `#do/loop/:id`, `#plan/session/:id`, `#decide/{relationship|enrichment}/:id`, `#recall/{chat|memory|rag}`) while bridge-clicking the hidden legacy tabs for current data loading.
+- **Frontend source of truth**: Vite + strict TypeScript tooling lives under `frontend/`, and `src/cloop/static/dist/` is the only packaged/served frontend runtime.
+- **Frontend shell routing**: the operator-first state navigation and workspace aggregator live in `frontend/src/shell.ts`, using hash-based deep links (`#operator`, `#do/loop/:id`, `#plan/session/:id`, `#decide/{relationship|enrichment}/:id`, `#recall/{chat|memory|rag}`) with typed surface activation instead of hidden-tab bridging.
+- **Capture / do / recall source of truth**: the non-review work surfaces now bootstrap from `frontend/src/surfaces/bootstrap.ts`, while the shell-facing launch contracts live in `frontend/src/surface-runtime.ts`; keep new work there instead of reintroducing secondary entrypoints.
 - **Operator action-card source of truth**: typed shell-only card contracts live in `frontend/src/contracts-ui.ts`, rendering helpers live in `frontend/src/operator-action-cards.ts`, and the operator workspace should express planning/review/recall handoffs through that shared card model instead of ad-hoc summary markup.
-- **Review workspace source of truth**: the redesigned decision workspace for planning, relationship review, enrichment review, and hygiene cohorts lives in `frontend/src/review-workspace.ts`; keep new review UX there and treat `frontend/src/legacy/review.js` / `planning.js` as compatibility-only.
-- **Shared TS frontend runtime helpers**: modal/dialog behavior, merge-modal runtime, loop selection state, and bulk-bar DOM sync now live in `frontend/src/modals.ts`, `frontend/src/duplicates.ts`, `frontend/src/selection-state.ts`, and `frontend/src/bulk-actions.ts`; TypeScript surfaces should import those modules directly, while residual legacy modules should only consume them through the thin `frontend/src/legacy/*.js` re-export shims.
+- **Review workspace source of truth**: the redesigned decision workspace for planning, relationship review, enrichment review, and hygiene cohorts lives in `frontend/src/review-workspace.ts`; keep all review UX there.
+- **Shared frontend runtime helpers**: modal/dialog behavior, merge-modal runtime, loop selection state, and bulk-bar DOM sync now live in `frontend/src/modals.ts`, `frontend/src/duplicates.ts`, `frontend/src/selection-state.ts`, and `frontend/src/bulk-actions.ts`; all surfaces should import those modules directly.
 - **Working-set source of truth**: durable working-set and focus-mode backend orchestration live in `src/cloop/loops/working_sets.py` with HTTP routes in `src/cloop/routes/loops/working_sets.py`, while the operator-shell rendering/integration lives in `frontend/src/shell.ts`; keep working-set UX there instead of reviving localStorage-only pinning.
+- **Working-set session route**: the first-class resume target is the shell-owned `#working-set/:id` session surface; continuity cards, command-palette launches, and working-set cards should reopen that session instead of guessing a single anchor item.
 - **Command-palette source of truth**: the keyboard-first command model, ranking, and quick-action execution live in `frontend/src/command-palette.ts` and `frontend/src/command-palette-ranking.ts`; extend those modules instead of scattering ad-hoc hotkeys or one-off shell action launchers.
-- **Residual legacy bootstrap boundary**: `frontend/src/main.ts` is now the TS-owned shell/review entrypoint, while `frontend/src/legacy-entry.js` isolates the untouched legacy capture/do/recall bootstrap; do not reintroduce `frontend/src/legacy/*` imports into TS modules.
 - **Local data reset**: `make reset-local-data` is the canonical way to wipe and recreate the default repo-local `data/` directory when a developer wants a clean SQLite state.
 - **Frontend cache behavior**: FastAPI now serves the built Vite shell from `src/cloop/static/dist/`; hashed `/static/assets/*` files should be immutable, while root HTML, service worker, and mutable static files stay `no-cache`. Browser UI verification should still prefer a fresh tab/profile if a session appears to hold stale ES module state.
 - **Comments UX**: comment threads are lazy-loaded on expand; collapsed loop cards should show a neutral `Comments` label until opened, not a loading placeholder.
