@@ -1261,7 +1261,7 @@ function renderControls(): void {
     const executedCurrent = session && snapshot?.execution_history?.some((item) => item.checkpoint_index === session.current_checkpoint_index);
 
     elements.controls.innerHTML = `
-      <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
+      <div class="review-shell-toolbar-group review-shell-toolbar-group--grow review-shell-toolbar-group--fields">
         <label class="review-shell-field" for="review-shell-planning-session-select">
           <span>Session</span>
           <select id="review-shell-planning-session-select">
@@ -1272,7 +1272,7 @@ function renderControls(): void {
           </select>
         </label>
       </div>
-      <div class="review-shell-toolbar-group">
+      <div class="review-shell-toolbar-group review-shell-toolbar-group--actions">
         <button type="button" class="secondary" data-review-action="planning-create">New plan</button>
         <button type="button" class="secondary" data-review-action="planning-delete" ${session ? "" : "disabled"}>Delete</button>
         <button type="button" class="secondary" data-review-action="planning-refresh" ${session ? "" : "disabled"}>Refresh</button>
@@ -1306,7 +1306,7 @@ function renderControls(): void {
       : "";
 
     elements.controls.innerHTML = `
-      <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
+      <div class="review-shell-toolbar-group review-shell-toolbar-group--grow review-shell-toolbar-group--fields">
         <label class="review-shell-field" for="review-shell-relationship-session-select">
           <span>Session</span>
           <select id="review-shell-relationship-session-select">
@@ -1326,7 +1326,7 @@ function renderControls(): void {
           </select>
         </label>
       </div>
-      <div class="review-shell-toolbar-group">
+      <div class="review-shell-toolbar-group review-shell-toolbar-group--actions">
         <button type="button" class="secondary" data-review-action="relationship-session-create">New session</button>
         <button type="button" class="secondary" data-review-action="relationship-session-edit" ${state.relationshipSnapshot?.session ? "" : "disabled"}>Edit session</button>
         <button type="button" class="secondary" data-review-action="relationship-session-delete" ${state.relationshipSnapshot?.session ? "" : "disabled"}>Delete session</button>
@@ -1361,7 +1361,7 @@ function renderControls(): void {
       : "";
 
     elements.controls.innerHTML = `
-      <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
+      <div class="review-shell-toolbar-group review-shell-toolbar-group--grow review-shell-toolbar-group--fields">
         <label class="review-shell-field" for="review-shell-enrichment-session-select">
           <span>Session</span>
           <select id="review-shell-enrichment-session-select">
@@ -1381,7 +1381,7 @@ function renderControls(): void {
           </select>
         </label>
       </div>
-      <div class="review-shell-toolbar-group">
+      <div class="review-shell-toolbar-group review-shell-toolbar-group--actions">
         <button type="button" class="secondary" data-review-action="enrichment-session-create">New session</button>
         <button type="button" class="secondary" data-review-action="enrichment-session-edit" ${state.enrichmentSnapshot?.session ? "" : "disabled"}>Edit session</button>
         <button type="button" class="secondary" data-review-action="enrichment-session-delete" ${state.enrichmentSnapshot?.session ? "" : "disabled"}>Delete session</button>
@@ -1410,13 +1410,13 @@ function renderControls(): void {
     driftedCount ? "Some cohort members changed after the review snapshot. Refresh to repopulate the hygiene queue with current data." : null,
   );
   elements.controls.innerHTML = `
-    <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
+    <div class="review-shell-toolbar-group review-shell-toolbar-group--grow review-shell-toolbar-group--fields">
       <div class="review-shell-segmented" role="group" aria-label="Review cadence">
         <button type="button" class="${state.reviewMode === "daily" ? "active" : ""}" data-review-action="cohort-mode-daily">Daily</button>
         <button type="button" class="${state.reviewMode === "weekly" ? "active" : ""}" data-review-action="cohort-mode-weekly">Weekly</button>
       </div>
     </div>
-    <div class="review-shell-toolbar-group">
+    <div class="review-shell-toolbar-group review-shell-toolbar-group--actions">
       <button type="button" class="secondary" data-review-action="cohort-refresh">Refresh cohorts</button>
       <button type="button" data-review-action="cohort-open-top" ${activeCohorts.length ? "" : "disabled"}>Open top item</button>
     </div>
@@ -1806,7 +1806,7 @@ function renderRelationshipCandidateActions(loopId: number, candidate: Relations
     && (selectedAction.relationship_type === "suggested" || selectedAction.relationship_type === candidate.relationship_type);
 
   return `
-    <div class="review-shell-inline-actions">
+    <div class="review-shell-inline-actions review-shell-inline-actions--decision">
       ${selectedAction
         ? `<button type="button" class="secondary" data-review-action="relationship-use-preset" data-loop-id="${loopId}" data-candidate-id="${candidate.id}" data-candidate-type="${escapeHtml(candidate.relationship_type)}" ${canUseSelectedPreset ? "" : "disabled"}>Use “${escapeHtml(selectedAction.name)}”</button>`
         : ""}
@@ -1886,7 +1886,7 @@ function renderClarificationForm(item: EnrichmentReviewQueueItemResponse): strin
         <p class="support-eyebrow">Decision required</p>
         <p class="review-shell-decision-copy">Answer at least one clarification, then rerun enrichment so the queue reflects the new context.</p>
       </section>
-      <div class="review-shell-inline-actions">
+      <div class="review-shell-inline-actions review-shell-inline-actions--stack-mobile">
         <button type="submit">Answer clarifications & rerun</button>
       </div>
     </form>
@@ -2000,7 +2000,7 @@ function renderWorkspace(): void {
                   <p class="support-eyebrow">Decision required</p>
                   <p class="review-shell-decision-copy">${escapeHtml(relationshipDecisionLabel(item))}</p>
                   ${relationshipConsequenceWarning(item) ? `<p class="review-shell-warning-copy">${escapeHtml(relationshipConsequenceWarning(item) ?? "")}</p>` : ""}
-                  <div class="review-shell-inline-actions">
+                  <div class="review-shell-inline-actions review-shell-inline-actions--nav">
                     <button type="button" class="secondary" data-review-action="relationship-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
                     <button type="button" class="secondary" data-review-action="relationship-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
                     <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
@@ -2058,7 +2058,7 @@ function renderWorkspace(): void {
                   <p class="support-eyebrow">Decision required</p>
                   <p class="review-shell-decision-copy">${escapeHtml(enrichmentDecisionLabel(item))}</p>
                   ${enrichmentApplyWarning(item) ? `<p class="review-shell-warning-copy">${escapeHtml(enrichmentApplyWarning(item) ?? "")}</p>` : ""}
-                  <div class="review-shell-inline-actions">
+                  <div class="review-shell-inline-actions review-shell-inline-actions--nav">
                     <button type="button" class="secondary" data-review-action="enrichment-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
                     <button type="button" class="secondary" data-review-action="enrichment-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
                     <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>

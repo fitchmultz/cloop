@@ -26,25 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Responsive review-shell polish and richer action-card follow-through
+### Phase 1 — Richer action-card follow-through and post-action continuity
 
-Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, and new recall-result cards into a crisp decide-and-execute loop that stays trustworthy on dense layouts and carries AI recommendations further than navigation alone.
+Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, and new recall-result cards into a crisp decide-and-execute loop that carries AI recommendations further than navigation alone while keeping mutation follow-through trustworthy and reversible.
 
-1. **Responsive review-shell density + small-screen ergonomics**
-   - Resolve the remaining queue-rail versus side-by-side-detail balance on smaller screens without losing why-this-is-here, decision-required, or impact visibility.
-   - Keep relationship, enrichment, and hygiene review calm and fast on laptop splits, narrow windows, and mobile widths.
-2. **Action-card follow-through beyond navigation**
+1. **Action-card follow-through beyond navigation**
    - Extend the shared action-card model from launch/pin handoffs into richer stage/edit/defer flows where grounded AI outputs should carry directly into the next deterministic mutation or saved draft.
    - Keep trust, preview, rollback, and consequence framing consistent as cards become more executable.
+2. **Post-action receipts + rollback continuity**
+   - Surface clearer execution receipts, undo cues, and resume breadcrumbs after a card-triggered mutation so users do not lose the thread once a staged action lands.
+   - Reuse the same handoff and trust primitives instead of inventing mutation-specific success chrome.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Responsive review-shell density session**
-   - finish smaller-screen review ergonomics so queue health, decisions, and impact previews remain clear without wasting space or hiding context
-2. **Action-card follow-through session**
+1. **Action-card follow-through session**
    - push shared cards past open/pin navigation into richer stage/edit/defer handoffs where the workflow is deterministic enough to support it
+2. **Post-action continuity session**
+   - tighten receipts, rollback cues, and resume breadcrumbs after deterministic card-triggered work lands
 
 ## Delivery Model
 

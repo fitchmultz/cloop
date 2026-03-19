@@ -166,6 +166,11 @@ def test_review_shell_styles_exist_for_redesigned_decision_workspace() -> None:
     assert ".review-shell-focus-card" in css
     assert ".review-shell-impact-card" in css
     assert ".review-shell-chip" in css
+    assert ".review-shell-toolbar-group--fields" in css
+    assert ".review-shell-toolbar-group--actions" in css
+    assert ".review-shell-inline-actions--decision" in css
+    assert ".review-shell-inline-actions--nav" in css
+    assert ".review-shell-inline-actions--stack-mobile" in css
 
 
 def test_static_web_ui_does_not_use_native_browser_dialogs() -> None:

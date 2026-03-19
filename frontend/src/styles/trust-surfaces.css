@@ -26,6 +26,7 @@
 .trust-surface {
   display: grid;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .trust-surface--panel {
@@ -53,6 +54,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
+  min-width: 0;
 }
 
 .trust-surface-signal {
@@ -69,6 +71,7 @@
 .trust-surface-impact-copy {
   color: var(--color-text);
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .trust-surface-section {
@@ -87,6 +90,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .trust-surface-section--list {

@@ -1372,8 +1372,53 @@
   flex-wrap: wrap;
 }
 
+.review-shell-section-header,
+.review-shell-rail-header,
+.review-shell-impact-card-header,
+.review-shell-focus-card-header,
+.review-shell-candidate-header,
+.review-shell-loop-summary-header,
+.review-shell-rail-card-header,
+.review-shell-pane-header {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.review-shell-panel,
+.review-shell-layout,
+.review-shell-pane,
+.review-shell-toolbar,
+.review-shell-toolbar-group,
+.review-shell-overview-card,
+.review-shell-rail-card,
+.review-shell-focus-card,
+.review-shell-impact-card,
+.review-shell-loop-summary,
+.review-shell-candidate-card,
+.review-shell-suggestion-card,
+.review-shell-operation-card,
+.review-shell-clarification-card,
+.review-shell-field,
+.review-shell-field-item,
+.review-shell-mode-tabs,
+.review-shell-inline-chip-row,
+.review-shell-inline-actions,
+.review-shell-toolbar-meta,
+.review-shell-segmented {
+  min-width: 0;
+}
+
+.review-shell-panel {
+  overflow: hidden;
+}
+
 .review-shell-mode-tabs {
   justify-content: flex-end;
+}
+
+.review-shell-mode-tabs button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .review-shell-mode-tabs button.active,
@@ -1386,6 +1431,18 @@
 .review-shell-toolbar {
   justify-content: space-between;
   align-items: end;
+}
+
+.review-shell-toolbar-group--fields {
+  align-items: end;
+}
+
+.review-shell-toolbar-group--actions {
+  justify-content: flex-end;
+}
+
+.review-shell-toolbar-group--actions button {
+  flex: 0 0 auto;
 }
 
 .review-shell-toolbar-meta {
@@ -1418,6 +1475,14 @@
   flex: 1 1 16rem;
 }
 
+.review-shell-field select,
+.review-shell-field input,
+.review-shell-clarification-card input {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .review-shell-field span,
 .review-shell-overview-label,
 .review-shell-pane-header h3,
@@ -1441,6 +1506,27 @@
 .review-shell-field-item dt {
   font-size: var(--text-sm);
   font-weight: var(--font-semibold);
+}
+
+.review-shell-inline-chip-row {
+  align-items: flex-start;
+}
+
+.review-shell-chip {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.review-shell-rail-card p,
+.review-shell-focus-card p,
+.review-shell-impact-card p,
+.review-shell-candidate-card p,
+.review-shell-suggestion-card p,
+.review-shell-loop-summary p,
+.review-shell-operation-card p,
+.review-shell-empty,
+.review-shell-empty-inline {
+  overflow-wrap: anywhere;
 }
 
 .review-shell-overview,
@@ -1501,6 +1587,12 @@
 .review-shell-impact .operator-action-card,
 .review-shell-suggestion-grid .operator-action-card {
   box-shadow: var(--shadow-lg);
+  min-width: 0;
+}
+
+.review-shell-impact .operator-action-card *,
+.review-shell-suggestion-grid .operator-action-card * {
+  min-width: 0;
 }
 
 .review-shell-impact .operator-action-warning,
@@ -1522,6 +1614,18 @@
 .review-shell-rail-card--current,
 .review-shell-rail-card--executed {
   border-color: color-mix(in srgb, var(--color-brand) 40%, var(--color-border));
+}
+
+.review-shell-rail-card > p {
+  line-height: 1.45;
+}
+
+.review-shell-rail-card .trust-surface--compact {
+  gap: var(--space-2);
+}
+
+.review-shell-rail-card .trust-surface-signal {
+  min-width: 0;
 }
 
 .review-shell-layout {
@@ -1567,6 +1671,15 @@
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: rgba(255, 255, 255, 0.64);
+}
+
+.review-shell-inline-actions {
+  align-items: stretch;
+}
+
+.review-shell-inline-actions--decision button,
+.review-shell-inline-actions--stack-mobile button {
+  min-height: 2.5rem;
 }
 
 .review-shell-warning-copy {
@@ -1661,15 +1774,58 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .review-shell-panel {
+    gap: var(--space-3);
+  }
+
+  .review-shell-header,
+  .review-shell-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
   .review-shell-layout {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "queue"
       "workspace"
       "impact";
+    gap: var(--space-3);
   }
 
-  .review-shell-overview-grid,
+  .review-shell-toolbar-group--actions {
+    justify-content: flex-start;
+  }
+
+  .review-shell-overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #review-shell-queue .review-shell-rail-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .review-shell-rail-card,
+  .review-shell-focus-card,
+  .review-shell-impact-card,
+  .review-shell-loop-summary,
+  .review-shell-candidate-card,
+  .review-shell-suggestion-card,
+  .review-shell-operation-card,
+  .review-shell-clarification-card,
+  .review-shell-field-item {
+    padding: var(--space-3);
+  }
+
+  #review-shell-queue .review-shell-rail-card > p {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+
   .review-shell-comparison-grid,
   .review-shell-candidate-grid,
   .review-shell-suggestion-grid,
@@ -1683,6 +1839,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .review-shell-panel {
+    gap: var(--space-3);
+  }
+
   .review-shell-header,
   .review-shell-toolbar {
     display: grid;
@@ -1691,7 +1851,165 @@
   }
 
   .review-shell-mode-tabs {
-    justify-content: start;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0 var(--space-1) var(--space-1);
+    margin: 0 calc(var(--space-1) * -1);
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  .review-shell-mode-tabs::after {
+    content: "";
+    flex: 0 0 var(--space-1);
+  }
+
+  .review-shell-mode-tabs::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .review-shell-mode-tabs::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: var(--radius-full);
+  }
+
+  .review-shell-mode-tabs button {
+    scroll-snap-align: start;
+  }
+
+  .review-shell-toolbar-group,
+  .review-shell-toolbar-group--grow,
+  .review-shell-field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .review-shell-toolbar-group--actions {
+    justify-content: flex-start;
+  }
+
+  .review-shell-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #review-shell-queue .review-shell-rail-list {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(16rem, 82vw);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: var(--space-1);
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  #review-shell-queue .review-shell-rail-list::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  #review-shell-queue .review-shell-rail-list::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: var(--radius-full);
+  }
+
+  #review-shell-queue .review-shell-rail-card {
+    min-height: 100%;
+    scroll-snap-align: start;
+  }
+
+  #review-shell-queue .review-shell-rail-card > p {
+    -webkit-line-clamp: 2;
+  }
+}
+
+@media (max-width: 640px) {
+  .review-shell-layout,
+  .review-shell-pane,
+  .review-shell-overview,
+  .review-shell-queue,
+  .review-shell-workspace,
+  .review-shell-impact,
+  .review-shell-rail-list,
+  .review-shell-loop-grid,
+  .review-shell-candidate-grid,
+  .review-shell-suggestion-grid,
+  .review-shell-operation-list,
+  .review-shell-clarification-list {
+    gap: var(--space-2);
+  }
+
+  .review-shell-overview-card,
+  .review-shell-rail-card,
+  .review-shell-focus-card,
+  .review-shell-impact-card,
+  .review-shell-loop-summary,
+  .review-shell-candidate-card,
+  .review-shell-suggestion-card,
+  .review-shell-operation-card,
+  .review-shell-clarification-card,
+  .review-shell-field-item,
+  .review-shell-decision-block,
+  .review-shell-empty,
+  .review-shell-empty-inline {
+    padding: var(--space-2);
+    border-radius: var(--radius-md);
+  }
+
+  .review-shell-pane-header,
+  .review-shell-section-header,
+  .review-shell-rail-header,
+  .review-shell-focus-card-header,
+  .review-shell-candidate-header,
+  .review-shell-loop-summary-header {
+    gap: var(--space-1);
+  }
+
+  .review-shell-inline-chip-row {
+    gap: var(--space-1);
+  }
+
+  .review-shell-chip {
+    padding: 0.1875rem var(--space-2);
+  }
+
+  .review-shell-mode-tabs button {
+    padding: var(--space-1) var(--space-3);
+  }
+
+  #review-shell-queue .review-shell-rail-list {
+    grid-auto-columns: minmax(14.5rem, 88vw);
+  }
+
+  .review-shell-inline-actions--decision,
+  .review-shell-inline-actions--stack-mobile {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .review-shell-inline-actions--decision button,
+  .review-shell-inline-actions--stack-mobile button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .review-shell-inline-actions--nav {
+    gap: var(--space-1);
+  }
+
+  .review-shell-inline-actions--nav button {
+    flex: 1 1 calc(50% - var(--space-1));
+    min-width: 7.5rem;
+  }
+
+  .review-shell-inline-actions--nav button:last-child {
+    flex-basis: 100%;
   }
 }
 
