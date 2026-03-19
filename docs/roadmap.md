@@ -26,17 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Continuity signal refinement and workflow handoff polish
+### Phase 1 — Structured action surfaces and decision-focused review
 
-Goal: turn the first continuity slice into a sharper operator decision surface once the deterministic baseline is stable.
+Goal: turn the shipped operator shell, trust surfaces, and continuity foundations into a crisp decide-and-execute loop where AI-backed recommendations become explicit, trustworthy action surfaces.
 
-1. **Planning / review / working-set handoff tightening**
-   - Deepen explicit launch surfaces between review queues, planning sessions, working-set sessions, and recall tools.
-   - Prefer typed shared contracts over client-side re-derivation for any new handoff UI.
+1. **Shared AI action-card adoption across planning, review, and recall**
+   - Promote planning follow-up resources and launch surfaces into one canonical action-card model reused by planning, review, and grounded recall flows.
+   - Keep previews, rationale, trust metadata, handoff cues, and rollback language structured instead of prose-only.
+2. **Review workspace decision-shell completion**
+   - Finish the shared review shell so relationship, enrichment, and hygiene review all show why an item is here, what decision is required, and what happens next.
+   - Keep queue health, progress, and downstream consequences visible without forcing users back through the operator shell.
 
 ## Immediate Next Sessions
 
-The current continuity/handoff product slice is complete. Add the next product session here only after a new end-to-end workflow slice is chosen; keep QA signoff and hygiene follow-ups in the verification docs or task tracker rather than re-expanding the roadmap.
+If work is being planned session-by-session, the best near-term sequence is:
+
+1. **Shared AI action-card adoption session**
+   - align planning, review, and recall on one executable card contract and renderer before expanding more workflow-specific UI
+2. **Review workspace decision-shell completion session**
+   - finish the shared decision workspace with specialized panes, queue health, impact previews, and downstream action cards
 
 ## Delivery Model
 

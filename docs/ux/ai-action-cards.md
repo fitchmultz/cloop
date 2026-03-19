@@ -105,6 +105,11 @@ Every action card should have:
 - Cards visibly distinguish reversible from non-reversible actions.
 - Narrative text remains secondary support, not the only operational surface.
 
+## Current implementation baseline
+
+- Planning follow-up resources, launch surfaces, operator action cards, and shared trust/handoff rendering now provide the starting structured card model.
+- The next roadmap slice should extend that shared model into review and recall flows rather than introducing per-surface card variants first.
+
 ## Dependencies
 
 - [`docs/ux/principles.md`](principles.md)

@@ -50,6 +50,8 @@ Every review surface should make these elements visible:
 - **Impact panel**: result preview, rationale, related context, rollback cues
 - **Session header**: session purpose, filters, progress, health, and last refresh status
 
+Direction decision: relationship and enrichment review should share one visual shell with specialized decision panes and shared action-card/trust primitives, so queue handling, progress, and impact rendering stay consistent across review types.
+
 ## Key workflows
 
 ### Relationship review
@@ -102,5 +104,4 @@ Every review surface should make these elements visible:
 
 ## Open questions
 
-- Should relationship and enrichment review share one visual shell with specialized decision panes, or two distinct shells with common primitives?
 - What is the right balance between queue rail density and side-by-side detail on smaller screens?
