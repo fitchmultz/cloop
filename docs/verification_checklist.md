@@ -113,6 +113,13 @@ Review-tab smoke checklist:
 - If a checkpoint creates a saved review session, confirm the adjacent relationship/enrichment workspace can pick it up without reloading the app.
 - Confirm the Review support sidebar still explains the plan → execute → review → refresh flow.
 
+Full visual migration signoff sweep:
+- Use a fresh browser tab or profile so stale HTML, ES modules, or service-worker state does not mask regressions.
+- Walk the current shell experience end-to-end across operator, capture, do, review, recall, and `#working-set/:id` session surfaces.
+- From any planning/review/operator handoff that carries `handoff.workingSet`, confirm every destination surface renders the same working-set badge, breadcrumb, and next-surface cue instead of dropping or re-deriving that context.
+- Confirm command-palette and resume affordances prefer the active bounded working set over generic session resumes when a working-set context is live.
+- Reload the shell, revisit deep links, and verify offline/PWA entry points still reopen the right surface without losing visible workflow context.
+
 MCP:
 
 ```bash
