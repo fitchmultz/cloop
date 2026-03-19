@@ -48,6 +48,7 @@ function rankingContext(overrides: Partial<PaletteRankingContext> = {}): Palette
     query: overrides.query ?? "",
     currentLocation: overrides.currentLocation ?? location({ state: "do", loopId: 18 }),
     focusLocations: overrides.focusLocations ?? [location({ state: "plan", reviewFocus: "planning", sessionId: 9 })],
+    activeWorkingSetId: overrides.activeWorkingSetId ?? null,
     recentUsage: overrides.recentUsage ?? {},
     selectedLoopIds: overrides.selectedLoopIds ?? [],
     now: overrides.now ?? Date.parse("2026-03-17T12:00:00Z"),
@@ -163,5 +164,40 @@ describe("rankPaletteItems", () => {
     );
 
     expect(ranked[0]?.item.id).toBe("recent");
+  });
+
+  it("prefers working-set-scoped resumes over generic session resumes when a bounded context is active", () => {
+    const items: PaletteRankItem[] = [
+      {
+        id: "generic-plan",
+        group: "recent",
+        title: "Resume plan · Launch prep",
+        subtitle: "Recent generic reopen",
+        keywords: ["plan", "planning", "launch"],
+        location: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+      },
+      {
+        id: "scoped-plan",
+        group: "review",
+        title: "Resume plan · Launch prep",
+        subtitle: "2/4 checkpoints executed · Review Prep",
+        keywords: ["plan", "planning", "launch", "Review Prep"],
+        contextBoost: 86,
+        location: location({ state: "plan", reviewFocus: "planning", sessionId: 12, workingSetId: 7 }),
+      },
+    ];
+
+    const ranked = rankPaletteItems(
+      items,
+      rankingContext({
+        activeWorkingSetId: 7,
+        query: "resume plan",
+        recentUsage: {
+          "generic-plan": { count: 2, usedAt: "2026-03-17T11:30:00Z" },
+        },
+      }),
+    );
+
+    expect(ranked.map((entry) => entry.item.id)).toEqual(["scoped-plan", "generic-plan"]);
   });
 });

@@ -22,7 +22,7 @@
  *   - Working-set propagation stays frontend-only in this slice.
  */
 
-import { rememberPlanningAnchor, rememberReviewAnchor } from "./continuity-intelligence";
+import { recordRecentShellAction, rememberPlanningAnchor, rememberReviewAnchor } from "./continuity-intelligence";
 import type {
   PlanningExecutionHistoryItemResponse,
   PlanningSessionSnapshotResponse,
@@ -428,6 +428,37 @@ describe("shell-operator-cards", () => {
       'button[data-open-state="decide"][data-open-review-focus="enrichment"][data-open-session-id="27"]',
     );
     expect(button?.getAttribute("data-open-working-set-id")).toBe("2");
+  });
+
+  it("prefers working-set-scoped resume actions over generic session resumes", () => {
+    const activeSet = makeWorkingSet(2, "Review Prep");
+    rememberPlanningAnchor(41, 2);
+    recordRecentShellAction({
+      kind: "navigation",
+      label: "Recent generic plan",
+      description: "Open the same planning session without the working-set scope.",
+      location: createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: 41,
+      }),
+    });
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+      workingSets: [activeSet],
+      workingSetContext: makeWorkingSetContext(activeSet, false),
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    const card = findCard(elements.operatorSinceLast, "Pick up where you left off");
+    expect(card).not.toBeNull();
+    const buttons = Array.from(card?.querySelectorAll<HTMLButtonElement>(".operator-card-actions button") ?? []);
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
+      "Open active working set",
+      "Resume plan",
+    ]);
+    expect(buttons[1]?.getAttribute("data-open-working-set-id")).toBe("2");
   });
 
   it("keeps matching handoff cards visible in focus mode when saved items omit working-set ids", () => {

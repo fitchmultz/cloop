@@ -49,6 +49,7 @@ The app should remember and surface:
 - last active planning session
 - last active review session
 - recent command/action history
+- working-set-scoped resumes ahead of generic session resumes when a bounded context is already active
 
 ### Drift signals
 

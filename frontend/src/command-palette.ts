@@ -58,7 +58,7 @@ import type {
   TrustSurfaceMetadata,
   TrustTone,
 } from "./contracts-ui";
-import { recordRecentShellAction } from "./continuity-intelligence";
+import { readResumeAnchors, recordRecentShellAction } from "./continuity-intelligence";
 import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
@@ -823,6 +823,7 @@ function rankingContext(
     query,
     currentLocation: context.currentLocation,
     focusLocations,
+    activeWorkingSetId: context.workingSetContext?.active_working_set_id ?? null,
     recentUsage: usageIndex(recentCommands),
     selectedLoopIds: selectedLoopIdList(),
     now: Date.now(),
@@ -1256,7 +1257,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         keywords: ["working set", "resume", "session", activeSet.name],
         badge: "Set",
         location,
-        contextBoost: 20,
+        contextBoost: 88,
         detail: {
           eyebrow: "Navigate",
           description: "Restore the full working-set context as a dedicated shell session, not as a single anchor item.",
@@ -1568,79 +1569,115 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
 
   function sessionCommands(context: CommandPaletteContext): CommandPaletteCommand[] {
     const commands: CommandPaletteCommand[] = [];
+    const resumeAnchors = readResumeAnchors();
+    const activeWorkingSet = context.workingSetContext?.active_working_set ?? null;
+    const activeWorkingSetId = context.workingSetContext?.active_working_set_id ?? null;
+    const activeWorkingSetName = activeWorkingSet?.name ?? null;
+    const scopedSubtitle = (base: string): string => {
+      return activeWorkingSetName ? `${base} · ${activeWorkingSetName}` : base;
+    };
+
     context.planningSessions.slice(0, 6).forEach((session) => {
+      const scopedToActiveWorkingSet = activeWorkingSetId != null
+        && resumeAnchors.lastPlanningSessionId === session.id
+        && resumeAnchors.lastPlanningWorkingSetId === activeWorkingSetId;
       const location = createLocation({
         state: "plan",
         reviewFocus: "planning",
         sessionId: session.id,
+        workingSetId: scopedToActiveWorkingSet ? activeWorkingSetId : null,
       });
       commands.push({
         id: `planning-session-${session.id}`,
         group: "review",
         title: `Resume plan · ${session.name}`,
-        subtitle: `${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed`,
-        keywords: ["plan", "planning", session.name, session.prompt],
+        subtitle: scopedToActiveWorkingSet
+          ? scopedSubtitle(`${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed`)
+          : `${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed`,
+        keywords: ["plan", "planning", session.name, session.prompt, activeWorkingSetName ?? ""],
         badge: "Plan",
         location,
+        contextBoost: scopedToActiveWorkingSet ? 86 : 0,
         detail: {
           eyebrow: "Review",
-          description: "Resume this saved planning session at its current checkpointed state.",
+          description: scopedToActiveWorkingSet
+            ? "Resume this saved planning session with the active working-set context restored."
+            : "Resume this saved planning session at its current checkpointed state.",
           meta: [
             `Status: ${session.status.replaceAll("_", " ")}`,
             session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
-          ],
+            scopedToActiveWorkingSet && activeWorkingSetName ? `Working set: ${activeWorkingSetName}` : null,
+          ].filter((value): value is string => Boolean(value)),
         },
         recentAction: { kind: "open-location", location },
         execute: () => bindings.openLocation(location),
       });
     });
     context.relationshipSessions.slice(0, 6).forEach((session) => {
+      const scopedToActiveWorkingSet = activeWorkingSetId != null
+        && resumeAnchors.lastReviewFocus === "relationship"
+        && resumeAnchors.lastReviewSessionId === session.id
+        && resumeAnchors.lastReviewWorkingSetId === activeWorkingSetId;
       const location = createLocation({
         state: "decide",
         reviewFocus: "relationship",
         sessionId: session.id,
+        workingSetId: scopedToActiveWorkingSet ? activeWorkingSetId : null,
       });
       commands.push({
         id: `relationship-session-${session.id}`,
         group: "review",
         title: `Open relationship queue · ${session.name}`,
-        subtitle: session.query,
-        keywords: ["relationship", "duplicates", "review", session.name, session.query],
+        subtitle: scopedToActiveWorkingSet ? scopedSubtitle(session.query) : session.query,
+        keywords: ["relationship", "duplicates", "review", session.name, session.query, activeWorkingSetName ?? ""],
         badge: "Decide",
         location,
+        contextBoost: scopedToActiveWorkingSet ? 84 : 0,
         detail: {
           eyebrow: "Review",
-          description: "Open this saved relationship-review queue at its preserved cursor.",
+          description: scopedToActiveWorkingSet
+            ? "Open this saved relationship-review queue with the active working-set scope restored."
+            : "Open this saved relationship-review queue at its preserved cursor.",
           meta: [
             `Relationship kind: ${session.relationship_kind}`,
             session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
-          ],
+            scopedToActiveWorkingSet && activeWorkingSetName ? `Working set: ${activeWorkingSetName}` : null,
+          ].filter((value): value is string => Boolean(value)),
         },
         recentAction: { kind: "open-location", location },
         execute: () => bindings.openLocation(location),
       });
     });
     context.enrichmentSessions.slice(0, 6).forEach((session) => {
+      const scopedToActiveWorkingSet = activeWorkingSetId != null
+        && resumeAnchors.lastReviewFocus === "enrichment"
+        && resumeAnchors.lastReviewSessionId === session.id
+        && resumeAnchors.lastReviewWorkingSetId === activeWorkingSetId;
       const location = createLocation({
         state: "decide",
         reviewFocus: "enrichment",
         sessionId: session.id,
+        workingSetId: scopedToActiveWorkingSet ? activeWorkingSetId : null,
       });
       commands.push({
         id: `enrichment-session-${session.id}`,
         group: "review",
         title: `Open enrichment queue · ${session.name}`,
-        subtitle: session.query,
-        keywords: ["enrichment", "clarifications", "review", session.name, session.query],
+        subtitle: scopedToActiveWorkingSet ? scopedSubtitle(session.query) : session.query,
+        keywords: ["enrichment", "clarifications", "review", session.name, session.query, activeWorkingSetName ?? ""],
         badge: "Decide",
         location,
+        contextBoost: scopedToActiveWorkingSet ? 84 : 0,
         detail: {
           eyebrow: "Review",
-          description: "Open this saved enrichment queue at its preserved cursor.",
+          description: scopedToActiveWorkingSet
+            ? "Open this saved enrichment queue with the active working-set scope restored."
+            : "Open this saved enrichment queue at its preserved cursor.",
           meta: [
             `Pending kind: ${session.pending_kind}`,
             session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
-          ],
+            scopedToActiveWorkingSet && activeWorkingSetName ? `Working set: ${activeWorkingSetName}` : null,
+          ].filter((value): value is string => Boolean(value)),
         },
         recentAction: { kind: "open-location", location },
         execute: () => bindings.openLocation(location),

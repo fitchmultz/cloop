@@ -100,6 +100,7 @@ The palette should rank using:
 
 - The web shell exposes a global palette via the header button, `⌘K` / `Ctrl+K`, and `/`.
 - Result ranking is deterministic and currently combines query match, current shell state, active working-set focus anchors, selected loops, and local recent-command history.
+- When a bounded working set is active, working-set-scoped plan/review resumes outrank generic saved-session resumes so the palette reopens the exact context the operator is already carrying.
 - Quick actions currently include loop capture, direct memory creation, planning-session creation, working-set pinning, working-set activation/focus, and selected-loop mutations (complete, drop, status transitions, snooze, enrich).
 - Search currently covers local loop/object matches, saved views, saved sessions, working sets, memory search, and recall-launch queries for grounded chat/documents.
 - Recent commands are browser-local for now and complement — but do not replace — the broader continuity roadmap item.

@@ -56,6 +56,7 @@ export interface PaletteRankingContext {
   query: string;
   currentLocation: ShellLocationContract;
   focusLocations: ShellLocationContract[];
+  activeWorkingSetId: number | null;
   recentUsage: Record<string, PaletteRecentUsage>;
   selectedLoopIds: number[];
   now: number;
@@ -220,6 +221,9 @@ function locationContextScore(
   }
   if (context.focusLocations.some((focusLocation) => locationsMatch(focusLocation, itemLocation))) {
     score += 64;
+  }
+  if (context.activeWorkingSetId != null && itemLocation.workingSetId === context.activeWorkingSetId) {
+    score += itemLocation.state === "working_set" ? 120 : 90;
   }
   return score;
 }

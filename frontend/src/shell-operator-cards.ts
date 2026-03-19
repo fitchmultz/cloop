@@ -1808,6 +1808,66 @@ function pushUniqueAction(actions: OperatorActionCardAction[], action: OperatorA
   }
 }
 
+function scopedResumeActionKey(action: OperatorActionCardAction): string | null {
+  const { location } = action;
+  if (location.state === "plan" && location.sessionId != null) {
+    return `plan:${location.sessionId}`;
+  }
+  if (
+    location.state === "decide"
+    && (location.reviewFocus === "relationship" || location.reviewFocus === "enrichment")
+    && location.sessionId != null
+  ) {
+    return `decide:${location.reviewFocus}:${location.sessionId}`;
+  }
+  return null;
+}
+
+function prioritizeResumeActions(
+  actions: readonly OperatorActionCardAction[],
+  activeWorkingSetId: number | null,
+): OperatorActionCardAction[] {
+  const scopedKeys = new Set(
+    actions
+      .map((action) => {
+        if (activeWorkingSetId == null || action.location.workingSetId !== activeWorkingSetId) {
+          return null;
+        }
+        return scopedResumeActionKey(action);
+      })
+      .filter((key): key is string => Boolean(key)),
+  );
+
+  return actions
+    .filter((action) => {
+      const key = scopedResumeActionKey(action);
+      if (!key || activeWorkingSetId == null || action.location.workingSetId != null) {
+        return true;
+      }
+      return !scopedKeys.has(key);
+    })
+    .map((action, index) => {
+      let score = 0;
+      if (activeWorkingSetId != null && action.location.workingSetId === activeWorkingSetId) {
+        score += action.location.state === "working_set" ? 400 : 300;
+      }
+      if (scopedResumeActionKey(action)) {
+        score += 100;
+      }
+      if (action.location.sessionId != null && action.location.workingSetId == null) {
+        score -= 25;
+      }
+      return { action, index, score };
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.index - right.index;
+    })
+    .map((entry) => entry.action);
+}
+
 function currentWorkingSetHandoffMetadata(): WorkingSetSessionMetadata | null {
   return workingSetHandoffMetadata(workingSetContext?.active_working_set_id ?? null);
 }
@@ -1914,6 +1974,8 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
     return null;
   }
 
+  const prioritizedActions = prioritizeResumeActions(actions, workingSetId);
+
   return {
     priority: 95,
     card: {
@@ -1922,7 +1984,7 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
       tone: "attention",
       eyebrow: "Resume anchors",
       title: "Pick up where you left off",
-      summary: `${actions.length} explicit resume anchor${actions.length === 1 ? "" : "s"} are ready in this browser.`,
+      summary: `${prioritizedActions.length} explicit resume anchor${prioritizedActions.length === 1 ? "" : "s"} are ready in this browser.`,
       rationale:
         "Resume anchors keep cross-session work lightweight by surfacing the exact planning, review, and shell locations you recently used.",
       preview: preview.slice(0, 4),
@@ -1939,7 +2001,7 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
         nextStep: "Open the strongest resume anchor or pivot into the newest risk/change signal below.",
         breadcrumbs: ["Home", "Since last visit", "Resume anchors"],
       },
-      actions: actions.slice(0, 4),
+      actions: prioritizedActions.slice(0, 4),
     },
   } satisfies PrioritizedCard;
 }
