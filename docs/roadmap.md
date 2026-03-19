@@ -36,12 +36,7 @@ Goal: turn the first continuity slice into a sharper operator decision surface o
 
 ## Immediate Next Sessions
 
-If work is being planned session-by-session, the best near-term sequence is:
-
-1. **Workflow-handoff rendering completion session**
-   - audit operator cards and downstream workspace surfaces so propagated working-set badges, breadcrumbs, and next-surface cues render anywhere `handoff.workingSet` is available
-
-The command/resume prioritization slice is now complete, so the next session can focus entirely on finishing the explicit working-set handoff rendering pass across every downstream surface.
+The current continuity/handoff product slice is complete. Add the next product session here only after a new end-to-end workflow slice is chosen; keep QA signoff and hygiene follow-ups in the verification docs or task tracker rather than re-expanding the roadmap.
 
 ## Delivery Model
 

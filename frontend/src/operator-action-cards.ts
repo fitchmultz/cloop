@@ -30,6 +30,7 @@ import type {
   ShellLocationContract,
 } from "./contracts-ui";
 import { renderTrustSurface } from "./trust-surface";
+import { renderWorkflowHandoff } from "./workflow-handoff";
 
 const KIND_LABELS = {
   mutation: "Mutation",
@@ -145,44 +146,7 @@ function renderTrust(card: OperatorActionCard): string {
 }
 
 function renderHandoff(card: OperatorActionCard): string {
-  if (!card.handoff) {
-    return "";
-  }
-
-  const { handoff } = card;
-  const workingSetLine = handoff.workingSet
-    ? `
-      <p>
-        <strong>Working set:</strong>
-        ${escapeHtml(handoff.workingSet.workingSetName)}
-        · ${handoff.workingSet.itemCount} item${handoff.workingSet.itemCount === 1 ? "" : "s"}
-        ${handoff.workingSet.missingItemCount ? ` · ${handoff.workingSet.missingItemCount} missing` : ""}
-      </p>
-    `
-    : "";
-
-  return `
-    <section class="operator-action-handoff" aria-label="Workflow handoff">
-      <p class="operator-action-section-title">Workflow handoff</p>
-      <p>${escapeHtml(handoff.changeSummary)}</p>
-      ${workingSetLine}
-      ${
-        handoff.createdResources.length
-          ? `
-            <ul class="operator-action-trust-list">
-              ${handoff.createdResources.map((resource) => `<li>${escapeHtml(resource)}</li>`).join("")}
-            </ul>
-          `
-          : ""
-      }
-      ${handoff.nextStep ? `<p><strong>Next:</strong> ${escapeHtml(handoff.nextStep)}</p>` : ""}
-      ${
-        handoff.breadcrumbs.length
-          ? `<p class="operator-action-breadcrumbs">${handoff.breadcrumbs.map((crumb) => escapeHtml(crumb)).join(" / ")}</p>`
-          : ""
-      }
-    </section>
-  `;
+  return renderWorkflowHandoff(card.handoff ?? null);
 }
 
 function renderActionCard(card: OperatorActionCard): string {

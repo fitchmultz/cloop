@@ -1470,6 +1470,15 @@
     rgba(255, 255, 255, 0.82);
 }
 
+.review-shell-impact-card .operator-action-handoff {
+  margin-top: var(--space-1);
+}
+
+.review-shell-impact-card .operator-action-breadcrumbs {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+
 .review-shell-rail-card--button {
   width: 100%;
   color: inherit;

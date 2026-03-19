@@ -82,6 +82,7 @@ Focus mode should:
 1. User opens a planning session from an active set.
 2. Planning and AI recommendations reference the set as the current operational context.
 3. Follow-up sessions created from the plan can be added to the same set automatically or by prompt.
+4. Planning impact cards and downstream review launches keep the same working-set badge, breadcrumb trail, and next-surface cue so the bounded context remains visible after execution.
 
 ## States and edge cases
 

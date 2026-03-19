@@ -62,6 +62,7 @@ import type {
   RelationshipReviewSessionResponse,
   RelationshipReviewSessionSnapshotResponse,
   RelationshipReviewSessionUpdateRequest,
+  WorkingSetResponse,
 } from "./domain";
 import type { ReviewFocus, TrustSurfaceMetadata } from "./contracts-ui";
 import {
@@ -71,6 +72,11 @@ import {
 } from "./continuity-intelligence";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { renderTrustSurface } from "./trust-surface";
+import { renderWorkflowHandoff } from "./workflow-handoff";
+import {
+  buildFollowUpResourceHandoff,
+  buildLaunchSurfaceHandoff,
+} from "./review-workspace-handoffs";
 import * as modals from "./modals";
 import { openMergeModal, setupMergeHandlers } from "./duplicates";
 
@@ -91,6 +97,7 @@ interface ReviewWorkspaceState {
   activeMode: ReviewFocus;
   reviewMode: "daily" | "weekly";
   selectedCohortKey: string | null;
+  workingSets: WorkingSetResponse[];
   planningSessions: PlanningSessionResponse[];
   planningSnapshot: PlanningSessionSnapshotResponse | null;
   planningSessionId: number | null;
@@ -187,6 +194,7 @@ const DEFAULT_STATE: ReviewWorkspaceState = {
   activeMode: "relationship",
   reviewMode: "daily",
   selectedCohortKey: null,
+  workingSets: [],
   planningSessions: [],
   planningSnapshot: null,
   planningSessionId: null,
@@ -303,6 +311,18 @@ function parseOptionalInteger(value: string | null | undefined): number | null {
 
 function currentWorkingSetId(): number | null {
   return parseHash(window.location.hash)?.workingSetId ?? null;
+}
+
+function planningImpactHandoffContext(sessionName: string): {
+  breadcrumbPrefix: string[];
+  fallbackWorkingSetId: number | null;
+  workingSets: readonly WorkingSetResponse[];
+} {
+  return {
+    breadcrumbPrefix: ["Home", "Plan", sessionName],
+    fallbackWorkingSetId: currentWorkingSetId(),
+    workingSets: state.workingSets,
+  };
 }
 
 function toReviewHash(
@@ -423,6 +443,14 @@ function setStatus(message: string, isError = false): void {
 
 function requestWorkspaceRefresh(): void {
   window.dispatchEvent(new CustomEvent(WORKSPACE_REFRESH_EVENT));
+}
+
+async function fetchWorkingSets(): Promise<WorkingSetResponse[]> {
+  return requestJson<WorkingSetResponse[]>(
+    "/loops/working-sets",
+    {},
+    "Failed to load working sets",
+  );
 }
 
 async function fetchPlanningSessions(): Promise<PlanningSessionResponse[]> {
@@ -1724,11 +1752,18 @@ function renderWorkspace(): void {
     : '<p class="review-shell-empty">No cohort selected. Choose an active cohort from the rail.</p>';
 }
 
-function renderLaunchSurface(surface: PlanningExecutionLaunchSurfaceResponse): string {
+function renderLaunchSurface(
+  surface: PlanningExecutionLaunchSurfaceResponse,
+  sessionName: string,
+): string {
   const web = surface.web && typeof surface.web === "object" ? surface.web : {};
   const sessionId = typeof web["session_id"] === "number" ? web["session_id"] : null;
   const reviewKind = typeof web["review_kind"] === "string" ? web["review_kind"] : null;
-  const workingSetId = typeof web["working_set_id"] === "number" ? web["working_set_id"] : currentWorkingSetId();
+  const handoffContext = planningImpactHandoffContext(sessionName);
+  const handoff = buildLaunchSurfaceHandoff(surface, handoffContext);
+  const workingSetId = handoffContext.fallbackWorkingSetId == null && handoff.workingSet
+    ? handoff.workingSet.workingSetId
+    : (typeof web["working_set_id"] === "number" ? web["working_set_id"] : handoffContext.fallbackWorkingSetId);
   const hash = reviewKind === "relationship"
     ? toReviewHash("relationship", sessionId, workingSetId)
     : reviewKind === "enrichment"
@@ -1747,6 +1782,7 @@ function renderLaunchSurface(surface: PlanningExecutionLaunchSurfaceResponse): s
       <p>${escapeHtml(surface.reason || "Open the next surface prepared by this checkpoint.")}</p>
       <div class="review-shell-inline-chip-row">
         ${surface.resource_type ? reviewChip(`${surface.resource_type} #${surface.resource_id}`) : ""}
+        ${handoff.workingSet ? reviewChip(`Working set · ${handoff.workingSet.workingSetName}`, "alert") : ""}
       </div>
       ${renderCompactTrust({
         generationLabel: "Deterministic handoff",
@@ -1754,6 +1790,7 @@ function renderLaunchSurface(surface: PlanningExecutionLaunchSurfaceResponse): s
         contextSources: [
           `Surface: ${surface.surface}`,
           `Resource: ${surface.resource_type} #${surface.resource_id}`,
+          handoff.workingSet ? `Working set: ${handoff.workingSet.workingSetName}` : "No propagated working set",
         ],
         assumptions: ["The downstream surface still exists and is ready to open."],
         confidenceLabel: "Prepared next-step queue",
@@ -1765,12 +1802,31 @@ function renderLaunchSurface(surface: PlanningExecutionLaunchSurfaceResponse): s
         impactSummary: surface.reason || "Open the next surface prepared by this checkpoint.",
         impactTone: "attention",
       })}
+      ${renderWorkflowHandoff(handoff)}
       ${hash ? `<div class="review-shell-inline-actions"><button type="button" ${queueItemButtonAttributes(hash)}>Open next queue</button></div>` : ""}
     </article>
   `;
 }
 
-function renderFollowUpResource(resource: PlanningExecutionFollowUpResourceResponse): string {
+function renderFollowUpResource(
+  resource: PlanningExecutionFollowUpResourceResponse,
+  sessionName: string,
+): string {
+  const handoffContext = planningImpactHandoffContext(sessionName);
+  const handoff = buildFollowUpResourceHandoff(resource, handoffContext);
+  const surface = resource.launch_surface;
+  const web = surface?.web && typeof surface.web === "object" ? surface.web : {};
+  const sessionId = typeof web["session_id"] === "number" ? web["session_id"] : null;
+  const reviewKind = typeof web["review_kind"] === "string" ? web["review_kind"] : null;
+  const workingSetId = handoffContext.fallbackWorkingSetId == null && handoff?.workingSet
+    ? handoff.workingSet.workingSetId
+    : (typeof web["working_set_id"] === "number" ? web["working_set_id"] : handoffContext.fallbackWorkingSetId);
+  const hash = reviewKind === "relationship"
+    ? toReviewHash("relationship", sessionId, workingSetId)
+    : reviewKind === "enrichment"
+      ? toReviewHash("enrichment", sessionId, workingSetId)
+      : null;
+
   return `
     <article class="review-shell-impact-card">
       <div class="review-shell-impact-card-header">
@@ -1784,6 +1840,7 @@ function renderFollowUpResource(resource: PlanningExecutionFollowUpResourceRespo
       <div class="review-shell-inline-chip-row">
         ${reviewChip(resource.operation_kind)}
         ${reviewChip(`Operation ${resource.operation_index + 1}`)}
+        ${handoff?.workingSet ? reviewChip(`Working set · ${handoff.workingSet.workingSetName}`, "alert") : ""}
       </div>
       ${renderCompactTrust({
         generationLabel: "Deterministic follow-up resource",
@@ -1792,17 +1849,20 @@ function renderFollowUpResource(resource: PlanningExecutionFollowUpResourceRespo
           `Role: ${resource.role}`,
           `Operation: ${resource.operation_kind}`,
           `Resource: ${resource.resource_type} #${resource.resource_id}`,
+          handoff?.workingSet ? `Working set: ${handoff.workingSet.workingSetName}` : "No propagated working set",
         ],
         assumptions: [],
-        confidenceLabel: "Created by the latest checkpoint",
-        confidenceTone: "progress",
+        confidenceLabel: handoff ? "Created by the latest checkpoint and ready to continue" : "Created by the latest checkpoint",
+        confidenceTone: handoff ? "attention" : "progress",
         freshnessLabel: null,
         freshnessTone: "neutral",
         rollbackLabel: "Inspect execution history for rollback support",
         rollbackTone: "caution",
         impactSummary: resource.operation_summary,
-        impactTone: "progress",
+        impactTone: handoff ? "attention" : "progress",
       })}
+      ${renderWorkflowHandoff(handoff)}
+      ${hash ? `<div class="review-shell-inline-actions"><button type="button" ${queueItemButtonAttributes(hash)}>Open next queue</button></div>` : ""}
     </article>
   `;
 }
@@ -1868,8 +1928,8 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
         impactTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
       })}
     </article>
-    ${(latestExecution.launch_surfaces ?? []).map((surface) => renderLaunchSurface(surface)).join("")}
-    ${(latestExecution.follow_up_resources ?? []).map((resource) => renderFollowUpResource(resource)).join("")}
+    ${(latestExecution.launch_surfaces ?? []).map((surface) => renderLaunchSurface(surface, snapshot.session.name)).join("")}
+    ${(latestExecution.follow_up_resources ?? []).map((resource) => renderFollowUpResource(resource, snapshot.session.name)).join("")}
   `;
 }
 
@@ -2159,6 +2219,10 @@ async function loadMode(focus: ReviewFocus, sessionId: number | null = null): Pr
   }
   loading = true;
   try {
+    state = {
+      ...state,
+      workingSets: await fetchWorkingSets().catch(() => state.workingSets),
+    };
     if (focus === "planning") {
       await loadPlanningMode(sessionId);
     } else if (focus === "relationship") {

@@ -63,6 +63,7 @@ Every handoff-capable workflow result should render:
 - The primary CTA should launch the next surface in-context.
 - Secondary CTA should show details or keep the user in the current surface.
 - Breadcrumbs should preserve prior session identity and cursor where relevant.
+- Working-set-aware handoffs should render the same working-set badge, next-step cue, and breadcrumb trail in operator cards and downstream review/planning impact cards.
 - Handoffs should prefer existing saved session IDs and resource references, not inferred client state.
 - When several deterministic handoff themes changed at once, the operator shell may surface a grouped rollup card before deeper workflow-specific cards.
 
