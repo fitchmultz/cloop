@@ -22,7 +22,7 @@
  */
 
 import { parseHash } from "../shell-routing";
-import { renderRecallActionCards } from "./recall-action-cards";
+import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import type { RagChunk, RagSource, SurfaceChatEventPayload } from "./contracts";
 import { consumeJsonEventStream } from "./stream";
@@ -48,6 +48,7 @@ interface RagModuleElements {
 let ragActionCardsEl: HTMLElement | null = null;
 let ragAnswer: HTMLElement | null = null;
 let ragAnswerText: HTMLElement | null = null;
+let ragInlineActionCardsEl: HTMLElement | null = null;
 let ragSources: HTMLElement | null = null;
 let ragSourcesList: HTMLElement | null = null;
 let ragInput: HTMLInputElement | HTMLTextAreaElement | null = null;
@@ -61,6 +62,7 @@ export function init(elements: RagModuleElements): void {
   ragActionCardsEl = elements.ragActionCards ?? null;
   ragAnswer = elements.ragAnswer;
   ragAnswerText = elements.ragAnswerText;
+  ragInlineActionCardsEl = elements.ragAnswer.querySelector<HTMLElement>("#rag-answer-action-cards");
   ragSources = elements.ragSources;
   ragSourcesList = elements.ragSourcesList;
   ragInput = elements.ragInput;
@@ -108,7 +110,7 @@ function focusIngestPath(): void {
   ragIngestPath.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[]): void {
+function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[], question: string): void {
   if (!ragAnswerText) {
     return;
   }
@@ -116,6 +118,24 @@ function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[]):
   const normalizedAnswer = answer.trim();
   const isNoKnowledgeState = normalizedAnswer === NO_KNOWLEDGE_MESSAGE && sources.length === 0 && chunks.length === 0;
   ragAnswerText.textContent = isNoKnowledgeState ? "No knowledge indexed yet." : answer;
+  if (ragInlineActionCardsEl) {
+    const sourceLabels = Array.from(new Set(sources
+      .map((source) => source.document_path?.trim() || null)
+      .filter((path): path is string => Boolean(path))));
+    ragInlineActionCardsEl.innerHTML = isNoKnowledgeState || !normalizedAnswer
+      ? ""
+      : renderRecallResultActionCards({
+          tool: "rag",
+          workingSetId: currentWorkingSetId(),
+          ragQuestion: question || undefined,
+          hasKnowledge: !isNoKnowledgeState,
+          answerSummary: normalizedAnswer,
+          sourceCount: sourceLabels.length,
+          sourceLabels,
+          ragContextApplied: true,
+          ragChunksUsed: chunks.length || undefined,
+        });
+  }
   setNoKnowledgeState(isNoKnowledgeState);
   renderRagSources(sources, chunks);
   renderActionCards({ hasKnowledge: !isNoKnowledgeState });
@@ -181,12 +201,15 @@ export async function submitRagQuestion(question: string): Promise<void> {
       }
     });
 
-    renderAnswer(finalAnswer || accumulated || ragAnswerText.textContent || "", sources, chunks);
+    renderAnswer(finalAnswer || accumulated || ragAnswerText.textContent || "", sources, chunks, question);
     ragAnswer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (error: unknown) {
     ragAnswer.classList.remove("hidden");
     ragAnswer.classList.add("rag-answer-error");
     setNoKnowledgeState(false);
+    if (ragInlineActionCardsEl) {
+      ragInlineActionCardsEl.innerHTML = "";
+    }
     ragAnswerText.textContent = messageFromError(error, "Connection error. Please try again.");
   }
 }
@@ -213,6 +236,9 @@ export async function submitIngestPath(): Promise<void> {
     setIngestStatus(summary);
     ragAnswer.classList.remove("hidden", "rag-answer-error");
     ragAnswerText.textContent = "Knowledge indexed. Ask a question when you're ready.";
+    if (ragInlineActionCardsEl) {
+      ragInlineActionCardsEl.innerHTML = "";
+    }
     setNoKnowledgeState(false);
     ragSourcesList.innerHTML = "";
     renderActionCards({ hasKnowledge: true });

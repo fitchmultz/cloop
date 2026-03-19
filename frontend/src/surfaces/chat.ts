@@ -23,7 +23,7 @@
 
 import type { ChatMessage, ChatPreferences } from "../contracts-ui";
 import { parseHash } from "../shell-routing";
-import { renderRecallActionCards } from "./recall-action-cards";
+import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import * as state from "./state";
 import type { SurfaceChatEventPayload } from "./contracts";
@@ -260,6 +260,49 @@ function renderMessageMeta(message: ChatMessage): string {
   `;
 }
 
+function renderMessageActionCards(message: ChatMessage, prompt: string | null): string {
+  if (message.role !== "assistant" || message.status !== "done") {
+    return "";
+  }
+
+  const sourceLabels = Array.from(new Set((message.sources ?? [])
+    .map((source) => source.document_path?.trim() || null)
+    .filter((path): path is string => Boolean(path))));
+  const hasGrounding = Boolean(
+    message.context?.loop_context_applied
+    || message.context?.memory_context_applied
+    || message.context?.rag_context_applied
+    || sourceLabels.length > 0,
+  );
+  if (!hasGrounding) {
+    return "";
+  }
+
+  const answerSummary = message.content.trim();
+  if (!answerSummary) {
+    return "";
+  }
+
+  return renderRecallResultActionCards({
+    tool: "chat",
+    workingSetId: currentWorkingSetId(),
+    chatGroundingSummary: message.options ? describeGrounding(message.options) : undefined,
+    memoryQuery: message.context?.memory_context_applied ? prompt ?? "recent commitments" : undefined,
+    ragQuestion: prompt ?? (typeof message.options?.["rag_scope"] === "string" && message.options["rag_scope"]
+      ? String(message.options["rag_scope"])
+      : undefined),
+    hasKnowledge: message.context?.rag_context_applied || sourceLabels.length > 0,
+    answerSummary,
+    sourceCount: sourceLabels.length,
+    sourceLabels,
+    loopContextApplied: message.context?.loop_context_applied,
+    memoryContextApplied: message.context?.memory_context_applied,
+    memoryEntriesUsed: message.context?.memory_entries_used,
+    ragContextApplied: message.context?.rag_context_applied,
+    ragChunksUsed: message.context?.rag_chunks_used,
+  });
+}
+
 function renderMessageContent(message: ChatMessage): string {
   if (message.role === "user") {
     return `<p>${escapeHtml(message.content).replace(/\n/g, "<br>")}</p>`;
@@ -309,12 +352,18 @@ function renderChatMessages(): void {
     return;
   }
 
-  chatMessagesEl.innerHTML = messages.map((message) => `
-    <article class="chat-bubble ${message.role} ${message.status === "error" ? "is-error" : ""}" data-message-id="${escapeHtml(message.id)}">
-      <div class="chat-message-body chat-rich-text">${renderMessageContent(message)}</div>
-      ${renderMessageMeta(message)}
-    </article>
-  `).join("");
+  chatMessagesEl.innerHTML = messages.map((message, index) => {
+    const priorUserMessage = index > 0
+      ? messages.slice(0, index).reverse().find((candidate) => candidate.role === "user") ?? null
+      : null;
+    return `
+      <article class="chat-bubble ${message.role} ${message.status === "error" ? "is-error" : ""}" data-message-id="${escapeHtml(message.id)}">
+        <div class="chat-message-body chat-rich-text">${renderMessageContent(message)}</div>
+        ${renderMessageActionCards(message, priorUserMessage?.content?.trim() || null)}
+        ${renderMessageMeta(message)}
+      </article>
+    `;
+  }).join("");
 
   updateThreadStatus(
     threadState.lastUpdatedAt

@@ -26,25 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Recall result actions and responsive review-shell polish
+### Phase 1 — Responsive review-shell polish and richer action-card follow-through
 
-Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, and redesigned review shell into a crisp decide-and-execute loop where recall results can launch work directly and review stays equally trustworthy on denser layouts.
+Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, and new recall-result cards into a crisp decide-and-execute loop that stays trustworthy on dense layouts and carries AI recommendations further than navigation alone.
 
-1. **Recall in-thread action-card execution**
-   - Extend the shared action-card model from recall support decks into grounded chat and document-answer results so evidence-backed recommendations can launch or stage the next action directly.
-   - Reuse the same trust, preview, handoff, and rollback framing instead of leaving recall outputs prose-only.
-2. **Responsive review-shell density + small-screen ergonomics**
+1. **Responsive review-shell density + small-screen ergonomics**
    - Resolve the remaining queue-rail versus side-by-side-detail balance on smaller screens without losing why-this-is-here, decision-required, or impact visibility.
    - Keep relationship, enrichment, and hygiene review calm and fast on laptop splits, narrow windows, and mobile widths.
+2. **Action-card follow-through beyond navigation**
+   - Extend the shared action-card model from launch/pin handoffs into richer stage/edit/defer flows where grounded AI outputs should carry directly into the next deterministic mutation or saved draft.
+   - Keep trust, preview, rollback, and consequence framing consistent as cards become more executable.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Recall in-thread action-card execution session**
-   - extend chat and document-answer results from support/context cards into executable in-thread action cards with shared trust + handoff framing
-2. **Responsive review-shell density session**
+1. **Responsive review-shell density session**
    - finish smaller-screen review ergonomics so queue health, decisions, and impact previews remain clear without wasting space or hiding context
+2. **Action-card follow-through session**
+   - push shared cards past open/pin navigation into richer stage/edit/defer handoffs where the workflow is deterministic enough to support it
 
 ## Delivery Model
 

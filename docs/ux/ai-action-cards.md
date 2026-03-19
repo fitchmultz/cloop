@@ -107,9 +107,10 @@ Every action card should have:
 
 ## Current implementation baseline
 
-- Planning follow-up resources, launch surfaces, operator action cards, review impact cards, enrichment suggestion cards, and recall support decks now share the same structured card renderer.
+- Planning follow-up resources, launch surfaces, operator action cards, review impact cards, enrichment suggestion cards, recall support decks, and in-thread recall result cards now share the same structured card renderer.
+- Grounded chat answers and document-answer results now surface trust-framed, executable handoff cards inline instead of leaving recall outputs prose-only.
 - The review shell now uses that shared card model alongside explicit decision context and consequence warnings instead of falling back to bespoke impact markup.
-- The next roadmap gap is in-thread recall result cards so grounded chat and document answers can surface executable next actions without dropping back to prose-only responses.
+- The next roadmap gap is pushing shared cards beyond open/pin navigation into richer stage/edit/defer flows where the workflow can stay deterministic.
 
 ## Dependencies
 
