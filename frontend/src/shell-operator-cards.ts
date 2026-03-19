@@ -117,34 +117,125 @@ export function createShellOperatorCardRenderer(
     return options.focusModeActiveSet();
   }
 
-  function launchSurfaceToLocation(surface: PlanningExecutionLaunchSurfaceResponse): ShellLocation | null {
-    const webValue = surface.web;
-    const web = webValue && typeof webValue === "object" ? webValue : null;
-    const reviewKind = typeof web?.["review_kind"] === "string" ? web["review_kind"] : null;
-    const sessionIdRaw = web?.["session_id"];
-    const sessionId = typeof sessionIdRaw === "number" ? sessionIdRaw : null;
-
-    if (web?.["surface"] === "review_session" && reviewKind === "relationship") {
-      return createLocation({ state: "decide", reviewFocus: "relationship", sessionId });
+  function integerValue(value: unknown): number | null {
+    if (typeof value === "number" && Number.isInteger(value)) {
+      return value;
     }
-    if (web?.["surface"] === "review_session" && reviewKind === "enrichment") {
-      return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId });
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number.parseInt(value, 10);
+      return Number.isInteger(parsed) ? parsed : null;
     }
     return null;
   }
 
-function filterCardsForFocus(cards: OperatorActionCard[]): OperatorActionCard[] {
-  const activeSet = focusModeActiveSet();
-  if (!workingSetContext?.focus_mode_enabled || !activeSet) {
-    return cards;
+  function launchSurfaceWeb(
+    surface: PlanningExecutionLaunchSurfaceResponse | null | undefined,
+  ): Record<string, unknown> | null {
+    const webValue = surface?.web;
+    return webValue && typeof webValue === "object"
+      ? (webValue as Record<string, unknown>)
+      : null;
   }
-  const focusLocations = (activeSet.items ?? []).map((item) => workingSetItemLocation(item));
-  return cards.filter((card) => {
-    return card.actions.some((action) => {
-      return focusLocations.some((location) => locationsMatch(action.location, location));
+
+  function launchSurfaceWorkingSetId(
+    surface: PlanningExecutionLaunchSurfaceResponse | null | undefined,
+  ): number | null {
+    return integerValue(launchSurfaceWeb(surface)?.["working_set_id"]);
+  }
+
+  function locationWithFallbackWorkingSet(location: ShellLocation, workingSetId: number | null): ShellLocation {
+    if (workingSetId == null || location.workingSetId != null) {
+      return location;
+    }
+    return createLocation({ ...location, workingSetId });
+  }
+
+  function workingSetById(workingSetId: number | null | undefined): WorkingSetResponse | null {
+    if (workingSetId == null) {
+      return null;
+    }
+    return latestWorkingSets.find((set) => set.id === workingSetId)
+      ?? (workingSetContext?.active_working_set_id === workingSetId ? workingSetContext.active_working_set : null)
+      ?? null;
+  }
+
+  function workingSetHandoffMetadata(workingSetId: number | null | undefined): WorkingSetSessionMetadata | null {
+    const workingSet = workingSetById(workingSetId);
+    if (!workingSet) {
+      return null;
+    }
+    return {
+      workingSetId: workingSet.id,
+      workingSetName: workingSet.name,
+      itemCount: workingSet.item_count,
+      missingItemCount: workingSet.missing_item_count,
+    };
+  }
+
+  function workingSetLabel(workingSetId: number | null | undefined): string | null {
+    const metadata = workingSetHandoffMetadata(workingSetId);
+    if (metadata) {
+      return metadata.workingSetName;
+    }
+    return workingSetId != null ? `Working set #${workingSetId}` : null;
+  }
+
+  function firstNavigableLaunchSurface(
+    surfaces: readonly PlanningExecutionLaunchSurfaceResponse[] | null | undefined,
+  ): PlanningExecutionLaunchSurfaceResponse | null {
+    return (surfaces ?? []).find((surface) => launchSurfaceToLocation(surface) != null) ?? null;
+  }
+
+  function withResolvedWorkingSetHandoff(
+    card: OperatorActionCard,
+    workingSetId: number | null | undefined,
+  ): OperatorActionCard {
+    if (!card.handoff || card.handoff.workingSet != null) {
+      return card;
+    }
+    const workingSet = workingSetHandoffMetadata(workingSetId);
+    if (!workingSet) {
+      return card;
+    }
+    return {
+      ...card,
+      handoff: {
+        ...card.handoff,
+        workingSet,
+      },
+    };
+  }
+
+  function launchSurfaceToLocation(surface: PlanningExecutionLaunchSurfaceResponse): ShellLocation | null {
+    const web = launchSurfaceWeb(surface);
+    const reviewKind = typeof web?.["review_kind"] === "string" ? web["review_kind"] : null;
+    const sessionId = integerValue(web?.["session_id"]);
+    const workingSetId = launchSurfaceWorkingSetId(surface);
+
+    if (web?.["surface"] === "review_session" && reviewKind === "relationship") {
+      return createLocation({ state: "decide", reviewFocus: "relationship", sessionId, workingSetId });
+    }
+    if (web?.["surface"] === "review_session" && reviewKind === "enrichment") {
+      return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId, workingSetId });
+    }
+    return null;
+  }
+
+  function filterCardsForFocus(cards: OperatorActionCard[]): OperatorActionCard[] {
+    const activeSet = focusModeActiveSet();
+    if (!workingSetContext?.focus_mode_enabled || !activeSet) {
+      return cards;
+    }
+    const focusLocations = (activeSet.items ?? []).map((item) => {
+      return locationWithFallbackWorkingSet(workingSetItemLocation(item), activeSet.id);
     });
-  });
-}
+    return cards.filter((card) => {
+      return card.actions.some((action) => {
+        const candidateLocation = locationWithFallbackWorkingSet(createLocation(action.location), activeSet.id);
+        return focusLocations.some((location) => locationsMatch(candidateLocation, location));
+      });
+    });
+  }
 
 function buildOpenAction(
   label: string,
@@ -635,12 +726,15 @@ function buildPlanningExecutionCard(
   snapshot: PlanningSessionSnapshotResponse,
   latestExecution: PlanningExecutionHistoryItemResponse,
 ): OperatorActionCard {
-  const primaryLocation =
-    latestExecution.launch_surfaces?.map((surface) => launchSurfaceToLocation(surface)).find((location) => location != null)
-    ?? createLocation({ state: "plan", reviewFocus: "planning", sessionId: snapshot.session.id });
+  const primarySurface = firstNavigableLaunchSurface(latestExecution.launch_surfaces);
+  const primaryLocation = primarySurface
+    ? (launchSurfaceToLocation(primarySurface)
+      ?? createLocation({ state: "plan", reviewFocus: "planning", sessionId: snapshot.session.id }))
+    : createLocation({ state: "plan", reviewFocus: "planning", sessionId: snapshot.session.id });
+  const propagatedWorkingSetId = launchSurfaceWorkingSetId(primarySurface);
+  const propagatedWorkingSetLabel = workingSetLabel(propagatedWorkingSetId);
   const followUpBits = summarizeFollowUpResources(latestExecution.follow_up_resources);
-
-  return {
+  const card = {
     id: `plan-execution-${snapshot.session.id}-${latestExecution.checkpoint_index}`,
     kind: "handoff",
     tone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
@@ -652,10 +746,11 @@ function buildPlanningExecutionCard(
     preview: [
       { label: "Executed", value: formatTimestamp(latestExecution.executed_at_utc) },
       { label: "Operations", value: `${latestExecution.operation_count}` },
+      ...(propagatedWorkingSetLabel ? [{ label: "Working set", value: propagatedWorkingSetLabel }] : []),
       { label: "Follow-ups", value: followUpBits[0] ?? "No follow-up resources were emitted" },
       {
         label: "Next surface",
-        value: latestExecution.launch_surfaces?.[0]?.label || "Resume the planning session",
+        value: primarySurface?.label || "Resume the planning session",
       },
     ],
     trust: {
@@ -674,7 +769,7 @@ function buildPlanningExecutionCard(
         ? "This checkpoint produced downstream work you can launch immediately."
         : "This checkpoint changed state but did not emit a dedicated downstream surface.",
       createdResources: followUpBits,
-      nextStep: latestExecution.launch_surfaces?.[0]?.reason || "Inspect the execution history or continue in the plan workspace.",
+      nextStep: primarySurface?.reason || "Inspect the execution history or continue in the plan workspace.",
       breadcrumbs: ["Home", "Plan", snapshot.session.name, latestExecution.checkpoint_title],
     },
     actions: [
@@ -683,9 +778,15 @@ function buildPlanningExecutionCard(
         primaryLocation,
         followUpBits[0] ?? latestExecution.checkpoint_title,
       ),
-      buildPinAction("Pin handoff", primaryLocation, followUpBits[0] ?? latestExecution.checkpoint_title, latestExecution.launch_surfaces?.[0]?.label || latestExecution.checkpoint_title),
+      buildPinAction(
+        "Pin handoff",
+        primaryLocation,
+        followUpBits[0] ?? latestExecution.checkpoint_title,
+        primarySurface?.label || latestExecution.checkpoint_title,
+      ),
     ],
   } satisfies OperatorActionCard;
+  return withResolvedWorkingSetHandoff(card, propagatedWorkingSetId);
 }
 
 function buildLaunchSurfaceCard(
@@ -698,8 +799,9 @@ function buildLaunchSurfaceCard(
   }
   const resource = latestExecution.follow_up_resources?.find((item) => item.launch_surface?.resource_id === surface.resource_id) ?? null;
   const reason = surface.reason?.trim() || "Open the next operator surface prepared by the latest checkpoint.";
-
-  return {
+  const propagatedWorkingSetId = launchSurfaceWorkingSetId(surface);
+  const propagatedWorkingSetLabel = workingSetLabel(propagatedWorkingSetId);
+  const card = {
     id: `launch-surface-${surface.resource_type}-${surface.resource_id}`,
     kind: "handoff",
     tone: "attention",
@@ -710,6 +812,7 @@ function buildLaunchSurfaceCard(
       "Handoff cards exist so you can continue into the exact downstream workflow the checkpoint created, instead of searching for the result manually.",
     preview: [
       { label: "Surface", value: surface.surface },
+      ...(propagatedWorkingSetLabel ? [{ label: "Working set", value: propagatedWorkingSetLabel }] : []),
       { label: "Resource", value: `${surface.resource_type} #${surface.resource_id}` },
       { label: "Operation", value: resource?.operation_summary || "Created by the latest checkpoint" },
       { label: "Role", value: resource?.role || "Next workflow" },
@@ -735,6 +838,7 @@ function buildLaunchSurfaceCard(
       buildPinAction("Pin handoff", location, reason, surface.label),
     ],
   } satisfies OperatorActionCard;
+  return withResolvedWorkingSetHandoff(card, propagatedWorkingSetId);
 }
 
 function buildPlanCards(data: WorkspaceData): OperatorActionCard[] {
@@ -985,56 +1089,63 @@ function buildFollowUpSinceLastCard(data: WorkspaceData): PrioritizedCard | null
     return null;
   }
 
-  const launchLocation = recentExecution
-    .flatMap((item) => item.launch_surfaces ?? [])
-    .map((surface) => launchSurfaceToLocation(surface))
-    .find((location) => location != null)
-    ?? createLocation({ state: "plan", reviewFocus: "planning", sessionId: data.planningSnapshot?.session?.id ?? null });
-
+  const primarySurface = firstNavigableLaunchSurface(
+    recentExecution.flatMap((item) => item.launch_surfaces ?? []),
+  );
+  const launchLocation = primarySurface
+    ? (launchSurfaceToLocation(primarySurface)
+      ?? createLocation({ state: "plan", reviewFocus: "planning", sessionId: data.planningSnapshot?.session?.id ?? null }))
+    : createLocation({ state: "plan", reviewFocus: "planning", sessionId: data.planningSnapshot?.session?.id ?? null });
+  const propagatedWorkingSetId = launchSurfaceWorkingSetId(primarySurface);
+  const propagatedWorkingSetLabel = workingSetLabel(propagatedWorkingSetId);
   const latestDownstreamSummary = recentExecution.at(-1)?.resource_change_summary?.downstream_summary_label;
-
+  const previewItems = followUpResources.length
+    ? followUpResources.map((resource, index) => ({
+        label: `Follow-up ${index + 1}`,
+        value: resource.label || `${resource.resource_type} #${resource.resource_id}`,
+      }))
+    : buildPlanningResourcePreviewItems(downstreamGroups);
+  const card = {
+    id: "since-last-handoffs",
+    kind: "handoff",
+    tone: "progress",
+    eyebrow: "Resume signal",
+    title: "Plan-created downstream handoffs",
+    summary: latestDownstreamSummary
+      ?? `${downstreamGroups.reduce((sum, group) => sum + group.count, 0)} downstream resources were created or updated after your last visit.`,
+    rationale:
+      "Downstream resources are the clearest sign that planning already prepared the next surface or durable artifact for the operator.",
+    preview: [
+      ...(propagatedWorkingSetLabel ? [{ label: "Working set", value: propagatedWorkingSetLabel }] : []),
+      ...previewItems,
+    ].slice(0, 4),
+    trust: {
+      contextSources: [
+        "Planning execution history",
+        "Typed downstream resource-change summaries",
+        "Last-visit browser baseline",
+      ],
+      assumptions: ["The downstream resources still exist and remain valid resume targets."],
+      confidenceLabel: "Prepared resume handoff",
+      rollbackLabel: summarizeRollbackCue(recentExecution.at(-1)?.rollback_cues),
+      freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
+    },
+    handoff: {
+      changeSummary: "Planning execution produced durable follow-up work while you were away.",
+      createdResources: downstreamGroups.length
+        ? downstreamGroups.map((group) => group.display_label)
+        : followUpResources.map((resource) => resource.operation_summary),
+      nextStep: primarySurface?.reason || "Open the prepared handoff or resume the planning workspace to inspect the execution trail.",
+      breadcrumbs: ["Home", "Since last visit", "Planning handoffs"],
+    },
+    actions: [
+      buildOpenAction("Open handoff", launchLocation, "Open the newest downstream planning handoff"),
+      buildPinAction("Pin handoff recap", launchLocation, "Return to the latest plan-created handoff recap", "Resume · plan handoffs"),
+    ],
+  } satisfies OperatorActionCard;
   return {
     priority: 80,
-    card: {
-      id: "since-last-handoffs",
-      kind: "handoff",
-      tone: "progress",
-      eyebrow: "Resume signal",
-      title: "Plan-created downstream handoffs",
-      summary: latestDownstreamSummary
-        ?? `${downstreamGroups.reduce((sum, group) => sum + group.count, 0)} downstream resources were created or updated after your last visit.`,
-      rationale:
-        "Downstream resources are the clearest sign that planning already prepared the next surface or durable artifact for the operator.",
-      preview: followUpResources.length
-        ? followUpResources.map((resource, index) => ({
-            label: `Follow-up ${index + 1}`,
-            value: resource.label || `${resource.resource_type} #${resource.resource_id}`,
-          }))
-        : buildPlanningResourcePreviewItems(downstreamGroups),
-      trust: {
-        contextSources: [
-          "Planning execution history",
-          "Typed downstream resource-change summaries",
-          "Last-visit browser baseline",
-        ],
-        assumptions: ["The downstream resources still exist and remain valid resume targets."],
-        confidenceLabel: "Prepared resume handoff",
-        rollbackLabel: summarizeRollbackCue(recentExecution.at(-1)?.rollback_cues),
-        freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
-      },
-      handoff: {
-        changeSummary: "Planning execution produced durable follow-up work while you were away.",
-        createdResources: downstreamGroups.length
-          ? downstreamGroups.map((group) => group.display_label)
-          : followUpResources.map((resource) => resource.operation_summary),
-        nextStep: "Open the prepared handoff or resume the planning workspace to inspect the execution trail.",
-        breadcrumbs: ["Home", "Since last visit", "Planning handoffs"],
-      },
-      actions: [
-        buildOpenAction("Open handoff", launchLocation, "Open the newest downstream planning handoff"),
-        buildPinAction("Pin handoff recap", launchLocation, "Return to the latest plan-created handoff recap", "Resume · plan handoffs"),
-      ],
-    },
+    card: withResolvedWorkingSetHandoff(card, propagatedWorkingSetId),
   } satisfies PrioritizedCard;
 }
 
@@ -1698,16 +1809,7 @@ function pushUniqueAction(actions: OperatorActionCardAction[], action: OperatorA
 }
 
 function currentWorkingSetHandoffMetadata(): WorkingSetSessionMetadata | null {
-  const activeSet = workingSetContext?.active_working_set ?? null;
-  if (!activeSet) {
-    return null;
-  }
-  return {
-    workingSetId: activeSet.id,
-    workingSetName: activeSet.name,
-    itemCount: activeSet.item_count,
-    missingItemCount: activeSet.missing_item_count,
-  };
+  return workingSetHandoffMetadata(workingSetContext?.active_working_set_id ?? null);
 }
 
 function withWorkingSetHandoff(cards: OperatorActionCard[]): OperatorActionCard[] {
@@ -1716,7 +1818,7 @@ function withWorkingSetHandoff(cards: OperatorActionCard[]): OperatorActionCard[
     return cards;
   }
   return cards.map((card) => {
-    if (!card.handoff) {
+    if (!card.handoff || card.handoff.workingSet != null) {
       return card;
     }
     return {
@@ -1737,9 +1839,7 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
   const createdResources: string[] = [];
 
   const workingSetId = workingSetContext?.active_working_set_id ?? continuityBaseline?.activeWorkingSetId ?? null;
-  const anchoredWorkingSet = workingSetId != null
-    ? latestWorkingSets.find((set) => set.id === workingSetId) ?? null
-    : null;
+  const anchoredWorkingSet = workingSetById(workingSetId);
   const workingSetLocation = anchoredWorkingSet ? workingSetSessionLocation(anchoredWorkingSet.id) : null;
   if (anchoredWorkingSet && workingSetLocation) {
     preview.push({ label: "Working set", value: anchoredWorkingSet.name });
@@ -1751,6 +1851,7 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
   }
 
   if (resumeAnchors.lastPlanningSessionId != null) {
+    const planningWorkingSetLabel = workingSetLabel(resumeAnchors.lastPlanningWorkingSetId);
     const location = createLocation({
       state: "plan",
       reviewFocus: "planning",
@@ -1759,13 +1860,21 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
     });
     preview.push({
       label: "Planning",
-      value: `Session #${resumeAnchors.lastPlanningSessionId} · ${formatRelativeTime(resumeAnchors.lastPlanningVisitedAtUtc)}`,
+      value: [
+        `Session #${resumeAnchors.lastPlanningSessionId}`,
+        planningWorkingSetLabel,
+        formatRelativeTime(resumeAnchors.lastPlanningVisitedAtUtc),
+      ].filter((value): value is string => Boolean(value)).join(" · "),
     });
     createdResources.push(`Plan session #${resumeAnchors.lastPlanningSessionId}`);
+    if (planningWorkingSetLabel) {
+      createdResources.push(`Planning context: ${planningWorkingSetLabel}`);
+    }
     pushUniqueAction(actions, buildOpenAction("Resume plan", location, "Return to the last planning session you visited"));
   }
 
   if (resumeAnchors.lastReviewFocus && resumeAnchors.lastReviewSessionId != null) {
+    const reviewWorkingSetLabel = workingSetLabel(resumeAnchors.lastReviewWorkingSetId);
     const location = createLocation({
       state: "decide",
       reviewFocus: resumeAnchors.lastReviewFocus,
@@ -1774,9 +1883,16 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
     });
     preview.push({
       label: "Review",
-      value: `${resumeAnchors.lastReviewFocus} #${resumeAnchors.lastReviewSessionId} · ${formatRelativeTime(resumeAnchors.lastReviewVisitedAtUtc)}`,
+      value: [
+        `${resumeAnchors.lastReviewFocus} #${resumeAnchors.lastReviewSessionId}`,
+        reviewWorkingSetLabel,
+        formatRelativeTime(resumeAnchors.lastReviewVisitedAtUtc),
+      ].filter((value): value is string => Boolean(value)).join(" · "),
     });
     createdResources.push(`${resumeAnchors.lastReviewFocus} session #${resumeAnchors.lastReviewSessionId}`);
+    if (reviewWorkingSetLabel) {
+      createdResources.push(`Review context: ${reviewWorkingSetLabel}`);
+    }
     pushUniqueAction(actions, buildOpenAction("Resume review", location, "Return to the last saved review queue you opened", actions.length ? "secondary" : "primary"));
   }
 

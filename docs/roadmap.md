@@ -38,12 +38,12 @@ Goal: turn the first continuity slice into a sharper operator decision surface o
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Continuity signal refinement session**
-   - tighten the operator workspace’s since-last and handoff cards around the propagated working-set context so resume cues stay explicit after downstream workflow creation
-2. **Working-set-aware command and resume prioritization session**
+1. **Working-set-aware command and resume prioritization session**
    - update operator cards, command-palette ranking, and continuity resume actions so working-set-scoped follow-ups outrank generic session resumes when a bounded context is active
+2. **Workflow-handoff rendering completion session**
+   - audit operator cards and downstream workspace surfaces so propagated working-set badges, breadcrumbs, and next-surface cues render anywhere `handoff.workingSet` is available
 
-That next session order sharpens the continuity surfaces now that propagation is real, then improves prioritization so the shell consistently prefers the bounded-context handoff the user just created.
+That next session order first teaches the shell to prefer the bounded-context resume the operator just created, then finishes the visual handoff pass so every surface exposes the same explicit context.
 
 ## Delivery Model
 
