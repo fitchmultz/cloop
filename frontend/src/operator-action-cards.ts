@@ -165,6 +165,27 @@ function renderHandoff(card: OperatorActionCard): string {
   return renderWorkflowHandoff(card.handoff ?? null);
 }
 
+function renderActionArea(card: OperatorActionCard): string {
+  const contextLabel = card.actionContextLabel?.trim() ?? "";
+  const warning = card.actionWarning?.trim() ?? "";
+  if (!card.actions.length && !contextLabel && !warning) {
+    return "";
+  }
+  return `
+    <section class="operator-action-section" aria-label="Actions">
+      ${contextLabel ? `<p class="operator-action-section-title">${escapeHtml(contextLabel)}</p>` : ""}
+      ${warning ? `<p class="operator-action-warning">${escapeHtml(warning)}</p>` : ""}
+      ${card.actions.length
+        ? `
+          <div class="operator-card-actions operator-action-card-actions">
+            ${card.actions.map((action) => renderActionButton(card, action)).join("")}
+          </div>
+        `
+        : ""}
+    </section>
+  `;
+}
+
 function renderActionCard(card: OperatorActionCard): string {
   return `
     <article class="operator-action-card operator-action-card--${escapeHtml(card.kind)} operator-action-card--${escapeHtml(card.tone)}">
@@ -183,9 +204,7 @@ function renderActionCard(card: OperatorActionCard): string {
       ${renderPreview(card)}
       ${renderTrust(card)}
       ${renderHandoff(card)}
-      <div class="operator-card-actions operator-action-card-actions">
-        ${card.actions.map((action) => renderActionButton(card, action)).join("")}
-      </div>
+      ${renderActionArea(card)}
     </article>
   `;
 }

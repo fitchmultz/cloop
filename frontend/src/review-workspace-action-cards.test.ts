@@ -90,6 +90,9 @@ describe("review-workspace-action-cards", () => {
 
     expect(card.actions.some((action) => action.type === "event" && action.attributes["data-review-action"] === "relationship-confirm")).toBe(true);
     expect(card.actions.some((action) => action.type === "event" && action.attributes["data-review-action"] === "relationship-dismiss")).toBe(true);
+    expect(card.actionContextLabel).toBe("Decision required");
+    expect(card.actionWarning).toContain("not reversible");
+    expect(card.handoff?.breadcrumbs).toContain("Relationship review");
     expect(card.handoff?.workingSet?.workingSetName).toBe("Hiring loop");
   });
 
@@ -117,6 +120,9 @@ describe("review-workspace-action-cards", () => {
 
     expect(card.preview.some((item) => item.label === "next action")).toBe(true);
     expect(card.actions.some((action) => action.type === "event" && action.attributes["data-review-action"] === "enrichment-apply")).toBe(true);
+    expect(card.actionContextLabel).toBe("Decision required");
+    expect(card.actionWarning).toContain("mutates");
+    expect(card.handoff?.breadcrumbs).toContain("Enrichment review");
     expect(card.handoff?.workingSet?.workingSetName).toBe("Hiring loop");
   });
 });

@@ -256,11 +256,24 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function normalizedTimestampValue(value: string): string {
+  if (!value.trim()) {
+    return value;
+  }
+  if (/[zZ]$|[+-]\d\d:\d\d$/.test(value)) {
+    return value;
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return `${value.replace(" ", "T")}Z`;
+  }
+  return value;
+}
+
 function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return "—";
   }
-  const date = new Date(value);
+  const date = new Date(normalizedTimestampValue(value));
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -271,7 +284,7 @@ function formatRelativeTime(value: string | null | undefined): string {
   if (!value) {
     return "unknown time";
   }
-  const date = new Date(value);
+  const date = new Date(normalizedTimestampValue(value));
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -414,6 +427,9 @@ function parseHashToFocus(hash: string): ReviewFocusDetail | null {
   }
   if (location.state === "decide" && location.reviewFocus === "enrichment") {
     return { focus: "enrichment", sessionId: location.sessionId ?? null };
+  }
+  if (location.state === "decide" && location.reviewFocus === "cohorts") {
+    return { focus: "cohorts", sessionId: null };
   }
   return null;
 }
@@ -780,6 +796,183 @@ function describeQueueCount(currentIndex: number | null | undefined, total: numb
   return `Item ${currentIndex + 1} of ${total}`;
 }
 
+function describeProgressFraction(currentIndex: number | null | undefined, total: number): string {
+  if (!Number.isInteger(total) || total <= 0) {
+    return `0/${Math.max(0, total)}`;
+  }
+  if (currentIndex == null || !Number.isInteger(currentIndex)) {
+    return `0/${total}`;
+  }
+  return `${Math.min(total, currentIndex + 1)}/${total}`;
+}
+
+function normalizeConfidenceValue(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1 ? value / 100 : value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed > 1 ? parsed / 100 : parsed;
+    }
+  }
+  return null;
+}
+
+function relationshipItemDrifted(
+  snapshot: RelationshipReviewSessionSnapshotResponse | null,
+  item: RelationshipReviewSessionSnapshotResponse["current_item"] | null,
+): boolean {
+  const candidate = relationshipPrimaryCandidate(item);
+  const loopUpdated = parseTimestampMs(item?.loop.updated_at_utc);
+  const candidateUpdated = parseTimestampMs(candidate?.updated_at_utc);
+  const sessionUpdated = parseTimestampMs(snapshot?.session.updated_at_utc);
+  return sessionUpdated != null && Math.max(loopUpdated ?? 0, candidateUpdated ?? 0) > sessionUpdated;
+}
+
+function relationshipLowConfidence(item: RelationshipReviewSessionSnapshotResponse["current_item"] | null): boolean {
+  const candidate = relationshipPrimaryCandidate(item);
+  return candidate != null && candidate.score < 0.75;
+}
+
+function relationshipReasonChip(item: RelationshipReviewSessionSnapshotResponse["current_item"] | null): string {
+  const candidate = relationshipPrimaryCandidate(item);
+  if (!candidate) {
+    return "No active candidate";
+  }
+  return candidate.relationship_type === "duplicate" ? "Duplicate lead" : "Related lead";
+}
+
+function relationshipReasonText(item: RelationshipReviewSessionSnapshotResponse["current_item"] | null): string {
+  const candidate = relationshipPrimaryCandidate(item);
+  if (!candidate || !item) {
+    return "This loop is still in the saved session, but no active relationship candidate remains in the current snapshot.";
+  }
+  const count = candidate.relationship_type === "duplicate" ? item.duplicate_count : item.related_count;
+  return `${count} ${candidate.relationship_type} candidate${count === 1 ? "" : "s"} surfaced for this loop. Top match is ${loopTitle(candidate)} at ${Math.round(candidate.score * 100)}% similarity.`;
+}
+
+function relationshipDecisionLabel(item: RelationshipReviewSessionSnapshotResponse["current_item"] | null): string {
+  const candidate = relationshipPrimaryCandidate(item);
+  if (!candidate) {
+    return "Refresh, broaden the query, or move to the next loop.";
+  }
+  return candidate.relationship_type === "duplicate"
+    ? "Confirm duplicate, merge the loops, or dismiss this candidate."
+    : "Confirm related, escalate to duplicate, or dismiss this candidate.";
+}
+
+function relationshipConsequenceWarning(item: RelationshipReviewSessionSnapshotResponse["current_item"] | null): string | null {
+  const candidate = relationshipPrimaryCandidate(item);
+  if (!candidate) {
+    return null;
+  }
+  return candidate.relationship_type === "duplicate"
+    ? "Duplicate confirmation or merge is not reversible in-place. Verify both loops represent the same work before committing."
+    : "Confirm as duplicate is not reversible in-place. Use that path only if both loops should collapse together.";
+}
+
+function enrichmentTopSuggestion(item: EnrichmentReviewQueueItemResponse | null) {
+  return item?.pending_suggestions[0] ?? null;
+}
+
+function enrichmentSuggestedFields(item: EnrichmentReviewQueueItemResponse | null): string[] {
+  const suggestion = enrichmentTopSuggestion(item);
+  if (!suggestion || typeof suggestion.parsed !== "object" || !suggestion.parsed) {
+    return [];
+  }
+  return Object.keys(suggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key));
+}
+
+function enrichmentSuggestionConfidence(item: EnrichmentReviewQueueItemResponse | null): number | null {
+  const suggestion = enrichmentTopSuggestion(item);
+  if (!suggestion || typeof suggestion.parsed !== "object" || !suggestion.parsed) {
+    return null;
+  }
+  return normalizeConfidenceValue((suggestion.parsed as Record<string, unknown>)["confidence"]);
+}
+
+function enrichmentItemDrifted(
+  snapshot: EnrichmentReviewSessionSnapshotResponse | null,
+  item: EnrichmentReviewQueueItemResponse | null,
+): boolean {
+  const sessionUpdated = parseTimestampMs(snapshot?.session.updated_at_utc);
+  const loopUpdated = parseTimestampMs(item?.loop.updated_at_utc);
+  const newestPending = parseTimestampMs(item?.newest_pending_at);
+  return sessionUpdated != null && Math.max(loopUpdated ?? 0, newestPending ?? 0) > sessionUpdated;
+}
+
+function enrichmentLowConfidence(item: EnrichmentReviewQueueItemResponse | null): boolean {
+  const confidence = enrichmentSuggestionConfidence(item);
+  return confidence != null && confidence < 0.75;
+}
+
+function enrichmentReasonChip(item: EnrichmentReviewQueueItemResponse | null): string {
+  if (!item) {
+    return "No pending work";
+  }
+  if (item.pending_clarification_count > 0) {
+    return "Clarification required";
+  }
+  if (item.pending_suggestion_count > 0) {
+    return "Suggestion ready";
+  }
+  return "Awaiting refresh";
+}
+
+function enrichmentReasonText(item: EnrichmentReviewQueueItemResponse | null): string {
+  if (!item) {
+    return "No active enrichment item remains in this saved session.";
+  }
+  const fields = enrichmentSuggestedFields(item);
+  if (item.pending_clarification_count > 0) {
+    return `${item.pending_clarification_count} unanswered clarification${item.pending_clarification_count === 1 ? "" : "s"} are blocking trustworthy apply decisions for this loop.`;
+  }
+  if (fields.length > 0) {
+    return `The top pending suggestion proposes updates to ${fields.slice(0, 3).join(", ")}${fields.length > 3 ? ", and more" : ""}.`;
+  }
+  return `${item.pending_suggestion_count} pending suggestion${item.pending_suggestion_count === 1 ? "" : "s"} remain for manual review.`;
+}
+
+function enrichmentDecisionLabel(item: EnrichmentReviewQueueItemResponse | null): string {
+  if (!item) {
+    return "Refresh, broaden the query, or move to the next queue.";
+  }
+  if (item.pending_clarification_count > 0) {
+    return "Answer clarifications before trusting or applying older suggestions.";
+  }
+  return "Apply the top suggestion, reject it, use a saved action, or inspect the loop in Do.";
+}
+
+function enrichmentApplyWarning(item: EnrichmentReviewQueueItemResponse | null): string | null {
+  return item?.pending_suggestion_count
+    ? "Applying a suggestion mutates loop fields immediately and may supersede current context."
+    : null;
+}
+
+function cohortDrifted(cohort: LoopReviewCohortResponse | null, generatedAtUtc: string | null): boolean {
+  const generatedMs = parseTimestampMs(generatedAtUtc);
+  if (generatedMs == null || !cohort) {
+    return false;
+  }
+  return cohort.items.some((item) => {
+    const updatedMs = parseTimestampMs(item.updated_at_utc);
+    return updatedMs != null && updatedMs > generatedMs;
+  });
+}
+
+function renderToolbarMeta(chips: string[], note: string | null = null): string {
+  if (!chips.length && !note) {
+    return "";
+  }
+  return `
+    <div class="review-shell-toolbar-meta">
+      <div class="review-shell-inline-chip-row">${chips.join("")}</div>
+      ${note ? `<p class="review-shell-toolbar-note">${escapeHtml(note)}</p>` : ""}
+    </div>
+  `;
+}
+
 function selectedRelationshipAction(): RelationshipReviewActionResponse | null {
   return state.relationshipActions.find((action) => action.id === state.relationshipActionId) ?? null;
 }
@@ -871,7 +1064,7 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   if (!value) {
     return null;
   }
-  const timestamp = Date.parse(value);
+  const timestamp = Date.parse(normalizedTimestampValue(value));
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
@@ -931,10 +1124,7 @@ function relationshipTrustMetadata(
   item: RelationshipReviewSessionSnapshotResponse["current_item"] | null,
 ): TrustSurfaceMetadata {
   const candidate = relationshipPrimaryCandidate(item);
-  const loopUpdated = parseTimestampMs(item?.loop.updated_at_utc);
-  const candidateUpdated = parseTimestampMs(candidate?.updated_at_utc);
-  const sessionUpdated = parseTimestampMs(snapshot?.session.updated_at_utc);
-  const drifted = sessionUpdated != null && Math.max(loopUpdated ?? 0, candidateUpdated ?? 0) > sessionUpdated;
+  const drifted = relationshipItemDrifted(snapshot, item);
 
   return {
     generationLabel: "Deterministic similarity queue + human decision",
@@ -956,9 +1146,9 @@ function relationshipTrustMetadata(
       : `Queue refreshed ${formatRelativeTime(snapshot?.session.updated_at_utc)}`,
     freshnessTone: drifted ? "attention" : "progress",
     rollbackLabel: candidate?.relationship_type === "duplicate"
-      ? "Duplicate confirmation may need a manual follow-up to reverse"
-      : "Related-loop confirmation remains an explicit follow-up change",
-    rollbackTone: candidate?.relationship_type === "duplicate" ? "caution" : "neutral",
+      ? "Duplicate confirmation or merge is not reversible in-place"
+      : "Confirm as duplicate is not reversible in-place; inspect carefully before choosing it",
+    rollbackTone: "caution",
     impactSummary: candidate
       ? relationshipRecommendation(item)
       : "Refresh or broaden the queue to surface more relationship candidates.",
@@ -970,14 +1160,10 @@ function enrichmentTrustMetadata(
   snapshot: EnrichmentReviewSessionSnapshotResponse | null,
   item: EnrichmentReviewQueueItemResponse | null,
 ): TrustSurfaceMetadata {
-  const suggestion = item?.pending_suggestions[0] ?? null;
-  const suggestionFields = suggestion && typeof suggestion.parsed === "object" && suggestion.parsed
-    ? Object.keys(suggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
-    : [];
+  const suggestion = enrichmentTopSuggestion(item);
+  const suggestionFields = enrichmentSuggestedFields(item);
   const newestPendingAt = item?.newest_pending_at ?? null;
-  const loopUpdated = parseTimestampMs(item?.loop.updated_at_utc);
-  const newestPendingMs = parseTimestampMs(newestPendingAt);
-  const drifted = loopUpdated != null && newestPendingMs != null && loopUpdated > newestPendingMs;
+  const drifted = enrichmentItemDrifted(snapshot, item);
 
   return {
     generationLabel: "AI-assisted suggestion queue",
@@ -999,14 +1185,14 @@ function enrichmentTrustMetadata(
           : "Queue ready for follow-up review",
     confidenceTone: item?.pending_clarification_count ? "attention" : "progress",
     freshnessLabel: drifted
-      ? "Loop changed after the newest pending suggestion or clarification"
+      ? "Loop or pending enrichment changed after the saved queue snapshot"
       : newestPendingAt
         ? `Newest pending ${formatRelativeTime(newestPendingAt)}`
         : `Queue refreshed ${formatRelativeTime(snapshot?.session.updated_at_utc)}`,
     freshnessTone: drifted ? "attention" : "progress",
     rollbackLabel: item?.pending_clarification_count
       ? "Clarification answers rerun enrichment and may supersede older suggestions"
-      : "Apply or reject changes loop state explicitly inside this queue",
+      : "Applying a suggestion mutates loop fields immediately",
     rollbackTone: "caution",
     impactSummary: item ? enrichmentRecommendation(item) : "Refresh the session or widen the query to surface more pending enrichment work.",
     impactTone: item?.pending_clarification_count ? "attention" : "neutral",
@@ -1099,6 +1285,26 @@ function renderControls(): void {
   }
 
   if (state.activeMode === "relationship") {
+    const snapshot = state.relationshipSnapshot;
+    const driftedCount = snapshot?.items.filter((item) => relationshipItemDrifted(snapshot, item)).length ?? 0;
+    const lowConfidenceCount = snapshot?.items.filter((item) => relationshipLowConfidence(item)).length ?? 0;
+    const toolbarMeta = snapshot?.session
+      ? renderToolbarMeta(
+          [
+            reviewChip(`Progress ${describeProgressFraction(snapshot.current_index, snapshot.loop_count)}`),
+            reviewChip(`Purpose ${snapshot.session.relationship_kind} · ${snapshot.session.query}`),
+            reviewChip(`${snapshot.loop_count} queued loop${snapshot.loop_count === 1 ? "" : "s"}`),
+            driftedCount
+              ? reviewChip(`${driftedCount} drifted`, "alert")
+              : reviewChip(`Refreshed ${formatRelativeTime(snapshot.session.updated_at_utc)}`),
+            lowConfidenceCount ? reviewChip(`${lowConfidenceCount} low-confidence`, "alert") : "",
+          ].filter((chip): chip is string => Boolean(chip)),
+          driftedCount
+            ? "Some loops or candidates changed after this saved snapshot. Refresh before committing risky duplicate decisions."
+            : null,
+        )
+      : "";
+
     elements.controls.innerHTML = `
       <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
         <label class="review-shell-field" for="review-shell-relationship-session-select">
@@ -1128,11 +1334,32 @@ function renderControls(): void {
         <button type="button" class="secondary" data-review-action="relationship-action-edit" ${selectedRelationshipAction() ? "" : "disabled"}>Edit action</button>
         <button type="button" class="secondary" data-review-action="relationship-action-delete" ${selectedRelationshipAction() ? "" : "disabled"}>Delete action</button>
       </div>
+      ${toolbarMeta}
     `;
     return;
   }
 
   if (state.activeMode === "enrichment") {
+    const snapshot = state.enrichmentSnapshot;
+    const driftedCount = snapshot?.items.filter((item) => enrichmentItemDrifted(snapshot, item)).length ?? 0;
+    const lowConfidenceCount = snapshot?.items.filter((item) => enrichmentLowConfidence(item)).length ?? 0;
+    const toolbarMeta = snapshot?.session
+      ? renderToolbarMeta(
+          [
+            reviewChip(`Progress ${describeProgressFraction(snapshot.current_index, snapshot.loop_count)}`),
+            reviewChip(`Purpose ${snapshot.session.pending_kind} · ${snapshot.session.query}`),
+            reviewChip(`${snapshot.loop_count} queued loop${snapshot.loop_count === 1 ? "" : "s"}`),
+            driftedCount
+              ? reviewChip(`${driftedCount} drifted`, "alert")
+              : reviewChip(`Refreshed ${formatRelativeTime(snapshot.session.updated_at_utc)}`),
+            lowConfidenceCount ? reviewChip(`${lowConfidenceCount} low-confidence`, "alert") : "",
+          ].filter((chip): chip is string => Boolean(chip)),
+          driftedCount
+            ? "Some loops or pending enrichment changed after this saved snapshot. Refresh before applying stale suggestions."
+            : null,
+        )
+      : "";
+
     elements.controls.innerHTML = `
       <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
         <label class="review-shell-field" for="review-shell-enrichment-session-select">
@@ -1162,11 +1389,26 @@ function renderControls(): void {
         <button type="button" class="secondary" data-review-action="enrichment-action-edit" ${selectedEnrichmentAction() ? "" : "disabled"}>Edit action</button>
         <button type="button" class="secondary" data-review-action="enrichment-action-delete" ${selectedEnrichmentAction() ? "" : "disabled"}>Delete action</button>
       </div>
+      ${toolbarMeta}
     `;
     return;
   }
 
-  const cohorts = (state.reviewData?.[state.reviewMode] ?? []).filter((item) => item.count > 0);
+  const cohorts = state.reviewData?.[state.reviewMode] ?? [];
+  const activeCohorts = cohorts.filter((item) => item.count > 0);
+  const selected = selectedCohort();
+  const driftedCount = activeCohorts.filter((cohort) => cohortDrifted(cohort, state.reviewData?.generated_at_utc ?? null)).length;
+  const toolbarMeta = renderToolbarMeta(
+    [
+      reviewChip(`Progress ${activeCohorts.length}/${cohorts.length || 0} active cohorts`),
+      reviewChip(state.reviewMode === "daily" ? "Daily cadence" : "Weekly cadence"),
+      selected ? reviewChip(`Selected ${selected.count} loop${selected.count === 1 ? "" : "s"}`) : "",
+      driftedCount
+        ? reviewChip(`${driftedCount} drifted`, "alert")
+        : reviewChip(`Generated ${formatRelativeTime(state.reviewData?.generated_at_utc ?? null)}`),
+    ].filter((chip): chip is string => Boolean(chip)),
+    driftedCount ? "Some cohort members changed after the review snapshot. Refresh to repopulate the hygiene queue with current data." : null,
+  );
   elements.controls.innerHTML = `
     <div class="review-shell-toolbar-group review-shell-toolbar-group--grow">
       <div class="review-shell-segmented" role="group" aria-label="Review cadence">
@@ -1176,8 +1418,9 @@ function renderControls(): void {
     </div>
     <div class="review-shell-toolbar-group">
       <button type="button" class="secondary" data-review-action="cohort-refresh">Refresh cohorts</button>
-      <button type="button" data-review-action="cohort-open-top" ${cohorts.length ? "" : "disabled"}>Open top item</button>
+      <button type="button" data-review-action="cohort-open-top" ${activeCohorts.length ? "" : "disabled"}>Open top item</button>
     </div>
+    ${toolbarMeta}
   `;
 }
 
@@ -1221,6 +1464,8 @@ function renderOverview(): void {
     const highConfidence = snapshot?.items.filter((item) => item.top_score >= 0.9).length ?? 0;
     const duplicatePocket = snapshot?.items.reduce((sum, item) => sum + item.duplicate_count, 0) ?? 0;
     const relatedPocket = snapshot?.items.reduce((sum, item) => sum + item.related_count, 0) ?? 0;
+    const driftedCount = snapshot?.items.filter((item) => relationshipItemDrifted(snapshot, item)).length ?? 0;
+    const lowConfidenceCount = snapshot?.items.filter((item) => relationshipLowConfidence(item)).length ?? 0;
     elements.overview.innerHTML = snapshot?.session
       ? `
         <div class="review-shell-overview-grid">
@@ -1231,13 +1476,13 @@ function renderOverview(): void {
           </article>
           <article class="review-shell-overview-card">
             <span class="review-shell-overview-label">Progress</span>
-            <strong>${describeQueueCount(snapshot.current_index, snapshot.loop_count)}</strong>
+            <strong>${describeProgressFraction(snapshot.current_index, snapshot.loop_count)} reviewed</strong>
             <p>${current ? `Current loop: ${escapeHtml(loopTitle(current.loop))}` : "No current loop selected."}</p>
           </article>
           <article class="review-shell-overview-card">
             <span class="review-shell-overview-label">Queue health</span>
-            <strong>${highConfidence} high-confidence item${highConfidence === 1 ? "" : "s"}</strong>
-            <p>${duplicatePocket} duplicate candidates · ${relatedPocket} related candidates still visible.</p>
+            <strong>${highConfidence}/${snapshot.loop_count} high-confidence item${highConfidence === 1 ? "" : "s"}</strong>
+            <p>${driftedCount} drifted · ${lowConfidenceCount} low-confidence · ${duplicatePocket} duplicate candidates · ${relatedPocket} related candidates.</p>
           </article>
         </div>
       `
@@ -1253,6 +1498,8 @@ function renderOverview(): void {
     const newestPending = snapshot?.items
       .map((item) => item.newest_pending_at)
       .sort((left, right) => right.localeCompare(left))[0] ?? null;
+    const driftedCount = snapshot?.items.filter((item) => enrichmentItemDrifted(snapshot, item)).length ?? 0;
+    const lowConfidenceCount = snapshot?.items.filter((item) => enrichmentLowConfidence(item)).length ?? 0;
 
     elements.overview.innerHTML = snapshot?.session
       ? `
@@ -1264,13 +1511,13 @@ function renderOverview(): void {
           </article>
           <article class="review-shell-overview-card">
             <span class="review-shell-overview-label">Progress</span>
-            <strong>${describeQueueCount(snapshot.current_index, snapshot.loop_count)}</strong>
+            <strong>${describeProgressFraction(snapshot.current_index, snapshot.loop_count)} reviewed</strong>
             <p>${current ? `Current loop: ${escapeHtml(loopTitle(current.loop))}` : "No current loop selected."}</p>
           </article>
           <article class="review-shell-overview-card">
             <span class="review-shell-overview-label">Queue health</span>
             <strong>${clarificationHeavy} clarification-heavy item${clarificationHeavy === 1 ? "" : "s"}</strong>
-            <p>${suggestionHeavy} suggestion-heavy item${suggestionHeavy === 1 ? "" : "s"} · newest pending ${formatRelativeTime(newestPending)}</p>
+            <p>${suggestionHeavy} suggestion-heavy · ${driftedCount} drifted · ${lowConfidenceCount} low-confidence · newest pending ${formatRelativeTime(newestPending)}</p>
           </article>
         </div>
       `
@@ -1281,6 +1528,8 @@ function renderOverview(): void {
   const cohorts = state.reviewData?.[state.reviewMode] ?? [];
   const totalItems = cohorts.reduce((sum, cohort) => sum + cohort.count, 0);
   const activeCohort = selectedCohort();
+  const activeCohortCount = cohorts.filter((item) => item.count > 0).length;
+  const driftedCount = cohorts.filter((cohort) => cohortDrifted(cohort, state.reviewData?.generated_at_utc ?? null)).length;
   elements.overview.innerHTML = `
     <div class="review-shell-overview-grid">
       <article class="review-shell-overview-card">
@@ -1291,7 +1540,7 @@ function renderOverview(): void {
       <article class="review-shell-overview-card">
         <span class="review-shell-overview-label">Queue health</span>
         <strong>${totalItems} item${totalItems === 1 ? "" : "s"} in view</strong>
-        <p>${cohorts.filter((item) => item.count > 0).length} active cohort${cohorts.filter((item) => item.count > 0).length === 1 ? "" : "s"}.</p>
+        <p>${activeCohortCount} active cohort${activeCohortCount === 1 ? "" : "s"} · ${driftedCount} drifted.</p>
       </article>
       <article class="review-shell-overview-card">
         <span class="review-shell-overview-label">Current cohort</span>
@@ -1304,6 +1553,104 @@ function renderOverview(): void {
 
 function queueItemButtonAttributes(hash: string): string {
   return `data-review-open-hash="${escapeHtml(hash)}"`;
+}
+
+function relationshipEmptyStateHtml(snapshot: RelationshipReviewSessionSnapshotResponse | null): string {
+  const session = snapshot?.session;
+  if (!session) {
+    return '<p class="review-shell-empty">Create or select a relationship session to preserve queue purpose, progress, and cursor state.</p>';
+  }
+  return `
+    <div class="review-shell-empty">
+      <strong>No queued relationship decisions</strong>
+      <p>No duplicate or related candidates currently match “${escapeHtml(session.query)}”.</p>
+      <p>To repopulate this queue, capture or update loops so similarity review finds candidates, or edit the saved session query and refresh.</p>
+    </div>
+  `;
+}
+
+function enrichmentEmptyStateHtml(snapshot: EnrichmentReviewSessionSnapshotResponse | null): string {
+  const session = snapshot?.session;
+  if (!session) {
+    return '<p class="review-shell-empty">Create or select an enrichment session to preserve suggestion-review progress and cursor state.</p>';
+  }
+  return `
+    <div class="review-shell-empty">
+      <strong>No queued enrichment decisions</strong>
+      <p>No pending suggestions or clarifications currently match “${escapeHtml(session.query)}”.</p>
+      <p>To repopulate this queue, run enrichment on matching loops so new suggestions or clarifications are generated, or edit the saved session query and refresh.</p>
+    </div>
+  `;
+}
+
+function cohortEmptyStateHtml(reviewMode: "daily" | "weekly"): string {
+  return `
+    <div class="review-shell-empty">
+      <strong>No active ${escapeHtml(reviewMode)} cohorts</strong>
+      <p>This cadence currently has no loops surfacing as stale, blocked too long, missing a next action, or due soon without enough planning.</p>
+      <p>Refresh after upstream loop changes, or switch cadence to inspect the other review horizon.</p>
+    </div>
+  `;
+}
+
+function renderRelationshipQueueCard(
+  snapshot: RelationshipReviewSessionSnapshotResponse,
+  item: RelationshipReviewSessionSnapshotResponse["items"][number],
+): string {
+  const active = snapshot.session.current_loop_id === item.loop.id;
+  const candidate = relationshipPrimaryCandidate(item);
+  const drifted = relationshipItemDrifted(snapshot, item);
+  const lowConfidence = relationshipLowConfidence(item);
+
+  return `
+    <button type="button" class="review-shell-rail-card review-shell-rail-card--button ${active ? "is-active" : ""}" data-review-action="relationship-select-loop" data-loop-id="${item.loop.id}">
+      <div class="review-shell-rail-card-header">
+        <strong>${escapeHtml(loopTitle(item.loop))}</strong>
+        ${candidate ? reviewChip(`${Math.round(candidate.score * 100)}%`, candidate.score >= 0.9 ? "alert" : "default") : reviewChip("No candidate")}
+      </div>
+      <div class="review-shell-inline-chip-row">
+        ${reviewChip(relationshipReasonChip(item), candidate?.relationship_type === "duplicate" ? "alert" : "default")}
+        ${drifted ? reviewChip("Snapshot drift", "alert") : ""}
+        ${lowConfidence ? reviewChip("Low confidence", "alert") : candidate && candidate.score < 0.9 ? reviewChip("Manual review") : ""}
+      </div>
+      <p>${escapeHtml(relationshipReasonText(item))}</p>
+      <div class="review-shell-inline-chip-row">
+        ${reviewChip(`Duplicates ${item.duplicate_count}`, item.duplicate_count ? "alert" : "default")}
+        ${reviewChip(`Related ${item.related_count}`)}
+      </div>
+      ${renderCompactTrust(relationshipTrustMetadata(snapshot, item))}
+    </button>
+  `;
+}
+
+function renderEnrichmentQueueCard(
+  snapshot: EnrichmentReviewSessionSnapshotResponse,
+  item: EnrichmentReviewQueueItemResponse,
+): string {
+  const active = snapshot.session.current_loop_id === item.loop.id;
+  const drifted = enrichmentItemDrifted(snapshot, item);
+  const lowConfidence = enrichmentLowConfidence(item);
+  const confidence = enrichmentSuggestionConfidence(item);
+
+  return `
+    <button type="button" class="review-shell-rail-card review-shell-rail-card--button ${active ? "is-active" : ""}" data-review-action="enrichment-select-loop" data-loop-id="${item.loop.id}">
+      <div class="review-shell-rail-card-header">
+        <strong>${escapeHtml(loopTitle(item.loop))}</strong>
+        ${reviewChip(formatRelativeTime(item.newest_pending_at), "default")}
+      </div>
+      <div class="review-shell-inline-chip-row">
+        ${reviewChip(enrichmentReasonChip(item), item.pending_clarification_count > 0 ? "alert" : "default")}
+        ${drifted ? reviewChip("Snapshot drift", "alert") : ""}
+        ${lowConfidence ? reviewChip("Low confidence", "alert") : confidence != null ? reviewChip(`${Math.round(confidence * 100)}% confidence`) : ""}
+      </div>
+      <p>${escapeHtml(enrichmentReasonText(item))}</p>
+      <div class="review-shell-inline-chip-row">
+        ${reviewChip(`Suggestions ${item.pending_suggestion_count}`, item.pending_suggestion_count ? "alert" : "default")}
+        ${reviewChip(`Clarifications ${item.pending_clarification_count}`, item.pending_clarification_count ? "alert" : "default")}
+      </div>
+      ${renderCompactTrust(enrichmentTrustMetadata(snapshot, item))}
+    </button>
+  `;
 }
 
 function renderQueue(): void {
@@ -1372,31 +1719,13 @@ function renderQueue(): void {
       ? `
         <div class="review-shell-rail-header">
           <h3>Queue rail</h3>
-          <p>${snapshot.loop_count} queued loop${snapshot.loop_count === 1 ? "" : "s"}</p>
+          <p>${snapshot.loop_count} queued loop${snapshot.loop_count === 1 ? "" : "s"} · ${escapeHtml(snapshot.session.query)}</p>
         </div>
         <div class="review-shell-rail-list">
-          ${snapshot.items
-            .map((item) => {
-              const active = snapshot.session.current_loop_id === item.loop.id;
-              return `
-                <button type="button" class="review-shell-rail-card review-shell-rail-card--button ${active ? "is-active" : ""}" data-review-action="relationship-select-loop" data-loop-id="${item.loop.id}">
-                  <div class="review-shell-rail-card-header">
-                    <strong>${escapeHtml(loopTitle(item.loop))}</strong>
-                    ${reviewChip(`${Math.round(item.top_score * 100)}%`, item.top_score >= 0.9 ? "alert" : "default")}
-                  </div>
-                  <p>${escapeHtml(loopPreview(item.loop))}</p>
-                  <div class="review-shell-inline-chip-row">
-                    ${reviewChip(`Duplicates ${item.duplicate_count}`, item.duplicate_count ? "alert" : "default")}
-                    ${reviewChip(`Related ${item.related_count}`)}
-                  </div>
-                  ${renderCompactTrust(relationshipTrustMetadata(snapshot, item))}
-                </button>
-              `;
-            })
-            .join("")}
+          ${snapshot.items.map((item) => renderRelationshipQueueCard(snapshot, item)).join("")}
         </div>
       `
-      : '<p class="review-shell-empty">No relationship-review queue is loaded.</p>';
+      : relationshipEmptyStateHtml(snapshot);
     return;
   }
 
@@ -1406,31 +1735,13 @@ function renderQueue(): void {
       ? `
         <div class="review-shell-rail-header">
           <h3>Queue rail</h3>
-          <p>${snapshot.loop_count} queued loop${snapshot.loop_count === 1 ? "" : "s"}</p>
+          <p>${snapshot.loop_count} queued loop${snapshot.loop_count === 1 ? "" : "s"} · ${escapeHtml(snapshot.session.query)}</p>
         </div>
         <div class="review-shell-rail-list">
-          ${snapshot.items
-            .map((item) => {
-              const active = snapshot.session.current_loop_id === item.loop.id;
-              return `
-                <button type="button" class="review-shell-rail-card review-shell-rail-card--button ${active ? "is-active" : ""}" data-review-action="enrichment-select-loop" data-loop-id="${item.loop.id}">
-                  <div class="review-shell-rail-card-header">
-                    <strong>${escapeHtml(loopTitle(item.loop))}</strong>
-                    ${reviewChip(formatRelativeTime(item.newest_pending_at), "default")}
-                  </div>
-                  <p>${escapeHtml(loopPreview(item.loop))}</p>
-                  <div class="review-shell-inline-chip-row">
-                    ${reviewChip(`Suggestions ${item.pending_suggestion_count}`, item.pending_suggestion_count ? "alert" : "default")}
-                    ${reviewChip(`Clarifications ${item.pending_clarification_count}`, item.pending_clarification_count ? "alert" : "default")}
-                  </div>
-                  ${renderCompactTrust(enrichmentTrustMetadata(snapshot, item))}
-                </button>
-              `;
-            })
-            .join("")}
+          ${snapshot.items.map((item) => renderEnrichmentQueueCard(snapshot, item)).join("")}
         </div>
       `
-      : '<p class="review-shell-empty">No enrichment-review queue is loaded.</p>';
+      : enrichmentEmptyStateHtml(snapshot);
     return;
   }
 
@@ -1439,17 +1750,22 @@ function renderQueue(): void {
     ? `
       <div class="review-shell-rail-header">
         <h3>Cohort rail</h3>
-        <p>${cohorts.length} active cohort${cohorts.length === 1 ? "" : "s"}</p>
+        <p>${cohorts.length} active cohort${cohorts.length === 1 ? "" : "s"} · ${state.reviewMode === "daily" ? "daily" : "weekly"} hygiene review</p>
       </div>
       <div class="review-shell-rail-list">
         ${cohorts
           .map((cohort) => {
             const active = state.selectedCohortKey === cohort.cohort;
+            const drifted = cohortDrifted(cohort, state.reviewData?.generated_at_utc ?? null);
             return `
               <button type="button" class="review-shell-rail-card review-shell-rail-card--button ${active ? "is-active" : ""}" data-review-action="cohort-select" data-cohort-key="${escapeHtml(cohort.cohort)}">
                 <div class="review-shell-rail-card-header">
                   <strong>${escapeHtml(cohortLabel(cohort))}</strong>
                   ${reviewChip(`${cohort.count} item${cohort.count === 1 ? "" : "s"}`, cohort.count > 0 ? "alert" : "default")}
+                </div>
+                <div class="review-shell-inline-chip-row">
+                  ${reviewChip(cohortDescriptor(cohort).label, "default")}
+                  ${drifted ? reviewChip("Snapshot drift", "alert") : reviewChip(state.reviewMode === "daily" ? "Daily cadence" : "Weekly cadence")}
                 </div>
                 <p>${escapeHtml(cohortDescriptor(cohort).why)}</p>
                 ${renderCompactTrust(cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null))}
@@ -1459,7 +1775,7 @@ function renderQueue(): void {
           .join("")}
       </div>
     `
-    : '<p class="review-shell-empty">No active review cohorts in this cadence.</p>';
+    : cohortEmptyStateHtml(state.reviewMode);
 }
 
 function renderLoopSummary(loop: { id: number; raw_text: string; title?: string | null; status?: string | null; summary?: string | null; next_action?: string | null; project?: string | null; due_date?: string | null; due_at_utc?: string | null; tags?: string[] | undefined }): string {
@@ -1504,6 +1820,13 @@ function renderRelationshipCandidateActions(loopId: number, candidate: Relations
 }
 
 function renderRelationshipCandidateCard(loopId: number, candidate: RelationshipReviewCandidateResponse): string {
+  const decisionText = candidate.relationship_type === "duplicate"
+    ? "Confirm duplicate, merge the loops, or dismiss this candidate."
+    : "Confirm related, confirm as duplicate, or dismiss this candidate.";
+  const warningText = candidate.relationship_type === "duplicate"
+    ? "Duplicate confirmation or merge is not reversible in-place."
+    : "Confirm as duplicate is not reversible in-place. Use that path only if both loops should collapse together.";
+
   return `
     <article class="review-shell-candidate-card review-shell-candidate-card--${escapeHtml(candidate.relationship_type)}">
       <div class="review-shell-candidate-header">
@@ -1519,7 +1842,12 @@ function renderRelationshipCandidateCard(loopId: number, candidate: Relationship
         ${candidate.existing_source ? reviewChip(`Existing source: ${candidate.existing_source}`) : ""}
         ${candidate.project ? reviewChip(`Project: ${candidate.project}`) : ""}
       </div>
-      ${renderRelationshipCandidateActions(loopId, candidate)}
+      <section class="review-shell-decision-block">
+        <p class="support-eyebrow">Decision required</p>
+        <p class="review-shell-decision-copy">${escapeHtml(decisionText)}</p>
+        <p class="review-shell-warning-copy">${escapeHtml(warningText)}</p>
+        ${renderRelationshipCandidateActions(loopId, candidate)}
+      </section>
     </article>
   `;
 }
@@ -1554,6 +1882,10 @@ function renderClarificationForm(item: EnrichmentReviewQueueItemResponse): strin
           `)
           .join("")}
       </div>
+      <section class="review-shell-decision-block">
+        <p class="support-eyebrow">Decision required</p>
+        <p class="review-shell-decision-copy">Answer at least one clarification, then rerun enrichment so the queue reflects the new context.</p>
+      </section>
       <div class="review-shell-inline-actions">
         <button type="submit">Answer clarifications & rerun</button>
       </div>
@@ -1654,16 +1986,26 @@ function renderWorkspace(): void {
                 <div class="review-shell-focus-card-header">
                   <div>
                     <p class="support-eyebrow">Why this item is here</p>
-                    <h3>${escapeHtml(relationshipRecommendation(item))}</h3>
+                    <h3>${escapeHtml(relationshipReasonText(item))}</h3>
                   </div>
-                  ${reviewChip(describeQueueCount(snapshot.current_index, snapshot.loop_count), "default")}
+                  ${reviewChip(`Progress ${describeProgressFraction(snapshot.current_index, snapshot.loop_count)}`, "default")}
                 </div>
-                <p>${escapeHtml(item.duplicate_count ? `${item.duplicate_count} duplicate candidate${item.duplicate_count === 1 ? "" : "s"}` : "No duplicate candidates" )} · ${escapeHtml(item.related_count ? `${item.related_count} related candidate${item.related_count === 1 ? "" : "s"}` : "No related candidates")}</p>
-                <div class="review-shell-inline-actions">
-                  <button type="button" class="secondary" data-review-action="relationship-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
-                  <button type="button" class="secondary" data-review-action="relationship-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
-                  <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
+                <div class="review-shell-inline-chip-row">
+                  ${reviewChip(`Session ${snapshot.session.relationship_kind} · ${snapshot.session.query}`)}
+                  ${reviewChip(relationshipReasonChip(item), relationshipPrimaryCandidate(item)?.relationship_type === "duplicate" ? "alert" : "default")}
+                  ${relationshipItemDrifted(snapshot, item) ? reviewChip("Snapshot drift — refresh recommended", "alert") : reviewChip(`Queue refreshed ${formatRelativeTime(snapshot.session.updated_at_utc)}`)}
                 </div>
+                <p>${escapeHtml(relationshipRecommendation(item))}</p>
+                <section class="review-shell-decision-block">
+                  <p class="support-eyebrow">Decision required</p>
+                  <p class="review-shell-decision-copy">${escapeHtml(relationshipDecisionLabel(item))}</p>
+                  ${relationshipConsequenceWarning(item) ? `<p class="review-shell-warning-copy">${escapeHtml(relationshipConsequenceWarning(item) ?? "")}</p>` : ""}
+                  <div class="review-shell-inline-actions">
+                    <button type="button" class="secondary" data-review-action="relationship-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
+                    <button type="button" class="secondary" data-review-action="relationship-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
+                    <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
+                  </div>
+                </section>
                 ${renderPanelTrust(relationshipTrustMetadata(snapshot, item))}
               </article>
             </div>
@@ -1679,8 +2021,8 @@ function renderWorkspace(): void {
             </section>
           </section>
         `
-        : '<p class="review-shell-empty">This session is empty. Refresh it after more similarity suggestions appear.</p>'
-      : '<p class="review-shell-empty">No relationship-review session selected.</p>';
+        : relationshipEmptyStateHtml(snapshot)
+      : relationshipEmptyStateHtml(snapshot);
     return;
   }
 
@@ -1700,17 +2042,28 @@ function renderWorkspace(): void {
               <article class="review-shell-focus-card">
                 <div class="review-shell-focus-card-header">
                   <div>
-                    <p class="support-eyebrow">Decision required</p>
-                    <h3>${escapeHtml(enrichmentRecommendation(item))}</h3>
+                    <p class="support-eyebrow">Why this item is here</p>
+                    <h3>${escapeHtml(enrichmentReasonText(item))}</h3>
                   </div>
-                  ${reviewChip(describeQueueCount(snapshot.current_index, snapshot.loop_count), "default")}
+                  ${reviewChip(`Progress ${describeProgressFraction(snapshot.current_index, snapshot.loop_count)}`, "default")}
                 </div>
-                <p>${escapeHtml(item.pending_suggestion_count ? `${item.pending_suggestion_count} suggestion${item.pending_suggestion_count === 1 ? "" : "s"}` : "No suggestions" )} · ${escapeHtml(item.pending_clarification_count ? `${item.pending_clarification_count} clarification${item.pending_clarification_count === 1 ? "" : "s"}` : "No clarifications")}</p>
-                <div class="review-shell-inline-actions">
-                  <button type="button" class="secondary" data-review-action="enrichment-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
-                  <button type="button" class="secondary" data-review-action="enrichment-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
-                  <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
+                <div class="review-shell-inline-chip-row">
+                  ${reviewChip(`Session ${snapshot.session.pending_kind} · ${snapshot.session.query}`)}
+                  ${reviewChip(enrichmentReasonChip(item), item.pending_clarification_count > 0 ? "alert" : "default")}
+                  ${enrichmentItemDrifted(snapshot, item) ? reviewChip("Snapshot drift — refresh recommended", "alert") : reviewChip(`Newest pending ${formatRelativeTime(item.newest_pending_at)}`)}
+                  ${enrichmentLowConfidence(item) ? reviewChip("Low confidence suggestion", "alert") : ""}
                 </div>
+                <p>${escapeHtml(enrichmentRecommendation(item))}</p>
+                <section class="review-shell-decision-block">
+                  <p class="support-eyebrow">Decision required</p>
+                  <p class="review-shell-decision-copy">${escapeHtml(enrichmentDecisionLabel(item))}</p>
+                  ${enrichmentApplyWarning(item) ? `<p class="review-shell-warning-copy">${escapeHtml(enrichmentApplyWarning(item) ?? "")}</p>` : ""}
+                  <div class="review-shell-inline-actions">
+                    <button type="button" class="secondary" data-review-action="enrichment-move-prev" ${snapshot.current_index != null && snapshot.current_index > 0 ? "" : "disabled"}>Previous</button>
+                    <button type="button" class="secondary" data-review-action="enrichment-move-next" ${snapshot.current_index != null && snapshot.current_index < snapshot.items.length - 1 ? "" : "disabled"}>Next</button>
+                    <button type="button" class="secondary" ${queueItemButtonAttributes(toDoHash(item.loop.id))}>Open loop in Do</button>
+                  </div>
+                </section>
                 ${renderPanelTrust(enrichmentTrustMetadata(snapshot, item))}
               </article>
             </div>
@@ -1734,8 +2087,8 @@ function renderWorkspace(): void {
             </section>
           </section>
         `
-        : '<p class="review-shell-empty">This session is empty. Refresh it after new suggestions or clarifications appear.</p>'
-      : '<p class="review-shell-empty">No enrichment-review session selected.</p>';
+        : enrichmentEmptyStateHtml(snapshot)
+      : enrichmentEmptyStateHtml(snapshot);
     return;
   }
 
@@ -1750,12 +2103,21 @@ function renderWorkspace(): void {
         <div class="review-shell-focus-card">
           <div class="review-shell-focus-card-header">
             <div>
-              <p class="support-eyebrow">Why this cohort exists</p>
+              <p class="support-eyebrow">Why this cohort is here</p>
               <h3>${escapeHtml(cohortLabel(cohort))}</h3>
             </div>
             ${reviewChip(`${cohort.count} item${cohort.count === 1 ? "" : "s"}`, cohort.count > 0 ? "alert" : "default")}
           </div>
+          <div class="review-shell-inline-chip-row">
+            ${reviewChip(state.reviewMode === "daily" ? "Daily hygiene review" : "Weekly hygiene review")}
+            ${reviewChip(cohortDescriptor(cohort).label)}
+            ${cohortDrifted(cohort, state.reviewData?.generated_at_utc ?? null) ? reviewChip("Snapshot drift — refresh recommended", "alert") : reviewChip(`Generated ${formatRelativeTime(state.reviewData?.generated_at_utc ?? null)}`)}
+          </div>
           <p>${escapeHtml(cohortDescriptor(cohort).why)}</p>
+          <section class="review-shell-decision-block">
+            <p class="support-eyebrow">Decision required</p>
+            <p class="review-shell-decision-copy">${escapeHtml(cohortDescriptor(cohort).decision)}</p>
+          </section>
           ${renderPanelTrust(cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null))}
         </div>
         <div class="review-shell-loop-grid">
@@ -1763,7 +2125,7 @@ function renderWorkspace(): void {
         </div>
       </section>
     `
-    : '<p class="review-shell-empty">No cohort selected. Choose an active cohort from the rail.</p>';
+    : cohortEmptyStateHtml(state.reviewMode);
 }
 
 function renderLaunchSurface(
@@ -2556,6 +2918,51 @@ async function handleRelationshipSelectLoop(loopId: number): Promise<void> {
   setStatus(`Focused ${loopTitle(state.relationshipSnapshot.current_item?.loop ?? { id: loopId, raw_text: "", title: null })}.`);
 }
 
+function findRelationshipCandidate(candidateId: number): RelationshipReviewCandidateResponse | null {
+  const item = state.relationshipSnapshot?.current_item;
+  if (!item) {
+    return null;
+  }
+  return [...item.duplicate_candidates, ...item.related_candidates].find((candidate) => candidate.id === candidateId) ?? null;
+}
+
+function findEnrichmentSuggestion(
+  suggestionId: number,
+): EnrichmentReviewQueueItemResponse["pending_suggestions"][number] | null {
+  return state.enrichmentSnapshot?.current_item?.pending_suggestions.find((suggestion) => suggestion.id === suggestionId) ?? null;
+}
+
+async function confirmRelationshipDuplicateIfNeeded(
+  candidateId: number,
+  relationshipType: RelationshipReviewSessionActionRequest["relationship_type"],
+): Promise<boolean> {
+  if (relationshipType !== "duplicate") {
+    return true;
+  }
+  const candidate = findRelationshipCandidate(candidateId);
+  return dialogApi().confirmDialog({
+    eyebrow: "Relationship review",
+    title: "Confirm duplicate relationship",
+    description: `This records ${candidate ? `“${loopTitle(candidate)}”` : `loop #${candidateId}`} as a duplicate and is not reversible in-place. Continue only if both loops truly represent the same work.`,
+    confirmLabel: "Confirm duplicate",
+    confirmVariant: "danger",
+  });
+}
+
+async function confirmEnrichmentApplyIfNeeded(suggestionId: number): Promise<boolean> {
+  const suggestion = findEnrichmentSuggestion(suggestionId);
+  const fields = enrichmentSuggestedFields(state.enrichmentSnapshot?.current_item ?? null).slice(0, 3);
+  return dialogApi().confirmDialog({
+    eyebrow: "Enrichment review",
+    title: "Apply suggestion",
+    description: fields.length
+      ? `Applying ${suggestion ? `suggestion #${suggestion.id}` : `suggestion #${suggestionId}`} will mutate ${fields.join(", ")} immediately and may supersede current loop context. Continue?`
+      : `Applying ${suggestion ? `suggestion #${suggestion.id}` : `suggestion #${suggestionId}`} mutates loop fields immediately and may supersede current loop context. Continue?`,
+    confirmLabel: "Apply suggestion",
+    confirmVariant: "danger",
+  });
+}
+
 async function handleRelationshipDecision(button: HTMLButtonElement, actionType: "confirm" | "dismiss"): Promise<void> {
   const sessionId = state.relationshipSessionId;
   if (sessionId == null) {
@@ -2568,6 +2975,9 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
     return;
   }
   const relationshipType = (button.dataset["relationshipType"] as RelationshipReviewSessionActionRequest["relationship_type"] | undefined) ?? candidateType;
+  if (actionType === "confirm" && !(await confirmRelationshipDuplicateIfNeeded(candidateId, relationshipType))) {
+    return;
+  }
   const response = await runRelationshipSessionAction(sessionId, {
     loop_id: loopId,
     candidate_loop_id: candidateId,
@@ -2584,13 +2994,20 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
 async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void> {
   const sessionId = state.relationshipSessionId;
   const actionId = state.relationshipActionId;
-  if (sessionId == null || actionId == null) {
+  const selectedAction = selectedRelationshipAction();
+  if (sessionId == null || actionId == null || !selectedAction) {
     return;
   }
   const loopId = parseOptionalInteger(button.dataset["loopId"]);
   const candidateId = parseOptionalInteger(button.dataset["candidateId"]);
   const candidateType = button.dataset["candidateType"] as RelationshipReviewSessionActionRequest["candidate_relationship_type"] | undefined;
   if (loopId == null || candidateId == null || !candidateType) {
+    return;
+  }
+  const resolvedRelationshipType = selectedAction.relationship_type === "suggested"
+    ? candidateType
+    : selectedAction.relationship_type;
+  if (selectedAction.action_type === "confirm" && !(await confirmRelationshipDuplicateIfNeeded(candidateId, resolvedRelationshipType))) {
     return;
   }
   const response = await runRelationshipSessionAction(sessionId, {
@@ -2721,6 +3138,9 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
   if (sessionId == null) {
     return;
   }
+  if (actionType === "apply" && !(await confirmEnrichmentApplyIfNeeded(suggestionId))) {
+    return;
+  }
   const response = await runEnrichmentSessionAction(sessionId, {
     suggestion_id: suggestionId,
     action_type: actionType,
@@ -2734,7 +3154,11 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
 async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
   const sessionId = state.enrichmentSessionId;
   const actionId = state.enrichmentActionId;
-  if (sessionId == null || actionId == null) {
+  const action = selectedEnrichmentAction();
+  if (sessionId == null || actionId == null || !action) {
+    return;
+  }
+  if (action.action_type === "apply" && !(await confirmEnrichmentApplyIfNeeded(suggestionId))) {
     return;
   }
   const response = await runEnrichmentSessionAction(sessionId, {

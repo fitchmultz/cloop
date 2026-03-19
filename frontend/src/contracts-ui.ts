@@ -220,6 +220,8 @@ export interface OperatorActionCard {
   preview: OperatorActionPreviewItem[];
   trust: OperatorActionTrustMetadata;
   handoff: OperatorActionHandoff | null;
+  actionContextLabel?: string | null;
+  actionWarning?: string | null;
   actions: OperatorActionCardAction[];
 }
 

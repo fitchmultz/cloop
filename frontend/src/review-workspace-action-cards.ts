@@ -155,6 +155,16 @@ function suggestionTitle(
   return String((parsed["title"] as string | undefined) || (parsed["summary"] as string | undefined) || "Pending suggestion");
 }
 
+function describeQueueProgress(currentIndex: number | null | undefined, total: number): string {
+  if (!Number.isInteger(total) || total <= 0) {
+    return `0/${Math.max(0, total)}`;
+  }
+  if (currentIndex == null || !Number.isInteger(currentIndex)) {
+    return `0/${total}`;
+  }
+  return `${Math.min(total, currentIndex + 1)}/${total}`;
+}
+
 export function buildPlanningExecutionSummaryCard(
   snapshot: PlanningSessionSnapshotResponse,
   latestExecution: PlanningExecutionHistoryItemResponse,
@@ -345,9 +355,9 @@ export function buildRelationshipImpactCard(options: {
     summary: recommendedDecision,
     rationale: "Decision cards keep the recommended relationship action, confidence, and downstream consequences visible before you commit the queue mutation.",
     preview: [
-      { label: "Queue remaining", value: `${snapshot.items.length}` },
+      { label: "Queue progress", value: describeQueueProgress(snapshot.current_index, snapshot.loop_count) },
+      { label: "Queue remaining", value: `${Math.max(snapshot.loop_count - ((snapshot.current_index ?? -1) + 1), 0)}` },
       { label: "Candidate", value: loopTitle(candidate) },
-      { label: "Relationship", value: candidate.relationship_type },
       { label: "Similarity", value: `${Math.round(candidate.score * 100)}%` },
     ],
     trust,
@@ -355,9 +365,13 @@ export function buildRelationshipImpactCard(options: {
       changeSummary: recommendedDecision,
       createdResources: [],
       nextStep: "Confirm, merge, dismiss, or inspect the loop in Do before advancing the queue.",
-      breadcrumbs: [...context.breadcrumbPrefix, context.sessionName, loopTitle(candidate)],
+      breadcrumbs: [...context.breadcrumbPrefix, "Relationship review", context.sessionName, loopTitle(candidate)],
       workingSet: workingSetHandoff(context),
     },
+    actionContextLabel: "Decision required",
+    actionWarning: candidate.relationship_type === "duplicate"
+      ? "Duplicate confirmation or merge is not reversible in-place. Verify both loops represent the same work before committing."
+      : "Confirm as duplicate is not reversible in-place. Use that path only if both loops should collapse together.",
     actions: [
       ...(selectedAction && canUseSelectedPreset
         ? [eventActionWithIntegerAttributes(
@@ -444,10 +458,10 @@ export function buildEnrichmentImpactCard(options: {
     summary: recommendedDecision,
     rationale: "Enrichment impact cards keep the top suggestion, clarification pressure, and next queue action visible before you mutate loop fields.",
     preview: [
+      { label: "Queue progress", value: describeQueueProgress(snapshot.current_index, snapshot.loop_count) },
       { label: "Loop", value: loopTitle(item.loop) },
       { label: "Suggestions", value: `${item.pending_suggestion_count}` },
       { label: "Clarifications", value: `${item.pending_clarification_count}` },
-      { label: "Newest pending", value: item.newest_pending_at },
     ],
     trust,
     handoff: {
@@ -456,9 +470,13 @@ export function buildEnrichmentImpactCard(options: {
       nextStep: item.pending_clarification_count > 0
         ? "Answer clarifications or inspect the loop before applying older suggestions."
         : "Apply, reject, or inspect the loop in Do without losing your place in the queue.",
-      breadcrumbs: [...context.breadcrumbPrefix, context.sessionName, loopTitle(item.loop)],
+      breadcrumbs: [...context.breadcrumbPrefix, "Enrichment review", context.sessionName, loopTitle(item.loop)],
       workingSet: workingSetHandoff(context),
     },
+    actionContextLabel: "Decision required",
+    actionWarning: item.pending_clarification_count > 0
+      ? "Clarification answers rerun enrichment and may supersede older suggestions in this queue."
+      : "Applying a suggestion mutates loop fields immediately and may supersede current loop context.",
     actions: [
       ...(selectedAction && suggestion
         ? [eventActionWithIntegerAttributes(
@@ -540,9 +558,13 @@ export function buildEnrichmentSuggestionCard(options: {
         : "Applying this suggestion updates loop fields inside the current enrichment queue.",
       createdResources: [],
       nextStep: "Apply the suggestion, reject it, or pin this review context for later.",
-      breadcrumbs: [...context.breadcrumbPrefix, context.sessionName, suggestionTitle(suggestion)],
+      breadcrumbs: [...context.breadcrumbPrefix, "Enrichment review", context.sessionName, suggestionTitle(suggestion)],
       workingSet: workingSetHandoff(context),
     },
+    actionContextLabel: "Decision required",
+    actionWarning: entries.length
+      ? `Applying this suggestion mutates ${entries.slice(0, 3).map(([label]) => label).join(", ")} immediately.`
+      : "Applying this suggestion mutates loop fields immediately.",
     actions: [
       ...(selectedAction
         ? [eventActionWithIntegerAttributes(
@@ -610,9 +632,10 @@ export function buildCohortImpactCard(options: {
       changeSummary: why,
       createdResources: [],
       nextStep: topLoop ? "Open the top loop in Do or stay in Review and clear the cohort from the top down." : "Choose another cohort or refresh the current review pass.",
-      breadcrumbs: ["Home", "Review", cohort.cohort.replaceAll("_", " ")],
+      breadcrumbs: ["Home", "Review", "Hygiene review", cohort.cohort.replaceAll("_", " ")],
       workingSet: workingSetHandoff(context),
     },
+    actionContextLabel: "Decision required",
     actions: [
       ...(doLocation ? [openAction("Open top loop in Do", doLocation, `Inspect ${loopTitle(topLoop!)} in Do`)] : []),
       pinAction("Pin review", reviewLocation, `Return to ${cohort.cohort.replaceAll("_", " ")} review`, `Review · ${cohort.cohort.replaceAll("_", " ")}`),

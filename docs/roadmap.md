@@ -26,25 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Review decision-shell completion and recall result actions
+### Phase 1 — Recall result actions and responsive review-shell polish
 
-Goal: finish turning the shipped operator shell, trust surfaces, and shared action-card model into a crisp decide-and-execute loop where review and recall both expose the next safe move directly in-context.
+Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, and redesigned review shell into a crisp decide-and-execute loop where recall results can launch work directly and review stays equally trustworthy on denser layouts.
 
-1. **Review workspace decision-shell completion**
-   - Finish the shared review shell so relationship, enrichment, and hygiene review all show why an item is here, what decision is required, and what happens next.
-   - Keep queue health, progress, and downstream consequences visible without forcing users back through the operator shell.
-2. **Recall in-thread action-card execution**
+1. **Recall in-thread action-card execution**
    - Extend the shared action-card model from recall support decks into grounded chat and document-answer results so evidence-backed recommendations can launch or stage the next action directly.
    - Reuse the same trust, preview, handoff, and rollback framing instead of leaving recall outputs prose-only.
+2. **Responsive review-shell density + small-screen ergonomics**
+   - Resolve the remaining queue-rail versus side-by-side-detail balance on smaller screens without losing why-this-is-here, decision-required, or impact visibility.
+   - Keep relationship, enrichment, and hygiene review calm and fast on laptop splits, narrow windows, and mobile widths.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Review workspace decision-shell completion session**
-   - finish the shared decision workspace with specialized panes, queue health, impact previews, and downstream action cards
-2. **Recall in-thread action-card execution session**
+1. **Recall in-thread action-card execution session**
    - extend chat and document-answer results from support/context cards into executable in-thread action cards with shared trust + handoff framing
+2. **Responsive review-shell density session**
+   - finish smaller-screen review ergonomics so queue health, decisions, and impact previews remain clear without wasting space or hiding context
 
 ## Delivery Model
 

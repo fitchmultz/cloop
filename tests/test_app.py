@@ -1040,6 +1040,19 @@ def test_review_workspace_ts_includes_planning_execution_output_cues() -> None:
     )
 
 
+def test_review_workspace_ts_includes_review_shell_decision_copy() -> None:
+    """The review workspace source should keep decision-shell cues explicit."""
+    review_workspace_ts = (
+        Path(__file__).resolve().parent.parent / "frontend" / "src" / "review-workspace.ts"
+    ).read_text(encoding="utf-8")
+
+    assert "Why this item is here" in review_workspace_ts
+    assert "Decision required" in review_workspace_ts
+    assert "Snapshot drift — refresh recommended" in review_workspace_ts
+    assert "No queued relationship decisions" in review_workspace_ts
+    assert "No queued enrichment decisions" in review_workspace_ts
+
+
 def test_chat_empty_state_copy_is_consistent_on_initial_html(
     test_client: TestClient,
     tmp_data_dir: Path,

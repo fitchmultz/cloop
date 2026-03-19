@@ -1388,6 +1388,25 @@
   align-items: end;
 }
 
+.review-shell-toolbar-meta {
+  display: grid;
+  gap: var(--space-2);
+  grid-column: 1 / -1;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.review-shell-toolbar-note,
+.review-shell-decision-copy,
+.review-shell-warning-copy {
+  margin: 0;
+}
+
+.review-shell-toolbar-note,
+.review-shell-decision-copy {
+  color: var(--color-muted);
+}
+
 .review-shell-toolbar-group--grow {
   flex: 1 1 24rem;
 }
@@ -1484,6 +1503,11 @@
   box-shadow: var(--shadow-lg);
 }
 
+.review-shell-impact .operator-action-warning,
+.review-shell-suggestion-grid .operator-action-warning {
+  margin: 0;
+}
+
 .review-shell-rail-card--button {
   width: 100%;
   color: inherit;
@@ -1534,6 +1558,24 @@
 .review-shell-comparison-grid {
   display: grid;
   gap: var(--space-3);
+}
+
+.review-shell-decision-block {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.review-shell-warning-copy {
+  color: var(--color-text);
+  font-weight: var(--font-semibold);
+}
+
+.review-shell-warning-copy::before {
+  content: "⚠ ";
 }
 
 .review-shell-comparison-grid {

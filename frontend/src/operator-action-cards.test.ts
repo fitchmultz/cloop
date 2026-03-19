@@ -49,6 +49,8 @@ describe("renderActionCardDeck", () => {
           nextStep: "Apply, reject, or inspect the loop in Do.",
           breadcrumbs: ["Home", "Review", "Enrichment queue"],
         },
+        actionContextLabel: "Decision required",
+        actionWarning: "Applying this suggestion mutates loop fields immediately.",
         actions: [
           {
             type: "event",
@@ -68,6 +70,8 @@ describe("renderActionCardDeck", () => {
 
     expect(html).toContain('data-review-action="enrichment-apply"');
     expect(html).toContain('data-suggestion-id="42"');
+    expect(html).toContain("Decision required");
+    expect(html).toContain("mutates loop fields immediately");
     expect(html).toContain("Trust surface");
     expect(html).toContain("Workflow handoff");
   });
