@@ -1479,6 +1479,11 @@
   color: var(--color-muted);
 }
 
+.review-shell-impact .operator-action-card,
+.review-shell-suggestion-grid .operator-action-card {
+  box-shadow: var(--shadow-lg);
+}
+
 .review-shell-rail-card--button {
   width: 100%;
   color: inherit;

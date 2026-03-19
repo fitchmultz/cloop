@@ -67,6 +67,12 @@ function locationAttributes(prefix: "open" | "pin", location: ShellLocationContr
     .join(" ");
 }
 
+function renderEventAttributes(attributes: Record<string, string>): string {
+  return Object.entries(attributes)
+    .map(([name, value]) => `${name}="${escapeHtml(value)}"`)
+    .join(" ");
+}
+
 function renderActionButton(card: OperatorActionCard, action: OperatorActionCardAction): string {
   const className = action.variant === "secondary" ? ' class="secondary"' : "";
   if (action.type === "pin") {
@@ -77,6 +83,16 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         data-pin-label="${escapeHtml(action.pinLabel ?? card.title)}"
         data-pin-description="${escapeHtml(action.description)}"
         ${locationAttributes("pin", action.location)}
+      >${escapeHtml(action.label)}</button>
+    `;
+  }
+
+  if (action.type === "event") {
+    return `
+      <button
+        type="button"
+        ${className}
+        ${renderEventAttributes(action.attributes)}
       >${escapeHtml(action.label)}</button>
     `;
   }

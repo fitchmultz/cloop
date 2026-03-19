@@ -111,6 +111,7 @@ function buildElements() {
     nextBuckets: requireElement("next-buckets", HTMLElement),
     nextQueryFilter: requireElement("do-query-filter", HTMLInputElement),
     refreshNextBtn: requireElement("refresh-next-btn", HTMLButtonElement),
+    chatActionCards: requireElement("chat-action-cards", HTMLElement),
     chatMessages: requireElement("chat-messages", HTMLElement),
     chatInput: requireElement("chat-input", HTMLInputElement),
     chatForm: requireElement("chat-form", HTMLFormElement),
@@ -125,6 +126,7 @@ function buildElements() {
     chatRagScope: requireElement("chat-rag-scope", HTMLInputElement),
     chatControlsStatus: requireElement("chat-controls-status", HTMLElement),
     chatRuntimeStatus: requireElement("chat-runtime-status", HTMLElement),
+    memoryActionCards: requireElement("memory-action-cards", HTMLElement),
     memoryList: requireElement("memory-list", HTMLElement),
     memoryStatus: requireElement("memory-status", HTMLElement),
     memoryFilterForm: requireElement("memory-filter-form", HTMLFormElement),
@@ -142,6 +144,7 @@ function buildElements() {
     memoryPriority: requireElement("memory-priority", HTMLInputElement),
     memorySource: requireElement("memory-source", HTMLSelectElement),
     memoryMetadata: requireElement("memory-metadata", HTMLTextAreaElement),
+    ragActionCards: requireElement("rag-action-cards", HTMLElement),
     ragInput: requireElement("rag-input", HTMLInputElement),
     ragForm: requireElement("rag-form", HTMLFormElement),
     ragAnswer: requireElement("rag-answer", HTMLElement),
@@ -1179,6 +1182,7 @@ function initializeSurfaceRuntime(): void {
   bulk.init({ status: elements.status, bulkActionBar: elements.bulkActionBar });
   next.init({ nextBuckets: elements.nextBuckets, nextQueryFilter: elements.nextQueryFilter });
   chat.init({
+    chatActionCards: elements.chatActionCards,
     chatMessages: elements.chatMessages,
     chatInput: elements.chatInput,
     chatForm: elements.chatForm,
@@ -1195,6 +1199,7 @@ function initializeSurfaceRuntime(): void {
     chatRuntimeStatus: elements.chatRuntimeStatus,
   });
   memory.init({
+    memoryActionCards: elements.memoryActionCards,
     memoryList: elements.memoryList,
     memoryStatus: elements.memoryStatus,
     memoryFilterForm: elements.memoryFilterForm,
@@ -1214,6 +1219,7 @@ function initializeSurfaceRuntime(): void {
     memoryMetadata: elements.memoryMetadata,
   });
   rag.init({
+    ragActionCards: elements.ragActionCards,
     ragAnswer: elements.ragAnswer,
     ragAnswerText: requireQueryElement(".rag-answer-text", HTMLElement, elements.ragAnswer),
     ragSources: requireQueryElement(".rag-sources", HTMLElement, elements.ragAnswer),

@@ -20,12 +20,15 @@
  *   - Cursor pagination is opaque and stored as a string token.
  */
 
+import { parseHash } from "../shell-routing";
+import { renderRecallActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import * as modals from "./modals";
 import type { SurfaceMemoryEntry, SurfaceMemoryListResponse, SurfaceMemoryQueryOptions } from "./contracts";
 import { closestFromEventTarget, escapeHtml, formatTime, messageFromError } from "./utils";
 
 interface MemoryModuleElements {
+  memoryActionCards?: HTMLElement | null;
   memoryList: HTMLElement;
   memoryStatus: HTMLElement;
   memoryFilterForm: HTMLFormElement;
@@ -45,6 +48,7 @@ interface MemoryModuleElements {
   memoryMetadata: HTMLTextAreaElement;
 }
 
+let memoryActionCardsEl: HTMLElement | null = null;
 let memoryListEl: HTMLElement | null = null;
 let memoryStatusEl: HTMLElement | null = null;
 let memoryFilterFormEl: HTMLFormElement | null = null;
@@ -66,6 +70,18 @@ let memoryMetadataEl: HTMLTextAreaElement | null = null;
 let entriesById = new Map<number, SurfaceMemoryEntry>();
 let nextCursor: string | null = null;
 let isLoading = false;
+
+function currentWorkingSetId(): number | null {
+  return parseHash(window.location.hash)?.workingSetId ?? null;
+}
+
+function renderActionCards(): void {
+  renderRecallActionCards(memoryActionCardsEl, {
+    tool: "memory",
+    workingSetId: currentWorkingSetId(),
+    memoryQuery: currentQuery() || undefined,
+  });
+}
 
 function currentFilters(): SurfaceMemoryQueryOptions {
   return {
@@ -241,6 +257,8 @@ export async function loadMemories(options: { append?: boolean } = {}): Promise<
   if (!memoryListEl || isLoading) {
     return;
   }
+
+  renderActionCards();
 
   const append = options.append ?? false;
   const filters = currentFilters();
@@ -482,6 +500,7 @@ function clearFiltersAndReload(): void {
 }
 
 export function init(elements: MemoryModuleElements): void {
+  memoryActionCardsEl = elements.memoryActionCards ?? null;
   memoryListEl = elements.memoryList;
   memoryStatusEl = elements.memoryStatus;
   memoryFilterFormEl = elements.memoryFilterForm;
@@ -523,4 +542,5 @@ export function init(elements: MemoryModuleElements): void {
 
   syncLoadMoreButton();
   setMemoryStatus("Direct memory CRUD uses the shared memory-management contract.");
+  renderActionCards();
 }

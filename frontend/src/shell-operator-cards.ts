@@ -231,6 +231,9 @@ export function createShellOperatorCardRenderer(
     });
     return cards.filter((card) => {
       return card.actions.some((action) => {
+        if (!isLocationAction(action)) {
+          return false;
+        }
         const candidateLocation = locationWithFallbackWorkingSet(createLocation(action.location), activeSet.id);
         return focusLocations.some((location) => locationsMatch(candidateLocation, location));
       });
@@ -1499,52 +1502,57 @@ function buildGroupedChangeRollupCard(data: WorkspaceData): PrioritizedCard | nu
   const themes: GroupedChangeTheme[] = [];
 
   const planningDrift = buildPlanningDriftCard(data);
-  if (planningDrift?.card.actions[0]) {
+  const planningDriftAction = planningDrift ? firstLocationAction(planningDrift.card.actions) : null;
+  if (planningDrift && planningDriftAction) {
     themes.push({
       label: "Planning drift",
       summary: planningDrift.card.summary,
       tone: planningDrift.card.tone,
-      location: planningDrift.card.actions[0].location,
+      location: planningDriftAction.location,
     });
   }
 
   const planningResourceRollup = buildPlanningResourceRollupCard(data);
-  if (planningResourceRollup?.card.actions[0]) {
+  const planningResourceAction = planningResourceRollup ? firstLocationAction(planningResourceRollup.card.actions) : null;
+  if (planningResourceRollup && planningResourceAction) {
     themes.push({
       label: "Planning activity",
       summary: planningResourceRollup.card.summary,
       tone: planningResourceRollup.card.tone,
-      location: planningResourceRollup.card.actions[0].location,
+      location: planningResourceAction.location,
     });
   }
 
   const queueChange = buildQueueChangeCard(data);
-  if (queueChange?.card.actions[0]) {
+  const queueChangeAction = queueChange ? firstLocationAction(queueChange.card.actions) : null;
+  if (queueChange && queueChangeAction) {
     themes.push({
       label: "Review queues",
       summary: queueChange.card.summary,
       tone: queueChange.card.tone,
-      location: queueChange.card.actions[0].location,
+      location: queueChangeAction.location,
     });
   }
 
   const riskChange = buildRiskCohortCard(data) ?? buildNewlyStaleCard(data) ?? buildBlockedSinceLastCard(data);
-  if (riskChange?.card.actions[0]) {
+  const riskChangeAction = riskChange ? firstLocationAction(riskChange.card.actions) : null;
+  if (riskChange && riskChangeAction) {
     themes.push({
       label: "Loop risk",
       summary: riskChange.card.summary,
       tone: riskChange.card.tone,
-      location: riskChange.card.actions[0].location,
+      location: riskChangeAction.location,
     });
   }
 
   const completed = buildCompletedSinceLastCard(data);
-  if (completed?.card.actions[0]) {
+  const completedAction = completed ? firstLocationAction(completed.card.actions) : null;
+  if (completed && completedAction) {
     themes.push({
       label: "Progress",
       summary: completed.card.summary,
       tone: completed.card.tone,
-      location: completed.card.actions[0].location,
+      location: completedAction.location,
     });
   }
 
@@ -1799,8 +1807,23 @@ function buildRepeatedSnoozeCard(data: WorkspaceData): PrioritizedCard | null {
   } satisfies PrioritizedCard;
 }
 
+function isLocationAction(
+  action: OperatorActionCardAction,
+): action is Extract<OperatorActionCardAction, { location: unknown }> {
+  return action.type === "open" || action.type === "pin";
+}
+
+function firstLocationAction(
+  actions: readonly OperatorActionCardAction[],
+): Extract<OperatorActionCardAction, { location: unknown }> | null {
+  return actions.find((action): action is Extract<OperatorActionCardAction, { location: unknown }> => isLocationAction(action)) ?? null;
+}
+
 function pushUniqueAction(actions: OperatorActionCardAction[], action: OperatorActionCardAction): void {
   const existing = actions.some((candidate) => {
+    if (!isLocationAction(candidate) || !isLocationAction(action)) {
+      return false;
+    }
     return candidate.type === action.type && locationsMatch(candidate.location, action.location);
   });
   if (!existing) {
@@ -1809,6 +1832,9 @@ function pushUniqueAction(actions: OperatorActionCardAction[], action: OperatorA
 }
 
 function scopedResumeActionKey(action: OperatorActionCardAction): string | null {
+  if (!isLocationAction(action)) {
+    return null;
+  }
   const { location } = action;
   if (location.state === "plan" && location.sessionId != null) {
     return `plan:${location.sessionId}`;
@@ -1830,7 +1856,7 @@ function prioritizeResumeActions(
   const scopedKeys = new Set(
     actions
       .map((action) => {
-        if (activeWorkingSetId == null || action.location.workingSetId !== activeWorkingSetId) {
+        if (!isLocationAction(action) || activeWorkingSetId == null || action.location.workingSetId !== activeWorkingSetId) {
           return null;
         }
         return scopedResumeActionKey(action);
@@ -1840,6 +1866,9 @@ function prioritizeResumeActions(
 
   return actions
     .filter((action) => {
+      if (!isLocationAction(action)) {
+        return true;
+      }
       const key = scopedResumeActionKey(action);
       if (!key || activeWorkingSetId == null || action.location.workingSetId != null) {
         return true;
@@ -1848,14 +1877,16 @@ function prioritizeResumeActions(
     })
     .map((action, index) => {
       let score = 0;
-      if (activeWorkingSetId != null && action.location.workingSetId === activeWorkingSetId) {
-        score += action.location.state === "working_set" ? 400 : 300;
-      }
-      if (scopedResumeActionKey(action)) {
-        score += 100;
-      }
-      if (action.location.sessionId != null && action.location.workingSetId == null) {
-        score -= 25;
+      if (isLocationAction(action)) {
+        if (activeWorkingSetId != null && action.location.workingSetId === activeWorkingSetId) {
+          score += action.location.state === "working_set" ? 400 : 300;
+        }
+        if (scopedResumeActionKey(action)) {
+          score += 100;
+        }
+        if (action.location.sessionId != null && action.location.workingSetId == null) {
+          score -= 25;
+        }
       }
       return { action, index, score };
     })

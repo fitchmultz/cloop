@@ -140,7 +140,7 @@ export interface RecentShellActionEntry {
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context";
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
-export type OperatorActionCardActionType = "open" | "pin";
+export type OperatorActionCardActionType = "open" | "pin" | "event";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
 export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
@@ -181,14 +181,33 @@ export interface OperatorActionHandoff {
   workingSet?: WorkingSetSessionMetadata | null;
 }
 
-export interface OperatorActionCardAction {
+interface OperatorActionCardActionBase {
   type: OperatorActionCardActionType;
   label: string;
   variant: OperatorActionCardActionVariant;
-  location: ShellLocationContract;
   description: string;
+}
+
+export interface OperatorActionCardOpenAction extends OperatorActionCardActionBase {
+  type: "open";
+  location: ShellLocationContract;
+}
+
+export interface OperatorActionCardPinAction extends OperatorActionCardActionBase {
+  type: "pin";
+  location: ShellLocationContract;
   pinLabel?: string | undefined;
 }
+
+export interface OperatorActionCardEventAction extends OperatorActionCardActionBase {
+  type: "event";
+  attributes: Record<string, string>;
+}
+
+export type OperatorActionCardAction =
+  | OperatorActionCardOpenAction
+  | OperatorActionCardPinAction
+  | OperatorActionCardEventAction;
 
 export interface OperatorActionCard {
   id: string;

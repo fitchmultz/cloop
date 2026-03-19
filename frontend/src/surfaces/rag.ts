@@ -21,6 +21,8 @@
  *   - Streaming responses use the shared SSE-like event stream parser.
  */
 
+import { parseHash } from "../shell-routing";
+import { renderRecallActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import type { RagChunk, RagSource, SurfaceChatEventPayload } from "./contracts";
 import { consumeJsonEventStream } from "./stream";
@@ -29,6 +31,7 @@ import { escapeHtml, messageFromError } from "./utils";
 const NO_KNOWLEDGE_MESSAGE = "No knowledge available. Ingest documents first.";
 
 interface RagModuleElements {
+  ragActionCards?: HTMLElement | null;
   ragAnswer: HTMLElement;
   ragAnswerText: HTMLElement;
   ragSources: HTMLElement;
@@ -42,6 +45,7 @@ interface RagModuleElements {
   ragIngestStatus: HTMLElement;
 }
 
+let ragActionCardsEl: HTMLElement | null = null;
 let ragAnswer: HTMLElement | null = null;
 let ragAnswerText: HTMLElement | null = null;
 let ragSources: HTMLElement | null = null;
@@ -54,6 +58,7 @@ let ragIngestRecursive: HTMLInputElement | null = null;
 let ragIngestStatus: HTMLElement | null = null;
 
 export function init(elements: RagModuleElements): void {
+  ragActionCardsEl = elements.ragActionCards ?? null;
   ragAnswer = elements.ragAnswer;
   ragAnswerText = elements.ragAnswerText;
   ragSources = elements.ragSources;
@@ -64,6 +69,20 @@ export function init(elements: RagModuleElements): void {
   ragIngestMode = elements.ragIngestMode;
   ragIngestRecursive = elements.ragIngestRecursive;
   ragIngestStatus = elements.ragIngestStatus;
+  renderActionCards({ hasKnowledge: false });
+}
+
+function currentWorkingSetId(): number | null {
+  return parseHash(window.location.hash)?.workingSetId ?? null;
+}
+
+function renderActionCards(options: { hasKnowledge?: boolean } = {}): void {
+  renderRecallActionCards(ragActionCardsEl, {
+    tool: "rag",
+    workingSetId: currentWorkingSetId(),
+    ragQuestion: ragInput?.value.trim() || undefined,
+    hasKnowledge: options.hasKnowledge,
+  });
 }
 
 function setIngestStatus(message: string, options: { isError?: boolean } = {}): void {
@@ -99,6 +118,7 @@ function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[]):
   ragAnswerText.textContent = isNoKnowledgeState ? "No knowledge indexed yet." : answer;
   setNoKnowledgeState(isNoKnowledgeState);
   renderRagSources(sources, chunks);
+  renderActionCards({ hasKnowledge: !isNoKnowledgeState });
 }
 
 function renderRagSources(sources: RagSource[], chunks: RagChunk[]): void {
@@ -195,6 +215,7 @@ export async function submitIngestPath(): Promise<void> {
     ragAnswerText.textContent = "Knowledge indexed. Ask a question when you're ready.";
     setNoKnowledgeState(false);
     ragSourcesList.innerHTML = "";
+    renderActionCards({ hasKnowledge: true });
     ragInput?.focus();
   } catch (error: unknown) {
     setIngestStatus(messageFromError(error, "Knowledge ingestion failed."), { isError: true });

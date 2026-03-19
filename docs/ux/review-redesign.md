@@ -95,6 +95,11 @@ Direction decision: relationship and enrichment review should share one visual s
 - Relationship and enrichment review both support crisp primary decisions and clear downstream consequences.
 - Empty and stale session states are informative, not dead ends.
 
+## Current implementation baseline
+
+- The review workspace now reuses the canonical action-card renderer for planning impact cards, relationship/enrichment impact previews, cohort impact previews, and enrichment suggestion cards.
+- The next roadmap slice should finish queue-health, session-progress, and specialized decision-pane polish on top of that shared card shell instead of re-forking review-specific card markup.
+
 ## Dependencies
 
 - [`docs/ux/operator-workspace.md`](operator-workspace.md)

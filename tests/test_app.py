@@ -1020,15 +1020,24 @@ def test_review_support_sidebar_explains_ai_workflow_loop(
 
 def test_review_workspace_ts_includes_planning_execution_output_cues() -> None:
     """The TS review workspace should render planning execution history and handoff cues."""
-    review_workspace_ts = (
-        Path(__file__).resolve().parent.parent / "frontend" / "src" / "review-workspace.ts"
-    ).read_text(encoding="utf-8")
+    frontend_root = Path(__file__).resolve().parent.parent / "frontend" / "src"
+    review_workspace_ts = (frontend_root / "review-workspace.ts").read_text(encoding="utf-8")
+    review_action_cards_ts = (frontend_root / "review-workspace-action-cards.ts").read_text(
+        encoding="utf-8"
+    )
 
     assert "Current checkpoint" in review_workspace_ts
     assert "Focus loops" in review_workspace_ts
-    assert "Execution history carries rollback cues when available" in review_workspace_ts
-    assert "Launch surfaces" in review_workspace_ts
-    assert "follow-up resource" in review_workspace_ts
+    assert (
+        "Execution history carries rollback cues when available" in review_workspace_ts
+        or "Inspect execution history for rollback support" in review_action_cards_ts
+        or "Use the originating execution history for rollback cues" in review_action_cards_ts
+    )
+    assert "Launch surfaces" in review_workspace_ts or "Launch surfaces" in review_action_cards_ts
+    assert (
+        "follow-up resource" in review_workspace_ts
+        or "follow-up resource" in review_action_cards_ts
+    )
 
 
 def test_chat_empty_state_copy_is_consistent_on_initial_html(

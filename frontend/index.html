@@ -306,6 +306,7 @@
             </div>
             <button type="button" id="chat-reset-btn" class="secondary chat-reset-btn" hidden>New thread</button>
           </div>
+          <div id="chat-action-cards" class="recall-action-card-deck" aria-label="Grounded chat action cards"></div>
           <div id="chat-messages" class="chat-messages" role="log" aria-live="polite" aria-label="Chat conversation">
             <div class="chat-placeholder">
               <strong class="chat-placeholder-title">No saved thread in this browser yet.</strong>
@@ -390,6 +391,7 @@
             </div>
             <button class="secondary" id="memory-refresh-btn" type="button">Refresh</button>
           </div>
+          <div id="memory-action-cards" class="recall-action-card-deck" aria-label="Memory action cards"></div>
           <form id="memory-filter-form" class="memory-filter-form">
             <div class="memory-filter-grid">
               <label class="memory-field memory-filter-wide" for="memory-query">
@@ -535,6 +537,7 @@
               <p class="rag-intro">Search your indexed local documents and answer from retrieved source context.</p>
             </div>
           </div>
+          <div id="rag-action-cards" class="recall-action-card-deck" aria-label="Document recall action cards"></div>
           <form id="rag-form" class="rag-form">
             <label for="rag-input" class="sr-only">RAG question</label>
             <input

@@ -64,19 +64,24 @@ import type {
   RelationshipReviewSessionUpdateRequest,
   WorkingSetResponse,
 } from "./domain";
-import type { ReviewFocus, TrustSurfaceMetadata } from "./contracts-ui";
+import type { OperatorActionCard, ReviewFocus, TrustSurfaceMetadata } from "./contracts-ui";
 import {
   recordRecentShellAction,
   rememberPlanningAnchor,
   rememberReviewAnchor,
 } from "./continuity-intelligence";
+import { renderActionCardDeck } from "./operator-action-cards";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { renderTrustSurface } from "./trust-surface";
-import { renderWorkflowHandoff } from "./workflow-handoff";
 import {
-  buildFollowUpResourceHandoff,
-  buildLaunchSurfaceHandoff,
-} from "./review-workspace-handoffs";
+  buildCohortImpactCard,
+  buildEnrichmentImpactCard,
+  buildEnrichmentSuggestionCard,
+  buildPlanningExecutionSummaryCard,
+  buildPlanningFollowUpResourceCard,
+  buildPlanningLaunchSurfaceCard,
+  buildRelationshipImpactCard,
+} from "./review-workspace-action-cards";
 import * as modals from "./modals";
 import { openMergeModal, setupMergeHandlers } from "./duplicates";
 
@@ -317,9 +322,37 @@ function planningImpactHandoffContext(sessionName: string): {
   breadcrumbPrefix: string[];
   fallbackWorkingSetId: number | null;
   workingSets: readonly WorkingSetResponse[];
+  sessionName: string;
 } {
   return {
-    breadcrumbPrefix: ["Home", "Plan", sessionName],
+    breadcrumbPrefix: ["Home", "Plan"],
+    fallbackWorkingSetId: currentWorkingSetId(),
+    workingSets: state.workingSets,
+    sessionName,
+  };
+}
+
+function reviewImpactHandoffContext(sessionName: string): {
+  breadcrumbPrefix: string[];
+  fallbackWorkingSetId: number | null;
+  workingSets: readonly WorkingSetResponse[];
+  sessionName: string;
+} {
+  return {
+    breadcrumbPrefix: ["Home", "Review"],
+    fallbackWorkingSetId: currentWorkingSetId(),
+    workingSets: state.workingSets,
+    sessionName,
+  };
+}
+
+function cohortImpactHandoffContext(): {
+  breadcrumbPrefix: string[];
+  fallbackWorkingSetId: number | null;
+  workingSets: readonly WorkingSetResponse[];
+} {
+  return {
+    breadcrumbPrefix: ["Home", "Review"],
     fallbackWorkingSetId: currentWorkingSetId(),
     workingSets: state.workingSets,
   };
@@ -1492,35 +1525,16 @@ function renderRelationshipCandidateCard(loopId: number, candidate: Relationship
 }
 
 function renderSuggestionCard(suggestion: EnrichmentReviewQueueItemResponse["pending_suggestions"][number]): string {
-  const selectedAction = selectedEnrichmentAction();
-  const parsed = typeof suggestion.parsed === "object" && suggestion.parsed ? suggestion.parsed : {};
-  const entries = Object.entries(parsed).filter(([key, value]) => {
-    return !["confidence", "needs_clarification"].includes(key)
-      && value != null
-      && value !== "";
-  });
-
-  return `
-    <article class="review-shell-suggestion-card">
-      <div class="review-shell-candidate-header">
-        <div>
-          <p class="support-eyebrow">Suggestion #${suggestion.id}</p>
-          <h4>${escapeHtml(String((parsed["title"] as string | undefined) || (parsed["summary"] as string | undefined) || "Pending suggestion"))}</h4>
-        </div>
-        ${reviewChip(suggestion.model)}
-      </div>
-      ${entries.length
-        ? `<dl class="review-shell-field-list">${entries
-            .map(([key, value]) => `<div class="review-shell-field-item"><dt>${escapeHtml(key.replaceAll("_", " "))}</dt><dd>${escapeHtml(Array.isArray(value) ? value.join(", ") : String(value))}</dd></div>`)
-            .join("")}</dl>`
-        : '<p class="review-shell-empty-inline">No structured field preview available.</p>'}
-      <div class="review-shell-inline-actions">
-        ${selectedAction ? `<button type="button" class="secondary" data-review-action="enrichment-use-preset" data-suggestion-id="${suggestion.id}">Use “${escapeHtml(selectedAction.name)}”</button>` : ""}
-        <button type="button" data-review-action="enrichment-apply" data-suggestion-id="${suggestion.id}">Apply</button>
-        <button type="button" class="secondary" data-review-action="enrichment-reject" data-suggestion-id="${suggestion.id}">Reject</button>
-      </div>
-    </article>
-  `;
+  const snapshot = state.enrichmentSnapshot;
+  const sessionName = snapshot?.session?.name ?? "Enrichment review";
+  return renderActionCardDeck(
+    [buildEnrichmentSuggestionCard({
+      suggestion,
+      selectedAction: selectedEnrichmentAction(),
+      context: reviewImpactHandoffContext(sessionName),
+    })],
+    "",
+  );
 }
 
 function renderClarificationForm(item: EnrichmentReviewQueueItemResponse): string {
@@ -1755,116 +1769,20 @@ function renderWorkspace(): void {
 function renderLaunchSurface(
   surface: PlanningExecutionLaunchSurfaceResponse,
   sessionName: string,
+  latestExecution: PlanningExecutionHistoryItemResponse,
 ): string {
-  const web = surface.web && typeof surface.web === "object" ? surface.web : {};
-  const sessionId = typeof web["session_id"] === "number" ? web["session_id"] : null;
-  const reviewKind = typeof web["review_kind"] === "string" ? web["review_kind"] : null;
-  const handoffContext = planningImpactHandoffContext(sessionName);
-  const handoff = buildLaunchSurfaceHandoff(surface, handoffContext);
-  const workingSetId = handoffContext.fallbackWorkingSetId == null && handoff.workingSet
-    ? handoff.workingSet.workingSetId
-    : (typeof web["working_set_id"] === "number" ? web["working_set_id"] : handoffContext.fallbackWorkingSetId);
-  const hash = reviewKind === "relationship"
-    ? toReviewHash("relationship", sessionId, workingSetId)
-    : reviewKind === "enrichment"
-      ? toReviewHash("enrichment", sessionId, workingSetId)
-      : null;
-
-  return `
-    <article class="review-shell-impact-card">
-      <div class="review-shell-impact-card-header">
-        <div>
-          <p class="support-eyebrow">Next operator surface</p>
-          <h4>${escapeHtml(surface.label)}</h4>
-        </div>
-        ${reviewChip(surface.surface, "alert")}
-      </div>
-      <p>${escapeHtml(surface.reason || "Open the next surface prepared by this checkpoint.")}</p>
-      <div class="review-shell-inline-chip-row">
-        ${surface.resource_type ? reviewChip(`${surface.resource_type} #${surface.resource_id}`) : ""}
-        ${handoff.workingSet ? reviewChip(`Working set · ${handoff.workingSet.workingSetName}`, "alert") : ""}
-      </div>
-      ${renderCompactTrust({
-        generationLabel: "Deterministic handoff",
-        generationTone: "progress",
-        contextSources: [
-          `Surface: ${surface.surface}`,
-          `Resource: ${surface.resource_type} #${surface.resource_id}`,
-          handoff.workingSet ? `Working set: ${handoff.workingSet.workingSetName}` : "No propagated working set",
-        ],
-        assumptions: ["The downstream surface still exists and is ready to open."],
-        confidenceLabel: "Prepared next-step queue",
-        confidenceTone: "attention",
-        freshnessLabel: null,
-        freshnessTone: "neutral",
-        rollbackLabel: "Use the originating execution history for rollback cues",
-        rollbackTone: "caution",
-        impactSummary: surface.reason || "Open the next surface prepared by this checkpoint.",
-        impactTone: "attention",
-      })}
-      ${renderWorkflowHandoff(handoff)}
-      ${hash ? `<div class="review-shell-inline-actions"><button type="button" ${queueItemButtonAttributes(hash)}>Open next queue</button></div>` : ""}
-    </article>
-  `;
+  const card = buildPlanningLaunchSurfaceCard(surface, latestExecution, planningImpactHandoffContext(sessionName));
+  return card ? renderActionCardDeck([card], "") : "";
 }
 
 function renderFollowUpResource(
   resource: PlanningExecutionFollowUpResourceResponse,
   sessionName: string,
 ): string {
-  const handoffContext = planningImpactHandoffContext(sessionName);
-  const handoff = buildFollowUpResourceHandoff(resource, handoffContext);
-  const surface = resource.launch_surface;
-  const web = surface?.web && typeof surface.web === "object" ? surface.web : {};
-  const sessionId = typeof web["session_id"] === "number" ? web["session_id"] : null;
-  const reviewKind = typeof web["review_kind"] === "string" ? web["review_kind"] : null;
-  const workingSetId = handoffContext.fallbackWorkingSetId == null && handoff?.workingSet
-    ? handoff.workingSet.workingSetId
-    : (typeof web["working_set_id"] === "number" ? web["working_set_id"] : handoffContext.fallbackWorkingSetId);
-  const hash = reviewKind === "relationship"
-    ? toReviewHash("relationship", sessionId, workingSetId)
-    : reviewKind === "enrichment"
-      ? toReviewHash("enrichment", sessionId, workingSetId)
-      : null;
-
-  return `
-    <article class="review-shell-impact-card">
-      <div class="review-shell-impact-card-header">
-        <div>
-          <p class="support-eyebrow">Created resource</p>
-          <h4>${escapeHtml(resource.label || `${resource.resource_type} #${resource.resource_id}`)}</h4>
-        </div>
-        ${reviewChip(resource.role)}
-      </div>
-      <p>${escapeHtml(resource.operation_summary)}</p>
-      <div class="review-shell-inline-chip-row">
-        ${reviewChip(resource.operation_kind)}
-        ${reviewChip(`Operation ${resource.operation_index + 1}`)}
-        ${handoff?.workingSet ? reviewChip(`Working set · ${handoff.workingSet.workingSetName}`, "alert") : ""}
-      </div>
-      ${renderCompactTrust({
-        generationLabel: "Deterministic follow-up resource",
-        generationTone: "progress",
-        contextSources: [
-          `Role: ${resource.role}`,
-          `Operation: ${resource.operation_kind}`,
-          `Resource: ${resource.resource_type} #${resource.resource_id}`,
-          handoff?.workingSet ? `Working set: ${handoff.workingSet.workingSetName}` : "No propagated working set",
-        ],
-        assumptions: [],
-        confidenceLabel: handoff ? "Created by the latest checkpoint and ready to continue" : "Created by the latest checkpoint",
-        confidenceTone: handoff ? "attention" : "progress",
-        freshnessLabel: null,
-        freshnessTone: "neutral",
-        rollbackLabel: "Inspect execution history for rollback support",
-        rollbackTone: "caution",
-        impactSummary: resource.operation_summary,
-        impactTone: handoff ? "attention" : "progress",
-      })}
-      ${renderWorkflowHandoff(handoff)}
-      ${hash ? `<div class="review-shell-inline-actions"><button type="button" ${queueItemButtonAttributes(hash)}>Open next queue</button></div>` : ""}
-    </article>
-  `;
+  return renderActionCardDeck(
+    [buildPlanningFollowUpResourceCard(resource, planningImpactHandoffContext(sessionName))],
+    "",
+  );
 }
 
 function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null): string {
@@ -1872,63 +1790,70 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
   if (!snapshot?.session) {
     return '<p class="review-shell-empty">Planning impact previews appear after a session loads.</p>';
   }
+
   if (!latestExecution) {
-    return `
-      <article class="review-shell-impact-card review-shell-impact-card--callout">
-        <div class="review-shell-impact-card-header">
-          <div>
-            <p class="support-eyebrow">Impact preview</p>
-            <h4>Nothing executed yet</h4>
-          </div>
-          ${reviewChip(snapshot.session.status)}
-        </div>
-        <p>Review the current checkpoint and its deterministic operations before executing the first step.</p>
-        <div class="review-shell-inline-chip-row">
-          ${reviewChip(`Assumptions ${snapshot.assumptions?.length ?? 0}`)}
-          ${reviewChip(`Target loops ${snapshot.target_loops?.length ?? 0}`)}
-        </div>
-        ${renderPanelTrust(planningTrustMetadata(snapshot))}
-      </article>
-    `;
+    const card: OperatorActionCard = {
+      id: `review-plan-empty-${snapshot.session.id}`,
+      kind: "refresh",
+      tone: "neutral",
+      eyebrow: "Impact preview",
+      title: "Nothing executed yet",
+      summary: "Review the current checkpoint and its deterministic operations before executing the first step.",
+      rationale: "Planning impact stays action-first by surfacing the next deterministic checkpoint even before any execution history exists.",
+      preview: [
+        { label: "Status", value: snapshot.session.status.replaceAll("_", " ") },
+        { label: "Assumptions", value: `${snapshot.assumptions?.length ?? 0}` },
+        { label: "Target loops", value: `${snapshot.target_loops?.length ?? 0}` },
+      ],
+      trust: planningTrustMetadata(snapshot),
+      handoff: {
+        changeSummary: "No execution history exists yet for this plan.",
+        createdResources: [],
+        nextStep: "Inspect the checkpoint payload, then execute when the deterministic operations look right.",
+        breadcrumbs: ["Home", "Plan", snapshot.session.name],
+      },
+      actions: [
+        {
+          type: "open",
+          label: "Resume plan",
+          variant: "primary",
+          location: createLocation({ state: "plan", reviewFocus: "planning", sessionId: snapshot.session.id, workingSetId: currentWorkingSetId() }),
+          description: `Resume ${snapshot.session.name}`,
+        },
+      ],
+    };
+    return renderActionCardDeck([card], '');
   }
 
   return `
-    <article class="review-shell-impact-card review-shell-impact-card--callout">
-      <div class="review-shell-impact-card-header">
-        <div>
-          <p class="support-eyebrow">Latest impact</p>
-          <h4>${escapeHtml(latestExecution.checkpoint_title)}</h4>
-        </div>
-        ${reviewChip(`${latestExecution.operation_count} result${latestExecution.operation_count === 1 ? "" : "s"}`, "success")}
-      </div>
-      <p>Executed ${escapeHtml(formatRelativeTime(latestExecution.executed_at_utc))} · ${escapeHtml(formatTimestamp(latestExecution.executed_at_utc))}</p>
-      <div class="review-shell-inline-chip-row">
-        ${reviewChip(`Rollback actions ${latestExecution.rollback_cues?.rollback_action_count ?? 0}`)}
-        ${reviewChip(`Undoable ${latestExecution.rollback_cues?.undoable_operation_count ?? 0}`)}
-        ${reviewChip(`Launch surfaces ${latestExecution.launch_surfaces?.length ?? 0}`, latestExecution.launch_surfaces?.length ? "alert" : "default")}
-      </div>
-      ${renderPanelTrust({
-        generationLabel: "Deterministic execution result",
-        generationTone: "progress",
-        contextSources: [
-          `${latestExecution.operation_count} execution result${latestExecution.operation_count === 1 ? "" : "s"}`,
-          `${latestExecution.follow_up_resources?.length ?? 0} follow-up resource${(latestExecution.follow_up_resources?.length ?? 0) === 1 ? "" : "s"}`,
-          `${latestExecution.launch_surfaces?.length ?? 0} launch surface${(latestExecution.launch_surfaces?.length ?? 0) === 1 ? "" : "s"}`,
-        ],
-        assumptions: ["Execution reflects the latest stored checkpoint payload."],
-        confidenceLabel: latestExecution.launch_surfaces?.length ? "A downstream queue is ready" : "Execution completed without a dedicated next queue",
-        confidenceTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
-        freshnessLabel: `Executed ${formatRelativeTime(latestExecution.executed_at_utc)}`,
-        freshnessTone: "progress",
-        rollbackLabel: describeRollbackCue(latestExecution.rollback_cues),
-        rollbackTone: latestExecution.rollback_cues?.rollback_supported_operation_count ? "caution" : "neutral",
-        impactSummary: latestExecution.summary && typeof latestExecution.summary === "object" && typeof latestExecution.summary["summary"] === "string"
-          ? String(latestExecution.summary["summary"])
-          : `Checkpoint execution produced ${latestExecution.operation_count} result${latestExecution.operation_count === 1 ? "" : "s"}.`,
-        impactTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
-      })}
-    </article>
-    ${(latestExecution.launch_surfaces ?? []).map((surface) => renderLaunchSurface(surface, snapshot.session.name)).join("")}
+    ${renderActionCardDeck([
+      buildPlanningExecutionSummaryCard(
+        snapshot,
+        latestExecution,
+        {
+          generationLabel: "Deterministic execution result",
+          generationTone: "progress",
+          contextSources: [
+            `${latestExecution.operation_count} execution result${latestExecution.operation_count === 1 ? "" : "s"}`,
+            `${latestExecution.follow_up_resources?.length ?? 0} follow-up resource${(latestExecution.follow_up_resources?.length ?? 0) === 1 ? "" : "s"}`,
+            `${latestExecution.launch_surfaces?.length ?? 0} launch surface${(latestExecution.launch_surfaces?.length ?? 0) === 1 ? "" : "s"}`,
+          ],
+          assumptions: ["Execution reflects the latest stored checkpoint payload."],
+          confidenceLabel: latestExecution.launch_surfaces?.length ? "A downstream queue is ready" : "Execution completed without a dedicated next queue",
+          confidenceTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
+          freshnessLabel: `Executed ${formatRelativeTime(latestExecution.executed_at_utc)}`,
+          freshnessTone: "progress",
+          rollbackLabel: describeRollbackCue(latestExecution.rollback_cues),
+          rollbackTone: latestExecution.rollback_cues?.rollback_supported_operation_count ? "caution" : "neutral",
+          impactSummary: latestExecution.summary && typeof latestExecution.summary === "object" && typeof latestExecution.summary["summary"] === "string"
+            ? String(latestExecution.summary["summary"])
+            : `Checkpoint execution produced ${latestExecution.operation_count} result${latestExecution.operation_count === 1 ? "" : "s"}.`,
+          impactTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
+        },
+        planningImpactHandoffContext(snapshot.session.name),
+      ),
+    ], '')}
+    ${(latestExecution.launch_surfaces ?? []).map((surface) => renderLaunchSurface(surface, snapshot.session.name, latestExecution)).join("")}
     ${(latestExecution.follow_up_resources ?? []).map((resource) => renderFollowUpResource(resource, snapshot.session.name)).join("")}
   `;
 }
@@ -1940,45 +1865,30 @@ function renderRelationshipImpact(snapshot: RelationshipReviewSessionSnapshotRes
     return '<p class="review-shell-empty">Impact previews appear after a relationship session loads.</p>';
   }
   if (!item || !candidate) {
-    return `
-      <article class="review-shell-impact-card review-shell-impact-card--callout">
-        <div class="review-shell-impact-card-header">
-          <div>
-            <p class="support-eyebrow">Impact preview</p>
-            <h4>Session is empty</h4>
-          </div>
-          ${reviewChip(snapshot.session.relationship_kind)}
-        </div>
-        <p>Refresh the session after more similarity candidates appear, or edit the query to broaden the queue.</p>
-      </article>
-    `;
+    return '<p class="review-shell-empty">Refresh the session after more similarity candidates appear, or edit the query to broaden the queue.</p>';
   }
   const recommendedDecision = candidate.relationship_type === "duplicate"
     ? `Confirming duplicate would consolidate ${loopTitle(item.loop)} with ${loopTitle(candidate)}.`
-    : `Confirming related would preserve both loops but record an explicit relationship between them.`;
+    : "Confirming related would preserve both loops but record an explicit relationship between them.";
 
-  return `
-    <article class="review-shell-impact-card review-shell-impact-card--callout">
-      <div class="review-shell-impact-card-header">
-        <div>
-          <p class="support-eyebrow">Impact preview</p>
-          <h4>${escapeHtml(relationshipRecommendation(item))}</h4>
-        </div>
-        ${reviewChip(`${Math.round(candidate.score * 100)}% similarity`, candidate.score >= 0.9 ? "alert" : "default")}
-      </div>
-      <p>${escapeHtml(recommendedDecision)}</p>
-      <div class="review-shell-inline-chip-row">
-        ${reviewChip(`Queue remaining ${snapshot.items.length}`)}
-        ${reviewChip(candidate.relationship_type === "duplicate" ? "Merge path available" : "Non-merge relationship" )}
-        ${candidate.score < 0.9 ? reviewChip("Manual review emphasized", "alert") : ""}
-      </div>
-      ${renderPanelTrust({
+  return renderActionCardDeck([
+    buildRelationshipImpactCard({
+      snapshot,
+      candidate,
+      recommendedDecision,
+      recommendationTitle: relationshipRecommendation(item),
+      trust: {
         ...relationshipTrustMetadata(snapshot, item),
         impactSummary: recommendedDecision,
         impactTone: candidate.relationship_type === "duplicate" ? "attention" : "neutral",
-      })}
-    </article>
-  `;
+      },
+      selectedAction: selectedRelationshipAction(),
+      context: {
+        ...reviewImpactHandoffContext(snapshot.session.name),
+        loopId: item.loop.id,
+      },
+    }),
+  ], '');
 }
 
 function renderEnrichmentImpact(snapshot: EnrichmentReviewSessionSnapshotResponse | null): string {
@@ -1987,54 +1897,33 @@ function renderEnrichmentImpact(snapshot: EnrichmentReviewSessionSnapshotRespons
     return '<p class="review-shell-empty">Impact previews appear after an enrichment session loads.</p>';
   }
   if (!item) {
-    return `
-      <article class="review-shell-impact-card review-shell-impact-card--callout">
-        <div class="review-shell-impact-card-header">
-          <div>
-            <p class="support-eyebrow">Impact preview</p>
-            <h4>Session is empty</h4>
-          </div>
-          ${reviewChip(snapshot.session.pending_kind)}
-        </div>
-        <p>Refresh the session after new suggestions or clarifications appear, or broaden the query.</p>
-      </article>
-    `;
+    return '<p class="review-shell-empty">Refresh the session after new suggestions or clarifications appear, or broaden the query.</p>';
   }
   const firstSuggestion = item.pending_suggestions[0] ?? null;
   const suggestionFields = firstSuggestion && typeof firstSuggestion.parsed === "object" && firstSuggestion.parsed
     ? Object.keys(firstSuggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
     : [];
+  const recommendedDecision = item.pending_clarification_count > 0
+    ? "Answering clarifications reruns enrichment and can supersede stale suggestions."
+    : suggestionFields.length
+      ? `Applying the top suggestion may update ${suggestionFields.join(", ")}.`
+      : "Applying the top suggestion may update the loop's structured fields.";
 
-  return `
-    <article class="review-shell-impact-card review-shell-impact-card--callout">
-      <div class="review-shell-impact-card-header">
-        <div>
-          <p class="support-eyebrow">Impact preview</p>
-          <h4>${escapeHtml(enrichmentRecommendation(item))}</h4>
-        </div>
-        ${reviewChip(`Newest pending ${formatRelativeTime(item.newest_pending_at)}`)}
-      </div>
-      <p>${escapeHtml(item.pending_clarification_count > 0
-        ? "Answering clarifications reruns enrichment and can supersede stale suggestions."
-        : suggestionFields.length
-          ? `Applying the top suggestion may update ${suggestionFields.join(", ")}.`
-          : "Applying the top suggestion may update the loop's structured fields." )}</p>
-      <div class="review-shell-inline-chip-row">
-        ${reviewChip(`Suggestions ${item.pending_suggestion_count}`, item.pending_suggestion_count ? "alert" : "default")}
-        ${reviewChip(`Clarifications ${item.pending_clarification_count}`, item.pending_clarification_count ? "alert" : "default")}
-        ${suggestionFields.length ? reviewChip(`Fields: ${suggestionFields.join(", ")}`) : ""}
-      </div>
-      ${renderPanelTrust({
+  return renderActionCardDeck([
+    buildEnrichmentImpactCard({
+      snapshot,
+      item,
+      recommendationTitle: enrichmentRecommendation(item),
+      recommendedDecision,
+      trust: {
         ...enrichmentTrustMetadata(snapshot, item),
-        impactSummary: item.pending_clarification_count > 0
-          ? "Answering clarifications reruns enrichment and can supersede stale suggestions."
-          : suggestionFields.length
-            ? `Applying the top suggestion may update ${suggestionFields.join(", ")}.`
-            : "Applying the top suggestion may update the loop's structured fields.",
+        impactSummary: recommendedDecision,
         impactTone: item.pending_clarification_count > 0 ? "attention" : "neutral",
-      })}
-    </article>
-  `;
+      },
+      selectedAction: selectedEnrichmentAction(),
+      context: reviewImpactHandoffContext(snapshot.session.name),
+    }),
+  ], '');
 }
 
 function cohortDescriptor(cohort: LoopReviewCohortResponse): { label: string; why: string; decision: string } {
@@ -2080,24 +1969,17 @@ function renderCohortImpact(cohort: LoopReviewCohortResponse | null): string {
   if (!cohort) {
     return '<p class="review-shell-empty">Impact previews appear after a cohort is selected.</p>';
   }
-  const topLoop = cohort.items[0] ?? null;
-  return `
-    <article class="review-shell-impact-card review-shell-impact-card--callout">
-      <div class="review-shell-impact-card-header">
-        <div>
-          <p class="support-eyebrow">Impact preview</p>
-          <h4>${escapeHtml(cohortDescriptor(cohort).decision)}</h4>
-        </div>
-        ${reviewChip(`${cohort.count} item${cohort.count === 1 ? "" : "s"}`, cohort.count > 0 ? "alert" : "default")}
-      </div>
-      <p>${escapeHtml(cohortDescriptor(cohort).why)}</p>
-      <div class="review-shell-inline-chip-row">
-        ${topLoop ? reviewChip(`Top loop: ${loopTitle(topLoop)}`) : ""}
-        ${reviewChip(state.reviewMode === "daily" ? "Fast cleanup cadence" : "Structural cleanup cadence")}
-      </div>
-      ${renderPanelTrust(cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null))}
-    </article>
-  `;
+  const descriptor = cohortDescriptor(cohort);
+  return renderActionCardDeck([
+    buildCohortImpactCard({
+      cohort,
+      decisionLabel: descriptor.decision,
+      why: descriptor.why,
+      trust: cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null),
+      reviewMode: state.reviewMode,
+      context: cohortImpactHandoffContext(),
+    }),
+  ], '');
 }
 
 function renderImpact(): void {

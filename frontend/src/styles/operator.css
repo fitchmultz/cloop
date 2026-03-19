@@ -271,7 +271,9 @@
   width: auto;
 }
 
-.operator-zone-body {
+.operator-zone-body,
+.operator-action-card-deck,
+.recall-action-card-deck {
   display: grid;
   gap: var(--space-3);
 }

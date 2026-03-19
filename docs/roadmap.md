@@ -26,25 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Structured action surfaces and decision-focused review
+### Phase 1 — Review decision-shell completion and recall result actions
 
-Goal: turn the shipped operator shell, trust surfaces, and continuity foundations into a crisp decide-and-execute loop where AI-backed recommendations become explicit, trustworthy action surfaces.
+Goal: finish turning the shipped operator shell, trust surfaces, and shared action-card model into a crisp decide-and-execute loop where review and recall both expose the next safe move directly in-context.
 
-1. **Shared AI action-card adoption across planning, review, and recall**
-   - Promote planning follow-up resources and launch surfaces into one canonical action-card model reused by planning, review, and grounded recall flows.
-   - Keep previews, rationale, trust metadata, handoff cues, and rollback language structured instead of prose-only.
-2. **Review workspace decision-shell completion**
+1. **Review workspace decision-shell completion**
    - Finish the shared review shell so relationship, enrichment, and hygiene review all show why an item is here, what decision is required, and what happens next.
    - Keep queue health, progress, and downstream consequences visible without forcing users back through the operator shell.
+2. **Recall in-thread action-card execution**
+   - Extend the shared action-card model from recall support decks into grounded chat and document-answer results so evidence-backed recommendations can launch or stage the next action directly.
+   - Reuse the same trust, preview, handoff, and rollback framing instead of leaving recall outputs prose-only.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Shared AI action-card adoption session**
-   - align planning, review, and recall on one executable card contract and renderer before expanding more workflow-specific UI
-2. **Review workspace decision-shell completion session**
+1. **Review workspace decision-shell completion session**
    - finish the shared decision workspace with specialized panes, queue health, impact previews, and downstream action cards
+2. **Recall in-thread action-card execution session**
+   - extend chat and document-answer results from support/context cards into executable in-thread action cards with shared trust + handoff framing
 
 ## Delivery Model
 

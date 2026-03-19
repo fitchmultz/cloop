@@ -22,6 +22,8 @@
  */
 
 import type { ChatMessage, ChatPreferences } from "../contracts-ui";
+import { parseHash } from "../shell-routing";
+import { renderRecallActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import * as state from "./state";
 import type { SurfaceChatEventPayload } from "./contracts";
@@ -30,6 +32,7 @@ import { consumeJsonEventStream } from "./stream";
 import { escapeHtml, messageFromError } from "./utils";
 
 interface ChatModuleElements {
+  chatActionCards?: HTMLElement | null;
   chatMessages: HTMLElement;
   chatInput: HTMLInputElement | HTMLTextAreaElement;
   chatForm: HTMLFormElement;
@@ -46,6 +49,7 @@ interface ChatModuleElements {
   chatRuntimeStatus?: HTMLElement | null;
 }
 
+let chatActionCardsEl: HTMLElement | null = null;
 let chatMessagesEl: HTMLElement | null = null;
 let chatInput: HTMLInputElement | HTMLTextAreaElement | null = null;
 let chatComposerEl: HTMLFormElement | null = null;
@@ -400,6 +404,20 @@ function syncControlsFromPreferences(): void {
   }
 }
 
+function currentWorkingSetId(): number | null {
+  return parseHash(window.location.hash)?.workingSetId ?? null;
+}
+
+function renderActionCards(): void {
+  renderRecallActionCards(chatActionCardsEl, {
+    tool: "chat",
+    workingSetId: currentWorkingSetId(),
+    chatGroundingSummary: chatControlsStatusEl?.textContent || undefined,
+    hasKnowledge: state.getChatPreferences().includeRagContext,
+    ragQuestion: state.getChatPreferences().ragScope || undefined,
+  });
+}
+
 function renderChatControlsSummary(): void {
   if (!chatControlsStatusEl) {
     return;
@@ -419,6 +437,7 @@ function renderChatControlsSummary(): void {
   }
 
   chatControlsStatusEl.textContent = `${getToolModeLabel(toolMode)} · ${grounding.length > 0 ? grounding.join(" · ") : "No extra grounding"}`;
+  renderActionCards();
 }
 
 function persistControls(): void {
@@ -450,6 +469,7 @@ async function loadBackendDefaults(): Promise<void> {
 }
 
 export function init(elements: ChatModuleElements): void {
+  chatActionCardsEl = elements.chatActionCards ?? null;
   chatMessagesEl = elements.chatMessages;
   chatInput = elements.chatInput;
   chatComposerEl = elements.chatForm;
@@ -477,6 +497,7 @@ export function init(elements: ChatModuleElements): void {
   syncControlsFromPreferences();
   renderChatControlsSummary();
   renderChatMessages();
+  renderActionCards();
   void loadBackendDefaults();
 }
 
