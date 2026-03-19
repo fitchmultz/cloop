@@ -3,11 +3,12 @@
  *
  * Purpose:
  *   Verify recall surfaces build canonical action cards with preserved working-set
- *   scope and tool-specific guidance.
+ *   scope and richer stage/edit/defer follow-through for grounded results.
  *
  * Responsibilities:
  *   - Assert chat cards carry working-set-scoped recall locations.
  *   - Assert document cards change guidance when no indexed knowledge exists.
+ *   - Guard inline recall result cards from regressing back to open/pin-only handoffs.
  *
  * Scope:
  *   - Pure card-building helpers only.
@@ -52,10 +53,11 @@ describe("buildRecallActionCards", () => {
     expect(cards[0]?.trust.confidenceLabel).toBe("Index first");
   });
 
-  it("builds in-thread chat result cards with execution and evidence handoffs", () => {
+  it("builds in-thread chat result cards with stage/edit/defer follow-through", () => {
     const cards = buildRecallResultActionCards({
       tool: "chat",
       workingSetId: 9,
+      chatPrompt: "What changed, what is blocked, and what should I do now?",
       answerSummary: "Focus on the missing-next-action loops first, then reopen the duplicate review queue.",
       sourceCount: 2,
       sourceLabels: ["/notes/review.md", "/notes/qa.md"],
@@ -64,12 +66,15 @@ describe("buildRecallActionCards", () => {
       ragChunksUsed: 4,
     });
 
-    expect(cards[0]?.title).toContain("Open Do");
-    expect(cards[0]?.actionContextLabel).toBe("Next action");
-    expect(cards[1]?.title).toContain("source-backed context");
+    expect(cards[0]?.title).toContain("Stage this grounded brief");
+    expect(cards[0]?.actions.some((action) => action.type === "stage" && action.location.state === "do")).toBe(true);
+    expect(cards[0]?.actions.some((action) => action.type === "edit" && action.location.recallTool === "chat")).toBe(true);
+    expect(cards[0]?.actions.some((action) => action.type === "defer" && action.location.state === "do")).toBe(true);
+    expect(cards[1]?.title).toContain("source-backed follow-up");
+    expect(cards[1]?.actions.some((action) => action.type === "stage" && action.location.recallTool === "rag")).toBe(true);
   });
 
-  it("builds in-thread rag result cards that hand off into chat", () => {
+  it("builds in-thread rag result cards with deterministic evidence follow-through", () => {
     const cards = buildRecallResultActionCards({
       tool: "rag",
       workingSetId: null,
@@ -81,15 +86,17 @@ describe("buildRecallActionCards", () => {
       ragChunksUsed: 2,
     });
 
-    expect(cards[0]?.actions[0]?.type).toBe("open");
-    expect(cards[0]?.summary).toContain("grounded chat");
-    expect(cards[1]?.title).toContain("Open Do");
+    expect(cards[0]?.actions.some((action) => action.type === "stage" && action.location.state === "recall")).toBe(true);
+    expect(cards[0]?.actions.some((action) => action.type === "edit" && action.location.recallTool === "rag")).toBe(true);
+    expect(cards[0]?.actions.some((action) => action.type === "defer" && action.location.recallTool === "rag")).toBe(true);
+    expect(cards[1]?.actions.some((action) => action.type === "defer" && action.location.state === "do")).toBe(true);
   });
 
-  it("renders inline answer-card decks with the shared deck wrapper", () => {
+  it("renders inline answer-card decks with stage/edit/defer attributes", () => {
     const markup = renderRecallResultActionCards({
       tool: "chat",
       workingSetId: 12,
+      chatPrompt: "What should I do next?",
       answerSummary: "Review the duplicate queue and then finish the top actionable loop.",
       sourceCount: 1,
       sourceLabels: ["/docs/review.md"],
@@ -99,6 +106,8 @@ describe("buildRecallActionCards", () => {
 
     expect(markup).toContain("recall-inline-action-card-deck");
     expect(markup).toContain("Grounded answer action cards");
-    expect(markup).toContain("Open Do with this grounded brief");
+    expect(markup).toContain('data-card-action="stage"');
+    expect(markup).toContain('data-card-action="edit"');
+    expect(markup).toContain('data-card-action="defer"');
   });
 });

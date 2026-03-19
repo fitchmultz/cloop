@@ -23,7 +23,7 @@
  *   - Working-set scope is optional but should be carried when available.
  */
 
-import type { OperatorActionCard, RecallTool, ShellLocationContract } from "../contracts-ui";
+import type { OperatorActionCard, OperatorActionCardAction, RecallTool, ShellLocationContract } from "../contracts-ui";
 import { renderActionCardDeck } from "../operator-action-cards";
 import { createLocation } from "../shell-routing";
 
@@ -31,6 +31,7 @@ export interface RecallActionCardContext {
   tool: RecallTool;
   workingSetId: number | null;
   chatGroundingSummary?: string | undefined;
+  chatPrompt?: string | undefined;
   memoryQuery?: string | undefined;
   ragQuestion?: string | undefined;
   hasKnowledge?: boolean | undefined;
@@ -66,6 +67,61 @@ function pinAction(label: string, location: ShellLocationContract, description: 
     location,
     description,
     pinLabel,
+  };
+}
+
+function stageAction(
+  label: string,
+  location: ShellLocationContract,
+  description: string,
+  stageLabel: string,
+  openAfterStage = true,
+  variant: OperatorActionCardAction["variant"] = "primary",
+): OperatorActionCardAction {
+  return {
+    type: "stage",
+    label,
+    variant,
+    location,
+    description,
+    stageLabel,
+    stageDescription: description,
+    openAfterStage,
+  };
+}
+
+function editAction(
+  label: string,
+  location: ShellLocationContract,
+  description: string,
+  query: string,
+  variant: OperatorActionCardAction["variant"] = "secondary",
+): OperatorActionCardAction {
+  return {
+    type: "edit",
+    label,
+    variant,
+    location,
+    description,
+    query,
+  };
+}
+
+function deferAction(
+  label: string,
+  location: ShellLocationContract,
+  description: string,
+  deferLabel: string,
+  variant: OperatorActionCardAction["variant"] = "secondary",
+): OperatorActionCardAction {
+  return {
+    type: "defer",
+    label,
+    variant,
+    location,
+    description,
+    deferLabel,
+    deferDescription: description,
   };
 }
 
@@ -115,23 +171,52 @@ export function buildRecallResultActionCards(
   context: RecallResultActionCardContext,
 ): OperatorActionCard[] {
   const workingSetLabel = context.workingSetId != null ? `Working set #${context.workingSetId}` : "No bounded working set";
-  const chatLocation = baseRecallLocation("chat", context.workingSetId);
-  const memoryLocation = createLocation({
-    state: "recall",
-    recallTool: "memory",
-    workingSetId: context.workingSetId,
-    query: context.memoryQuery ?? null,
-  });
-  const ragLocation = createLocation({
-    state: "recall",
-    recallTool: "rag",
-    workingSetId: context.workingSetId,
-    query: context.ragQuestion ?? null,
-  });
   const doLocation = createLocation({ state: "do", workingSetId: context.workingSetId });
   const evidenceSources = recallResultTrustSources(context);
   const groundingLabel = recallResultGroundingLabel(context);
   const summary = truncateCopy(context.answerSummary, 160);
+  const chatPrompt = context.chatPrompt?.trim() || "";
+  const evidenceQuestion = context.ragQuestion?.trim()
+    || (chatPrompt ? `What evidence should I verify for "${chatPrompt}"?` : "What evidence should I verify before acting?");
+  const documentQuestion = context.ragQuestion?.trim() || evidenceQuestion;
+  const memoryFollowUpQuery = context.memoryQuery?.trim()
+    || (chatPrompt ? `What durable commitments or facts matter for "${chatPrompt}"?` : "Which durable commitments or facts should I reconfirm before acting?");
+  const groundedBriefLabel = `Do · ${truncateCopy(summary, 56)}`;
+  const groundedBriefDescription = `Execution brief: ${summary}`;
+  const evidenceReviewLabel = `Recall · Evidence · ${truncateCopy(evidenceQuestion, 48)}`;
+  const evidenceReviewDescription = `Evidence review: ${truncateCopy(evidenceQuestion, 140)}`;
+  const memoryReviewLabel = `Recall · Memory · ${truncateCopy(memoryFollowUpQuery, 48)}`;
+  const memoryReviewDescription = `Memory follow-up: ${truncateCopy(memoryFollowUpQuery, 140)}`;
+  const chatQuestionLocation = createLocation({
+    state: "recall",
+    recallTool: "chat",
+    workingSetId: context.workingSetId,
+    query: chatPrompt || null,
+  });
+  const documentLocation = createLocation({
+    state: "recall",
+    recallTool: "rag",
+    workingSetId: context.workingSetId,
+    query: documentQuestion,
+  });
+  const memoryFollowUpLocation = createLocation({
+    state: "recall",
+    recallTool: "memory",
+    workingSetId: context.workingSetId,
+    query: memoryFollowUpQuery,
+  });
+  const stagedGroundedChatQuery = truncateCopy(
+    context.ragQuestion?.trim()
+      ? `Based on the evidence answering "${context.ragQuestion.trim()}", what should I do next?`
+      : `Using this evidence, recommend the next move. ${summary}`,
+    220,
+  );
+  const stagedGroundedChatLocation = createLocation({
+    state: "recall",
+    recallTool: "chat",
+    workingSetId: context.workingSetId,
+    query: stagedGroundedChatQuery,
+  });
 
   if (context.tool === "chat") {
     const cards: OperatorActionCard[] = [
@@ -140,9 +225,9 @@ export function buildRecallResultActionCards(
         kind: "handoff",
         tone: context.sourceCount > 0 || context.loopContextApplied ? "attention" : "progress",
         eyebrow: "From this answer",
-        title: "Open Do with this grounded brief",
-        summary: "Carry the grounded answer directly into execution without leaving the recall flow behind.",
-        rationale: "In-thread action cards keep a grounded answer executable so the operator can move from recall to action without translating prose into a separate navigation step.",
+        title: "Stage this grounded brief for execution",
+        summary: "Make the answer durable immediately, refine the question, or defer the handoff without losing the brief.",
+        rationale: "In-thread action cards should carry a grounded answer into a durable next step instead of forcing the operator to reconstruct the follow-through by hand.",
         preview: [
           { label: "Answer", value: summary },
           { label: "Grounding", value: groundingLabel },
@@ -160,21 +245,39 @@ export function buildRecallResultActionCards(
           confidenceTone: context.sourceCount ? "attention" : "progress",
           freshnessLabel: null,
           freshnessTone: "neutral",
-          rollbackLabel: "Opening Do is non-mutating; edits remain explicit in the destination surface.",
+          rollbackLabel: "Staging or deferring only saves a durable handoff; execution still stays explicit in Do.",
           rollbackTone: "progress",
-          impactSummary: "Use this answer as the working brief for the next execution step.",
+          impactSummary: "Carry this answer forward as the working brief for the next execution step.",
           impactTone: "attention",
         },
         handoff: {
-          changeSummary: "This answer is ready to hand off into execution with the same working-set scope.",
+          changeSummary: "This answer can become a durable execution handoff with the same working-set scope.",
           createdResources: context.sourceLabels.slice(0, 3),
-          nextStep: "Open Do, keep this brief in mind, and act on the highest-signal next move.",
+          nextStep: "Stage the next step to open Do now, or defer the brief if you want to preserve it without switching surfaces.",
           breadcrumbs: ["Home", "Recall", "Grounded chat", "Answer result"],
         },
-        actionContextLabel: "Next action",
+        actionContextLabel: "Follow-through",
         actions: [
-          openAction("Open Do", doLocation, "Carry this grounded answer into execution"),
-          pinAction("Pin answer context", chatLocation, "Return to this grounded answer context", "Recall · Grounded answer"),
+          stageAction(
+            "Stage next step",
+            doLocation,
+            groundedBriefDescription,
+            groundedBriefLabel,
+          ),
+          ...(chatPrompt
+            ? [editAction(
+                "Edit question",
+                chatQuestionLocation,
+                "Refine the grounded chat question behind this answer.",
+                chatPrompt,
+              )]
+            : []),
+          deferAction(
+            "Defer for later",
+            doLocation,
+            groundedBriefDescription,
+            groundedBriefLabel,
+          ),
         ],
       },
     ];
@@ -185,15 +288,15 @@ export function buildRecallResultActionCards(
         kind: "context",
         tone: "progress",
         eyebrow: "Supporting evidence",
-        title: "Reopen the source-backed context",
-        summary: "Inspect the supporting documents again if you want to verify or quote the evidence before acting.",
-        rationale: "Evidence-backed answers should keep their source path one click away so trust never depends on memory alone.",
+        title: "Stage or refine the source-backed follow-up",
+        summary: "Keep the evidence path durable, reopen Documents with the question ready, or defer the follow-up without losing the supporting trail.",
+        rationale: "Evidence-backed answers should keep their source path executable so trust never depends on memory alone.",
         preview: [
-          { label: "Question", value: context.ragQuestion || "Inspect the supporting documents again" },
+          { label: "Question", value: evidenceQuestion },
           { label: "Sources", value: context.sourceLabels.slice(0, 2).join(" · ") || `${context.sourceCount} retrieved source${context.sourceCount === 1 ? "" : "s"}` },
         ],
         trust: {
-          generationLabel: "Document-backed handoff",
+          generationLabel: "Document-backed follow-up",
           generationTone: "progress",
           contextSources: ["Indexed local documents", ...context.sourceLabels.slice(0, 2).map((label) => `Source: ${label}`)],
           assumptions: ["The supporting source material is still the best evidence for this answer."],
@@ -201,21 +304,37 @@ export function buildRecallResultActionCards(
           confidenceTone: "attention",
           freshnessLabel: null,
           freshnessTone: "neutral",
-          rollbackLabel: "Opening Documents is read-first until you ingest new files or ask again.",
+          rollbackLabel: "Staging or deferring only saves the document follow-up; document recall stays read-first until you ask again.",
           rollbackTone: "progress",
-          impactSummary: "Inspect the source-backed context before carrying this answer forward.",
+          impactSummary: "Keep the source-backed verification step one action away before you act.",
           impactTone: "progress",
         },
         handoff: {
-          changeSummary: "This keeps the evidence behind the answer available without leaving the recall workflow.",
+          changeSummary: "This keeps the evidence behind the answer available without forcing an immediate surface switch.",
           createdResources: context.sourceLabels.slice(0, 3),
-          nextStep: "Open document recall if you need to verify or quote the source-backed evidence.",
+          nextStep: "Stage the document review to reopen Documents now, refine the question, or defer it for later.",
           breadcrumbs: ["Home", "Recall", "Grounded chat", "Documents"],
         },
         actionContextLabel: "Evidence follow-up",
         actions: [
-          openAction("Open documents", ragLocation, "Inspect the evidence behind this answer"),
-          pinAction("Pin documents", ragLocation, "Return to document-backed recall", "Recall · Documents"),
+          stageAction(
+            "Stage evidence review",
+            documentLocation,
+            evidenceReviewDescription,
+            evidenceReviewLabel,
+          ),
+          editAction(
+            "Edit document question",
+            documentLocation,
+            "Refine the document question that produced this answer.",
+            evidenceQuestion,
+          ),
+          deferAction(
+            "Defer evidence review",
+            documentLocation,
+            evidenceReviewDescription,
+            evidenceReviewLabel,
+          ),
         ],
       });
     } else if (context.memoryContextApplied) {
@@ -224,15 +343,15 @@ export function buildRecallResultActionCards(
         kind: "context",
         tone: "neutral",
         eyebrow: "Durable context",
-        title: "Reopen the memory context behind this answer",
-        summary: "Check the underlying durable context again before you commit to the next move.",
-        rationale: "Grounded answers that depend on memory should keep that durable context one click away for verification.",
+        title: "Stage or refine the memory follow-up",
+        summary: "Keep the memory check durable, reopen Memory with the query ready, or defer the follow-up without losing the context.",
+        rationale: "Grounded answers that depend on memory should keep that durable context executable for a quick fact check.",
         preview: [
           { label: "Grounding", value: groundingLabel },
-          { label: "Context", value: workingSetLabel },
+          { label: "Memory query", value: memoryFollowUpQuery },
         ],
         trust: {
-          generationLabel: "Memory-backed handoff",
+          generationLabel: "Memory-backed follow-up",
           generationTone: "progress",
           contextSources: ["Direct memory", ...(context.memoryEntriesUsed ? [`${context.memoryEntriesUsed} memory entr${context.memoryEntriesUsed === 1 ? "y" : "ies"}`] : [])],
           assumptions: ["Durable memory still reflects the long-lived context this answer relied on."],
@@ -240,21 +359,37 @@ export function buildRecallResultActionCards(
           confidenceTone: "progress",
           freshnessLabel: null,
           freshnessTone: "neutral",
-          rollbackLabel: "Opening Memory is read-first; edits remain explicit.",
+          rollbackLabel: "Staging or deferring only saves the memory follow-up; memory edits remain explicit.",
           rollbackTone: "progress",
-          impactSummary: "Review the durable context behind this answer before acting.",
+          impactSummary: "Keep the durable-context check available before you act on the answer.",
           impactTone: "neutral",
         },
         handoff: {
           changeSummary: "This keeps the durable context behind the answer available for a quick fact check.",
           createdResources: [],
-          nextStep: "Open Memory if you need to reconfirm commitments, preferences, or long-lived facts.",
+          nextStep: "Stage the memory review to reopen Memory now, refine the search, or defer it for later.",
           breadcrumbs: ["Home", "Recall", "Grounded chat", "Memory"],
         },
         actionContextLabel: "Context follow-up",
         actions: [
-          openAction("Open memory", memoryLocation, "Review the memory context behind this answer"),
-          pinAction("Pin memory", memoryLocation, "Return to durable memory", "Recall · Memory"),
+          stageAction(
+            "Stage memory check",
+            memoryFollowUpLocation,
+            memoryReviewDescription,
+            memoryReviewLabel,
+          ),
+          editAction(
+            "Edit memory search",
+            memoryFollowUpLocation,
+            "Refine the durable-memory query behind this answer.",
+            memoryFollowUpQuery,
+          ),
+          deferAction(
+            "Defer memory review",
+            memoryFollowUpLocation,
+            memoryReviewDescription,
+            memoryReviewLabel,
+          ),
         ],
       });
     }
@@ -268,13 +403,13 @@ export function buildRecallResultActionCards(
       kind: "handoff",
       tone: "attention",
       eyebrow: "From this answer",
-      title: "Turn this evidence into the next move",
-      summary: "Carry the retrieved evidence into grounded chat so the next recommendation stays tied to the documents you just reviewed.",
-      rationale: "In-thread action cards make a document answer actionable by preserving the evidence and handing it straight into the next grounded conversation.",
+      title: "Stage a grounded follow-up from this evidence",
+      summary: "Turn the retrieved evidence into a durable next-step conversation, refine the document question, or defer the evidence for later.",
+      rationale: "Document answers are most valuable when the operator can preserve the evidence, refine the question, and reopen the next grounded conversation without rebuilding context by hand.",
       preview: [
         { label: "Answer", value: summary },
         { label: "Sources", value: context.sourceCount ? `${context.sourceCount} source${context.sourceCount === 1 ? "" : "s"}` : "Document-backed answer" },
-        { label: "Question", value: context.ragQuestion || "What should I do based on this evidence?" },
+        { label: "Question", value: documentQuestion },
         { label: "Context", value: workingSetLabel },
       ],
       trust: {
@@ -286,21 +421,37 @@ export function buildRecallResultActionCards(
         confidenceTone: "attention",
         freshnessLabel: null,
         freshnessTone: "neutral",
-        rollbackLabel: "Opening grounded chat is non-mutating by itself.",
+        rollbackLabel: "Staging grounded chat only saves and reopens the follow-up question; the next answer still remains explicit.",
         rollbackTone: "progress",
-        impactSummary: "Move from evidence collection into a grounded next-step recommendation.",
+        impactSummary: "Move from evidence collection into a durable grounded next-step recommendation.",
         impactTone: "attention",
       },
       handoff: {
-        changeSummary: "This answer is ready to hand off into grounded chat without losing its source-backed context.",
+        changeSummary: "This answer can become a durable grounded follow-up without losing its source-backed context.",
         createdResources: context.sourceLabels.slice(0, 3),
-        nextStep: "Open grounded chat and ask what the retrieved evidence changes about the next move.",
+        nextStep: "Stage the grounded follow-up to reopen chat now, edit the document question, or defer the evidence for later.",
         breadcrumbs: ["Home", "Recall", "Documents", "Answer result"],
       },
-      actionContextLabel: "Next action",
+      actionContextLabel: "Follow-through",
       actions: [
-        openAction("Open grounded chat", chatLocation, "Turn this evidence into a grounded next-step brief"),
-        pinAction("Pin documents", ragLocation, "Return to document-backed recall", "Recall · Documents"),
+        stageAction(
+          "Stage grounded follow-up",
+          stagedGroundedChatLocation,
+          `Grounded follow-up: ${truncateCopy(stagedGroundedChatQuery, 140)}`,
+          "Recall · Grounded follow-up",
+        ),
+        editAction(
+          "Edit document question",
+          documentLocation,
+          "Refine the document question behind this answer.",
+          documentQuestion,
+        ),
+        deferAction(
+          "Defer evidence",
+          documentLocation,
+          evidenceReviewDescription,
+          "Recall · Documents",
+        ),
       ],
     },
     {
@@ -308,9 +459,9 @@ export function buildRecallResultActionCards(
       kind: "context",
       tone: "progress",
       eyebrow: "Act from evidence",
-      title: "Open Do with the same evidence in mind",
-      summary: "Jump straight into execution while the retrieved evidence is still fresh and easy to revisit.",
-      rationale: "Evidence-backed answers are most useful when the operator can act immediately without losing the link back to the supporting documents.",
+      title: "Stage this evidence-backed handoff in Do",
+      summary: "Carry the answer into execution now or save the brief for later without losing the source trail.",
+      rationale: "Evidence-backed answers are most useful when the operator can keep the brief durable and still move into execution immediately.",
       preview: [
         { label: "Evidence", value: context.sourceLabels.slice(0, 2).join(" · ") || `${context.sourceCount} source${context.sourceCount === 1 ? "" : "s"}` },
         { label: "Context", value: workingSetLabel },
@@ -324,7 +475,7 @@ export function buildRecallResultActionCards(
         confidenceTone: "progress",
         freshnessLabel: null,
         freshnessTone: "neutral",
-        rollbackLabel: "Opening Do is non-mutating; edits remain explicit once you act.",
+        rollbackLabel: "Staging or deferring only saves the execution brief; Do remains explicit once you act.",
         rollbackTone: "progress",
         impactSummary: "Carry the evidence-backed answer directly into the next execution step.",
         impactTone: "progress",
@@ -332,13 +483,23 @@ export function buildRecallResultActionCards(
       handoff: {
         changeSummary: "This keeps the document answer actionable instead of stranded in the recall panel.",
         createdResources: context.sourceLabels.slice(0, 3),
-        nextStep: "Open Do if you are ready to act on the evidence-backed answer now.",
+        nextStep: "Stage the Do handoff to open execution now, or defer it if you just need a durable brief.",
         breadcrumbs: ["Home", "Recall", "Documents", "Do"],
       },
       actionContextLabel: "Execution handoff",
       actions: [
-        openAction("Open Do", doLocation, "Carry this evidence-backed answer into execution"),
-        pinAction("Pin answer context", ragLocation, "Return to this document-backed answer context", "Recall · Document answer"),
+        stageAction(
+          "Stage Do handoff",
+          doLocation,
+          groundedBriefDescription,
+          groundedBriefLabel,
+        ),
+        deferAction(
+          "Defer Do handoff",
+          doLocation,
+          groundedBriefDescription,
+          groundedBriefLabel,
+        ),
       ],
     },
   ];

@@ -193,6 +193,25 @@ def _validate_state_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, An
     return parsed
 
 
+def _validate_query_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate stored query-anchor metadata."""
+    query = _required_metadata_string(metadata, field="query")
+    state = str(metadata.get("state") or "capture").strip()
+    if state not in {"capture", "do", "review", "recall"}:
+        raise ValidationError("metadata.state", f"unsupported query-anchor state: {state}")
+
+    recall_tool_raw = metadata.get("recall_tool", "chat")
+    recall_tool = recall_tool_raw if isinstance(recall_tool_raw, str) else "chat"
+    if state == "recall" and recall_tool not in _RECALL_TOOLS:
+        raise ValidationError("metadata.recall_tool", f"unsupported recall tool: {recall_tool}")
+
+    return {
+        "query": query,
+        "state": state,
+        "recall_tool": recall_tool if state == "recall" else "chat",
+    }
+
+
 def _resolve_working_set_item(
     row: Mapping[str, Any], *, conn: sqlite3.Connection
 ) -> dict[str, Any]:
@@ -450,25 +469,23 @@ def _resolve_working_set_item(
         }
 
     if item_type == "query_anchor":
-        query = _required_metadata_string(metadata, field="query")
-        state = str(metadata.get("state") or "capture")
-        if state not in {"capture", "do", "review"}:
-            raise ValidationError("metadata.state", f"unsupported query-anchor state: {state}")
+        anchor = _validate_query_anchor_metadata(metadata)
         return {
             "id": row["id"],
             "item_type": item_type,
             "item_id": None,
             "kind_label": "Query anchor",
             "label": fallback_label,
-            "description": fallback_description or query,
+            "description": fallback_description or anchor["query"],
             "status_label": "Query anchor",
             "missing": False,
             "position": row["position"],
             "created_at_utc": row["created_at"],
             "metadata": metadata,
             "launch": _build_launch(
-                state=state,
-                query=query,
+                state=anchor["state"],
+                recall_tool=anchor["recall_tool"],
+                query=anchor["query"],
                 working_set_id=working_set_id,
             ),
         }
@@ -590,9 +607,9 @@ def _default_item_fields(
         return label, str(memory_row.get("content") or "").strip() or None
 
     if item_type == "query_anchor":
-        query = _required_metadata_string(metadata, field="query")
-        label = str(metadata.get("label") or "").strip() or f"Query · {query}"
-        description = str(metadata.get("description") or "").strip() or query
+        anchor = _validate_query_anchor_metadata(metadata)
+        label = str(metadata.get("label") or "").strip() or f"Query · {anchor['query']}"
+        description = str(metadata.get("description") or "").strip() or anchor["query"]
         return label, description
 
     if item_type == "state_anchor":

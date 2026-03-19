@@ -26,25 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Richer action-card follow-through and post-action continuity
+### Phase 1 — Post-action continuity and rollback-aware receipts
 
-Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, and new recall-result cards into a crisp decide-and-execute loop that carries AI recommendations further than navigation alone while keeping mutation follow-through trustworthy and reversible.
+Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, and richer recall-result follow-through into a crisp decide-and-execute loop that does not lose context once card-triggered work lands.
 
-1. **Action-card follow-through beyond navigation**
-   - Extend the shared action-card model from launch/pin handoffs into richer stage/edit/defer flows where grounded AI outputs should carry directly into the next deterministic mutation or saved draft.
-   - Keep trust, preview, rollback, and consequence framing consistent as cards become more executable.
-2. **Post-action receipts + rollback continuity**
-   - Surface clearer execution receipts, undo cues, and resume breadcrumbs after a card-triggered mutation so users do not lose the thread once a staged action lands.
+1. **Post-action receipts + rollback continuity**
+   - Surface clearer execution receipts, undo cues, and resume breadcrumbs after a card-triggered mutation or staged handoff so users do not lose the thread once work lands.
    - Reuse the same handoff and trust primitives instead of inventing mutation-specific success chrome.
+2. **Cross-surface continuity history tightening**
+   - Make recent-action history, working-set anchors, and workflow handoffs reflect the final landed outcome instead of just the launch point.
+   - Keep post-action context durable across operator, review, and recall surfaces so reopening a queue shows what changed and how to roll it back.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Action-card follow-through session**
-   - push shared cards past open/pin navigation into richer stage/edit/defer handoffs where the workflow is deterministic enough to support it
-2. **Post-action continuity session**
+1. **Post-action continuity session**
    - tighten receipts, rollback cues, and resume breadcrumbs after deterministic card-triggered work lands
+2. **Continuity history session**
+   - align recent actions, working-set anchors, and workflow handoffs around the landed outcome instead of the launch point
 
 ## Delivery Model
 

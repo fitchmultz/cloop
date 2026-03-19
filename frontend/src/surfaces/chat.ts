@@ -287,6 +287,7 @@ function renderMessageActionCards(message: ChatMessage, prompt: string | null): 
     tool: "chat",
     workingSetId: currentWorkingSetId(),
     chatGroundingSummary: message.options ? describeGrounding(message.options) : undefined,
+    chatPrompt: prompt ?? undefined,
     memoryQuery: message.context?.memory_context_applied ? prompt ?? "recent commitments" : undefined,
     ragQuestion: prompt ?? (typeof message.options?.["rag_scope"] === "string" && message.options["rag_scope"]
       ? String(message.options["rag_scope"])

@@ -155,4 +155,5 @@ class WorkingSetQueryAnchorRequest(BaseModel):
     label: str = Field(..., min_length=1, max_length=VIEW_NAME_MAX)
     description: str | None = Field(default=None, max_length=VIEW_DESCRIPTION_MAX)
     query: str = Field(..., min_length=1, max_length=SEARCH_QUERY_MAX)
-    state: Literal["capture", "do", "review"] = "capture"
+    state: Literal["capture", "do", "review", "recall"] = "capture"
+    recall_tool: WorkingSetRecallTool = "chat"

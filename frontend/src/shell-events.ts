@@ -25,7 +25,9 @@
 
 import { bootstrapCommandPalette } from "./command-palette";
 import type { RecallTool, ReviewFocus, ShellState } from "./contracts-ui";
+import type { WorkingSetContextResponse, WorkingSetResponse } from "./domain";
 import { requestJson } from "./http";
+import { handleOperatorActionCardClick } from "./operator-action-card-events";
 import {
   buildShellElements,
   parseOptionalInteger,
@@ -34,7 +36,6 @@ import {
 } from "./shell-core";
 import { createLocation, DEFAULT_LOCATION, parseHash, readPersistedLocation, workingSetSessionLocation } from "./shell-routing";
 import type { ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
-import type { WorkingSetContextResponse, WorkingSetResponse } from "./domain";
 
 export interface ShellEventController {
   initializeShell(): void;
@@ -86,56 +87,16 @@ export function createShellEventController(
     return parseOptionalInteger(button.dataset[key]);
   }
 
-  async function pinFromButton(button: HTMLButtonElement): Promise<void> {
-    const location = createLocation({
-      state: button.dataset["pinState"] as ShellState | undefined,
-      recallTool: button.dataset["pinRecallTool"] as RecallTool | undefined,
-      reviewFocus: button.dataset["pinReviewFocus"] as ReviewFocus | undefined,
-      sessionId: parseOptionalInteger(button.dataset["pinSessionId"]),
-      loopId: parseOptionalInteger(button.dataset["pinLoopId"]),
-      viewId: parseOptionalInteger(button.dataset["pinViewId"]),
-      memoryId: parseOptionalInteger(button.dataset["pinMemoryId"]),
-      workingSetId: parseOptionalInteger(button.dataset["pinWorkingSetId"]),
-      query: button.dataset["pinQuery"]?.trim() || null,
-    });
-    const label = button.dataset["pinLabel"]?.trim();
-    const description = button.dataset["pinDescription"]?.trim() || null;
-    if (!label) {
+  async function handleShellClick(event: Event): Promise<void> {
+    if (await handleOperatorActionCardClick(event, {
+      applyLocation: options.applyLocation,
+      pinLocationToWorkingSet: options.pinLocationToWorkingSet,
+    })) {
       return;
     }
 
-    await options.pinLocationToWorkingSet(location, label, description);
-  }
-
-  function locationFromButton(button: HTMLButtonElement): ShellLocation {
-    return createLocation({
-      state: button.dataset["openState"] as ShellState | undefined,
-      recallTool: button.dataset["openRecallTool"] as RecallTool | undefined,
-      reviewFocus: button.dataset["openReviewFocus"] as ReviewFocus | undefined,
-      sessionId: parseOptionalInteger(button.dataset["openSessionId"]),
-      loopId: parseOptionalInteger(button.dataset["openLoopId"]),
-      viewId: parseOptionalInteger(button.dataset["openViewId"]),
-      memoryId: parseOptionalInteger(button.dataset["openMemoryId"]),
-      workingSetId: parseOptionalInteger(button.dataset["openWorkingSetId"]),
-      query: button.dataset["openQuery"]?.trim() || null,
-    });
-  }
-
-  async function handleShellClick(event: Event): Promise<void> {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const openButton = target.closest<HTMLButtonElement>("[data-open-state]");
-    if (openButton) {
-      await options.applyLocation(locationFromButton(openButton));
-      return;
-    }
-
-    const pinButton = target.closest<HTMLButtonElement>("[data-pin-label]");
-    if (pinButton) {
-      await pinFromButton(pinButton);
       return;
     }
 
@@ -424,17 +385,18 @@ export function createShellEventController(
     elements.workingSetExitFocusButton.addEventListener("click", () => {
       void options.setWorkingSetContext(null, false);
     });
-    elements.operatorMain.addEventListener("click", (event) => {
-      void handleShellClick(event);
-    });
-    elements.operatorWorkingSet.addEventListener("click", (event) => {
-      void handleShellClick(event);
-    });
-    elements.workingSetMain.addEventListener("click", (event) => {
-      void handleShellClick(event);
-    });
-    elements.workingSetFocusItems.addEventListener("click", (event) => {
-      void handleShellClick(event);
+    [
+      elements.operatorMain,
+      elements.operatorWorkingSet,
+      elements.workingSetMain,
+      elements.workingSetFocusItems,
+      elements.chatMain,
+      elements.memoryMain,
+      elements.ragMain,
+    ].forEach((element) => {
+      element.addEventListener("click", (event) => {
+        void handleShellClick(event);
+      });
     });
     window.addEventListener("hashchange", handleHashChange);
     window.addEventListener("keydown", handleShellHotkeys, { capture: true });

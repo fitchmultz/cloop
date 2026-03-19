@@ -1810,7 +1810,11 @@ function buildRepeatedSnoozeCard(data: WorkspaceData): PrioritizedCard | null {
 function isLocationAction(
   action: OperatorActionCardAction,
 ): action is Extract<OperatorActionCardAction, { location: unknown }> {
-  return action.type === "open" || action.type === "pin";
+  return action.type === "open"
+    || action.type === "pin"
+    || action.type === "stage"
+    || action.type === "edit"
+    || action.type === "defer";
 }
 
 function firstLocationAction(

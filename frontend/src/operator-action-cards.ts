@@ -7,7 +7,7 @@
  *
  * Responsibilities:
  *   - Render typed action cards and card decks to HTML strings.
- *   - Encode shell-navigation and pin actions as data attributes.
+ *   - Encode shell-navigation, pin, and follow-through actions as data attributes.
  *   - Keep card anatomy consistent across workflow-specific shell sections.
  *
  * Scope:
@@ -19,7 +19,7 @@
  *
  * Invariants/Assumptions:
  *   - Action-card text is supplied as plain strings and must be escaped here.
- *   - Shell actions are wired through data-open-* and data-pin-* attributes.
+ *   - Shell actions are wired through data-open-*, data-pin-*, and data-card-action attributes.
  *   - Cards remain transport-agnostic; they describe work and launch targets
  *     without embedding feature-local business logic.
  */
@@ -49,7 +49,7 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function locationAttributes(prefix: "open" | "pin", location: ShellLocationContract): string {
+function locationAttributes(prefix: "open" | "pin" | "stage" | "edit" | "defer", location: ShellLocationContract): string {
   const attributes = [
     ["state", location.state],
     ["recall-tool", location.recallTool],
@@ -75,35 +75,69 @@ function renderEventAttributes(attributes: Record<string, string>): string {
 
 function renderActionButton(card: OperatorActionCard, action: OperatorActionCardAction): string {
   const className = action.variant === "secondary" ? ' class="secondary"' : "";
-  if (action.type === "pin") {
-    return `
-      <button
-        type="button"
-        ${className}
-        data-pin-label="${escapeHtml(action.pinLabel ?? card.title)}"
-        data-pin-description="${escapeHtml(action.description)}"
-        ${locationAttributes("pin", action.location)}
-      >${escapeHtml(action.label)}</button>
-    `;
-  }
 
-  if (action.type === "event") {
-    return `
-      <button
-        type="button"
-        ${className}
-        ${renderEventAttributes(action.attributes)}
-      >${escapeHtml(action.label)}</button>
-    `;
+  switch (action.type) {
+    case "pin":
+      return `
+        <button
+          type="button"
+          ${className}
+          data-pin-label="${escapeHtml(action.pinLabel ?? card.title)}"
+          data-pin-description="${escapeHtml(action.description)}"
+          ${locationAttributes("pin", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "event":
+      return `
+        <button
+          type="button"
+          ${className}
+          ${renderEventAttributes(action.attributes)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "stage":
+      return `
+        <button
+          type="button"
+          ${className}
+          data-card-action="stage"
+          data-stage-label="${escapeHtml(action.stageLabel)}"
+          data-stage-description="${escapeHtml(action.stageDescription?.trim() || action.description)}"
+          data-stage-open-after="${action.openAfterStage === false ? "false" : "true"}"
+          ${locationAttributes("stage", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "edit":
+      return `
+        <button
+          type="button"
+          ${className}
+          data-card-action="edit"
+          data-edit-query="${escapeHtml(action.query)}"
+          ${locationAttributes("edit", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "defer":
+      return `
+        <button
+          type="button"
+          ${className}
+          data-card-action="defer"
+          data-defer-label="${escapeHtml(action.deferLabel)}"
+          data-defer-description="${escapeHtml(action.deferDescription?.trim() || action.description)}"
+          ${locationAttributes("defer", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "open":
+    default:
+      return `
+        <button
+          type="button"
+          ${className}
+          ${locationAttributes("open", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
   }
-
-  return `
-    <button
-      type="button"
-      ${className}
-      ${locationAttributes("open", action.location)}
-    >${escapeHtml(action.label)}</button>
-  `;
 }
 
 function renderPreview(card: OperatorActionCard): string {

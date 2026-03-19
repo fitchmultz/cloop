@@ -544,6 +544,12 @@ async function applyLocation(
     }, 140);
   }
 
+  if (currentLocation.state === "recall" && currentLocation.recallTool === "chat" && currentLocation.query) {
+    window.setTimeout(() => {
+      void askGroundedChatSurface(currentLocation.query ?? "");
+    }, 140);
+  }
+
   if (currentLocation.state === "recall" && currentLocation.recallTool === "memory" && currentLocation.query) {
     window.setTimeout(() => {
       void runMemorySearchSurface(currentLocation.query ?? null);
@@ -558,10 +564,7 @@ async function applyLocation(
 }
 
 async function openGroundedChatWithPrompt(query: string): Promise<void> {
-  await applyLocation(createLocation({ state: "recall", recallTool: "chat" }));
-  window.setTimeout(() => {
-    void askGroundedChatSurface(query);
-  }, 180);
+  await applyLocation(createLocation({ state: "recall", recallTool: "chat", query }));
 }
 
 async function openMemorySearchWithQuery(query: string): Promise<void> {

@@ -109,8 +109,9 @@ Every action card should have:
 
 - Planning follow-up resources, launch surfaces, operator action cards, review impact cards, enrichment suggestion cards, recall support decks, and in-thread recall result cards now share the same structured card renderer.
 - Grounded chat answers and document-answer results now surface trust-framed, executable handoff cards inline instead of leaving recall outputs prose-only.
-- The review shell now uses that shared card model alongside explicit decision context and consequence warnings instead of falling back to bespoke impact markup.
-- The next roadmap gap is pushing shared cards beyond open/pin navigation into richer stage/edit/defer flows where the workflow can stay deterministic.
+- Shared action cards now support first-class stage, edit, and defer follow-through alongside open, pin, and review-local event actions.
+- Recall result cards now use those richer follow-through actions to save durable briefs, reopen editable source questions, and defer evidence or execution handoffs without losing working-set scope.
+- The next roadmap gap is tightening post-action receipts, rollback cues, and resume breadcrumbs after a card-triggered mutation or staged handoff lands.
 
 ## Dependencies
 

@@ -175,6 +175,14 @@ export function createShellWorkingSetController(
     });
   }
 
+  function isGenericStateAnchorLocation(location: ShellLocation): boolean {
+    return location.loopId == null
+      && location.sessionId == null
+      && (location.viewId ?? null) == null
+      && (location.memoryId ?? null) == null
+      && !location.query;
+  }
+
   function focusModeActiveSet(): WorkingSetResponse | null {
     return workingSetContext?.active_working_set ?? null;
   }
@@ -475,8 +483,15 @@ export function createShellWorkingSetController(
     });
 
     const existingItems = workingSetContext?.active_working_set?.items ?? [];
+    const genericStateAnchor = isGenericStateAnchorLocation(pinnedLocation);
     const alreadyPresent = existingItems.some((item) => {
-      return locationsMatch(workingSetItemLocation(item), pinnedLocation);
+      if (!locationsMatch(workingSetItemLocation(item), pinnedLocation)) {
+        return false;
+      }
+      if (!genericStateAnchor) {
+        return true;
+      }
+      return item.label.trim() === label.trim();
     });
     if (alreadyPresent) {
       return;
@@ -508,6 +523,9 @@ export function createShellWorkingSetController(
       itemType = "query_anchor";
       metadata["query"] = pinnedLocation.query;
       metadata["state"] = pinnedLocation.state;
+      if (pinnedLocation.state === "recall") {
+        metadata["recall_tool"] = pinnedLocation.recallTool;
+      }
       metadata["label"] = label;
       if (description) {
         metadata["description"] = description;

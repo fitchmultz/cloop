@@ -163,6 +163,41 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert cleared_context_response.json()["focus_mode_enabled"] is False
 
 
+def test_working_set_recall_query_anchor_round_trips_recall_tool(make_test_client) -> None:
+    client = make_test_client()
+    create_response = client.post(
+        "/loops/working-sets",
+        json={
+            "name": "Recall anchor",
+            "description": "Verify recall query anchors keep their tool.",
+        },
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    response = client.post(
+        f"/loops/working-sets/{working_set_id}/items",
+        json={
+            "item_type": "query_anchor",
+            "label": "Recall · Documents",
+            "description": "Reopen the evidence question.",
+            "metadata": {
+                "query": "What changed in the roadmap?",
+                "state": "recall",
+                "recall_tool": "rag",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["item_count"] == 1
+    assert payload["items"][0]["item_type"] == "query_anchor"
+    assert payload["items"][0]["launch"]["state"] == "recall"
+    assert payload["items"][0]["launch"]["recall_tool"] == "rag"
+    assert payload["items"][0]["launch"]["query"] == "What changed in the roadmap?"
+
+
 def test_working_set_state_anchor_requires_working_set_id_for_working_set_launch(
     make_test_client,
 ) -> None:

@@ -2,11 +2,13 @@
  * operator-action-cards.test.ts - Regression tests for shared action-card rendering.
  *
  * Purpose:
- *   Verify the canonical action-card renderer supports open, pin, and custom
- *   event actions without losing the shared trust and handoff anatomy.
+ *   Verify the canonical action-card renderer supports open, pin, shared
+ *   follow-through, and custom event actions without losing the trust and
+ *   handoff anatomy.
  *
  * Responsibilities:
  *   - Assert event-style action buttons keep their custom data attributes.
+ *   - Assert stage/edit/defer actions render deterministic follow-through datasets.
  *   - Guard shared card rendering from dropping trust or handoff sections.
  *
  * Scope:
@@ -74,5 +76,90 @@ describe("renderActionCardDeck", () => {
     expect(html).toContain("mutates loop fields immediately");
     expect(html).toContain("Trust surface");
     expect(html).toContain("Workflow handoff");
+  });
+
+  it("renders stage, edit, and defer datasets for shared follow-through actions", () => {
+    const cards: OperatorActionCard[] = [
+      {
+        id: "handoff-1",
+        kind: "handoff",
+        tone: "progress",
+        eyebrow: "Recall",
+        title: "Stage the next move",
+        summary: "Turn a grounded answer into a durable next action.",
+        rationale: "Shared follow-through actions keep deterministic work executable across shell-owned surfaces.",
+        preview: [{ label: "Answer", value: "Review the duplicate queue first." }],
+        trust: {
+          contextSources: ["Grounded recall", "Working set"],
+          assumptions: ["Execution still remains explicit once the destination surface opens."],
+          confidenceLabel: "Follow-through ready",
+          freshnessLabel: null,
+          rollbackLabel: "Stage and defer only save durable resume anchors.",
+        },
+        handoff: {
+          changeSummary: "This answer can become a durable follow-through anchor.",
+          createdResources: [],
+          nextStep: "Stage it now, refine the query, or defer it for later.",
+          breadcrumbs: ["Home", "Recall", "Answer result"],
+        },
+        actions: [
+          {
+            type: "stage",
+            label: "Stage next step",
+            variant: "primary",
+            description: "Execution brief: Review the duplicate queue first.",
+            stageLabel: "Do · Review the duplicate queue first",
+            location: {
+              state: "do",
+              recallTool: "chat",
+              reviewFocus: null,
+              sessionId: null,
+              loopId: null,
+              workingSetId: 7,
+            },
+          },
+          {
+            type: "edit",
+            label: "Edit question",
+            variant: "secondary",
+            description: "Refine the grounded question behind this answer.",
+            query: "What should I do next?",
+            location: {
+              state: "recall",
+              recallTool: "chat",
+              reviewFocus: null,
+              sessionId: null,
+              loopId: null,
+              workingSetId: 7,
+              query: "What should I do next?",
+            },
+          },
+          {
+            type: "defer",
+            label: "Defer for later",
+            variant: "secondary",
+            description: "Execution brief: Review the duplicate queue first.",
+            deferLabel: "Do · Review the duplicate queue first",
+            location: {
+              state: "do",
+              recallTool: "chat",
+              reviewFocus: null,
+              sessionId: null,
+              loopId: null,
+              workingSetId: 7,
+            },
+          },
+        ],
+      },
+    ];
+
+    const html = renderActionCardDeck(cards, "<p>Empty</p>");
+
+    expect(html).toContain('data-card-action="stage"');
+    expect(html).toContain('data-stage-label="Do · Review the duplicate queue first"');
+    expect(html).toContain('data-card-action="edit"');
+    expect(html).toContain('data-edit-query="What should I do next?"');
+    expect(html).toContain('data-card-action="defer"');
+    expect(html).toContain('data-defer-label="Do · Review the duplicate queue first"');
   });
 });

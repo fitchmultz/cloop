@@ -140,7 +140,7 @@ export interface RecentShellActionEntry {
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context";
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
-export type OperatorActionCardActionType = "open" | "pin" | "event";
+export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
 export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
@@ -204,10 +204,34 @@ export interface OperatorActionCardEventAction extends OperatorActionCardActionB
   attributes: Record<string, string>;
 }
 
+export interface OperatorActionCardStageAction extends OperatorActionCardActionBase {
+  type: "stage";
+  location: ShellLocationContract;
+  stageLabel: string;
+  stageDescription?: string | null;
+  openAfterStage?: boolean | undefined;
+}
+
+export interface OperatorActionCardEditAction extends OperatorActionCardActionBase {
+  type: "edit";
+  location: ShellLocationContract;
+  query: string;
+}
+
+export interface OperatorActionCardDeferAction extends OperatorActionCardActionBase {
+  type: "defer";
+  location: ShellLocationContract;
+  deferLabel: string;
+  deferDescription?: string | null;
+}
+
 export type OperatorActionCardAction =
   | OperatorActionCardOpenAction
   | OperatorActionCardPinAction
-  | OperatorActionCardEventAction;
+  | OperatorActionCardEventAction
+  | OperatorActionCardStageAction
+  | OperatorActionCardEditAction
+  | OperatorActionCardDeferAction;
 
 export interface OperatorActionCard {
   id: string;
