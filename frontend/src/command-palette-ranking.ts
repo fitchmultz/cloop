@@ -49,6 +49,7 @@ export interface PaletteRankItem {
   location?: ShellLocationContract | null;
   searchText?: string | null;
   contextBoost?: number | undefined;
+  continuityRank?: number | undefined;
   disabled?: boolean | undefined;
 }
 
@@ -247,6 +248,7 @@ export function rankPaletteItems<T extends PaletteRankItem>(
       const score = GROUP_BASE_SCORES[item.group]
         + titleScore
         + Math.max(0, tokenMatch.score)
+        + (item.continuityRank ?? 0)
         + recentUsageScore(context.recentUsage[item.id], context.now)
         + locationContextScore(item.location, context)
         + (item.contextBoost ?? 0)

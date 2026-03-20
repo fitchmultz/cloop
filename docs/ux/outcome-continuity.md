@@ -75,7 +75,7 @@ Frontend continuity and receipt primitives already exist:
   - `ResumeAnchorState`
   - `ContinuityBaselineSnapshot`
 
-Current gap: the data model already contains landed-outcome information, but many continuity surfaces still privilege `RecentShellActionEntry.location` over `RecentShellActionEntry.outcome.resumeLocation` and the receipt card that describes what landed.
+Current implementation default: operator home, the global receipt rail, and command-palette recent outcomes now read from one shared ranked landed-outcome feed. `RecentShellActionEntry.location` remains useful launch metadata, but the shipped continuity model now prefers `RecentShellActionEntry.outcome.resumeLocation` and the landed receipt card everywhere a resumable outcome is rendered.
 
 ## Outcome continuity model
 

@@ -426,7 +426,7 @@ describe("shell-operator-cards", () => {
     expect(button?.getAttribute("data-open-working-set-id")).toBe("2");
   });
 
-  it("names working-set context in resume-anchor cards", () => {
+  it("renders the next-ranked follow-through card with propagated working-set context after the top outcome is reserved for the rail", () => {
     const propagatedSet = makeWorkingSet(2, "Review Prep");
     rememberPlanningAnchor({
       sessionId: 41,
@@ -453,17 +453,17 @@ describe("shell-operator-cards", () => {
 
     renderer.renderSinceLastVisit(makeWorkspaceData(null));
 
-    const card = findCard(elements.operatorSinceLast, "Pick up where you left off");
+    const card = findCard(elements.operatorSinceLast, "Resume plan · Weekly reset");
     expect(card).not.toBeNull();
     expect(card?.textContent).toContain("Review Prep");
 
     const button = card?.querySelector<HTMLButtonElement>(
-      'button[data-open-state="decide"][data-open-review-focus="enrichment"][data-open-session-id="27"]',
+      'button[data-open-state="plan"][data-open-review-focus="planning"][data-open-session-id="41"]',
     );
     expect(button?.getAttribute("data-open-working-set-id")).toBe("2");
   });
 
-  it("surfaces the latest receipt ahead of generic since-last summaries", () => {
+  it("keeps the top recent outcome out of since-last so the receipt rail can own it", () => {
     recordRecentShellAction({
       kind: "review",
       label: "Applied enrichment suggestion",
@@ -494,6 +494,14 @@ describe("shell-operator-cards", () => {
         undoAction: null,
       },
     });
+    rememberPlanningAnchor({
+      sessionId: 41,
+      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+      outcomeTitle: "Resume plan · Weekly reset",
+      outcomeSummary: "Return to the saved planning session.",
+      workingSetId: 2,
+    });
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
       workingSets: [makeWorkingSet(2, "Review Prep")],
@@ -502,45 +510,8 @@ describe("shell-operator-cards", () => {
     renderer.renderSinceLastVisit(makeWorkspaceData(null));
 
     const firstHeading = elements.operatorSinceLast.querySelector("h3");
-    expect(firstHeading?.textContent).toBe("Applied enrichment suggestion");
-  });
-
-  it("prefers working-set-scoped resume actions over generic session resumes", () => {
-    const activeSet = makeWorkingSet(2, "Review Prep");
-    rememberPlanningAnchor({
-      sessionId: 41,
-      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
-      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
-      outcomeTitle: "Resume plan · Review Prep",
-      outcomeSummary: "Return to the saved planning session.",
-      workingSetId: 2,
-    });
-    recordRecentShellAction({
-      kind: "navigation",
-      label: "Recent generic plan",
-      description: "Open the same planning session without the working-set scope.",
-      location: createLocation({
-        state: "plan",
-        reviewFocus: "planning",
-        sessionId: 41,
-      }),
-    });
-    const { elements, renderer } = createHarness({
-      visitBaseline: new Date("2026-03-18T18:00:00Z"),
-      workingSets: [activeSet],
-      workingSetContext: makeWorkingSetContext(activeSet, false),
-    });
-
-    renderer.renderSinceLastVisit(makeWorkspaceData(null));
-
-    const card = findCard(elements.operatorSinceLast, "Pick up where you left off");
-    expect(card).not.toBeNull();
-    const buttons = Array.from(card?.querySelectorAll<HTMLButtonElement>(".operator-card-actions button") ?? []);
-    expect(buttons.map((button) => button.textContent?.trim())).toEqual([
-      "Open active working set",
-      "Resume plan",
-    ]);
-    expect(buttons[1]?.getAttribute("data-open-working-set-id")).toBe("2");
+    expect(firstHeading?.textContent).toBe("Resume plan · Weekly reset");
+    expect(elements.operatorSinceLast.textContent).not.toContain("Applied enrichment suggestion");
   });
 
   it("keeps matching handoff cards visible in focus mode when saved items omit working-set ids", () => {

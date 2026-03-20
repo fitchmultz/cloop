@@ -61,15 +61,14 @@ import type {
 } from "./contracts-ui";
 import {
   markUndoActionUnavailable,
-  readRecentShellActions,
-  readResumeAnchors,
   recordRecentShellAction,
 } from "./continuity-intelligence";
 import {
-  isLowSignalNavigationEntry,
-  recentShellActionDedupKey,
-  resolveContinuityEntry,
-} from "./continuity-outcomes";
+  buildContinuityAvailability,
+  readRankedLandedOutcomes,
+  type RankedLandedOutcome,
+} from "./continuity-follow-through";
+import { continuityLocationIdentity } from "./continuity-outcomes";
 import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
@@ -899,6 +898,27 @@ function rankingContext(
   };
 }
 
+function continuityAvailabilityFromContext(context: CommandPaletteContext) {
+  return buildContinuityAvailability({
+    planningSessionIds: context.planningSessions.map((session) => session.id),
+    relationshipSessionIds: context.relationshipSessions.map((session) => session.id),
+    enrichmentSessionIds: context.enrichmentSessions.map((session) => session.id),
+    workingSets: context.workingSets.map((workingSet) => ({
+      workingSetId: workingSet.id,
+      workingSetName: workingSet.name,
+      itemCount: workingSet.item_count,
+      missingItemCount: workingSet.missing_item_count,
+    })),
+  });
+}
+
+function rankedFollowThrough(context: CommandPaletteContext): RankedLandedOutcome[] {
+  return readRankedLandedOutcomes({
+    availability: continuityAvailabilityFromContext(context),
+    activeWorkingSetId: context.workingSetContext?.active_working_set_id ?? null,
+  });
+}
+
 function commandItemHtml(command: CommandPaletteCommand, active: boolean): string {
   const disabledLabel = command.disabled ? '<span class="command-palette-result-note">Unavailable</span>' : "";
   return `
@@ -1636,26 +1656,38 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     return commands;
   }
 
-  function sessionCommands(context: CommandPaletteContext): CommandPaletteCommand[] {
+  function sessionCommands(
+    context: CommandPaletteContext,
+    outcomes: readonly RankedLandedOutcome[],
+  ): CommandPaletteCommand[] {
     const commands: CommandPaletteCommand[] = [];
-    const resumeAnchors = readResumeAnchors();
     const activeWorkingSet = context.workingSetContext?.active_working_set ?? null;
     const activeWorkingSetId = context.workingSetContext?.active_working_set_id ?? null;
     const activeWorkingSetName = activeWorkingSet?.name ?? null;
+    const followThroughLocations = new Set(
+      outcomes.map((item) => continuityLocationIdentity(item.resumeLocation)),
+    );
     const scopedSubtitle = (base: string): string => {
       return activeWorkingSetName ? `${base} · ${activeWorkingSetName}` : base;
     };
 
     context.planningSessions.slice(0, 6).forEach((session) => {
-      const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && resumeAnchors.planning?.sessionId === session.id
-        && resumeAnchors.planning.workingSetId === activeWorkingSetId;
-      const location = createLocation({
+      const scopedLocation = createLocation({
         state: "plan",
         reviewFocus: "planning",
         sessionId: session.id,
-        workingSetId: scopedToActiveWorkingSet ? activeWorkingSetId : null,
+        workingSetId: activeWorkingSetId,
       });
+      const scopedToActiveWorkingSet = activeWorkingSetId != null
+        && followThroughLocations.has(continuityLocationIdentity(scopedLocation));
+      const location = scopedToActiveWorkingSet
+        ? scopedLocation
+        : createLocation({
+            state: "plan",
+            reviewFocus: "planning",
+            sessionId: session.id,
+            workingSetId: null,
+          });
       commands.push({
         id: `planning-session-${session.id}`,
         group: "review",
@@ -1670,7 +1702,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         detail: {
           eyebrow: "Review",
           description: scopedToActiveWorkingSet
-            ? "Resume this saved planning session with the active working-set context restored."
+            ? "Resume this saved planning session with the active working-set scope restored."
             : "Resume this saved planning session at its current checkpointed state.",
           meta: [
             `Status: ${session.status.replaceAll("_", " ")}`,
@@ -1683,16 +1715,22 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       });
     });
     context.relationshipSessions.slice(0, 6).forEach((session) => {
-      const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && resumeAnchors.review?.reviewFocus === "relationship"
-        && resumeAnchors.review.sessionId === session.id
-        && resumeAnchors.review.workingSetId === activeWorkingSetId;
-      const location = createLocation({
+      const scopedLocation = createLocation({
         state: "decide",
         reviewFocus: "relationship",
         sessionId: session.id,
-        workingSetId: scopedToActiveWorkingSet ? activeWorkingSetId : null,
+        workingSetId: activeWorkingSetId,
       });
+      const scopedToActiveWorkingSet = activeWorkingSetId != null
+        && followThroughLocations.has(continuityLocationIdentity(scopedLocation));
+      const location = scopedToActiveWorkingSet
+        ? scopedLocation
+        : createLocation({
+            state: "decide",
+            reviewFocus: "relationship",
+            sessionId: session.id,
+            workingSetId: null,
+          });
       commands.push({
         id: `relationship-session-${session.id}`,
         group: "review",
@@ -1718,16 +1756,22 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       });
     });
     context.enrichmentSessions.slice(0, 6).forEach((session) => {
-      const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && resumeAnchors.review?.reviewFocus === "enrichment"
-        && resumeAnchors.review.sessionId === session.id
-        && resumeAnchors.review.workingSetId === activeWorkingSetId;
-      const location = createLocation({
+      const scopedLocation = createLocation({
         state: "decide",
         reviewFocus: "enrichment",
         sessionId: session.id,
-        workingSetId: scopedToActiveWorkingSet ? activeWorkingSetId : null,
+        workingSetId: activeWorkingSetId,
       });
+      const scopedToActiveWorkingSet = activeWorkingSetId != null
+        && followThroughLocations.has(continuityLocationIdentity(scopedLocation));
+      const location = scopedToActiveWorkingSet
+        ? scopedLocation
+        : createLocation({
+            state: "decide",
+            reviewFocus: "enrichment",
+            sessionId: session.id,
+            workingSetId: null,
+          });
       commands.push({
         id: `enrichment-session-${session.id}`,
         group: "review",
@@ -1918,129 +1962,118 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     });
   }
 
-  function recentCommands(context: CommandPaletteContext): CommandPaletteCommand[] {
+  function recentCommands(
+    context: CommandPaletteContext,
+    outcomes: readonly RankedLandedOutcome[],
+  ): CommandPaletteCommand[] {
     const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
-    const seen = new Set<string>();
 
-    return readRecentShellActions()
-      .filter((entry) => !isLowSignalNavigationEntry(entry))
-      .map((entry, index) => ({ entry, index, resolved: resolveContinuityEntry(entry) }))
-      .filter(({ resolved }) => resolved.resumeLocation != null)
-      .filter(({ entry, resolved }) => {
-        const key = `${recentShellActionDedupKey(entry)}::${resolved.resumeLocation?.state ?? "unknown"}`;
-        if (seen.has(key)) {
-          return false;
-        }
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 8)
-      .flatMap(({ entry, index, resolved }) => {
-        const workingSetLabel = resolved.workingSet?.workingSetName
-          ?? (resolved.workingSetId != null ? `Working set #${resolved.workingSetId}` : null);
-        const commands: CommandPaletteCommand[] = [];
-        const undoAction = entry.outcome?.undoAction ?? null;
-        if (undoAction && !undoAction.disabledReason) {
-          commands.push({
-            id: `recent-undo-${recentShellActionDedupKey(entry)}`,
-            group: "recent",
-            title: `${undoAction.label}: ${resolved.displayTitle}`,
-            subtitle: undoAction.description,
-            keywords: [
-              "undo",
-              "rollback",
-              resolved.displayTitle,
-              resolved.displaySummary,
-              workingSetLabel ?? "",
-              activeWorkingSetName ?? "",
-            ],
-            badge: "Undo",
-            location: resolved.resumeLocation,
-            contextBoost: Math.max(0, 88 - index * 8),
-            detail: {
-              eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
-              description: undoAction.description,
-              meta: [
-                workingSetLabel ? `Working set: ${workingSetLabel}` : null,
-                `Recorded ${formatRelativeTime(entry.occurredAt)}`,
-                undoAction.undo.kind === "planning_run"
-                  ? `Rollback actions: ${undoAction.undo.actionCount}`
-                  : `Loop event: #${undoAction.undo.expectedEventId}`,
-              ].filter((value): value is string => Boolean(value)),
-            },
-            skipAutomaticReceipt: true,
-            execute: async () => {
-              if (undoAction.requiresConfirmation && undoAction.confirmDescription?.trim()) {
-                const confirmed = await modals.confirmDialog({
-                  eyebrow: undoAction.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
-                  title: undoAction.confirmTitle?.trim() || undoAction.label,
-                  description: undoAction.confirmDescription.trim(),
-                  confirmLabel: undoAction.label,
-                  confirmVariant: "danger",
-                });
-                if (!confirmed) {
-                  return;
-                }
-              }
-              try {
-                const result = await runExecutableUndoAction(undoAction);
-                recordRecentShellAction(result.entry);
-                await bindings.refreshWorkspace();
-                if (result.resumeLocation) {
-                  await bindings.openLocation(result.resumeLocation);
-                }
-              } catch (error: unknown) {
-                const reason = staleUndoReason(error) ?? "Undo is no longer available.";
-                markUndoActionUnavailable(undoAction.undo, reason);
-                throw error;
-              }
-            },
-          } satisfies CommandPaletteCommand);
-        }
+    return outcomes.slice(0, 8).flatMap((item) => {
+      const commands: CommandPaletteCommand[] = [];
+      const undoAction = item.undoAction;
+
+      if (undoAction && !undoAction.disabledReason) {
         commands.push({
-          id: `recent-${recentShellActionDedupKey(entry)}`,
+          id: `recent-undo-${item.id}`,
           group: "recent",
-          title: resolved.displayTitle,
-          subtitle: resolved.displaySummary,
+          title: `${undoAction.label}: ${item.displayTitle}`,
+          subtitle: undoAction.description,
           keywords: [
-            resolved.displayTitle,
-            resolved.displaySummary,
-            resolved.resumeLocation?.state ?? "",
-            workingSetLabel ?? "",
+            "undo",
+            "rollback",
+            item.displayTitle,
+            item.displaySummary,
+            item.workingSetName ?? "",
             activeWorkingSetName ?? "",
           ],
-          badge: resolved.hasOutcome ? "Outcome" : "Recent",
-          location: resolved.resumeLocation,
-          contextBoost: Math.max(0, 80 - index * 8),
+          badge: "Undo",
+          location: item.resumeLocation,
+          continuityRank: item.rank + 24,
           detail: {
-            eyebrow: resolved.hasOutcome ? "Recent outcome" : "Recent context",
-            description: resolved.hasOutcome
-              ? "Reopen the landed outcome instead of rerunning the original command."
-              : "Reopen the most recently visited durable context from shell continuity history.",
+            eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
+            description: undoAction.description,
             meta: [
-              workingSetLabel ? `Working set: ${workingSetLabel}` : null,
-              `Recorded ${formatRelativeTime(entry.occurredAt)}`,
-              resolved.degradedReason === "missing_resume_location" ? "Fallback to launch context" : null,
+              item.workingSetName ? `Working set: ${item.workingSetName}` : null,
+              `Recorded ${formatRelativeTime(item.occurredAt)}`,
+              item.degradedLabel,
             ].filter((value): value is string => Boolean(value)),
           },
+          skipAutomaticReceipt: true,
           execute: async () => {
-            await bindings.openLocation(resolved.resumeLocation!);
+            if (undoAction.requiresConfirmation && undoAction.confirmDescription?.trim()) {
+              const confirmed = await modals.confirmDialog({
+                eyebrow: undoAction.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
+                title: undoAction.confirmTitle?.trim() || undoAction.label,
+                description: undoAction.confirmDescription.trim(),
+                confirmLabel: undoAction.label,
+                confirmVariant: "danger",
+              });
+              if (!confirmed) {
+                return;
+              }
+            }
+            try {
+              const result = await runExecutableUndoAction(undoAction);
+              recordRecentShellAction(result.entry);
+              await bindings.refreshWorkspace();
+              if (result.resumeLocation) {
+                await bindings.openLocation(result.resumeLocation);
+              }
+            } catch (error: unknown) {
+              const reason = staleUndoReason(error) ?? "Undo is no longer available.";
+              markUndoActionUnavailable(undoAction.undo, reason);
+              throw error;
+            }
           },
         } satisfies CommandPaletteCommand);
-        return commands;
-      });
+      }
+
+      commands.push({
+        id: `recent-${item.id}`,
+        group: "recent",
+        title: item.displayTitle,
+        subtitle: item.displaySummary,
+        keywords: [
+          item.displayTitle,
+          item.displaySummary,
+          item.resumeLocation.state,
+          item.workingSetName ?? "",
+          activeWorkingSetName ?? "",
+        ],
+        badge: item.source === "anchor" ? "Resume" : "Outcome",
+        location: item.resumeLocation,
+        continuityRank: item.rank,
+        detail: {
+          eyebrow: item.source === "anchor" ? "Resume anchor" : "Recent outcome",
+          description: item.degradedLabel
+            ? item.degradedLabel
+            : "Reopen the landed outcome using the same receipt and handoff contract shown in operator follow-through surfaces.",
+          meta: [
+            item.workingSetName ? `Working set: ${item.workingSetName}` : null,
+            `Recorded ${formatRelativeTime(item.occurredAt)}`,
+            item.undoAction && !item.undoAction.disabledReason ? "Undo available" : "Resume only",
+          ].filter((value): value is string => Boolean(value)),
+        },
+        execute: async () => {
+          await bindings.openLocation(item.resumeLocation);
+        },
+      } satisfies CommandPaletteCommand);
+
+      return commands;
+    });
   }
 
   async function buildCommands(query: string): Promise<CommandPaletteCommand[]> {
     const context = bindings.getContext();
     const normalizedQuery = query.trim();
     const views = await ensureViewsLoaded().catch(() => [] as LoopViewResponse[]);
+    const outcomes = rankedFollowThrough(context);
     const commands: CommandPaletteCommand[] = [
-      ...recentCommands(context),
+      ...recentCommands(context, outcomes),
       ...baseNavigationCommands(context),
       ...baseCaptureCommands(),
       ...baseActCommands(context),
-      ...sessionCommands(context),
+      ...sessionCommands(context, outcomes),
       ...savedViewCommands(views),
       ...recallQueryCommands(normalizedQuery),
       ...loopResultCommands(normalizedQuery, localLoopMatches(normalizedQuery, context.loops)),

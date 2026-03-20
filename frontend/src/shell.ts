@@ -28,10 +28,13 @@ import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, Review
 import {
   markUndoActionUnavailable,
   readContinuityBaseline,
-  readRecentShellReceiptEntries,
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
   recordRecentShellAction,
 } from "./continuity-intelligence";
+import {
+  buildContinuityAvailability,
+  readRankedLandedOutcomes,
+} from "./continuity-follow-through";
 import { isLowSignalNavigationEntry } from "./continuity-outcomes";
 import { contractFromLocation } from "./surface-runtime";
 import {
@@ -462,7 +465,39 @@ function renderShellReceiptRail(): void {
   if (!elements) {
     return;
   }
-  const cards: OperatorActionCard[] = readRecentShellReceiptEntries(1).map((entry) => entry.outcome.card);
+  const workspaceData = getLatestWorkspaceData();
+  if (!workspaceData) {
+    elements.shellReceiptRail.hidden = true;
+    elements.shellReceiptRail.innerHTML = "";
+    return;
+  }
+
+  const cards: OperatorActionCard[] = readRankedLandedOutcomes({
+    availability: buildContinuityAvailability({
+      planningSessionIds: [
+        ...workspaceData.planningSessions.map((session) => session.id),
+        ...(workspaceData.planningSnapshot?.session ? [workspaceData.planningSnapshot.session.id] : []),
+      ],
+      relationshipSessionIds: [
+        ...workspaceData.relationshipSessions.map((session) => session.id),
+        ...(workspaceData.relationshipSnapshot?.session ? [workspaceData.relationshipSnapshot.session.id] : []),
+      ],
+      enrichmentSessionIds: [
+        ...workspaceData.enrichmentSessions.map((session) => session.id),
+        ...(workspaceData.enrichmentSnapshot?.session ? [workspaceData.enrichmentSnapshot.session.id] : []),
+      ],
+      workingSets: getLatestWorkingSets().map((workingSet) => ({
+        workingSetId: workingSet.id,
+        workingSetName: workingSet.name,
+        itemCount: workingSet.item_count,
+        missingItemCount: workingSet.missing_item_count,
+      })),
+    }),
+    activeWorkingSetId: getWorkingSetContext()?.active_working_set_id ?? null,
+  })
+    .slice(0, 1)
+    .map((item) => item.card);
+
   elements.shellReceiptRail.hidden = cards.length === 0;
   elements.shellReceiptRail.innerHTML = cards.length
     ? renderActionCardDeck(cards, "")

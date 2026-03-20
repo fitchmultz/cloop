@@ -200,4 +200,37 @@ describe("rankPaletteItems", () => {
 
     expect(ranked.map((entry) => entry.item.id)).toEqual(["scoped-plan", "generic-plan"]);
   });
+
+  it("prefers higher continuity-ranked recent outcomes even when another item has heavier local usage", () => {
+    const items: PaletteRankItem[] = [
+      {
+        id: "canonical-top",
+        group: "recent",
+        title: "Created launch review queue",
+        subtitle: "The enrichment queue is ready to resume.",
+        keywords: ["launch", "review", "queue"],
+        continuityRank: 420,
+      },
+      {
+        id: "usage-heavy",
+        group: "recent",
+        title: "Pinned working set",
+        subtitle: "Saved the current context.",
+        keywords: ["working", "set", "pin"],
+        continuityRank: 120,
+      },
+    ];
+
+    const ranked = rankPaletteItems(
+      items,
+      rankingContext({
+        query: "",
+        recentUsage: {
+          "usage-heavy": { count: 6, usedAt: "2026-03-17T11:58:00Z" },
+        },
+      }),
+    );
+
+    expect(ranked[0]?.item.id).toBe("canonical-top");
+  });
 });

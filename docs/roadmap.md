@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn the shipped operator-shell foundation into a world-class cross-session decision and execution workspace: unify landed outcomes into one ranked follow-through model now that executable undo covers loop, planning, and working-set continuity mutations.
+The current priority is to make landed outcomes as repeatable as they are resumable now that operator home, the receipt rail, and command-palette recents share one ranked follow-through model.
 
 ## Direction
 
@@ -36,25 +36,11 @@ The next roadmap slice starts from work that is already live:
 - review workspace redesign across relationship, enrichment, and hygiene review
 - browser-local continuity baseline snapshots, outcome-anchored resume anchors, and landed-outcome recent shell-action history
 - global command palette with deterministic ranking, quick actions, and outcome-first recents
+- canonical ranked landed-outcome follow-through feed across operator home, the receipt rail, and command-palette recents
 
 ## Execution order
 
-### Session 1 — Outcome-centric follow-through consolidation
-
-**Primary specs:**
-- [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
-- [`docs/ux/command-palette.md`](ux/command-palette.md)
-- [`docs/ux/ai-action-cards.md`](ux/ai-action-cards.md)
-
-Goal: collapse the remaining duplicated “latest receipt”, “since last”, and palette-recent follow-through patterns into one prioritized outcome feed with consistent resume, undo, and rerun affordances.
-
-Planned sequence:
-
-1. define one canonical ranking model for landed outcomes across operator home, receipt rail, and command-palette recents
-2. remove duplicated render paths that restate the same landed result with different copy or action ordering
-3. preserve the same outcome contract everywhere so new durable workflows only need to emit one receipt/handoff payload
-
-### Session 2 — Shared rerun and refresh affordances
+### Next — Shared rerun and refresh affordances
 
 **Primary specs:**
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
