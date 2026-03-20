@@ -411,9 +411,24 @@ describe("shell-operator-cards", () => {
 
   it("names working-set context in resume-anchor cards", () => {
     const propagatedSet = makeWorkingSet(2, "Review Prep");
-    rememberPlanningAnchor(41, 2);
+    rememberPlanningAnchor({
+      sessionId: 41,
+      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+      outcomeTitle: "Resume plan · Weekly reset",
+      outcomeSummary: "Return to the saved planning session.",
+      workingSetId: 2,
+    });
     vi.setSystemTime(new Date("2026-03-18T18:11:00Z"));
-    rememberReviewAnchor("enrichment", 27, 2);
+    rememberReviewAnchor({
+      reviewFocus: "enrichment",
+      sessionId: 27,
+      launchLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
+      resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
+      outcomeTitle: "Resume enrichment queue · Review Prep",
+      outcomeSummary: "Return to the saved enrichment queue.",
+      workingSetId: 2,
+    });
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
       workingSets: [propagatedSet],
@@ -474,7 +489,14 @@ describe("shell-operator-cards", () => {
 
   it("prefers working-set-scoped resume actions over generic session resumes", () => {
     const activeSet = makeWorkingSet(2, "Review Prep");
-    rememberPlanningAnchor(41, 2);
+    rememberPlanningAnchor({
+      sessionId: 41,
+      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+      outcomeTitle: "Resume plan · Review Prep",
+      outcomeSummary: "Return to the saved planning session.",
+      workingSetId: 2,
+    });
     recordRecentShellAction({
       kind: "navigation",
       label: "Recent generic plan",

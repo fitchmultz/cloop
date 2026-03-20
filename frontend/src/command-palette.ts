@@ -59,7 +59,16 @@ import type {
   TrustSurfaceMetadata,
   TrustTone,
 } from "./contracts-ui";
-import { readResumeAnchors, recordRecentShellAction } from "./continuity-intelligence";
+import {
+  readRecentShellActions,
+  readResumeAnchors,
+  recordRecentShellAction,
+} from "./continuity-intelligence";
+import {
+  isLowSignalNavigationEntry,
+  recentShellActionDedupKey,
+  resolveContinuityEntry,
+} from "./continuity-outcomes";
 import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
@@ -1636,8 +1645,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
 
     context.planningSessions.slice(0, 6).forEach((session) => {
       const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && resumeAnchors.lastPlanningSessionId === session.id
-        && resumeAnchors.lastPlanningWorkingSetId === activeWorkingSetId;
+        && resumeAnchors.planning?.sessionId === session.id
+        && resumeAnchors.planning.workingSetId === activeWorkingSetId;
       const location = createLocation({
         state: "plan",
         reviewFocus: "planning",
@@ -1672,9 +1681,9 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     });
     context.relationshipSessions.slice(0, 6).forEach((session) => {
       const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && resumeAnchors.lastReviewFocus === "relationship"
-        && resumeAnchors.lastReviewSessionId === session.id
-        && resumeAnchors.lastReviewWorkingSetId === activeWorkingSetId;
+        && resumeAnchors.review?.reviewFocus === "relationship"
+        && resumeAnchors.review.sessionId === session.id
+        && resumeAnchors.review.workingSetId === activeWorkingSetId;
       const location = createLocation({
         state: "decide",
         reviewFocus: "relationship",
@@ -1707,9 +1716,9 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     });
     context.enrichmentSessions.slice(0, 6).forEach((session) => {
       const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && resumeAnchors.lastReviewFocus === "enrichment"
-        && resumeAnchors.lastReviewSessionId === session.id
-        && resumeAnchors.lastReviewWorkingSetId === activeWorkingSetId;
+        && resumeAnchors.review?.reviewFocus === "enrichment"
+        && resumeAnchors.review.sessionId === session.id
+        && resumeAnchors.review.workingSetId === activeWorkingSetId;
       const location = createLocation({
         state: "decide",
         reviewFocus: "enrichment",
@@ -1907,34 +1916,56 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
   }
 
   function recentCommands(context: CommandPaletteContext): CommandPaletteCommand[] {
-    return readStoredRecentCommands().map((record) => {
-      const disabled = (record.action.kind === "bulk-close"
-        || record.action.kind === "bulk-status"
-        || record.action.kind === "bulk-snooze"
-        || record.action.kind === "bulk-enrich"
-        || record.action.kind === "pin-selected-loops")
-        && selectedLoopIdList().length === 0;
+    const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
+    const seen = new Set<string>();
 
-      return {
-        id: record.id,
-        group: "recent",
-        title: record.title,
-        subtitle: record.subtitle,
-        keywords: [record.title, record.subtitle],
-        badge: "Recent",
-        disabled,
-        detail: {
-          eyebrow: "Recent",
-          description: "Repeat a recently used command or reopen a recently visited object without rebuilding the context by hand.",
-          meta: [
-            `Used ${record.count} time${record.count === 1 ? "" : "s"}`,
-            `Last used ${formatRelativeTime(record.usedAt)}`,
+    return readRecentShellActions()
+      .filter((entry) => !isLowSignalNavigationEntry(entry))
+      .map((entry, index) => ({ entry, index, resolved: resolveContinuityEntry(entry) }))
+      .filter(({ resolved }) => resolved.resumeLocation != null)
+      .filter(({ entry, resolved }) => {
+        const key = `${recentShellActionDedupKey(entry)}::${resolved.resumeLocation?.state ?? "unknown"}`;
+        if (seen.has(key)) {
+          return false;
+        }
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 8)
+      .map(({ entry, index, resolved }) => {
+        const workingSetLabel = resolved.workingSet?.workingSetName
+          ?? (resolved.workingSetId != null ? `Working set #${resolved.workingSetId}` : null);
+        return {
+          id: `recent-${recentShellActionDedupKey(entry)}`,
+          group: "recent",
+          title: resolved.displayTitle,
+          subtitle: resolved.displaySummary,
+          keywords: [
+            resolved.displayTitle,
+            resolved.displaySummary,
+            resolved.resumeLocation?.state ?? "",
+            workingSetLabel ?? "",
+            activeWorkingSetName ?? "",
           ],
-        },
-        recentAction: record.action,
-        execute: () => executeRecentAction(record.action),
-      } satisfies CommandPaletteCommand;
-    });
+          badge: resolved.hasOutcome ? "Outcome" : "Recent",
+          location: resolved.resumeLocation,
+          contextBoost: Math.max(0, 80 - index * 8),
+          detail: {
+            eyebrow: resolved.hasOutcome ? "Recent outcome" : "Recent context",
+            description: resolved.hasOutcome
+              ? "Reopen the landed outcome instead of rerunning the original command."
+              : "Reopen the most recently visited durable context from shell continuity history.",
+            meta: [
+              workingSetLabel ? `Working set: ${workingSetLabel}` : null,
+              `Recorded ${formatRelativeTime(entry.occurredAt)}`,
+              resolved.degradedReason === "missing_resume_location" ? "Fallback to launch context" : null,
+            ].filter((value): value is string => Boolean(value)),
+          },
+          execute: async () => {
+            await bindings.openLocation(resolved.resumeLocation!);
+          },
+        } satisfies CommandPaletteCommand;
+      });
   }
 
   async function buildCommands(query: string): Promise<CommandPaletteCommand[]> {

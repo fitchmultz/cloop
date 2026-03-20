@@ -27,6 +27,7 @@ import type {
   PlanningResourceChangeGroupResponse,
 } from "./domain";
 import type { OperatorActionPreviewItem, RecentShellActionEntry } from "./contracts-ui";
+import { resolveContinuityEntry } from "./continuity-outcomes";
 
 export interface CountDeltaPreviewInput {
   label: string;
@@ -169,7 +170,7 @@ export function buildRepeatedSnoozeSignal(
     return {
       preview: snoozeActions.slice(0, 3).map((entry, index) => ({
         label: `Snooze ${index + 1}`,
-        value: entry.label,
+        value: resolveContinuityEntry(entry).displayTitle,
       })),
       contextSources: ["Browser-local recent shell action history", "Current snoozed loop state"],
       assumptions: ["Repeated snoozes indicate a review-worthy pattern rather than intentional batching alone."],

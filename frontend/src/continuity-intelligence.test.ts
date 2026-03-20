@@ -99,18 +99,48 @@ describe("continuity-intelligence", () => {
   });
 
   it("persists planning and review resume anchors", () => {
-    rememberPlanningAnchor(41, 3);
+    rememberPlanningAnchor({
+      sessionId: 41,
+      launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
+      resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
+      outcomeTitle: "Resume plan · Weekly reset",
+      outcomeSummary: "Return to the saved planning session.",
+      workingSetId: 3,
+    });
     vi.setSystemTime(new Date("2026-03-17T12:05:00Z"));
-    rememberReviewAnchor("relationship", 7, 5);
+    rememberReviewAnchor({
+      reviewFocus: "relationship",
+      sessionId: 7,
+      launchLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
+      resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
+      outcomeTitle: "Resume relationship queue · Launch duplicates",
+      outcomeSummary: "Return to the saved relationship queue.",
+      workingSetId: 5,
+    });
 
     expect(readResumeAnchors()).toEqual({
-      lastPlanningSessionId: 41,
-      lastPlanningVisitedAtUtc: "2026-03-17T12:00:00.000Z",
-      lastPlanningWorkingSetId: 3,
-      lastReviewFocus: "relationship",
-      lastReviewSessionId: 7,
-      lastReviewVisitedAtUtc: "2026-03-17T12:05:00.000Z",
-      lastReviewWorkingSetId: 5,
+      planning: {
+        kind: "planning",
+        reviewFocus: "planning",
+        sessionId: 41,
+        visitedAtUtc: "2026-03-17T12:00:00.000Z",
+        launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
+        resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
+        outcomeTitle: "Resume plan · Weekly reset",
+        outcomeSummary: "Return to the saved planning session.",
+        workingSetId: 3,
+      },
+      review: {
+        kind: "review",
+        reviewFocus: "relationship",
+        sessionId: 7,
+        visitedAtUtc: "2026-03-17T12:05:00.000Z",
+        launchLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
+        resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
+        outcomeTitle: "Resume relationship queue · Launch duplicates",
+        outcomeSummary: "Return to the saved relationship queue.",
+        workingSetId: 5,
+      },
     });
   });
 
@@ -135,24 +165,71 @@ describe("continuity-intelligence", () => {
     ]);
   });
 
-  it("dedupes immediate duplicate recent actions for the same location", () => {
+  it("dedupes immediate duplicates by landed outcome identity", () => {
     recordRecentShellAction({
       kind: "planning",
-      label: "Resumed plan #19",
-      description: "Opened a saved planning session.",
-      location: location({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
+      label: "Opened planning session from review",
+      description: "Jumped to the saved planning session.",
+      location: location({ state: "review", reviewFocus: "cohorts" }),
+      outcome: {
+        card: {
+          id: "receipt-plan-a",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Executed checkpoint",
+          summary: "The downstream review queue is ready.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo from planning if needed.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 19 }),
+        rollbackLabel: "Undo from planning if needed.",
+      },
     });
     vi.setSystemTime(new Date("2026-03-17T12:00:10Z"));
     recordRecentShellAction({
       kind: "planning",
-      label: "Resumed plan #19",
-      description: "Opened a saved planning session again.",
-      location: location({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
+      label: "Reopened the same checkpoint outcome",
+      description: "Started from a different launch point.",
+      location: location({ state: "operator" }),
+      outcome: {
+        card: {
+          id: "receipt-plan-b",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Executed checkpoint",
+          summary: "The downstream review queue is ready.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo from planning if needed.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 19 }),
+        rollbackLabel: "Undo from planning if needed.",
+      },
     });
 
     const recent = readRecentShellActions();
     expect(recent).toHaveLength(1);
     expect(recent[0]?.occurredAt).toBe("2026-03-17T12:00:10.000Z");
+    expect(recent[0]?.outcome?.resumeLocation?.sessionId).toBe(19);
   });
 
   it("keeps distinct working-set session launches separate", () => {

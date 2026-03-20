@@ -107,6 +107,10 @@ export function createReceiptCard(input: CreateReceiptCardInput): OperatorAction
     actions.push(...input.actions);
   }
 
+  const missingResumeWarning = input.resumeLocation
+    ? null
+    : "Receipt missing a landed resume target. Update this emitter so continuity can reopen the outcome safely.";
+
   return {
     id: input.id,
     kind: "receipt",
@@ -118,7 +122,8 @@ export function createReceiptCard(input: CreateReceiptCardInput): OperatorAction
     preview: input.preview ?? [],
     trust: input.trust,
     handoff: input.handoff,
-    actionContextLabel: actions.length ? "Continue from here" : null,
+    actionContextLabel: missingResumeWarning ? "Receipt contract gap" : (actions.length ? "Continue from here" : null),
+    actionWarning: missingResumeWarning,
     actions,
   };
 }

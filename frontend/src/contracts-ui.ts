@@ -119,14 +119,21 @@ export type RecentShellActionKind =
   | "bulk"
   | "snooze";
 
+export interface ResumeAnchorTarget {
+  kind: "planning" | "review";
+  reviewFocus: "planning" | "relationship" | "enrichment";
+  sessionId: number;
+  visitedAtUtc: string;
+  launchLocation: ShellLocationContract | null;
+  resumeLocation: ShellLocationContract | null;
+  outcomeTitle: string | null;
+  outcomeSummary: string | null;
+  workingSetId: number | null;
+}
+
 export interface ResumeAnchorState {
-  lastPlanningSessionId: number | null;
-  lastPlanningVisitedAtUtc: string | null;
-  lastPlanningWorkingSetId: number | null;
-  lastReviewFocus: Extract<ReviewFocus, "relationship" | "enrichment"> | null;
-  lastReviewSessionId: number | null;
-  lastReviewVisitedAtUtc: string | null;
-  lastReviewWorkingSetId: number | null;
+  planning: ResumeAnchorTarget | null;
+  review: ResumeAnchorTarget | null;
 }
 
 export interface RecentShellActionOutcome {

@@ -21,8 +21,10 @@
  *   - Selection state comes from frontend/src/selection-state.ts via state.ts.
  */
 
+import { createReceiptCard, withReceiptOutcome } from "../action-receipts";
 import { updateBulkActionBar as syncBulkActionBar } from "../bulk-actions";
 import { recordRecentShellAction } from "../continuity-intelligence";
+import { createLocation } from "../shell-routing";
 import * as api from "./api";
 import * as modals from "./modals";
 import { loadInbox } from "./loop";
@@ -53,6 +55,66 @@ function statusMessage(text: string): void {
   }
 }
 
+function recordBulkReceipt(params: {
+  kind: "bulk" | "snooze";
+  title: string;
+  summary: string;
+  tone: "neutral" | "attention" | "progress" | "caution";
+  loopIds: number[];
+  preview: Array<{ label: string; value: string }>;
+  rollbackLabel: string;
+  metadata?: Record<string, unknown>;
+}): void {
+  const location = createLocation({ state: "do", loopId: params.loopIds[0] ?? null });
+  const receiptCard = createReceiptCard({
+    id: `bulk-receipt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    eyebrow: "Bulk receipt",
+    title: params.title,
+    summary: params.summary,
+    rationale: "Bulk receipts preserve what changed across a loop batch and reopen the landed execution context without replaying the mutation.",
+    tone: params.tone,
+    preview: params.preview,
+    trust: {
+      generationLabel: "Recorded bulk mutation",
+      generationTone: "progress",
+      contextSources: ["Bulk action bar"],
+      assumptions: ["The first affected loop is a sufficient landing point for reopening the updated batch context."],
+      confidenceLabel: `${params.loopIds.length} targeted loop${params.loopIds.length === 1 ? "" : "s"}`,
+      confidenceTone: "progress",
+      freshnessLabel: "Saved just now",
+      freshnessTone: "progress",
+      rollbackLabel: params.rollbackLabel,
+      rollbackTone: "caution",
+      impactSummary: params.summary,
+      impactTone: params.tone,
+    },
+    handoff: {
+      changeSummary: params.summary,
+      createdResources: params.loopIds.slice(0, 3).map((loopId) => `Loop #${loopId}`),
+      nextStep: "Open an affected loop to confirm the batch outcome or continue working from the refreshed Do surface.",
+      breadcrumbs: ["Home", "Do", "Bulk action"],
+    },
+    resumeLocation: location,
+    resumeLabel: "Open affected loop",
+    resumeDescription: params.summary,
+    pinLabel: `Bulk outcome · ${params.title}`,
+  });
+
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: params.kind,
+        label: params.title,
+        description: params.summary,
+        location,
+        metadata: params.metadata ?? null,
+      },
+      receiptCard,
+      location,
+    ),
+  );
+}
+
 export async function executeBulkClose(status: "completed" | "dropped"): Promise<void> {
   const loopIds = Array.from(selectedLoopIds);
   const items = loopIds.map((id) => ({ loop_id: id, status }));
@@ -60,6 +122,29 @@ export async function executeBulkClose(status: "completed" | "dropped"): Promise
 
   try {
     const result = await api.bulkCloseLoops(items, false);
+    recordBulkReceipt({
+      kind: "bulk",
+      title: status === "completed"
+        ? `Completed ${result.succeeded} selected loop${result.succeeded === 1 ? "" : "s"}`
+        : `Dropped ${result.succeeded} selected loop${result.succeeded === 1 ? "" : "s"}`,
+      summary: status === "completed"
+        ? `Marked ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"} as completed.`
+        : `Marked ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"} as dropped.`,
+      tone: status === "completed" ? "progress" : "attention",
+      loopIds,
+      preview: [
+        { label: "Outcome", value: status === "completed" ? "Completed" : "Dropped" },
+        { label: "Succeeded", value: `${result.succeeded}/${loopIds.length}` },
+      ],
+      rollbackLabel: status === "completed"
+        ? "Use the loop undo flow if you need to reverse one of these completions."
+        : "Dropped loops can only be recovered through explicit undo or manual restoration.",
+      metadata: {
+        status,
+        loopIds,
+        succeeded: result.succeeded,
+      },
+    });
     statusMessage(`Closed ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`);
     clearLoopSelection();
     syncBulkActionBar();
@@ -76,20 +161,18 @@ export async function executeBulkSnooze(snoozeUntilUtc: string): Promise<void> {
 
   try {
     const result = await api.bulkSnoozeLoops(items, false);
-    recordRecentShellAction({
+    recordBulkReceipt({
       kind: "snooze",
-      label: `Snoozed ${result.succeeded} selected loop${result.succeeded === 1 ? "" : "s"}`,
-      description: `Bulk snoozed ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"}.`,
-      location: {
-        state: "do",
-        recallTool: "chat",
-        reviewFocus: null,
-        sessionId: null,
-        loopId: loopIds[0] ?? null,
-        viewId: null,
-        memoryId: null,
-        query: null,
-      },
+      title: `Snoozed ${result.succeeded} selected loop${result.succeeded === 1 ? "" : "s"}`,
+      summary: `Deferred ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"} until ${snoozeUntilUtc}.`,
+      tone: "attention",
+      loopIds,
+      preview: [
+        { label: "Outcome", value: "Deferred" },
+        { label: "Succeeded", value: `${result.succeeded}/${loopIds.length}` },
+        { label: "Until", value: snoozeUntilUtc },
+      ],
+      rollbackLabel: "Clear the snooze on an affected loop to bring it back into active work.",
       metadata: {
         snoozeUntilUtc,
         loopIds,
@@ -110,6 +193,22 @@ export async function executeBulkStatus(newStatus: "inbox" | "actionable" | "blo
 
   try {
     await Promise.all(loopIds.map((loopId) => api.transitionLoopStatus(loopId, newStatus)));
+    recordBulkReceipt({
+      kind: "bulk",
+      title: `Updated ${loopIds.length} selected loop${loopIds.length === 1 ? "" : "s"}`,
+      summary: `Moved ${loopIds.length} loop${loopIds.length === 1 ? "" : "s"} to ${newStatus}.`,
+      tone: newStatus === "blocked" || newStatus === "scheduled" ? "attention" : "progress",
+      loopIds,
+      preview: [
+        { label: "Outcome", value: newStatus },
+        { label: "Count", value: `${loopIds.length}` },
+      ],
+      rollbackLabel: "Run another bulk status change if this batch should land in a different state.",
+      metadata: {
+        status: newStatus,
+        loopIds,
+      },
+    });
     statusMessage(`Updated ${loopIds.length} loop${loopIds.length !== 1 ? "s" : ""}.`);
     clearLoopSelection();
     syncBulkActionBar();
@@ -136,6 +235,23 @@ export async function executeBulkAddTags(newTags: string[]): Promise<void> {
 
   try {
     const result = await api.bulkUpdateLoops(updates, false);
+    recordBulkReceipt({
+      kind: "bulk",
+      title: `Tagged ${result.succeeded} selected loop${result.succeeded === 1 ? "" : "s"}`,
+      summary: `Added ${newTags.join(", ")} to ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"}.`,
+      tone: "progress",
+      loopIds,
+      preview: [
+        { label: "Tags", value: newTags.join(", ") },
+        { label: "Succeeded", value: `${result.succeeded}/${loopIds.length}` },
+      ],
+      rollbackLabel: "Edit an affected loop if one of these tags should be removed.",
+      metadata: {
+        loopIds,
+        newTags,
+        succeeded: result.succeeded,
+      },
+    });
     statusMessage(`Tagged ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}.`);
     clearLoopSelection();
     syncBulkActionBar();
@@ -152,6 +268,27 @@ export async function executeBulkEnrich(): Promise<void> {
   try {
     const result = await api.bulkEnrichLoops(items);
     const clarificationCount = result.results.filter((item: { ok: boolean; needs_clarification?: unknown[] | null }) => item.ok && item.needs_clarification?.length).length;
+    recordBulkReceipt({
+      kind: "bulk",
+      title: `Enriched ${result.succeeded} selected loop${result.succeeded === 1 ? "" : "s"}`,
+      summary: clarificationCount > 0
+        ? `Enriched ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"}; ${clarificationCount} still need clarification.`
+        : `Enriched ${result.succeeded} loop${result.succeeded === 1 ? "" : "s"}.`,
+      tone: clarificationCount > 0 ? "attention" : "progress",
+      loopIds,
+      preview: [
+        { label: "Succeeded", value: `${result.succeeded}/${loopIds.length}` },
+        { label: "Clarifications", value: `${clarificationCount}` },
+      ],
+      rollbackLabel: clarificationCount > 0
+        ? "Open an affected loop or review queue to answer the remaining clarifications."
+        : "Inspect an affected loop if one of the enrichments needs manual correction.",
+      metadata: {
+        loopIds,
+        succeeded: result.succeeded,
+        clarificationCount,
+      },
+    });
     statusMessage(
       clarificationCount > 0
         ? `Enriched ${result.succeeded} loop${result.succeeded !== 1 ? "s" : ""}; ${clarificationCount} need clarification.`

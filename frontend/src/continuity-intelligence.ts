@@ -8,7 +8,7 @@
  *
  * Responsibilities:
  *   - Read and write continuity baseline snapshots in localStorage.
- *   - Track last planning/review resume anchors.
+ *   - Track landed-outcome planning/review resume anchors.
  *   - Record recent shell actions for deterministic resume suggestions.
  *
  * Scope:
@@ -37,25 +37,22 @@ import type {
   ContinuityBaselineSnapshot,
   RecentShellActionEntry,
   ResumeAnchorState,
+  ResumeAnchorTarget,
   ReviewFocus,
   ShellLocationContract,
 } from "./contracts-ui";
+import { recentShellActionDedupKey } from "./continuity-outcomes";
 
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
-const RESUME_ANCHORS_STORAGE_KEY = "cloop.continuity.resume-anchors.v1";
+const RESUME_ANCHORS_STORAGE_KEY = "cloop.continuity.resume-anchors.v2";
 const RECENT_ACTIONS_STORAGE_KEY = "cloop.continuity.recent-actions.v1";
 const MAX_RECENT_ACTIONS = 12;
 
 export const RECENT_SHELL_ACTIONS_UPDATED_EVENT = "cloop:recent-shell-actions-updated";
 
 const DEFAULT_RESUME_ANCHORS: ResumeAnchorState = {
-  lastPlanningSessionId: null,
-  lastPlanningVisitedAtUtc: null,
-  lastPlanningWorkingSetId: null,
-  lastReviewFocus: null,
-  lastReviewSessionId: null,
-  lastReviewVisitedAtUtc: null,
-  lastReviewWorkingSetId: null,
+  planning: null,
+  review: null,
 };
 
 export interface ContinuitySnapshotInput {
@@ -66,6 +63,27 @@ export interface ContinuitySnapshotInput {
   enrichmentSnapshot: EnrichmentReviewSessionSnapshotResponse | null;
   allLoops: LoopResponse[];
   workingSetContext: WorkingSetContextResponse | null;
+}
+
+export interface RememberPlanningAnchorInput {
+  sessionId: number;
+  launchLocation?: ShellLocationContract | null;
+  resumeLocation?: ShellLocationContract | null;
+  outcomeTitle?: string | null;
+  outcomeSummary?: string | null;
+  workingSetId?: number | null;
+  visitedAtUtc?: string;
+}
+
+export interface RememberReviewAnchorInput {
+  reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">;
+  sessionId: number;
+  launchLocation?: ShellLocationContract | null;
+  resumeLocation?: ShellLocationContract | null;
+  outcomeTitle?: string | null;
+  outcomeSummary?: string | null;
+  workingSetId?: number | null;
+  visitedAtUtc?: string;
 }
 
 function safeJsonParse<T>(raw: string | null, fallback: T): T {
@@ -90,22 +108,83 @@ function emitRecentShellActionsUpdated(): void {
   window.dispatchEvent(new CustomEvent(RECENT_SHELL_ACTIONS_UPDATED_EVENT));
 }
 
-function sameLocation(
-  left: ShellLocationContract | null | undefined,
-  right: ShellLocationContract | null | undefined,
-): boolean {
-  if (!left || !right) {
-    return left === right;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeLocation(value: unknown): ShellLocationContract | null {
+  if (!isRecord(value) || typeof value["state"] !== "string" || typeof value["recallTool"] !== "string") {
+    return null;
   }
-  return left.state === right.state
-    && left.recallTool === right.recallTool
-    && left.reviewFocus === right.reviewFocus
-    && left.sessionId === right.sessionId
-    && left.loopId === right.loopId
-    && (left.viewId ?? null) === (right.viewId ?? null)
-    && (left.memoryId ?? null) === (right.memoryId ?? null)
-    && (left.workingSetId ?? null) === (right.workingSetId ?? null)
-    && (left.query ?? null) === (right.query ?? null);
+  return {
+    state: value["state"] as ShellLocationContract["state"],
+    recallTool: value["recallTool"] as ShellLocationContract["recallTool"],
+    reviewFocus: typeof value["reviewFocus"] === "string" ? value["reviewFocus"] as ReviewFocus : null,
+    sessionId: typeof value["sessionId"] === "number" ? value["sessionId"] : null,
+    loopId: typeof value["loopId"] === "number" ? value["loopId"] : null,
+    viewId: typeof value["viewId"] === "number" ? value["viewId"] : null,
+    memoryId: typeof value["memoryId"] === "number" ? value["memoryId"] : null,
+    workingSetId: typeof value["workingSetId"] === "number" ? value["workingSetId"] : null,
+    query: typeof value["query"] === "string" ? value["query"] : null,
+  };
+}
+
+function parseResumeAnchorTarget(
+  raw: unknown,
+  expectedKind: ResumeAnchorTarget["kind"],
+): ResumeAnchorTarget | null {
+  if (!isRecord(raw) || typeof raw["sessionId"] !== "number" || typeof raw["visitedAtUtc"] !== "string") {
+    return null;
+  }
+
+  const reviewFocus = raw["reviewFocus"];
+  if (expectedKind === "planning") {
+    if (reviewFocus !== "planning") {
+      return null;
+    }
+  } else if (reviewFocus !== "relationship" && reviewFocus !== "enrichment") {
+    return null;
+  }
+
+  return {
+    kind: expectedKind,
+    reviewFocus,
+    sessionId: raw["sessionId"],
+    visitedAtUtc: raw["visitedAtUtc"],
+    launchLocation: normalizeLocation(raw["launchLocation"]),
+    resumeLocation: normalizeLocation(raw["resumeLocation"]),
+    outcomeTitle: typeof raw["outcomeTitle"] === "string" ? raw["outcomeTitle"] : null,
+    outcomeSummary: typeof raw["outcomeSummary"] === "string" ? raw["outcomeSummary"] : null,
+    workingSetId: typeof raw["workingSetId"] === "number" ? raw["workingSetId"] : null,
+  };
+}
+
+function buildPlanningAnchor(input: RememberPlanningAnchorInput): ResumeAnchorTarget {
+  return {
+    kind: "planning",
+    reviewFocus: "planning",
+    sessionId: input.sessionId,
+    visitedAtUtc: input.visitedAtUtc ?? new Date().toISOString(),
+    launchLocation: input.launchLocation ?? null,
+    resumeLocation: input.resumeLocation ?? null,
+    outcomeTitle: input.outcomeTitle ?? null,
+    outcomeSummary: input.outcomeSummary ?? null,
+    workingSetId: input.workingSetId ?? null,
+  };
+}
+
+function buildReviewAnchor(input: RememberReviewAnchorInput): ResumeAnchorTarget {
+  return {
+    kind: "review",
+    reviewFocus: input.reviewFocus,
+    sessionId: input.sessionId,
+    visitedAtUtc: input.visitedAtUtc ?? new Date().toISOString(),
+    launchLocation: input.launchLocation ?? null,
+    resumeLocation: input.resumeLocation ?? null,
+    outcomeTitle: input.outcomeTitle ?? null,
+    outcomeSummary: input.outcomeSummary ?? null,
+    workingSetId: input.workingSetId ?? null,
+  };
 }
 
 function cohortByName(
@@ -219,13 +298,15 @@ export function readResumeAnchors(): ResumeAnchorState {
   if (!canUseLocalStorage()) {
     return { ...DEFAULT_RESUME_ANCHORS };
   }
-  const parsed = safeJsonParse<ResumeAnchorState>(
+  const parsed = safeJsonParse<unknown>(
     window.localStorage.getItem(RESUME_ANCHORS_STORAGE_KEY),
     DEFAULT_RESUME_ANCHORS,
   );
+  const planning = isRecord(parsed) ? parseResumeAnchorTarget(parsed["planning"], "planning") : null;
+  const review = isRecord(parsed) ? parseResumeAnchorTarget(parsed["review"], "review") : null;
   return {
-    ...DEFAULT_RESUME_ANCHORS,
-    ...parsed,
+    planning,
+    review,
   };
 }
 
@@ -236,31 +317,19 @@ function writeResumeAnchors(value: ResumeAnchorState): void {
   window.localStorage.setItem(RESUME_ANCHORS_STORAGE_KEY, JSON.stringify(value));
 }
 
-export function rememberPlanningAnchor(
-  sessionId: number,
-  workingSetId: number | null = null,
-): void {
+export function rememberPlanningAnchor(input: RememberPlanningAnchorInput): void {
   const current = readResumeAnchors();
   writeResumeAnchors({
     ...current,
-    lastPlanningSessionId: sessionId,
-    lastPlanningVisitedAtUtc: new Date().toISOString(),
-    lastPlanningWorkingSetId: workingSetId,
+    planning: buildPlanningAnchor(input),
   });
 }
 
-export function rememberReviewAnchor(
-  reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">,
-  sessionId: number,
-  workingSetId: number | null = null,
-): void {
+export function rememberReviewAnchor(input: RememberReviewAnchorInput): void {
   const current = readResumeAnchors();
   writeResumeAnchors({
     ...current,
-    lastReviewFocus: reviewFocus,
-    lastReviewSessionId: sessionId,
-    lastReviewVisitedAtUtc: new Date().toISOString(),
-    lastReviewWorkingSetId: workingSetId,
+    review: buildReviewAnchor(input),
   });
 }
 
@@ -298,11 +367,9 @@ export function recordRecentShellAction(
     ...entry,
     occurredAt: entry.occurredAt ?? new Date().toISOString(),
   };
+  const nextKey = recentShellActionDedupKey(next);
   const existing = readRecentShellActions().filter((candidate) => {
-    if (candidate.label !== next.label || !sameLocation(candidate.location, next.location)) {
-      return true;
-    }
-    if ((candidate.outcome?.card.summary ?? null) !== (next.outcome?.card.summary ?? null)) {
+    if (recentShellActionDedupKey(candidate) !== nextKey) {
       return true;
     }
     return Math.abs(Date.parse(candidate.occurredAt) - Date.parse(next.occurredAt)) > 15_000;

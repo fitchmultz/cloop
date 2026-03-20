@@ -34,33 +34,12 @@ The next roadmap slice starts from work that is already live:
 - shared trust surfaces and shared AI/action-card rendering across planning, review, recall, and follow-through flows
 - post-action receipt cards with resume targets and rollback cues
 - review workspace redesign across relationship, enrichment, and hygiene review
-- browser-local continuity baseline snapshots, resume anchors, and recent shell-action history
-- global command palette with deterministic ranking, recent commands, and quick actions
+- browser-local continuity baseline snapshots, outcome-anchored resume anchors, and landed-outcome recent shell-action history
+- global command palette with deterministic ranking, quick actions, and outcome-first recents
 
 ## Execution order
 
-### Session 1 — Outcome-anchored continuity history
-
-**Primary spec:** [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
-**Implementation plan:** [`docs/ux/outcome-continuity-plan.md`](ux/outcome-continuity-plan.md)
-
-Goal: make operator since-last summaries, recent-action history, working-set anchors, and workflow handoffs prefer the landed outcome instead of the launch point.
-
-Planned sequence:
-
-1. lock the landed-outcome continuity contract and precedence rules
-2. align operator summaries, recent history, and resume anchors around that contract
-3. finish cross-surface continuity behavior across planning, review, recall, working-set, and command-palette flows
-
-Supporting specs:
-
-- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
-- [`docs/ux/working-sets.md`](ux/working-sets.md)
-- [`docs/ux/command-palette.md`](ux/command-palette.md)
-- [`docs/ux/operator-workspace.md`](ux/operator-workspace.md)
-
-### Session 2 — Executable undo actions
+### Session 1 — Executable undo actions
 
 **Primary spec:** [`docs/ux/undo-actions.md`](ux/undo-actions.md)
 

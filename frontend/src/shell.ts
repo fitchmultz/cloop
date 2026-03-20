@@ -31,6 +31,7 @@ import {
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
   recordRecentShellAction,
 } from "./continuity-intelligence";
+import { isLowSignalNavigationEntry } from "./continuity-outcomes";
 import { contractFromLocation } from "./surface-runtime";
 import {
   displayElement,
@@ -494,7 +495,7 @@ async function applyLocation(
   if (options.recordHistory ?? true) {
     operatorCards?.rememberLocationAnchor(currentLocation);
     const action = operatorCards?.buildLocationAction(currentLocation);
-    if (action) {
+    if (action && !isLowSignalNavigationEntry(action)) {
       recordRecentShellAction(action);
     }
   }

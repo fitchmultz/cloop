@@ -438,6 +438,26 @@ function parseHashToFocus(hash: string): ReviewFocusDetail | null {
   return null;
 }
 
+function planningSessionLabel(sessionId: number): string {
+  return state.planningSnapshot?.session.id === sessionId
+    ? state.planningSnapshot.session.name
+    : (state.planningSessions.find((session) => session.id === sessionId)?.name ?? `Plan #${sessionId}`);
+}
+
+function reviewSessionLabel(
+  focus: Extract<ReviewFocus, "relationship" | "enrichment">,
+  sessionId: number,
+): string {
+  if (focus === "relationship") {
+    return state.relationshipSnapshot?.session.id === sessionId
+      ? state.relationshipSnapshot.session.name
+      : (state.relationshipSessions.find((session) => session.id === sessionId)?.name ?? `Relationship queue #${sessionId}`);
+  }
+  return state.enrichmentSnapshot?.session.id === sessionId
+    ? state.enrichmentSnapshot.session.name
+    : (state.enrichmentSessions.find((session) => session.id === sessionId)?.name ?? `Enrichment queue #${sessionId}`);
+}
+
 function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): void {
   if (sessionId == null) {
     return;
@@ -449,17 +469,20 @@ function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): 
     if (state.planningSessionId === sessionId) {
       return;
     }
-    rememberPlanningAnchor(sessionId, workingSetId);
-    recordRecentShellAction({
-      kind: "planning",
-      label: `Resumed plan #${sessionId}`,
-      description: "Switched planning sessions inside the review workspace.",
-      location: createLocation({
-        state: "plan",
-        reviewFocus: "planning",
-        sessionId,
-        workingSetId,
-      }),
+    const location = createLocation({
+      state: "plan",
+      reviewFocus: "planning",
+      sessionId,
+      workingSetId,
+    });
+    const sessionLabel = planningSessionLabel(sessionId);
+    rememberPlanningAnchor({
+      sessionId,
+      launchLocation: location,
+      resumeLocation: location,
+      outcomeTitle: `Resume plan · ${sessionLabel}`,
+      outcomeSummary: "Return to the last planning session you opened inside the review workspace.",
+      workingSetId,
     });
     return;
   }
@@ -472,17 +495,22 @@ function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): 
   if (previousSessionId === sessionId) {
     return;
   }
-  rememberReviewAnchor(focus, sessionId, workingSetId);
-  recordRecentShellAction({
-    kind: "review",
-    label: `Opened ${focus} queue #${sessionId}`,
-    description: "Switched saved review sessions inside the review workspace.",
-    location: createLocation({
-      state: "decide",
-      reviewFocus: focus,
-      sessionId,
-      workingSetId,
-    }),
+
+  const location = createLocation({
+    state: "decide",
+    reviewFocus: focus,
+    sessionId,
+    workingSetId,
+  });
+  const sessionLabel = reviewSessionLabel(focus, sessionId);
+  rememberReviewAnchor({
+    reviewFocus: focus,
+    sessionId,
+    launchLocation: location,
+    resumeLocation: location,
+    outcomeTitle: `Resume ${focus} queue · ${sessionLabel}`,
+    outcomeSummary: "Return to the last saved review queue you opened inside the review workspace.",
+    workingSetId,
   });
 }
 

@@ -61,6 +61,11 @@ import {
   rememberReviewAnchor,
 } from "./continuity-intelligence";
 import {
+  continuityLocationIdentity,
+  isLowSignalNavigationEntry,
+  resolveContinuityEntry,
+} from "./continuity-outcomes";
+import {
   buildChangedCountPreviewItems,
   buildGroupedChangePreviewItems,
   buildPlanningResourcePreviewItems,
@@ -317,8 +322,18 @@ function buildLocationAction(location: ShellLocation): Omit<RecentShellActionEnt
 }
 
 function rememberLocationAnchor(location: ShellLocation): void {
+  const anchorLocation = createLocation(location);
+  const action = buildLocationAction(anchorLocation);
+
   if (location.state === "plan" && location.sessionId != null) {
-    rememberPlanningAnchor(location.sessionId, location.workingSetId ?? null);
+    rememberPlanningAnchor({
+      sessionId: location.sessionId,
+      launchLocation: anchorLocation,
+      resumeLocation: anchorLocation,
+      outcomeTitle: action.label,
+      outcomeSummary: action.description,
+      workingSetId: location.workingSetId ?? null,
+    });
     return;
   }
   if (
@@ -326,7 +341,15 @@ function rememberLocationAnchor(location: ShellLocation): void {
     && location.sessionId != null
     && (location.reviewFocus === "relationship" || location.reviewFocus === "enrichment")
   ) {
-    rememberReviewAnchor(location.reviewFocus, location.sessionId, location.workingSetId ?? null);
+    rememberReviewAnchor({
+      reviewFocus: location.reviewFocus,
+      sessionId: location.sessionId,
+      launchLocation: anchorLocation,
+      resumeLocation: anchorLocation,
+      outcomeTitle: action.label,
+      outcomeSummary: action.description,
+      workingSetId: location.workingSetId ?? null,
+    });
   }
 }
 
@@ -1938,93 +1961,188 @@ function buildLatestReceiptCard(): PrioritizedCard | null {
   };
 }
 
-function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
+function locationExists(location: ShellLocation, data: WorkspaceData): boolean {
+  if (location.state === "working_set") {
+    return workingSetById(location.workingSetId ?? null) != null;
+  }
+  if (location.state === "plan" && location.sessionId != null) {
+    if (!data.planningSnapshot && data.planningSessions.length === 0) {
+      return true;
+    }
+    return data.planningSnapshot?.session?.id === location.sessionId
+      || data.planningSessions.some((session) => session.id === location.sessionId);
+  }
+  if (location.state === "decide" && location.reviewFocus === "relationship" && location.sessionId != null) {
+    if (!data.relationshipSnapshot && data.relationshipSessions.length === 0) {
+      return true;
+    }
+    return data.relationshipSnapshot?.session?.id === location.sessionId
+      || data.relationshipSessions.some((session) => session.id === location.sessionId);
+  }
+  if (location.state === "decide" && location.reviewFocus === "enrichment" && location.sessionId != null) {
+    if (!data.enrichmentSnapshot && data.enrichmentSessions.length === 0) {
+      return true;
+    }
+    return data.enrichmentSnapshot?.session?.id === location.sessionId
+      || data.enrichmentSessions.some((session) => session.id === location.sessionId);
+  }
+  return true;
+}
+
+function continuityFallbackLocation(
+  location: ShellLocation | null,
+  data: WorkspaceData,
+): { location: ShellLocation; degraded: boolean; degradedLabel: string | null } {
+  if (!location) {
+    return {
+      location: createLocation({ state: "operator" }),
+      degraded: true,
+      degradedLabel: "Original outcome is no longer available in this browser context.",
+    };
+  }
+
+  if (location.workingSetId != null && workingSetById(location.workingSetId) == null) {
+    const withoutWorkingSet = createLocation({ ...location, workingSetId: null });
+    if (locationExists(withoutWorkingSet, data)) {
+      return {
+        location: withoutWorkingSet,
+        degraded: true,
+        degradedLabel: "Working-set scope was removed, so this anchor falls back to the durable session or object.",
+      };
+    }
+  }
+
+  if (locationExists(location, data)) {
+    return { location, degraded: false, degradedLabel: null };
+  }
+
+  return {
+    location: createLocation({ state: "operator" }),
+    degraded: true,
+    degradedLabel: "Original outcome is no longer available, so this anchor falls back to home.",
+  };
+}
+
+function buildResumeAnchorsCard(data: WorkspaceData): PrioritizedCard | null {
   const resumeAnchors = readResumeAnchors();
-  const recentActions = readRecentShellActions();
+  const recentActions = readRecentShellActions().filter((entry) => !isLowSignalNavigationEntry(entry));
+  const latestReceipt = readRecentShellReceiptEntries(1)[0] ?? null;
+  const suppressedLocationKeys = new Set<string>();
   const actions: OperatorActionCardAction[] = [];
   const preview: Array<{ label: string; value: string }> = [];
-  const createdResources: string[] = [];
+  const createdResourceSet = new Set<string>();
+
+  if (latestReceipt) {
+    const resolvedLatest = resolveContinuityEntry(latestReceipt);
+    if (resolvedLatest.resumeLocation) {
+      suppressedLocationKeys.add(continuityLocationIdentity(resolvedLatest.resumeLocation));
+    }
+  }
 
   const workingSetId = workingSetContext?.active_working_set_id ?? continuityBaseline?.activeWorkingSetId ?? null;
   const anchoredWorkingSet = workingSetById(workingSetId);
   const workingSetLocation = anchoredWorkingSet ? workingSetSessionLocation(anchoredWorkingSet.id) : null;
   if (anchoredWorkingSet && workingSetLocation) {
     preview.push({ label: "Working set", value: anchoredWorkingSet.name });
-    createdResources.push(`Working set: ${anchoredWorkingSet.name}`);
+    createdResourceSet.add(`Working set: ${anchoredWorkingSet.name}`);
     pushUniqueAction(
       actions,
       buildOpenAction("Open active working set", workingSetLocation, anchoredWorkingSet.description ?? anchoredWorkingSet.name),
     );
+    suppressedLocationKeys.add(continuityLocationIdentity(workingSetLocation));
   }
 
-  if (resumeAnchors.lastPlanningSessionId != null) {
-    const planningWorkingSetLabel = workingSetLabel(resumeAnchors.lastPlanningWorkingSetId);
-    const location = createLocation({
-      state: "plan",
-      reviewFocus: "planning",
-      sessionId: resumeAnchors.lastPlanningSessionId,
-      workingSetId: resumeAnchors.lastPlanningWorkingSetId,
-    });
+  const appendAnchorTarget = (
+    label: "Planning" | "Review",
+    actionLabel: string,
+    target: typeof resumeAnchors.planning | typeof resumeAnchors.review,
+  ): void => {
+    if (!target) {
+      return;
+    }
+    const workingSetName = workingSetLabel(target.workingSetId);
+    const preferred = target.resumeLocation
+      ? continuityFallbackLocation(createLocation(target.resumeLocation), data)
+      : null;
+    const fallback = target.launchLocation && continuityLocationIdentity(target.launchLocation) !== continuityLocationIdentity(target.resumeLocation)
+      ? continuityFallbackLocation(createLocation(target.launchLocation), data)
+      : null;
+    const actionTarget = preferred?.location ?? fallback?.location ?? createLocation({ state: "operator" });
+    const degraded = (preferred?.degraded ?? false) || (fallback?.degraded ?? false) || !target.resumeLocation;
+    const degradedLabel = preferred?.degradedLabel ?? fallback?.degradedLabel ?? (!target.resumeLocation
+      ? "Resume data was unavailable, so this anchor falls back to the last known launch context."
+      : null);
+    const displayTitle = target.outcomeTitle ?? `${label} session #${target.sessionId}`;
+    const displaySummary = target.outcomeSummary ?? "Return to the last saved session you opened.";
+
     preview.push({
-      label: "Planning",
+      label,
       value: [
-        `Session #${resumeAnchors.lastPlanningSessionId}`,
-        planningWorkingSetLabel,
-        formatRelativeTime(resumeAnchors.lastPlanningVisitedAtUtc),
+        displayTitle,
+        workingSetName,
+        formatRelativeTime(target.visitedAtUtc),
+        degraded ? "fallback" : null,
       ].filter((value): value is string => Boolean(value)).join(" · "),
     });
-    createdResources.push(`Plan session #${resumeAnchors.lastPlanningSessionId}`);
-    if (planningWorkingSetLabel) {
-      createdResources.push(`Planning context: ${planningWorkingSetLabel}`);
+    createdResourceSet.add(displayTitle);
+    if (workingSetName) {
+      createdResourceSet.add(`${label} context: ${workingSetName}`);
     }
-    pushUniqueAction(actions, buildOpenAction("Resume plan", location, "Return to the last planning session you visited"));
-  }
 
-  if (resumeAnchors.lastReviewFocus && resumeAnchors.lastReviewSessionId != null) {
-    const reviewWorkingSetLabel = workingSetLabel(resumeAnchors.lastReviewWorkingSetId);
-    const location = createLocation({
-      state: "decide",
-      reviewFocus: resumeAnchors.lastReviewFocus,
-      sessionId: resumeAnchors.lastReviewSessionId,
-      workingSetId: resumeAnchors.lastReviewWorkingSetId,
-    });
-    preview.push({
-      label: "Review",
-      value: [
-        `${resumeAnchors.lastReviewFocus} #${resumeAnchors.lastReviewSessionId}`,
-        reviewWorkingSetLabel,
-        formatRelativeTime(resumeAnchors.lastReviewVisitedAtUtc),
-      ].filter((value): value is string => Boolean(value)).join(" · "),
-    });
-    createdResources.push(`${resumeAnchors.lastReviewFocus} session #${resumeAnchors.lastReviewSessionId}`);
-    if (reviewWorkingSetLabel) {
-      createdResources.push(`Review context: ${reviewWorkingSetLabel}`);
+    const actionKey = continuityLocationIdentity(actionTarget);
+    if (suppressedLocationKeys.has(actionKey)) {
+      return;
     }
-    pushUniqueAction(actions, buildOpenAction("Resume review", location, "Return to the last saved review queue you opened", actions.length ? "secondary" : "primary"));
-  }
+    pushUniqueAction(
+      actions,
+      buildOpenAction(
+        actionLabel,
+        actionTarget,
+        degradedLabel ?? displaySummary,
+        actions.length ? "secondary" : "primary",
+      ),
+    );
+    suppressedLocationKeys.add(actionKey);
+  };
 
-  recentActions
-    .filter((entry) => entry.location)
-    .slice(0, 3)
-    .forEach((entry) => {
-      const landedLabel = entry.outcome?.card.title ?? entry.label;
-      const landedSummary = entry.outcome?.card.summary ?? entry.description;
-      const landedLocation = entry.outcome?.resumeLocation ?? entry.location;
-      preview.push({ label: "Recent action", value: landedLabel });
-      createdResources.push(landedLabel);
-      if (landedLocation) {
-        pushUniqueAction(
-          actions,
-          buildOpenAction(landedLabel, createLocation(landedLocation), landedSummary, actions.length ? "secondary" : "primary"),
-        );
-      }
-    });
+  appendAnchorTarget("Planning", "Resume plan", resumeAnchors.planning);
+  appendAnchorTarget("Review", "Resume review", resumeAnchors.review);
+
+  recentActions.slice(0, 6).forEach((entry) => {
+    const resolved = resolveContinuityEntry(entry);
+    const preferredTarget = continuityFallbackLocation(
+      resolved.resumeLocation ? createLocation(resolved.resumeLocation) : null,
+      data,
+    );
+    const actionKey = continuityLocationIdentity(preferredTarget.location);
+    if (suppressedLocationKeys.has(actionKey)) {
+      return;
+    }
+
+    preview.push({ label: "Recent outcome", value: resolved.displayTitle });
+    createdResourceSet.add(resolved.displayTitle);
+    pushUniqueAction(
+      actions,
+      buildOpenAction(
+        resolved.displayTitle,
+        preferredTarget.location,
+        preferredTarget.degradedLabel ?? resolved.displaySummary,
+        actions.length ? "secondary" : "primary",
+      ),
+    );
+    suppressedLocationKeys.add(actionKey);
+  });
 
   if (!preview.length || !actions.length) {
     return null;
   }
 
   const prioritizedActions = prioritizeResumeActions(actions, workingSetId);
+  const createdResources = [...createdResourceSet];
+  const freshnessSource = recentActions[0]?.occurredAt
+    ?? resumeAnchors.review?.visitedAtUtc
+    ?? resumeAnchors.planning?.visitedAtUtc
+    ?? null;
 
   return {
     priority: 95,
@@ -2034,22 +2152,23 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
       tone: "attention",
       eyebrow: "Resume anchors",
       title: "Pick up where you left off",
-      summary: `${prioritizedActions.length} explicit resume anchor${prioritizedActions.length === 1 ? "" : "s"} are ready in this browser.`,
+      summary: `${prioritizedActions.length} outcome anchor${prioritizedActions.length === 1 ? "" : "s"} are ready in this browser.`,
       rationale:
-        "Resume anchors keep cross-session work lightweight by surfacing the exact planning, review, and shell locations you recently used.",
+        "Outcome-aware continuity keeps cross-session work lightweight by surfacing the landed queue, session, or working-set context instead of replaying click history.",
       preview: preview.slice(0, 4),
       trust: {
-        contextSources: ["Browser-local resume anchors", "Recent shell action history", "Working-set context"],
+        contextSources: ["Browser-local resume anchors", "Outcome-anchored recent actions", "Working-set context"],
         assumptions: ["Resume anchors are local to this browser and may not reflect work done elsewhere."],
         confidenceLabel: "Deterministic resume shortcuts",
         rollbackLabel: "Opening an anchor only restores context; downstream mutations remain explicit.",
-        freshnessLabel: recentActions[0] ? `Latest action ${formatRelativeTime(recentActions[0].occurredAt)}` : "Browser-local continuity state",
+        freshnessLabel: freshnessSource ? `Latest continuity ${formatRelativeTime(freshnessSource)}` : "Browser-local continuity state",
       },
       handoff: {
-        changeSummary: "You do not need to reconstruct your prior context manually.",
+        changeSummary: "You can reopen the landed outcome directly instead of reconstructing the path that got there.",
         createdResources,
-        nextStep: "Open the strongest resume anchor or pivot into the newest risk/change signal below.",
+        nextStep: "Open the strongest landed anchor or pivot into the newest change signal below.",
         breadcrumbs: ["Home", "Since last visit", "Resume anchors"],
+        workingSet: currentWorkingSetHandoffMetadata(),
       },
       actions: prioritizedActions.slice(0, 4),
     },

@@ -22,7 +22,9 @@
  *   - Inbox filters are shell-owned DOM controls passed through init().
  */
 
+import { createReceiptCard, withReceiptOutcome } from "../action-receipts";
 import { recordRecentShellAction } from "../continuity-intelligence";
+import { createLocation } from "../shell-routing";
 import * as api from "./api";
 import * as render from "./render";
 import * as timer from "./timer";
@@ -585,24 +587,66 @@ export async function snoozeLoop(loopId: number | string, snoozeUntilUtc: string
   try {
     const updated = await api.snoozeLoop(loopId, snoozeUntilUtc);
     replaceLoop(updated);
-    recordRecentShellAction({
-      kind: "snooze",
-      label: snoozeUntilUtc ? `Snoozed loop #${updated.id}` : `Cleared snooze for loop #${updated.id}`,
-      description: updated.title?.trim() || updated.raw_text.trim() || `Loop #${updated.id}`,
-      location: {
-        state: "do",
-        recallTool: "chat",
-        reviewFocus: null,
-        sessionId: null,
-        loopId: updated.id,
-        viewId: null,
-        memoryId: null,
-        query: null,
+    const location = createLocation({ state: "do", loopId: updated.id });
+    const summaryLabel = updated.title?.trim() || updated.raw_text.trim() || `Loop #${updated.id}`;
+    const receiptCard = createReceiptCard({
+      id: `loop-snooze-${updated.id}-${Date.now()}`,
+      eyebrow: "Loop receipt",
+      title: snoozeUntilUtc ? `Snoozed ${summaryLabel}` : `Cleared snooze for ${summaryLabel}`,
+      summary: snoozeUntilUtc
+        ? `${summaryLabel} is deferred until ${snoozeUntilUtc}.`
+        : `${summaryLabel} is back in the active queue.`,
+      rationale: "Loop receipts keep deferral changes resumable so the operator can reopen the affected loop without reconstructing where it landed.",
+      tone: snoozeUntilUtc ? "attention" : "progress",
+      preview: [
+        { label: "Loop", value: summaryLabel },
+        { label: "Outcome", value: snoozeUntilUtc ? "Deferred" : "Active again" },
+      ],
+      trust: {
+        generationLabel: "Recorded loop mutation",
+        generationTone: "progress",
+        contextSources: ["Loop surface"],
+        assumptions: ["The loop remains available in the Do surface after the snooze change."],
+        confidenceLabel: snoozeUntilUtc ? "Deferred state saved" : "Deferred state cleared",
+        confidenceTone: "progress",
+        freshnessLabel: "Saved just now",
+        freshnessTone: "progress",
+        rollbackLabel: snoozeUntilUtc ? "Clear the snooze to return this loop to active work." : "Set a new snooze if you need to defer this loop again.",
+        rollbackTone: "caution",
+        impactSummary: snoozeUntilUtc ? "The loop left the active queue until its snooze deadline." : "The loop can be worked again immediately.",
+        impactTone: snoozeUntilUtc ? "attention" : "progress",
       },
-      metadata: {
-        snoozeUntilUtc,
+      handoff: {
+        changeSummary: snoozeUntilUtc
+          ? `${summaryLabel} is now deferred.`
+          : `${summaryLabel} returned to active work.`,
+        createdResources: [summaryLabel],
+        nextStep: snoozeUntilUtc
+          ? "Reopen the loop to confirm the defer date still matches reality."
+          : "Reopen the loop and decide whether to work it now or choose a new defer date.",
+        breadcrumbs: ["Home", "Do", summaryLabel],
       },
+      resumeLocation: location,
+      resumeLabel: "Open affected loop",
+      resumeDescription: summaryLabel,
+      pinLabel: `Loop · ${summaryLabel}`,
     });
+    recordRecentShellAction(
+      withReceiptOutcome(
+        {
+          kind: "snooze",
+          label: receiptCard.title,
+          description: receiptCard.summary,
+          location,
+          metadata: {
+            snoozeUntilUtc,
+            loopId: updated.id,
+          },
+        },
+        receiptCard,
+        location,
+      ),
+    );
     statusEl.textContent = snoozeUntilUtc ? "Loop snoozed successfully." : "Snooze cleared.";
   } catch (error: unknown) {
     statusEl.textContent = messageFromError(error, "Failed to snooze loop.");
