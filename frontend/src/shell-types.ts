@@ -78,6 +78,7 @@ export interface ShellElements {
   shellContext: HTMLElement;
   shellRoutePill: HTMLElement;
   shellLastVisit: HTMLElement;
+  shellReceiptRail: HTMLElement;
   shellPrimaryAction: HTMLButtonElement;
   refreshWorkspaceButton: HTMLButtonElement;
   commandPaletteButton: HTMLButtonElement;

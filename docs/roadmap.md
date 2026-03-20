@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn the shipped operator shell, trust surfaces, workflow handoffs, and first deterministic continuity slice into a world-class cross-session decision and execution workspace: sharper drift handling, tighter resume cues, and deeper operational memory.
+The current priority is to turn the shipped operator shell, trust surfaces, workflow handoffs, shared action-card follow-through, and new receipt rail into a world-class cross-session decision and execution workspace: sharper landed-outcome history, tighter resume cues, and deeper operational memory.
 
 ## Direction
 
@@ -26,25 +26,25 @@ Current product goals:
 
 ## Execution Order
 
-### Phase 1 — Post-action continuity and rollback-aware receipts
+### Phase 1 — Outcome-aware continuity history
 
-Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, and richer recall-result follow-through into a crisp decide-and-execute loop that does not lose context once card-triggered work lands.
+Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, richer recall-result follow-through, and new receipt rail into a crisp decide-and-execute loop that stays coherent after work lands.
 
-1. **Post-action receipts + rollback continuity**
-   - Surface clearer execution receipts, undo cues, and resume breadcrumbs after a card-triggered mutation or staged handoff so users do not lose the thread once work lands.
-   - Reuse the same handoff and trust primitives instead of inventing mutation-specific success chrome.
-2. **Cross-surface continuity history tightening**
-   - Make recent-action history, working-set anchors, and workflow handoffs reflect the final landed outcome instead of just the launch point.
-   - Keep post-action context durable across operator, review, and recall surfaces so reopening a queue shows what changed and how to roll it back.
+1. **Cross-surface continuity history tightening**
+   - Make recent-action history, working-set anchors, workflow handoffs, and operator summaries reflect the final landed outcome instead of just the launch point.
+   - Keep post-action context durable across operator, review, recall, and working-set surfaces so reopening a queue shows what changed and how to roll it back.
+2. **Backend-backed undo actions where rollback already exists**
+   - Turn receipt rollback cues into first-class executable actions anywhere the backend already supports undo or rollback, instead of leaving all reversibility as advisory text.
+   - Keep the same receipt/trust contract so reversible and irreversible outcomes remain visually consistent.
 
 ## Immediate Next Sessions
 
 If work is being planned session-by-session, the best near-term sequence is:
 
-1. **Post-action continuity session**
-   - tighten receipts, rollback cues, and resume breadcrumbs after deterministic card-triggered work lands
-2. **Continuity history session**
-   - align recent actions, working-set anchors, and workflow handoffs around the landed outcome instead of the launch point
+1. **Continuity history session**
+   - align recent actions, working-set anchors, workflow handoffs, and operator since-last summaries around the landed outcome instead of the launch point
+2. **Undo action session**
+   - promote rollback cues into executable undo actions anywhere the backend already supports reversal
 
 ## Delivery Model
 

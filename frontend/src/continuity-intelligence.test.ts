@@ -30,6 +30,7 @@ import type {
 import {
   buildContinuityBaseline,
   readRecentShellActions,
+  readRecentShellReceiptEntries,
   readResumeAnchors,
   recordRecentShellAction,
   rememberPlanningAnchor,
@@ -170,6 +171,105 @@ describe("continuity-intelligence", () => {
     });
 
     expect(readRecentShellActions().map((entry) => entry.location?.workingSetId ?? null)).toEqual([7, 4]);
+  });
+
+  it("reads receipt-bearing recent actions separately", () => {
+    recordRecentShellAction({
+      kind: "review",
+      label: "Applied enrichment suggestion",
+      description: "Applied the top suggestion and refreshed the queue.",
+      location: location({ state: "decide", reviewFocus: "enrichment", sessionId: 9 }),
+      outcome: {
+        card: {
+          id: "receipt-1",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Enrichment receipt",
+          title: "Applied enrichment suggestion",
+          summary: "Applied the top suggestion and refreshed the queue.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Saved enrichment session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Rejecting is no longer available after apply.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 9 }),
+        rollbackLabel: "Rejecting is no longer available after apply.",
+      },
+    });
+
+    expect(readRecentShellReceiptEntries()).toHaveLength(1);
+    expect(readRecentShellReceiptEntries()[0]?.outcome.card.title).toBe("Applied enrichment suggestion");
+  });
+
+  it("keeps distinct receipts when the landed summaries differ", () => {
+    recordRecentShellAction({
+      kind: "working_set",
+      label: "Pinned evidence",
+      description: "Saved a resume anchor.",
+      location: location({ state: "recall", recallTool: "rag", query: "evidence" }),
+      outcome: {
+        card: {
+          id: "receipt-a",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Working-set receipt",
+          title: "Pinned evidence",
+          summary: "Saved Evidence A.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Working set"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Remove the anchor to undo this.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "recall", recallTool: "rag", query: "evidence" }),
+        rollbackLabel: "Remove the anchor to undo this.",
+      },
+    });
+    vi.setSystemTime(new Date("2026-03-17T12:00:10Z"));
+    recordRecentShellAction({
+      kind: "working_set",
+      label: "Pinned evidence",
+      description: "Saved a resume anchor.",
+      location: location({ state: "recall", recallTool: "rag", query: "evidence" }),
+      outcome: {
+        card: {
+          id: "receipt-b",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Working-set receipt",
+          title: "Pinned evidence",
+          summary: "Saved Evidence B.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Working set"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Remove the anchor to undo this.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "recall", recallTool: "rag", query: "evidence" }),
+        rollbackLabel: "Remove the anchor to undo this.",
+      },
+    });
+
+    expect(readRecentShellActions()).toHaveLength(2);
   });
 
   it("captures richer planning-session continuity baseline fields", () => {

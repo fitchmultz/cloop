@@ -111,7 +111,8 @@ Every action card should have:
 - Grounded chat answers and document-answer results now surface trust-framed, executable handoff cards inline instead of leaving recall outputs prose-only.
 - Shared action cards now support first-class stage, edit, and defer follow-through alongside open, pin, and review-local event actions.
 - Recall result cards now use those richer follow-through actions to save durable briefs, reopen editable source questions, and defer evidence or execution handoffs without losing working-set scope.
-- The next roadmap gap is tightening post-action receipts, rollback cues, and resume breadcrumbs after a card-triggered mutation or staged handoff lands.
+- Card-triggered working-set changes, review decisions, planning execution, and command-palette actions now emit shared receipt cards with rollback cues and resume-from-landed-outcome affordances instead of disappearing into one-line status text.
+- The next roadmap gap is tightening broader continuity history so operator since-last summaries and recent-action history prefer landed outcomes everywhere, not just the latest receipt rail.
 
 ## Dependencies
 

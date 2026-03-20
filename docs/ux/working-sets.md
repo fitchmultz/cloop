@@ -53,6 +53,7 @@ Current implementation defaults:
 - a dedicated shell route (`#working-set/:id`) restores the set as a first-class session surface
 - focus mode is explicit and can be toggled on/off without deleting the active set
 - sets may contain both durable object references and lightweight state/query anchors when the shell needs a reusable launch target
+- working-set create/focus/pin/stage/defer/reorder/remove mutations now emit shared receipt cards so the landed outcome, rollback cue, and reopen path stay visible after the mutation lands
 
 ## Focus mode
 

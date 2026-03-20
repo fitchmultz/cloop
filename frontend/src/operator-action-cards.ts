@@ -38,6 +38,7 @@ const KIND_LABELS = {
   handoff: "Handoff",
   refresh: "Refresh",
   context: "Context",
+  receipt: "Receipt",
 } as const satisfies Record<OperatorActionCard["kind"], string>;
 
 function escapeHtml(value: string): string {
@@ -164,6 +165,9 @@ function renderPreview(card: OperatorActionCard): string {
 }
 
 function defaultGenerationLabel(card: OperatorActionCard): string {
+  if (card.kind === "receipt") {
+    return "Recorded outcome";
+  }
   if (card.kind === "handoff") {
     return "Prepared workflow handoff";
   }
@@ -184,7 +188,11 @@ function renderTrust(card: OperatorActionCard): string {
     {
       ...card.trust,
       generationLabel: card.trust.generationLabel ?? defaultGenerationLabel(card),
-      generationTone: card.trust.generationTone ?? (card.kind === "handoff" || card.kind === "decision" ? "attention" : "neutral"),
+      generationTone: card.trust.generationTone ?? (card.kind === "handoff" || card.kind === "decision"
+        ? "attention"
+        : card.kind === "receipt"
+          ? "progress"
+          : "neutral"),
       impactSummary: card.trust.impactSummary ?? card.handoff?.changeSummary ?? null,
     },
     {
@@ -200,7 +208,8 @@ function renderHandoff(card: OperatorActionCard): string {
 }
 
 function renderActionArea(card: OperatorActionCard): string {
-  const contextLabel = card.actionContextLabel?.trim() ?? "";
+  const contextLabel = card.actionContextLabel?.trim()
+    || (card.kind === "receipt" && card.actions.length ? "Continue from here" : "");
   const warning = card.actionWarning?.trim() ?? "";
   if (!card.actions.length && !contextLabel && !warning) {
     return "";

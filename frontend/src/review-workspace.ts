@@ -25,6 +25,7 @@
  *   - The shared modal and merge runtimes are available from the TypeScript frontend.
  */
 
+import { withReceiptOutcome } from "./action-receipts";
 import { requestJson } from "./http";
 import type {
   ClarificationSubmitRequest,
@@ -75,11 +76,14 @@ import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { renderTrustSurface } from "./trust-surface";
 import {
   buildCohortImpactCard,
+  buildEnrichmentDecisionReceiptCard,
   buildEnrichmentImpactCard,
   buildEnrichmentSuggestionCard,
+  buildPlanningExecutionReceiptCard,
   buildPlanningExecutionSummaryCard,
   buildPlanningFollowUpResourceCard,
   buildPlanningLaunchSurfaceCard,
+  buildRelationshipDecisionReceiptCard,
   buildRelationshipImpactCard,
 } from "./review-workspace-action-cards";
 import * as modals from "./modals";
@@ -2789,6 +2793,37 @@ async function handlePlanningExecute(): Promise<void> {
   state.planningSnapshot = payload.snapshot;
   requestWorkspaceRefresh();
   renderAll();
+
+  const receiptCard = buildPlanningExecutionReceiptCard({
+    snapshot: payload.snapshot,
+    latestExecution: payload.execution,
+    rollbackSummary: describeRollbackCue(payload.execution.rollback_cues),
+    context: planningImpactHandoffContext(payload.snapshot.session.name),
+  });
+  const planLocation = createLocation({
+    state: "plan",
+    reviewFocus: "planning",
+    sessionId,
+    workingSetId: currentWorkingSetId(),
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "planning",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: planLocation,
+        metadata: {
+          source: "review-workspace",
+          sessionId,
+          checkpointIndex: payload.execution.checkpoint_index,
+        },
+      },
+      receiptCard,
+      planLocation,
+    ),
+  );
+
   const launchSurface = payload.execution.launch_surfaces?.[0] ?? null;
   setStatus(
     launchSurface
@@ -2974,10 +3009,17 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
   if (loopId == null || candidateId == null || !candidateType) {
     return;
   }
-  const relationshipType = (button.dataset["relationshipType"] as RelationshipReviewSessionActionRequest["relationship_type"] | undefined) ?? candidateType;
+  const requestedRelationshipType = (button.dataset["relationshipType"] as RelationshipReviewSessionActionRequest["relationship_type"] | undefined) ?? candidateType;
+  const relationshipType: "duplicate" | "related" = requestedRelationshipType === "suggested"
+    ? candidateType
+    : requestedRelationshipType;
   if (actionType === "confirm" && !(await confirmRelationshipDuplicateIfNeeded(candidateId, relationshipType))) {
     return;
   }
+  const previousSnapshot = state.relationshipSnapshot;
+  const previousItem = previousSnapshot?.current_item ?? null;
+  const candidate = findRelationshipCandidate(candidateId);
+  const trust = relationshipTrustMetadata(previousSnapshot, previousItem);
   const response = await runRelationshipSessionAction(sessionId, {
     loop_id: loopId,
     candidate_loop_id: candidateId,
@@ -2988,6 +3030,45 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
   state.relationshipSnapshot = response.snapshot;
   requestWorkspaceRefresh();
   renderAll();
+
+  const workingSetId = currentWorkingSetId();
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "relationship",
+    sessionId,
+    workingSetId,
+  });
+  const receiptCard = buildRelationshipDecisionReceiptCard({
+    snapshot: response.snapshot,
+    trust,
+    workingSets: state.workingSets ?? [],
+    sessionName: response.snapshot.session.name,
+    workingSetId,
+    loopId,
+    candidate,
+    actionType,
+    relationshipType,
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "review",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: queueLocation,
+        metadata: {
+          source: "review-workspace",
+          sessionId,
+          loopId,
+          candidateId,
+          actionType,
+          relationshipType,
+        },
+      },
+      receiptCard,
+      queueLocation,
+    ),
+  );
   setStatus(`Recorded ${actionType} for loop #${loopId}.`);
 }
 
@@ -3004,12 +3085,16 @@ async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void
   if (loopId == null || candidateId == null || !candidateType) {
     return;
   }
-  const resolvedRelationshipType = selectedAction.relationship_type === "suggested"
+  const resolvedRelationshipType: "duplicate" | "related" = selectedAction.relationship_type === "suggested"
     ? candidateType
     : selectedAction.relationship_type;
   if (selectedAction.action_type === "confirm" && !(await confirmRelationshipDuplicateIfNeeded(candidateId, resolvedRelationshipType))) {
     return;
   }
+  const previousSnapshot = state.relationshipSnapshot;
+  const previousItem = previousSnapshot?.current_item ?? null;
+  const candidate = findRelationshipCandidate(candidateId);
+  const trust = relationshipTrustMetadata(previousSnapshot, previousItem);
   const response = await runRelationshipSessionAction(sessionId, {
     loop_id: loopId,
     candidate_loop_id: candidateId,
@@ -3019,6 +3104,46 @@ async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void
   state.relationshipSnapshot = response.snapshot;
   requestWorkspaceRefresh();
   renderAll();
+
+  const workingSetId = currentWorkingSetId();
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "relationship",
+    sessionId,
+    workingSetId,
+  });
+  const receiptCard = buildRelationshipDecisionReceiptCard({
+    snapshot: response.snapshot,
+    trust,
+    workingSets: state.workingSets ?? [],
+    sessionName: response.snapshot.session.name,
+    workingSetId,
+    loopId,
+    candidate,
+    actionType: selectedAction.action_type,
+    relationshipType: resolvedRelationshipType,
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "review",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: queueLocation,
+        metadata: {
+          source: "review-workspace",
+          sessionId,
+          loopId,
+          candidateId,
+          actionPresetId: actionId,
+          actionType: selectedAction.action_type,
+          relationshipType: resolvedRelationshipType,
+        },
+      },
+      receiptCard,
+      queueLocation,
+    ),
+  );
   setStatus(`Applied saved relationship action.`);
 }
 
@@ -3141,6 +3266,9 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
   if (actionType === "apply" && !(await confirmEnrichmentApplyIfNeeded(suggestionId))) {
     return;
   }
+  const previousSnapshot = state.enrichmentSnapshot;
+  const previousItem = previousSnapshot?.current_item ?? null;
+  const trust = enrichmentTrustMetadata(previousSnapshot, previousItem);
   const response = await runEnrichmentSessionAction(sessionId, {
     suggestion_id: suggestionId,
     action_type: actionType,
@@ -3148,6 +3276,42 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
   state.enrichmentSnapshot = response.snapshot;
   requestWorkspaceRefresh();
   renderAll();
+
+  const workingSetId = currentWorkingSetId();
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "enrichment",
+    sessionId,
+    workingSetId,
+  });
+  const receiptCard = buildEnrichmentDecisionReceiptCard({
+    snapshot: response.snapshot,
+    trust,
+    workingSets: state.workingSets ?? [],
+    sessionName: response.snapshot.session.name,
+    workingSetId,
+    item: previousItem,
+    suggestionId,
+    actionType,
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "review",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: queueLocation,
+        metadata: {
+          source: "review-workspace",
+          sessionId,
+          suggestionId,
+          actionType,
+        },
+      },
+      receiptCard,
+      queueLocation,
+    ),
+  );
   setStatus(`${actionType === "apply" ? "Applied" : "Rejected"} suggestion #${suggestionId}.`);
 }
 
@@ -3161,6 +3325,9 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
   if (action.action_type === "apply" && !(await confirmEnrichmentApplyIfNeeded(suggestionId))) {
     return;
   }
+  const previousSnapshot = state.enrichmentSnapshot;
+  const previousItem = previousSnapshot?.current_item ?? null;
+  const trust = enrichmentTrustMetadata(previousSnapshot, previousItem);
   const response = await runEnrichmentSessionAction(sessionId, {
     suggestion_id: suggestionId,
     action_preset_id: actionId,
@@ -3168,6 +3335,43 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
   state.enrichmentSnapshot = response.snapshot;
   requestWorkspaceRefresh();
   renderAll();
+
+  const workingSetId = currentWorkingSetId();
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "enrichment",
+    sessionId,
+    workingSetId,
+  });
+  const receiptCard = buildEnrichmentDecisionReceiptCard({
+    snapshot: response.snapshot,
+    trust,
+    workingSets: state.workingSets ?? [],
+    sessionName: response.snapshot.session.name,
+    workingSetId,
+    item: previousItem,
+    suggestionId,
+    actionType: action.action_type === "reject" ? "reject" : "apply",
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "review",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: queueLocation,
+        metadata: {
+          source: "review-workspace",
+          sessionId,
+          suggestionId,
+          actionPresetId: actionId,
+          actionType: action.action_type,
+        },
+      },
+      receiptCard,
+      queueLocation,
+    ),
+  );
   setStatus(`Applied saved enrichment action.`);
 }
 
@@ -3196,6 +3400,9 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
     return;
   }
 
+  const previousSnapshot = state.enrichmentSnapshot;
+  const previousItem = previousSnapshot?.current_item ?? null;
+  const trust = enrichmentTrustMetadata(previousSnapshot, previousItem);
   const response = await answerEnrichmentClarifications(sessionId, {
     loop_id: loopId,
     answers,
@@ -3203,6 +3410,43 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
   state.enrichmentSnapshot = response.snapshot;
   requestWorkspaceRefresh();
   renderAll();
+
+  const workingSetId = currentWorkingSetId();
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "enrichment",
+    sessionId,
+    workingSetId,
+  });
+  const receiptCard = buildEnrichmentDecisionReceiptCard({
+    snapshot: response.snapshot,
+    trust,
+    workingSets: state.workingSets ?? [],
+    sessionName: response.snapshot.session.name,
+    workingSetId,
+    item: previousItem,
+    suggestionId: previousItem?.pending_suggestions[0]?.id ?? 0,
+    actionType: "clarify",
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "review",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: queueLocation,
+        metadata: {
+          source: "review-workspace",
+          sessionId,
+          loopId,
+          answerCount: answers.length,
+          actionType: "clarify",
+        },
+      },
+      receiptCard,
+      queueLocation,
+    ),
+  );
   setStatus(response.result.message);
 }
 

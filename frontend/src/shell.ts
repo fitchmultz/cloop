@@ -24,8 +24,13 @@
  *   - Hash routes are the canonical shareable/deep-link format for shell state.
  */
 
-import type { ContinuityBaselineSnapshot, RecallTool, ReviewFocus } from "./contracts-ui";
-import { readContinuityBaseline, recordRecentShellAction } from "./continuity-intelligence";
+import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
+import {
+  readContinuityBaseline,
+  readRecentShellReceiptEntries,
+  RECENT_SHELL_ACTIONS_UPDATED_EVENT,
+  recordRecentShellAction,
+} from "./continuity-intelligence";
 import { contractFromLocation } from "./surface-runtime";
 import {
   displayElement,
@@ -44,6 +49,7 @@ import {
   STATE_DESCRIPTORS,
 } from "./shell-routing";
 import { createShellEventController } from "./shell-events";
+import { renderActionCardDeck } from "./operator-action-cards";
 import { createShellOperatorCardRenderer, type ShellOperatorCardRenderer } from "./shell-operator-cards";
 import { createShellWorkingSetController, type ShellWorkingSetController } from "./shell-working-set";
 import { createShellWorkspaceController, type ShellWorkspaceController } from "./shell-workspace";
@@ -448,6 +454,17 @@ function updateLastVisitStatus(): void {
   )}`;
 }
 
+function renderShellReceiptRail(): void {
+  if (!elements) {
+    return;
+  }
+  const cards: OperatorActionCard[] = readRecentShellReceiptEntries(1).map((entry) => entry.outcome.card);
+  elements.shellReceiptRail.hidden = cards.length === 0;
+  elements.shellReceiptRail.innerHTML = cards.length
+    ? renderActionCardDeck(cards, "")
+    : "";
+}
+
 async function applyLocation(
   input: Partial<ShellLocation>,
   options: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean } = {},
@@ -630,9 +647,12 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     return;
   }
 
+  window.addEventListener(RECENT_SHELL_ACTIONS_UPDATED_EVENT, renderShellReceiptRail);
+
   const eventController = createShellEventController({
     setElements: (nextElements) => {
       elements = nextElements;
+      renderShellReceiptRail();
     },
     getElements: () => elements,
     getCurrentLocation: () => currentLocation,
@@ -659,9 +679,13 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     confirmWorkingSetDeletion: async (name) => workingSetController!.confirmWorkingSetDeletion(name),
     setWorkingSetContext: async (activeWorkingSetId, focusModeEnabled, options) =>
       workingSetController!.setWorkingSetContext(activeWorkingSetId, focusModeEnabled, options),
-    refreshWorkingSetState: async () => workingSetController!.refreshWorkingSetState(),
-    pinLocationToWorkingSet: async (location, label, description) =>
-      workingSetController!.pinLocationToWorkingSet(location, label, description),
+    updateWorkingSet: async (workingSetId, details) => workingSetController!.updateWorkingSet(workingSetId, details),
+    deleteWorkingSet: async (workingSetId) => workingSetController!.deleteWorkingSet(workingSetId),
+    reorderWorkingSetItems: async (workingSetId, orderedItemIds) =>
+      workingSetController!.reorderWorkingSetItems(workingSetId, orderedItemIds),
+    removeWorkingSetItem: async (workingSetId, itemId) => workingSetController!.removeWorkingSetItem(workingSetId, itemId),
+    pinLocationToWorkingSet: async (location, label, description, options) =>
+      workingSetController!.pinLocationToWorkingSet(location, label, description, options),
     addLoopIdsToActiveWorkingSet: async (loopIds) => workingSetController!.addLoopIdsToActiveWorkingSet(loopIds),
     openGroundedChatWithPrompt,
     openMemorySearchWithQuery,

@@ -57,6 +57,7 @@
 }
 
 .shell-status-bar,
+.shell-receipt-rail,
 .state-nav,
 .state-subnav,
 .working-set-focus-banner,
@@ -72,6 +73,17 @@
   gap: var(--space-4);
   margin-top: var(--space-4);
   padding: 0 var(--space-5);
+}
+
+.shell-receipt-rail {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding: 0 var(--space-5);
+}
+
+.shell-receipt-rail[hidden] {
+  display: none;
 }
 
 .shell-status-copy {
@@ -306,6 +318,13 @@
 .operator-action-card--progress {
   border-color: rgba(87, 149, 111, 0.3);
   box-shadow: inset 0 0 0 1px rgba(87, 149, 111, 0.08);
+}
+
+.operator-action-card--receipt {
+  border-left: 4px solid rgba(87, 149, 111, 0.32);
+  background:
+    linear-gradient(180deg, rgba(87, 149, 111, 0.08), rgba(255, 255, 255, 0.92)),
+    var(--color-card-alt);
 }
 
 .operator-action-card--caution {

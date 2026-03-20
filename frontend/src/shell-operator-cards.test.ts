@@ -52,6 +52,7 @@ function createElements(): ShellElements {
     shellContext: div(),
     shellRoutePill: div(),
     shellLastVisit: div(),
+    shellReceiptRail: div(),
     shellPrimaryAction: button(),
     refreshWorkspaceButton: button(),
     commandPaletteButton: button(),
@@ -428,6 +429,47 @@ describe("shell-operator-cards", () => {
       'button[data-open-state="decide"][data-open-review-focus="enrichment"][data-open-session-id="27"]',
     );
     expect(button?.getAttribute("data-open-working-set-id")).toBe("2");
+  });
+
+  it("surfaces the latest receipt ahead of generic since-last summaries", () => {
+    recordRecentShellAction({
+      kind: "review",
+      label: "Applied enrichment suggestion",
+      description: "Applied suggestion #41 and refreshed the queue.",
+      location: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
+      outcome: {
+        card: {
+          id: "receipt-1",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Enrichment receipt",
+          title: "Applied enrichment suggestion",
+          summary: "Applied suggestion #41 and refreshed the queue.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Saved enrichment session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Rejecting is no longer available after apply.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
+        rollbackLabel: "Rejecting is no longer available after apply.",
+      },
+    });
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+      workingSets: [makeWorkingSet(2, "Review Prep")],
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    const firstHeading = elements.operatorSinceLast.querySelector("h3");
+    expect(firstHeading?.textContent).toBe("Applied enrichment suggestion");
   });
 
   it("prefers working-set-scoped resume actions over generic session resumes", () => {

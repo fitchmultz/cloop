@@ -79,7 +79,7 @@ The system should surface when:
 ### Momentum flow
 
 1. User completes several decisions or actions.
-2. System updates recent changes and queue health.
+2. System records a receipt with rollback cues and a landed resume target.
 3. Operator workspace reflects progress without requiring manual refresh across surfaces.
 
 ## States and edge cases
@@ -99,6 +99,7 @@ The system should surface when:
 
 - Returning users can see a since-last-visit summary in the default workspace.
 - The app surfaces clear resume points for active workflows.
+- Recent deterministic actions can emit receipt cards with rollback cues and landed resume targets.
 - Plan and session drift is visible and actionable.
 - Continuity information remains calm and high-signal rather than noisy.
 

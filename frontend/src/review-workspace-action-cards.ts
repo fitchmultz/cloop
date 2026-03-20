@@ -23,6 +23,7 @@
  *   - Working-set metadata is resolved from caller-provided context only.
  */
 
+import { createReceiptCard } from "./action-receipts";
 import type {
   OperatorActionCard,
   OperatorActionCardAction,
@@ -41,6 +42,7 @@ import type {
   RelationshipReviewActionResponse,
   RelationshipReviewCandidateResponse,
   RelationshipReviewSessionSnapshotResponse,
+  WorkingSetResponse,
 } from "./domain";
 import {
   buildFollowUpResourceHandoff,
@@ -163,6 +165,32 @@ function describeQueueProgress(currentIndex: number | null | undefined, total: n
     return `0/${total}`;
   }
   return `${Math.min(total, currentIndex + 1)}/${total}`;
+}
+
+function relationshipDecisionLabel(
+  item: RelationshipReviewSessionSnapshotResponse["current_item"] | null,
+): string {
+  const candidate = item
+    ? ((item.duplicate_candidates[0] ?? null)?.score ?? -1) >= ((item.related_candidates[0] ?? null)?.score ?? -1)
+      ? (item.duplicate_candidates[0] ?? item.related_candidates[0] ?? null)
+      : (item.related_candidates[0] ?? item.duplicate_candidates[0] ?? null)
+    : null;
+  if (!candidate) {
+    return "Refresh, broaden the query, or move to the next loop.";
+  }
+  return candidate.relationship_type === "duplicate"
+    ? "Confirm duplicate, merge the loops, or dismiss this candidate."
+    : "Confirm related, escalate to duplicate, or dismiss this candidate.";
+}
+
+function enrichmentDecisionLabel(item: EnrichmentReviewQueueItemResponse | null): string {
+  if (!item) {
+    return "Refresh, broaden the query, or move to the next queue.";
+  }
+  if (item.pending_clarification_count > 0) {
+    return "Answer clarifications before trusting or applying older suggestions.";
+  }
+  return "Apply the top suggestion, reject it, use a saved action, or inspect the loop in Do.";
 }
 
 export function buildPlanningExecutionSummaryCard(
@@ -596,6 +624,227 @@ export function buildEnrichmentSuggestionCard(options: {
       ),
     ],
   };
+}
+
+export function buildRelationshipDecisionReceiptCard(options: {
+  snapshot: RelationshipReviewSessionSnapshotResponse;
+  trust: TrustSurfaceMetadata;
+  workingSets: readonly WorkingSetResponse[];
+  sessionName: string;
+  workingSetId: number | null;
+  loopId: number;
+  candidate: RelationshipReviewCandidateResponse | null;
+  actionType: "confirm" | "dismiss";
+  relationshipType: "duplicate" | "related";
+}): OperatorActionCard {
+  const candidateLabel = options.candidate ? loopTitle(options.candidate) : `Loop #${options.loopId}`;
+  const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "relationship",
+    sessionId: options.snapshot.session.id,
+    workingSetId: options.workingSetId,
+  });
+  const doLocation = createLocation({
+    state: "do",
+    loopId: options.loopId,
+    workingSetId: options.workingSetId,
+  });
+  const summary = options.actionType === "confirm"
+    ? `${candidateLabel} was recorded as ${options.relationshipType} and the queue advanced.`
+    : `${candidateLabel} was dismissed and the queue advanced.`;
+  return createReceiptCard({
+    id: `relationship-receipt-${options.snapshot.session.id}-${options.loopId}-${Date.now()}`,
+    eyebrow: "Relationship receipt",
+    title: options.actionType === "confirm"
+      ? `Recorded ${options.relationshipType} relationship`
+      : "Dismissed relationship candidate",
+    summary,
+    rationale:
+      "Review receipts keep relationship decisions resumable after the queue advances so the operator never loses the landed outcome.",
+    tone: options.actionType === "confirm" && options.relationshipType === "duplicate" ? "attention" : "progress",
+    preview: [
+      { label: "Candidate", value: candidateLabel },
+      { label: "Queue", value: describeQueueProgress(options.snapshot.current_index, options.snapshot.loop_count) },
+      ...(options.snapshot.current_item
+        ? [{ label: "Next up", value: loopTitle(options.snapshot.current_item.loop) }]
+        : []),
+    ],
+    trust: {
+      ...options.trust,
+      generationLabel: "Recorded review decision",
+      generationTone: "progress",
+      freshnessLabel: `Queue refreshed ${options.snapshot.session.updated_at_utc}`,
+      freshnessTone: "progress",
+      impactSummary: summary,
+      impactTone: options.actionType === "confirm" ? "attention" : "progress",
+    },
+    handoff: {
+      changeSummary: summary,
+      createdResources: [],
+      nextStep: relationshipDecisionLabel(options.snapshot.current_item),
+      breadcrumbs: ["Home", "Decide", "Relationship review", options.sessionName],
+      workingSet,
+    },
+    resumeLocation: queueLocation,
+    resumeLabel: "Resume queue",
+    resumeDescription: summary,
+    pinLabel: `Relationship review · ${options.sessionName}`,
+    actions: [
+      openAction("Open affected loop in Do", doLocation, `Inspect ${candidateLabel} in Do`, "secondary"),
+    ],
+  });
+}
+
+export function buildEnrichmentDecisionReceiptCard(options: {
+  snapshot: EnrichmentReviewSessionSnapshotResponse;
+  trust: TrustSurfaceMetadata;
+  workingSets: readonly WorkingSetResponse[];
+  sessionName: string;
+  workingSetId: number | null;
+  item: EnrichmentReviewQueueItemResponse | null;
+  suggestionId: number;
+  actionType: "apply" | "reject" | "clarify";
+}): OperatorActionCard {
+  const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
+  const loop = options.item?.loop ?? null;
+  const queueLocation = createLocation({
+    state: "decide",
+    reviewFocus: "enrichment",
+    sessionId: options.snapshot.session.id,
+    workingSetId: options.workingSetId,
+  });
+  const doLocation = createLocation({
+    state: "do",
+    loopId: loop?.id ?? null,
+    workingSetId: options.workingSetId,
+  });
+  const summary = options.actionType === "apply"
+    ? `Applied suggestion #${options.suggestionId} and refreshed the queue.`
+    : options.actionType === "reject"
+      ? `Rejected suggestion #${options.suggestionId} and refreshed the queue.`
+      : `Submitted clarification answers and reran enrichment for the queue.`;
+  return createReceiptCard({
+    id: `enrichment-receipt-${options.snapshot.session.id}-${options.suggestionId}-${Date.now()}`,
+    eyebrow: "Enrichment receipt",
+    title: options.actionType === "apply"
+      ? "Applied enrichment suggestion"
+      : options.actionType === "reject"
+        ? "Rejected enrichment suggestion"
+        : "Submitted clarification answers",
+    summary,
+    rationale:
+      "Review receipts keep enrichment mutations resumable after the queue shifts so operators can continue from the landed outcome instead of reconstructing it.",
+    tone: options.actionType === "apply" ? "attention" : "progress",
+    preview: [
+      ...(loop ? [{ label: "Loop", value: loopTitle(loop) }] : []),
+      { label: "Suggestion", value: `#${options.suggestionId}` },
+      { label: "Queue", value: describeQueueProgress(options.snapshot.current_index, options.snapshot.loop_count) },
+      ...(options.snapshot.current_item
+        ? [{ label: "Next up", value: loopTitle(options.snapshot.current_item.loop) }]
+        : []),
+    ],
+    trust: {
+      ...options.trust,
+      generationLabel: "Recorded enrichment decision",
+      generationTone: "progress",
+      freshnessLabel: `Queue refreshed ${options.snapshot.session.updated_at_utc}`,
+      freshnessTone: "progress",
+      impactSummary: summary,
+      impactTone: options.actionType === "apply" ? "attention" : "progress",
+    },
+    handoff: {
+      changeSummary: summary,
+      createdResources: [],
+      nextStep: enrichmentDecisionLabel(options.snapshot.current_item ?? null),
+      breadcrumbs: ["Home", "Decide", "Enrichment review", options.sessionName],
+      workingSet,
+    },
+    resumeLocation: queueLocation,
+    resumeLabel: "Resume queue",
+    resumeDescription: summary,
+    pinLabel: `Enrichment review · ${options.sessionName}`,
+    actions: loop
+      ? [openAction("Open affected loop in Do", doLocation, `Inspect ${loopTitle(loop)} in Do`, "secondary")]
+      : [],
+  });
+}
+
+export function buildPlanningExecutionReceiptCard(options: {
+  snapshot: PlanningSessionSnapshotResponse;
+  latestExecution: PlanningExecutionHistoryItemResponse;
+  rollbackSummary: string;
+  context: ReviewWorkspaceHandoffContext & { sessionName: string };
+}): OperatorActionCard {
+  const primarySurface = (options.latestExecution.launch_surfaces ?? []).find(
+    (surface) => launchSurfaceToLocation(surface, options.context.fallbackWorkingSetId) != null,
+  ) ?? null;
+  const resumeLocation = primarySurface
+    ? (launchSurfaceToLocation(primarySurface, options.context.fallbackWorkingSetId) ?? createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: options.snapshot.session.id,
+        workingSetId: options.context.fallbackWorkingSetId,
+      }))
+    : createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: options.snapshot.session.id,
+        workingSetId: options.context.fallbackWorkingSetId,
+      });
+  const workingSet = primarySurface
+    ? resolveWorkingSetSessionMetadata(
+        options.context.workingSets,
+        launchSurfaceWorkingSetId(primarySurface, options.context.fallbackWorkingSetId),
+      )
+    : workingSetHandoff(options.context);
+  const summary = options.latestExecution.summary && typeof options.latestExecution.summary === "object"
+    && typeof options.latestExecution.summary["summary"] === "string"
+    ? String(options.latestExecution.summary["summary"])
+    : `Executed ${options.latestExecution.checkpoint_title} with ${options.latestExecution.operation_count} deterministic operation${options.latestExecution.operation_count === 1 ? "" : "s"}.`;
+  return createReceiptCard({
+    id: `planning-receipt-${options.snapshot.session.id}-${options.latestExecution.checkpoint_index}-${Date.now()}`,
+    eyebrow: "Planning receipt",
+    title: `Executed ${options.latestExecution.checkpoint_title}`,
+    summary,
+    rationale:
+      "Planning receipts preserve the landed downstream queue, follow-up resources, and rollback cues after checkpoint execution completes.",
+    tone: primarySurface ? "attention" : "progress",
+    preview: [
+      { label: "Checkpoint", value: options.latestExecution.checkpoint_title },
+      { label: "Operations", value: `${options.latestExecution.operation_count}` },
+      { label: "Launch surfaces", value: `${options.latestExecution.launch_surfaces?.length ?? 0}` },
+      { label: "Follow-up resources", value: `${options.latestExecution.follow_up_resources?.length ?? 0}` },
+    ],
+    trust: {
+      generationLabel: "Executed planning checkpoint",
+      generationTone: "progress",
+      contextSources: [
+        options.snapshot.session.name,
+        `${options.latestExecution.operation_count} deterministic operation${options.latestExecution.operation_count === 1 ? "" : "s"}`,
+      ],
+      assumptions: [],
+      confidenceLabel: primarySurface ? "Prepared next-step queue" : "Checkpoint applied",
+      confidenceTone: primarySurface ? "attention" : "progress",
+      freshnessLabel: `Executed ${options.latestExecution.executed_at_utc}`,
+      freshnessTone: "progress",
+      rollbackLabel: options.rollbackSummary,
+      rollbackTone: "caution",
+      impactSummary: summary,
+      impactTone: primarySurface ? "attention" : "progress",
+    },
+    handoff: {
+      changeSummary: summary,
+      createdResources: (options.latestExecution.follow_up_resources ?? []).map((resource) => resource.label || `${resource.resource_type} #${resource.resource_id}`),
+      nextStep: primarySurface?.reason || "Inspect the plan or continue from the latest checkpoint.",
+      breadcrumbs: [...options.context.breadcrumbPrefix, options.context.sessionName, options.latestExecution.checkpoint_title],
+      workingSet,
+    },
+    resumeLocation,
+    resumeLabel: primarySurface ? "Open next surface" : "Resume plan",
+    resumeDescription: summary,
+    pinLabel: `${options.snapshot.session.name} · ${options.latestExecution.checkpoint_title}`,
+  });
 }
 
 export function buildCohortImpactCard(options: {

@@ -129,16 +129,23 @@ export interface ResumeAnchorState {
   lastReviewWorkingSetId: number | null;
 }
 
+export interface RecentShellActionOutcome {
+  card: OperatorActionCard;
+  resumeLocation: ShellLocationContract | null;
+  rollbackLabel: string | null;
+}
+
 export interface RecentShellActionEntry {
   kind: RecentShellActionKind;
   label: string;
   description: string;
   location: ShellLocationContract | null;
   metadata?: Record<string, unknown> | null;
+  outcome?: RecentShellActionOutcome | null;
   occurredAt: string;
 }
 
-export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context";
+export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context" | "receipt";
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
 export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer";
 export type OperatorActionCardActionVariant = "primary" | "secondary";

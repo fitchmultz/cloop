@@ -22,13 +22,17 @@
 
 import type {
   EnrichmentReviewQueueItemResponse,
+  EnrichmentReviewSessionSnapshotResponse,
   RelationshipReviewCandidateResponse,
   RelationshipReviewSessionSnapshotResponse,
   WorkingSetResponse,
 } from "./domain";
 import type { TrustSurfaceMetadata } from "./contracts-ui";
 import {
+  buildEnrichmentDecisionReceiptCard,
   buildEnrichmentSuggestionCard,
+  buildPlanningExecutionReceiptCard,
+  buildRelationshipDecisionReceiptCard,
   buildRelationshipImpactCard,
 } from "./review-workspace-action-cards";
 
@@ -124,5 +128,116 @@ describe("review-workspace-action-cards", () => {
     expect(card.actionWarning).toContain("mutates");
     expect(card.handoff?.breadcrumbs).toContain("Enrichment review");
     expect(card.handoff?.workingSet?.workingSetName).toBe("Hiring loop");
+  });
+
+  it("builds relationship decision receipts with resume and do actions", () => {
+    const snapshot = {
+      session: {
+        id: 11,
+        name: "Duplicate review",
+        updated_at_utc: "2026-03-19T16:20:00Z",
+      },
+      loop_count: 6,
+      current_index: 2,
+      current_item: {
+        loop: { id: 5, raw_text: "Ship launch checklist", title: null },
+        duplicate_candidates: [],
+        related_candidates: [],
+      },
+    } as unknown as RelationshipReviewSessionSnapshotResponse;
+    const candidate = {
+      id: 22,
+      relationship_type: "duplicate",
+      score: 0.97,
+      raw_text: "Ship the launch checklist",
+      raw_text_preview: "Ship the launch checklist",
+      status: "actionable",
+      tags: [],
+      updated_at_utc: "2026-03-19T16:10:00Z",
+    } as unknown as RelationshipReviewCandidateResponse;
+
+    const card = buildRelationshipDecisionReceiptCard({
+      snapshot,
+      trust,
+      workingSets,
+      sessionName: "Duplicate review",
+      workingSetId: 7,
+      loopId: 5,
+      candidate,
+      actionType: "confirm",
+      relationshipType: "duplicate",
+    });
+
+    expect(card.kind).toBe("receipt");
+    expect(card.actions.some((action) => action.type === "open" && action.label === "Resume queue")).toBe(true);
+    expect(card.actions.some((action) => action.type === "open" && action.label === "Open affected loop in Do")).toBe(true);
+    expect(card.handoff?.workingSet?.workingSetName).toBe("Hiring loop");
+  });
+
+  it("builds enrichment decision receipts with queue continuity", () => {
+    const item = {
+      loop: { id: 31, raw_text: "Prep candidate brief", title: "Prep candidate brief" },
+      pending_suggestions: [],
+      pending_clarification_count: 0,
+    } as unknown as EnrichmentReviewQueueItemResponse;
+    const snapshot = {
+      session: {
+        id: 15,
+        name: "Enrichment review",
+        updated_at_utc: "2026-03-19T16:25:00Z",
+      },
+      loop_count: 4,
+      current_index: 1,
+      current_item: item,
+    } as unknown as EnrichmentReviewSessionSnapshotResponse;
+
+    const card = buildEnrichmentDecisionReceiptCard({
+      snapshot,
+      trust,
+      workingSets,
+      sessionName: "Enrichment review",
+      workingSetId: 7,
+      item,
+      suggestionId: 41,
+      actionType: "apply",
+    });
+
+    expect(card.kind).toBe("receipt");
+    expect(card.summary).toContain("Applied suggestion #41");
+    expect(card.actions.some((action) => action.type === "open" && action.label === "Resume queue")).toBe(true);
+  });
+
+  it("builds planning execution receipts with rollback cues", () => {
+    const snapshot = {
+      session: {
+        id: 19,
+        name: "Weekly reset",
+      },
+    } as unknown as import("./domain").PlanningSessionSnapshotResponse;
+    const latestExecution = {
+      checkpoint_index: 1,
+      checkpoint_title: "Create review queue",
+      operation_count: 2,
+      executed_at_utc: "2026-03-19T16:30:00Z",
+      launch_surfaces: [],
+      follow_up_resources: [],
+      summary: { summary: "Created the downstream review queue." },
+    } as unknown as import("./domain").PlanningExecutionHistoryItemResponse;
+
+    const card = buildPlanningExecutionReceiptCard({
+      snapshot,
+      latestExecution,
+      rollbackSummary: "1 operation is directly undoable.",
+      context: {
+        breadcrumbPrefix: ["Home", "Plan"],
+        fallbackWorkingSetId: 7,
+        workingSets,
+        sessionName: "Weekly reset",
+      },
+    });
+
+    expect(card.kind).toBe("receipt");
+    expect(card.trust.rollbackLabel).toBe("1 operation is directly undoable.");
+    expect(card.actions.some((action) => action.type === "open")).toBe(true);
   });
 });

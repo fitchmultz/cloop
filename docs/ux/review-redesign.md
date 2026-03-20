@@ -99,9 +99,10 @@ Direction decision: relationship and enrichment review should share one visual s
 
 - The review workspace now reuses the canonical action-card renderer for planning impact cards, relationship/enrichment impact previews, cohort impact previews, and enrichment suggestion cards.
 - Relationship, enrichment, and hygiene review now expose explicit why-this-is-here cues, decision-required blocks, queue-health/progress summaries, drift-aware queue rails, and consequence warnings inside one shared shell.
+- Review mutations now emit shared post-action receipt cards after planning execution, relationship decisions, enrichment apply/reject actions, and clarification reruns so queue advancement does not erase what just landed.
 - Mid-range review widths now preserve queue context with a denser stacked shell: overview cards collapse to two-up and the queue rail becomes a two-column card grid above the workspace.
 - Phone-width review uses horizontally scrollable mode tabs plus a horizontal queue-card strip above the decision workspace so queue context stays available without pushing the primary decision too far below the fold.
-- The next roadmap slice should focus on post-action receipts, rollback cues, and resume breadcrumbs instead of reopening the shared review-shell structure.
+- The next roadmap slice should tighten broader continuity history so operator since-last summaries and recent-action history consistently privilege landed outcomes over launch points.
 
 ## Dependencies
 

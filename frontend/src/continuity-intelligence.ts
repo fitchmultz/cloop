@@ -46,6 +46,8 @@ const RESUME_ANCHORS_STORAGE_KEY = "cloop.continuity.resume-anchors.v1";
 const RECENT_ACTIONS_STORAGE_KEY = "cloop.continuity.recent-actions.v1";
 const MAX_RECENT_ACTIONS = 12;
 
+export const RECENT_SHELL_ACTIONS_UPDATED_EVENT = "cloop:recent-shell-actions-updated";
+
 const DEFAULT_RESUME_ANCHORS: ResumeAnchorState = {
   lastPlanningSessionId: null,
   lastPlanningVisitedAtUtc: null,
@@ -79,6 +81,13 @@ function safeJsonParse<T>(raw: string | null, fallback: T): T {
 
 function canUseLocalStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function emitRecentShellActionsUpdated(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(RECENT_SHELL_ACTIONS_UPDATED_EVENT));
 }
 
 function sameLocation(
@@ -266,6 +275,19 @@ export function readRecentShellActions(): RecentShellActionEntry[] {
   return Array.isArray(parsed) ? parsed : [];
 }
 
+export function readRecentShellReceiptEntries(
+  limit = MAX_RECENT_ACTIONS,
+): Array<RecentShellActionEntry & { outcome: NonNullable<RecentShellActionEntry["outcome"]> }> {
+  return readRecentShellActions()
+    .filter(
+      (
+        entry,
+      ): entry is RecentShellActionEntry & { outcome: NonNullable<RecentShellActionEntry["outcome"]> } =>
+        entry.outcome?.card.kind === "receipt",
+    )
+    .slice(0, limit);
+}
+
 export function recordRecentShellAction(
   entry: Omit<RecentShellActionEntry, "occurredAt"> & { occurredAt?: string },
 ): void {
@@ -280,10 +302,14 @@ export function recordRecentShellAction(
     if (candidate.label !== next.label || !sameLocation(candidate.location, next.location)) {
       return true;
     }
+    if ((candidate.outcome?.card.summary ?? null) !== (next.outcome?.card.summary ?? null)) {
+      return true;
+    }
     return Math.abs(Date.parse(candidate.occurredAt) - Date.parse(next.occurredAt)) > 15_000;
   });
   window.localStorage.setItem(
     RECENT_ACTIONS_STORAGE_KEY,
     JSON.stringify([next, ...existing].slice(0, MAX_RECENT_ACTIONS)),
   );
+  emitRecentShellActionsUpdated();
 }

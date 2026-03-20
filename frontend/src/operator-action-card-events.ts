@@ -30,7 +30,12 @@ export interface OperatorActionCardDispatchOptions {
     input: Partial<ShellLocation>,
     options?: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean },
   ) => Promise<void>;
-  pinLocationToWorkingSet: (location: ShellLocation, label: string, description: string | null) => Promise<void>;
+  pinLocationToWorkingSet: (
+    location: ShellLocation,
+    label: string,
+    description: string | null,
+    options?: { receiptVariant?: "pin" | "stage" | "defer" },
+  ) => Promise<void>;
 }
 
 type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer";
@@ -74,6 +79,7 @@ export async function handleOperatorActionCardClick(
       locationFromButton(pinButton, "pin"),
       label,
       pinButton.dataset["pinDescription"]?.trim() || null,
+      { receiptVariant: "pin" },
     );
     return true;
   }
@@ -94,6 +100,7 @@ export async function handleOperatorActionCardClick(
         location,
         label,
         actionButton.dataset["stageDescription"]?.trim() || null,
+        { receiptVariant: "stage" },
       );
       if (actionButton.dataset["stageOpenAfter"] !== "false") {
         await options.applyLocation(location);
@@ -115,6 +122,7 @@ export async function handleOperatorActionCardClick(
         locationFromButton(actionButton, "defer"),
         label,
         actionButton.dataset["deferDescription"]?.trim() || null,
+        { receiptVariant: "defer" },
       );
       return true;
     }

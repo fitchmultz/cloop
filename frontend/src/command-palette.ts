@@ -27,6 +27,7 @@
  *   - Recent usage is advisory and stored locally in the browser.
  */
 
+import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
 import { requestJson } from "./http";
 import type {
   AskResponse,
@@ -558,6 +559,62 @@ function buildDetailHtml(command: CommandPaletteCommand, selectedCount: number):
       <li>${selectedCount} selected loop${selectedCount === 1 ? "" : "s"} in scope</li>
     </ul>
   `;
+}
+
+function workingSetMetadataFromContext(context: CommandPaletteContext) {
+  const active = context.workingSetContext?.active_working_set ?? null;
+  if (!active) {
+    return null;
+  }
+  return {
+    workingSetId: active.id,
+    workingSetName: active.name,
+    itemCount: active.item_count,
+    missingItemCount: active.missing_item_count,
+  };
+}
+
+function buildCommandReceipt(
+  command: CommandPaletteCommand,
+  currentContext: CommandPaletteContext,
+  historyLocation: ShellLocationContract | null,
+) {
+  const rollback = defaultCommandRollback(command);
+  const selectedCount = selectedLoopIdList().length;
+  const workingSet = workingSetMetadataFromContext(currentContext);
+  return createReceiptCard({
+    id: `command-receipt-${command.id}-${Date.now()}`,
+    eyebrow: "Command complete",
+    title: command.title,
+    summary: command.subtitle,
+    rationale:
+      "Command receipts preserve what just ran, where it landed, and how to resume after the palette closes.",
+    tone: command.group === "act" || command.group === "capture" ? "attention" : "progress",
+    preview: [
+      { label: "Group", value: GROUP_LABELS[command.group] },
+      { label: "Badge", value: command.badge },
+      ...(historyLocation ? [{ label: "Landed in", value: historyLocation.state.replaceAll("_", " ") }] : []),
+    ],
+    trust: {
+      ...detailTrustMetadata(command, selectedCount),
+      generationLabel: "Executed palette command",
+      generationTone: "progress",
+      rollbackLabel: rollback.label,
+      rollbackTone: rollback.tone,
+    },
+    handoff: {
+      changeSummary: `${command.title} completed and the landing context is ready.`,
+      createdResources: [],
+      nextStep: historyLocation
+        ? "Resume from the landed outcome or continue from the current shell context."
+        : "Continue from the updated shell context.",
+      breadcrumbs: ["Command palette", GROUP_LABELS[command.group], command.title],
+      workingSet,
+    },
+    resumeLocation: historyLocation,
+    resumeDescription: command.subtitle,
+    ...(historyLocation ? { resumeLabel: "Resume outcome", pinLabel: `Command · ${command.title}` } : {}),
+  });
 }
 
 async function captureLoopDialog(): Promise<LoopCaptureRequest | null> {
@@ -2004,18 +2061,25 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       storeRecentCommand(command);
       const currentContext = bindings.getContext();
       const historyLocation = commandHistoryLocation(command, currentContext.currentLocation);
-      recordRecentShellAction({
-        kind: commandHistoryKind(command),
-        label: commandHistoryLabel(command, historyLocation),
-        description: command.subtitle,
-        location: historyLocation,
-        metadata: {
-          source: "command-palette",
-          commandId: command.id,
-          group: command.group,
-          badge: command.badge,
-        },
-      });
+      const receiptCard = buildCommandReceipt(command, currentContext, historyLocation);
+      recordRecentShellAction(
+        withReceiptOutcome(
+          {
+            kind: commandHistoryKind(command),
+            label: commandHistoryLabel(command, historyLocation),
+            description: command.subtitle,
+            location: historyLocation,
+            metadata: {
+              source: "command-palette",
+              commandId: command.id,
+              group: command.group,
+              badge: command.badge,
+            },
+          },
+          receiptCard,
+          historyLocation,
+        ),
+      );
       setOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Command failed";

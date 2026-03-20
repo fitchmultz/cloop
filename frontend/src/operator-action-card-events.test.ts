@@ -72,6 +72,7 @@ describe("handleOperatorActionCardClick", () => {
       query: "What evidence should I verify?",
     });
     expect(pinLocationToWorkingSet.mock.calls[0]?.[1]).toBe("Recall · Evidence");
+    expect(pinLocationToWorkingSet.mock.calls[0]?.[3]).toEqual({ receiptVariant: "stage" });
     expect(applyLocation).toHaveBeenCalledWith(expect.objectContaining({
       state: "recall",
       recallTool: "rag",
@@ -153,6 +154,7 @@ describe("handleOperatorActionCardClick", () => {
       workingSetId: 5,
     });
     expect(pinLocationToWorkingSet.mock.calls[0]?.[1]).toBe("Do · Review the duplicate queue first");
+    expect(pinLocationToWorkingSet.mock.calls[0]?.[3]).toEqual({ receiptVariant: "defer" });
     expect(applyLocation).not.toHaveBeenCalled();
   });
 });

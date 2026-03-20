@@ -26,7 +26,6 @@
 import { bootstrapCommandPalette } from "./command-palette";
 import type { RecallTool, ReviewFocus, ShellState } from "./contracts-ui";
 import type { WorkingSetContextResponse, WorkingSetResponse } from "./domain";
-import { requestJson } from "./http";
 import { handleOperatorActionCardClick } from "./operator-action-card-events";
 import {
   buildShellElements,
@@ -70,8 +69,16 @@ interface CreateShellEventControllerOptions {
     focusModeEnabled: boolean,
     options?: { recordHistory?: boolean },
   ) => Promise<void>;
-  refreshWorkingSetState: () => Promise<void>;
-  pinLocationToWorkingSet: (location: ShellLocation, label: string, description: string | null) => Promise<void>;
+  updateWorkingSet: (workingSetId: number, details: { name: string; description: string | null }) => Promise<void>;
+  deleteWorkingSet: (workingSetId: number) => Promise<void>;
+  reorderWorkingSetItems: (workingSetId: number, orderedItemIds: number[]) => Promise<void>;
+  removeWorkingSetItem: (workingSetId: number, itemId: number) => Promise<void>;
+  pinLocationToWorkingSet: (
+    location: ShellLocation,
+    label: string,
+    description: string | null,
+    options?: { receiptVariant?: "pin" | "stage" | "defer" },
+  ) => Promise<void>;
   addLoopIdsToActiveWorkingSet: (loopIds: readonly number[]) => Promise<void>;
   openGroundedChatWithPrompt: (query: string) => Promise<void>;
   openMemorySearchWithQuery: (query: string) => Promise<void>;
@@ -140,15 +147,7 @@ export function createShellEventController(
       if (!details) {
         return;
       }
-      await requestJson<WorkingSetResponse, { name: string; description: string | null }>(
-        `/loops/working-sets/${editId}`,
-        {
-          method: "PATCH",
-          body: details,
-        },
-        "Failed to update working set",
-      );
-      await options.refreshWorkingSetState();
+      await options.updateWorkingSet(editId, details);
       return;
     }
 
@@ -159,16 +158,7 @@ export function createShellEventController(
       if (!existing || !(await options.confirmWorkingSetDeletion(existing.name))) {
         return;
       }
-      await requestJson<{ deleted: boolean }>(
-        `/loops/working-sets/${deleteId}`,
-        { method: "DELETE" },
-        "Failed to delete working set",
-      );
-      if (options.getWorkingSetContext()?.active_working_set_id === deleteId) {
-        await options.setWorkingSetContext(null, false);
-      } else {
-        await options.refreshWorkingSetState();
-      }
+      await options.deleteWorkingSet(deleteId);
       return;
     }
 
@@ -199,15 +189,7 @@ export function createShellEventController(
       }
       nextOrderedIds[index] = swapValue;
       nextOrderedIds[swapIndex] = currentValue;
-      await requestJson<WorkingSetResponse, { ordered_item_ids: number[] }>(
-        `/loops/working-sets/${workingSetId}/reorder`,
-        {
-          method: "POST",
-          body: { ordered_item_ids: nextOrderedIds },
-        },
-        "Failed to reorder working-set items",
-      );
-      await options.refreshWorkingSetState();
+      await options.reorderWorkingSetItems(workingSetId, nextOrderedIds);
       return;
     }
 
@@ -220,12 +202,7 @@ export function createShellEventController(
       if (!Number.isInteger(workingSetId) || !Number.isInteger(itemId)) {
         return;
       }
-      await requestJson<WorkingSetResponse>(
-        `/loops/working-sets/${workingSetId}/items/${itemId}`,
-        { method: "DELETE" },
-        "Failed to remove working-set item",
-      );
-      await options.refreshWorkingSetState();
+      await options.removeWorkingSetItem(workingSetId, itemId);
     }
   }
 

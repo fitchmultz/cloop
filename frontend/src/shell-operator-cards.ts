@@ -55,6 +55,7 @@ import type {
 } from "./contracts-ui";
 import {
   readRecentShellActions,
+  readRecentShellReceiptEntries,
   readResumeAnchors,
   rememberPlanningAnchor,
   rememberReviewAnchor,
@@ -1926,6 +1927,17 @@ function withWorkingSetHandoff(cards: OperatorActionCard[]): OperatorActionCard[
   });
 }
 
+function buildLatestReceiptCard(): PrioritizedCard | null {
+  const [latestReceipt] = readRecentShellReceiptEntries(1);
+  if (!latestReceipt) {
+    return null;
+  }
+  return {
+    priority: 110,
+    card: latestReceipt.outcome.card,
+  };
+}
+
 function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
   const resumeAnchors = readResumeAnchors();
   const recentActions = readRecentShellActions();
@@ -1995,12 +2007,15 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
     .filter((entry) => entry.location)
     .slice(0, 3)
     .forEach((entry) => {
-      preview.push({ label: "Recent action", value: entry.label });
-      createdResources.push(entry.label);
-      if (entry.location) {
+      const landedLabel = entry.outcome?.card.title ?? entry.label;
+      const landedSummary = entry.outcome?.card.summary ?? entry.description;
+      const landedLocation = entry.outcome?.resumeLocation ?? entry.location;
+      preview.push({ label: "Recent action", value: landedLabel });
+      createdResources.push(landedLabel);
+      if (landedLocation) {
         pushUniqueAction(
           actions,
-          buildOpenAction(entry.label, createLocation(entry.location), entry.description, actions.length ? "secondary" : "primary"),
+          buildOpenAction(landedLabel, createLocation(landedLocation), landedSummary, actions.length ? "secondary" : "primary"),
         );
       }
     });
@@ -2044,6 +2059,7 @@ function buildResumeAnchorsCard(_data: WorkspaceData): PrioritizedCard | null {
 function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
   const prioritized: PrioritizedCard[] = [];
   const maybeCards = [
+    buildLatestReceiptCard(),
     buildResumeAnchorsCard(data),
     buildPlanningDriftCard(data),
     buildGroupedChangeRollupCard(data),

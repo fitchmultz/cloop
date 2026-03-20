@@ -24,6 +24,7 @@
  *   - Stored working-set state is refreshed from HTTP after every mutation.
  */
 
+import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
 import { requestJson } from "./http";
 import * as modals from "./modals";
 import { recordRecentShellAction } from "./continuity-intelligence";
@@ -41,6 +42,7 @@ import type {
   WorkingSetItemResponse,
   WorkingSetResponse,
 } from "./domain";
+import type { WorkingSetSessionMetadata, OperatorActionCardAction } from "./contracts-ui";
 import type { ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
 
 export interface ShellWorkingSetController {
@@ -66,7 +68,16 @@ export interface ShellWorkingSetController {
   ): Promise<void>;
   createWorkingSetViaDialog(): Promise<WorkingSetResponse | null>;
   ensureActiveWorkingSetId(): Promise<number | null>;
-  pinLocationToWorkingSet(location: ShellLocation, label: string, description: string | null): Promise<void>;
+  updateWorkingSet(workingSetId: number, details: { name: string; description: string | null }): Promise<void>;
+  deleteWorkingSet(workingSetId: number): Promise<void>;
+  reorderWorkingSetItems(workingSetId: number, orderedItemIds: number[]): Promise<void>;
+  removeWorkingSetItem(workingSetId: number, itemId: number): Promise<void>;
+  pinLocationToWorkingSet(
+    location: ShellLocation,
+    label: string,
+    description: string | null,
+    options?: { receiptVariant?: "pin" | "stage" | "defer" },
+  ): Promise<void>;
   addLoopIdsToActiveWorkingSet(loopIds: readonly number[]): Promise<void>;
 }
 
@@ -198,6 +209,91 @@ export function createShellWorkingSetController(
     return latestWorkingSets.find((set) => set.id === requestedId)
       ?? (workingSetContext?.active_working_set_id === requestedId ? workingSetContext.active_working_set : null)
       ?? null;
+  }
+
+  function workingSetMetadata(workingSet: WorkingSetResponse | null): WorkingSetSessionMetadata | null {
+    if (!workingSet) {
+      return null;
+    }
+    return {
+      workingSetId: workingSet.id,
+      workingSetName: workingSet.name,
+      itemCount: workingSet.item_count,
+      missingItemCount: workingSet.missing_item_count,
+    };
+  }
+
+  function recordWorkingSetReceipt(params: {
+    kind: "working_set" | "working_set_session";
+    historyLabel: string;
+    historyDescription: string;
+    title: string;
+    summary: string;
+    tone: "neutral" | "attention" | "progress" | "caution";
+    location: ShellLocation;
+    workingSet: WorkingSetResponse | null;
+    rollbackLabel: string;
+    nextStep: string;
+    preview?: Array<{ label: string; value: string }>;
+    actions?: OperatorActionCardAction[];
+  }): void {
+    const handoffWorkingSet = workingSetMetadata(params.workingSet);
+    const resumeLocation = params.workingSet
+      ? workingSetSessionLocation(params.workingSet.id)
+      : params.location;
+    const receiptCard = createReceiptCard({
+      id: `working-set-receipt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      eyebrow: "Working-set receipt",
+      title: params.title,
+      summary: params.summary,
+      rationale:
+        "Working-set receipts preserve what changed, where the bounded context now lives, and how to reopen it without rebuilding state.",
+      tone: params.tone,
+      preview: params.preview ?? [],
+      trust: {
+        generationLabel: "Durable continuity mutation",
+        generationTone: "progress",
+        contextSources: handoffWorkingSet
+          ? [`Working set: ${handoffWorkingSet.workingSetName}`]
+          : ["Working-set controller"],
+        assumptions: ["The working set remains the canonical bounded context for this handoff."],
+        confidenceLabel: handoffWorkingSet
+          ? `Saved in ${handoffWorkingSet.workingSetName}`
+          : "Working-set change recorded",
+        confidenceTone: "progress",
+        freshnessLabel: "Saved just now",
+        freshnessTone: "progress",
+        rollbackLabel: params.rollbackLabel,
+        rollbackTone: "caution",
+        impactSummary: params.summary,
+        impactTone: params.tone,
+      },
+      handoff: {
+        changeSummary: params.summary,
+        createdResources: handoffWorkingSet ? [handoffWorkingSet.workingSetName] : [],
+        nextStep: params.nextStep,
+        breadcrumbs: ["Home", "Working set", handoffWorkingSet?.workingSetName ?? "Session"],
+        workingSet: handoffWorkingSet,
+      },
+      resumeLocation,
+      resumeLabel: handoffWorkingSet ? "Open working set" : "Resume outcome",
+      resumeDescription: params.summary,
+      pinLabel: handoffWorkingSet ? `Working set · ${handoffWorkingSet.workingSetName}` : null,
+      actions: params.actions ?? [],
+    });
+
+    recordRecentShellAction(
+      withReceiptOutcome(
+        {
+          kind: params.kind,
+          label: params.historyLabel,
+          description: params.historyDescription,
+          location: params.location,
+        },
+        receiptCard,
+        resumeLocation,
+      ),
+    );
   }
 
   function renderWorkingSetItemCard(workingSetId: number, item: WorkingSetItemResponse): string {
@@ -417,22 +513,46 @@ export function createShellWorkingSetController(
       return;
     }
 
-    recordRecentShellAction({
+    const activeSet = workingSetContext?.active_working_set ?? null;
+    const location =
+      activeWorkingSetId != null
+        ? workingSetSessionLocation(activeWorkingSetId)
+        : createLocation({ state: "operator" });
+
+    recordWorkingSetReceipt({
       kind: activeWorkingSetId != null ? "working_set_session" : "working_set",
-      label: workingSetContext?.active_working_set
-        ? `${focusModeEnabled ? "Focused" : "Opened"} working set · ${workingSetContext.active_working_set.name}`
-        : "Cleared active working set",
-      description:
-        workingSetContext?.active_working_set?.description
-        ?? "Updated the active working-set session context.",
-      location:
-        activeWorkingSetId != null
-          ? workingSetSessionLocation(activeWorkingSetId)
-          : createLocation({ state: "operator" }),
-      metadata: {
-        focusModeEnabled,
-        workingSetId: activeWorkingSetId,
-      },
+      historyLabel:
+        activeSet != null
+          ? `${focusModeEnabled ? "Focused" : "Opened"} working set · ${activeSet.name}`
+          : "Cleared active working set",
+      historyDescription:
+        activeSet?.description ?? "Updated the active working-set session context.",
+      title:
+        activeSet != null
+          ? `${focusModeEnabled ? "Focus mode updated" : "Working set activated"} · ${activeSet.name}`
+          : "Returned to unscoped operator context",
+      summary:
+        activeSet != null
+          ? `${activeSet.name} is now the live bounded context for the shell.`
+          : "No working set is currently scoping the shell.",
+      tone: activeSet != null ? "attention" : "neutral",
+      location,
+      workingSet: activeSet,
+      rollbackLabel:
+        activeSet != null
+          ? "Pause focus mode or clear the active working set to undo this context switch."
+          : "Open any saved working set to restore bounded context.",
+      nextStep:
+        activeSet != null
+          ? "Resume the session or open a pinned item from the working set."
+          : "Choose another working set if you want to restore a bounded slice of context.",
+      preview: activeSet != null
+        ? [
+            { label: "Working set", value: activeSet.name },
+            { label: "Items", value: `${activeSet.item_count}` },
+            { label: "Mode", value: focusModeEnabled ? "Focus mode" : "Session" },
+          ]
+        : [],
     });
   }
 
@@ -450,7 +570,24 @@ export function createShellWorkingSetController(
       "Failed to create working set",
     );
     await refreshWorkingSetState();
-    return created;
+    const hydrated = latestWorkingSets.find((set) => set.id === created.id) ?? created;
+    recordWorkingSetReceipt({
+      kind: "working_set_session",
+      historyLabel: `Created working set · ${hydrated.name}`,
+      historyDescription: hydrated.description ?? "Created a new bounded context.",
+      title: `Created working set · ${hydrated.name}`,
+      summary: "A new resumable bounded context is ready.",
+      tone: "progress",
+      location: workingSetSessionLocation(hydrated.id),
+      workingSet: hydrated,
+      rollbackLabel: "Delete the working set if you do not want to keep this bounded context.",
+      nextStep: "Add loops or anchors, then reopen the session from the landed outcome.",
+      preview: [
+        { label: "Working set", value: hydrated.name },
+        { label: "Description", value: hydrated.description ?? "No description" },
+      ],
+    });
+    return hydrated;
   }
 
   async function ensureActiveWorkingSetId(): Promise<number | null> {
@@ -467,10 +604,147 @@ export function createShellWorkingSetController(
     return activeWorkingSetId;
   }
 
+  async function updateWorkingSet(
+    workingSetId: number,
+    details: { name: string; description: string | null },
+  ): Promise<void> {
+    const previous = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
+    await requestJson<WorkingSetResponse, { name: string; description: string | null }>(
+      `/loops/working-sets/${workingSetId}`,
+      {
+        method: "PATCH",
+        body: details,
+      },
+      "Failed to update working set",
+    );
+    await refreshWorkingSetState();
+    const updated = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
+    if (!updated) {
+      return;
+    }
+    recordWorkingSetReceipt({
+      kind: "working_set_session",
+      historyLabel: `Updated working set · ${updated.name}`,
+      historyDescription: updated.description ?? "Updated working-set details.",
+      title: `Updated working set · ${updated.name}`,
+      summary: previous && previous.name !== updated.name
+        ? `Renamed ${previous.name} to ${updated.name} and saved the bounded context.`
+        : `${updated.name} now has refreshed session details.`,
+      tone: "progress",
+      location: workingSetSessionLocation(updated.id),
+      workingSet: updated,
+      rollbackLabel: "Edit the working set again to restore the previous name or description.",
+      nextStep: "Resume the session to continue from the updated bounded context.",
+      preview: [
+        { label: "Working set", value: updated.name },
+        { label: "Description", value: updated.description ?? "No description" },
+      ],
+    });
+  }
+
+  async function deleteWorkingSet(workingSetId: number): Promise<void> {
+    const existing = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
+    await requestJson<{ deleted: boolean }>(
+      `/loops/working-sets/${workingSetId}`,
+      { method: "DELETE" },
+      "Failed to delete working set",
+    );
+    if (workingSetContext?.active_working_set_id === workingSetId) {
+      await setWorkingSetContext(null, false, { recordHistory: false });
+    } else {
+      await refreshWorkingSetState();
+    }
+    recordWorkingSetReceipt({
+      kind: "working_set",
+      historyLabel: existing ? `Deleted working set · ${existing.name}` : `Deleted working set #${workingSetId}`,
+      historyDescription: existing?.description ?? "Removed a saved bounded context.",
+      title: existing ? `Deleted working set · ${existing.name}` : "Deleted working set",
+      summary: existing
+        ? `${existing.name} and its saved anchors were removed.`
+        : `Working set #${workingSetId} and its saved anchors were removed.`,
+      tone: "caution",
+      location: createLocation({ state: "operator" }),
+      workingSet: null,
+      rollbackLabel: "Recreate the working set manually if you still need this bounded context.",
+      nextStep: "Open another working set or continue from the unscoped operator workspace.",
+      preview: existing
+        ? [
+            { label: "Removed set", value: existing.name },
+            { label: "Removed items", value: `${existing.item_count}` },
+          ]
+        : [],
+    });
+  }
+
+  async function reorderWorkingSetItems(workingSetId: number, orderedItemIds: number[]): Promise<void> {
+    const workingSet = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
+    await requestJson<WorkingSetResponse, { ordered_item_ids: number[] }>(
+      `/loops/working-sets/${workingSetId}/reorder`,
+      {
+        method: "POST",
+        body: { ordered_item_ids: orderedItemIds },
+      },
+      "Failed to reorder working-set items",
+    );
+    await refreshWorkingSetState();
+    const refreshed = latestWorkingSets.find((set) => set.id === workingSetId) ?? workingSet;
+    recordWorkingSetReceipt({
+      kind: "working_set",
+      historyLabel: refreshed ? `Reordered anchors · ${refreshed.name}` : `Reordered working set #${workingSetId}`,
+      historyDescription: "Updated the saved anchor ordering.",
+      title: refreshed ? `Reordered anchors · ${refreshed.name}` : "Reordered working-set anchors",
+      summary: refreshed
+        ? `${refreshed.name} now reflects the new priority order.`
+        : "The saved anchor order was updated.",
+      tone: "progress",
+      location: refreshed ? workingSetSessionLocation(refreshed.id) : createLocation({ state: "operator" }),
+      workingSet: refreshed,
+      rollbackLabel: "Reorder the saved anchors again if you want a different sequence.",
+      nextStep: "Open the working set to continue from the new top-of-stack order.",
+      preview: refreshed
+        ? [
+            { label: "Working set", value: refreshed.name },
+            { label: "Anchors", value: `${orderedItemIds.length}` },
+          ]
+        : [{ label: "Anchors", value: `${orderedItemIds.length}` }],
+    });
+  }
+
+  async function removeWorkingSetItem(workingSetId: number, itemId: number): Promise<void> {
+    const workingSet = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
+    const removedItem = workingSet?.items?.find((item) => item.id === itemId) ?? null;
+    await requestJson<WorkingSetResponse>(
+      `/loops/working-sets/${workingSetId}/items/${itemId}`,
+      { method: "DELETE" },
+      "Failed to remove working-set item",
+    );
+    await refreshWorkingSetState();
+    const refreshed = latestWorkingSets.find((set) => set.id === workingSetId) ?? workingSet;
+    recordWorkingSetReceipt({
+      kind: "working_set",
+      historyLabel: removedItem ? `Removed anchor · ${removedItem.label}` : `Removed working-set item #${itemId}`,
+      historyDescription: removedItem?.description ?? "Removed a saved anchor from the working set.",
+      title: removedItem ? `Removed anchor · ${removedItem.label}` : "Removed working-set anchor",
+      summary: removedItem
+        ? `${removedItem.label} is no longer pinned in this working set.`
+        : `Removed anchor #${itemId} from the working set.`,
+      tone: "caution",
+      location: refreshed ? workingSetSessionLocation(refreshed.id) : createLocation({ state: "operator" }),
+      workingSet: refreshed,
+      rollbackLabel: "Pin the same location or loop again if you want to restore this anchor.",
+      nextStep: "Resume the working set to continue with the remaining anchors.",
+      preview: [
+        ...(removedItem ? [{ label: "Removed anchor", value: removedItem.label }] : []),
+        ...(refreshed ? [{ label: "Working set", value: refreshed.name }] : []),
+      ],
+    });
+  }
+
   async function pinLocationToWorkingSet(
     location: ShellLocation,
     label: string,
     description: string | null,
+    receiptOptions: { receiptVariant?: "pin" | "stage" | "defer" } = {},
   ): Promise<void> {
     const activeWorkingSetId = await ensureActiveWorkingSetId();
     if (activeWorkingSetId == null) {
@@ -559,11 +833,49 @@ export function createShellWorkingSetController(
     );
     await refreshWorkingSetState();
 
-    recordRecentShellAction({
+    const activeSet = latestWorkingSets.find((set) => set.id === activeWorkingSetId)
+      ?? workingSetContext?.active_working_set
+      ?? null;
+    const variant = receiptOptions.receiptVariant ?? "pin";
+    const pastTense = variant === "stage"
+      ? "Staged"
+      : variant === "defer"
+        ? "Deferred"
+        : "Pinned";
+
+    recordWorkingSetReceipt({
       kind: "working_set",
-      label: `Pinned ${label}`,
-      description: description ?? "Added a resume anchor to the active working set.",
+      historyLabel: `${pastTense} ${label}`,
+      historyDescription: description ?? "Added a resume anchor to the active working set.",
+      title: `${pastTense} in working set${activeSet ? ` · ${activeSet.name}` : ""}`,
+      summary: variant === "stage"
+        ? `${label} is now staged as a resumable handoff.`
+        : variant === "defer"
+          ? `${label} is now saved for later without losing the landing context.`
+          : `${label} is now saved as a resumable anchor.`,
+      tone: "progress",
       location: pinnedLocation,
+      workingSet: activeSet,
+      rollbackLabel: variant === "pin"
+        ? "Remove this item from the working set to undo the saved anchor."
+        : "Remove this item from the working set to cancel the staged handoff.",
+      nextStep: activeSet != null
+        ? "Open the working set to continue from the landed outcome."
+        : "Resume from the landed outcome or reopen the active working set.",
+      preview: [
+        { label: "Anchor", value: label },
+        { label: "Surface", value: pinnedLocation.state.replaceAll("_", " ") },
+        ...(activeSet ? [{ label: "Working set", value: activeSet.name }] : []),
+      ],
+      actions: [
+        {
+          type: "open",
+          label: "Open landed item",
+          variant: "secondary",
+          description: description ?? label,
+          location: pinnedLocation,
+        },
+      ],
     });
   }
 
@@ -577,6 +889,7 @@ export function createShellWorkingSetController(
         .map((item) => item.launch.loop_id)
         .filter((value): value is number => typeof value === "number"),
     );
+    const addedLabels: string[] = [];
     for (const loopId of loopIds) {
       if (existingLoopIds.has(loopId)) {
         continue;
@@ -598,8 +911,32 @@ export function createShellWorkingSetController(
         },
         "Failed to add loops to working set",
       );
+      addedLabels.push(label);
     }
     await refreshWorkingSetState();
+    if (!addedLabels.length) {
+      return;
+    }
+    const activeSet = latestWorkingSets.find((set) => set.id === activeWorkingSetId)
+      ?? workingSetContext?.active_working_set
+      ?? null;
+    recordWorkingSetReceipt({
+      kind: "working_set",
+      historyLabel: `Added ${addedLabels.length} loop${addedLabels.length === 1 ? "" : "s"} to working set`,
+      historyDescription: `Saved ${addedLabels.join(", ")} for later resume.`,
+      title: activeSet ? `Expanded working set · ${activeSet.name}` : "Expanded working set",
+      summary: `${addedLabels.length} loop${addedLabels.length === 1 ? "" : "s"} were added as resumable anchors.`,
+      tone: "progress",
+      location: activeSet ? workingSetSessionLocation(activeSet.id) : createLocation({ state: "operator" }),
+      workingSet: activeSet,
+      rollbackLabel: "Remove the added loop anchors if you do not want to keep them in this working set.",
+      nextStep: "Open the working set to continue from the expanded bounded context.",
+      preview: [
+        ...(activeSet ? [{ label: "Working set", value: activeSet.name }] : []),
+        { label: "Added", value: `${addedLabels.length}` },
+        { label: "Examples", value: addedLabels.slice(0, 2).join(" · ") },
+      ],
+    });
   }
 
   return {
@@ -619,6 +956,10 @@ export function createShellWorkingSetController(
     setWorkingSetContext,
     createWorkingSetViaDialog,
     ensureActiveWorkingSetId,
+    updateWorkingSet,
+    deleteWorkingSet,
+    reorderWorkingSetItems,
+    removeWorkingSetItem,
     pinLocationToWorkingSet,
     addLoopIdsToActiveWorkingSet,
   };

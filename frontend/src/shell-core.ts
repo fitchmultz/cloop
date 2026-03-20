@@ -53,6 +53,7 @@ export function buildShellElements(): ShellElements {
     shellContext: requireElement("shell-context", HTMLElement),
     shellRoutePill: requireElement("shell-route-pill", HTMLElement),
     shellLastVisit: requireElement("shell-last-visit", HTMLElement),
+    shellReceiptRail: requireElement("shell-receipts", HTMLElement),
     shellPrimaryAction: requireElement("shell-primary-action", HTMLButtonElement),
     refreshWorkspaceButton: requireElement("shell-refresh-workspace-btn", HTMLButtonElement),
     commandPaletteButton: requireElement("shell-command-palette-btn", HTMLButtonElement),
