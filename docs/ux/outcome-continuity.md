@@ -1,5 +1,7 @@
 # Outcome-Anchored Continuity History
 
+Implementation plan: [`outcome-continuity-plan.md`](outcome-continuity-plan.md)
+
 ## Why
 
 Cloop now has most of the raw pieces needed for continuity: shared action cards, post-action receipts, workflow handoffs, working-set session resumes, command-palette recents, and browser-local continuity state. The current gap is that continuity still too often describes where work started instead of what actually landed.

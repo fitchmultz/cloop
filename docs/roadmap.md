@@ -42,6 +42,7 @@ The next roadmap slice starts from work that is already live:
 ### Session 1 — Outcome-anchored continuity history
 
 **Primary spec:** [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
+**Implementation plan:** [`docs/ux/outcome-continuity-plan.md`](ux/outcome-continuity-plan.md)
 
 Goal: make operator since-last summaries, recent-action history, working-set anchors, and workflow handoffs prefer the landed outcome instead of the launch point.
 

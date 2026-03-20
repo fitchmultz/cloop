@@ -21,6 +21,7 @@ This directory holds the product and interaction specs that back the canonical r
 - [`command-palette.md`](command-palette.md)
 - [`continuity-intelligence.md`](continuity-intelligence.md)
 - [`outcome-continuity.md`](outcome-continuity.md)
+- [`outcome-continuity-plan.md`](outcome-continuity-plan.md)
 
 ## Trust and reversibility
 
