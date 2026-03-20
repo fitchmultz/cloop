@@ -35,12 +35,14 @@ import type {
 } from "./domain";
 import type {
   ContinuityBaselineSnapshot,
+  ExecutableUndoHandle,
   RecentShellActionEntry,
   ResumeAnchorState,
   ResumeAnchorTarget,
   ReviewFocus,
   ShellLocationContract,
 } from "./contracts-ui";
+import { undoHandleIdentity } from "./executable-undo";
 import { recentShellActionDedupKey } from "./continuity-outcomes";
 
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
@@ -378,5 +380,47 @@ export function recordRecentShellAction(
     RECENT_ACTIONS_STORAGE_KEY,
     JSON.stringify([next, ...existing].slice(0, MAX_RECENT_ACTIONS)),
   );
+  emitRecentShellActionsUpdated();
+}
+
+export function markUndoActionUnavailable(handle: ExecutableUndoHandle, reason: string): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  const targetIdentity = undoHandleIdentity(handle);
+  const updated = readRecentShellActions().map((entry) => {
+    const outcome = entry.outcome;
+    if (!outcome?.card?.actions?.length) {
+      return entry;
+    }
+    let mutated = false;
+    const nextActions = outcome.card.actions.map((action) => {
+      if (action.type !== "undo" || undoHandleIdentity(action.undo) !== targetIdentity) {
+        return action;
+      }
+      mutated = true;
+      return {
+        ...action,
+        disabledReason: reason,
+      };
+    });
+    if (!mutated) {
+      return entry;
+    }
+    return {
+      ...entry,
+      outcome: {
+        ...outcome,
+        card: {
+          ...outcome.card,
+          actions: nextActions,
+        },
+        undoAction: outcome.undoAction && undoHandleIdentity(outcome.undoAction.undo) === targetIdentity
+          ? { ...outcome.undoAction, disabledReason: reason }
+          : outcome.undoAction,
+      },
+    } satisfies RecentShellActionEntry;
+  });
+  window.localStorage.setItem(RECENT_ACTIONS_STORAGE_KEY, JSON.stringify(updated));
   emitRecentShellActionsUpdated();
 }

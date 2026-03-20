@@ -272,6 +272,8 @@ class LoopResponse(LoopBase):
     title: str | None
     status: LoopStatus
     project_id: int | None = None
+    latest_reversible_event_id: int | None = None
+    latest_reversible_event_type: str | None = None
 
 
 class LoopEnrichmentResponse(BaseModel):

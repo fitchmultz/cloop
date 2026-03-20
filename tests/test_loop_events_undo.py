@@ -35,6 +35,17 @@ from cloop.settings import get_settings
 # =============================================================================
 
 
+def _latest_reversible_event_id(client, loop_id: int) -> int:
+    events_response = client.get(f"/loops/{loop_id}/events")
+    assert events_response.status_code == 200
+    event = next(
+        event
+        for event in events_response.json()["events"]
+        if event["event_type"] in {"update", "status_change", "close"}
+    )
+    return int(event["id"])
+
+
 def test_loop_events_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
@@ -157,7 +168,10 @@ def test_loop_undo_update(
     assert update_response.json()["title"] == "Changed Title"
 
     # Undo
-    undo_response = client.post(f"/loops/{loop_id}/undo")
+    undo_response = client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": _latest_reversible_event_id(client, loop_id)},
+    )
     assert undo_response.status_code == 200
     undo_data = undo_response.json()
 
@@ -191,7 +205,10 @@ def test_loop_undo_status_change(
     assert complete_response.json()["status"] == "completed"
 
     # Undo - should go back to actionable
-    undo_response = client.post(f"/loops/{loop_id}/undo")
+    undo_response = client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": _latest_reversible_event_id(client, loop_id)},
+    )
     assert undo_response.status_code == 200
     undo_data = undo_response.json()
 
@@ -217,7 +234,7 @@ def test_loop_undo_no_reversible_events(
     loop_id = create_response.json()["id"]
 
     # Undo should fail
-    undo_response = client.post(f"/loops/{loop_id}/undo")
+    undo_response = client.post(f"/loops/{loop_id}/undo", json={"expected_event_id": 1})
     assert undo_response.status_code == 400
     error_data = undo_response.json()
     # Error response format is {'error': {'details': {'code': ...}}}
@@ -243,7 +260,10 @@ def test_loop_undo_records_undo_event(
     client.patch(f"/loops/{loop_id}", json={"title": "Test Title"})
 
     # Undo
-    client.post(f"/loops/{loop_id}/undo")
+    client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": _latest_reversible_event_id(client, loop_id)},
+    )
 
     # Check events include the undo event
     events_response = client.get(f"/loops/{loop_id}/events")
@@ -260,7 +280,7 @@ def test_loop_undo_nonexistent_loop(
     """Test undo endpoint returns 404 for nonexistent loop."""
     client = make_test_client()
 
-    response = client.post("/loops/99999/undo")
+    response = client.post("/loops/99999/undo", json={"expected_event_id": 1})
     assert response.status_code == 404
 
 
@@ -284,13 +304,43 @@ def test_loop_undo_idempotency(
 
     # Undo with idempotency key
     headers = {"Idempotency-Key": "undo-key-1"}
-    response1 = client.post(f"/loops/{loop_id}/undo", headers=headers)
+    payload = {"expected_event_id": _latest_reversible_event_id(client, loop_id)}
+    response1 = client.post(f"/loops/{loop_id}/undo", headers=headers, json=payload)
     assert response1.status_code == 200
 
     # Same request should replay
-    response2 = client.post(f"/loops/{loop_id}/undo", headers=headers)
+    response2 = client.post(f"/loops/{loop_id}/undo", headers=headers, json=payload)
     assert response2.status_code == 200
     assert response2.json()["undone_event_id"] == response1.json()["undone_event_id"]
+
+
+def test_loop_undo_rejects_stale_expected_event_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Undo should fail if a newer reversible event landed after the receipt handle."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "stale undo handle",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+        },
+    )
+    loop_id = create_response.json()["id"]
+    client.patch(f"/loops/{loop_id}", json={"title": "First title"})
+    stale_event_id = _latest_reversible_event_id(client, loop_id)
+    client.patch(f"/loops/{loop_id}", json={"title": "Second title"})
+
+    undo_response = client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": stale_event_id},
+    )
+    assert undo_response.status_code == 400
+    payload = undo_response.json()
+    assert payload["error"]["details"]["code"] == "undo_not_possible"
+    assert payload["error"]["details"]["reason"] == "stale_event_handle"
 
 
 def test_loop_update_captures_before_state(
@@ -335,6 +385,35 @@ def test_loop_update_captures_before_state(
     conn.close()
 
 
+def test_loop_undo_restores_tags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    """Undoing an update should restore previous tags as part of before_state."""
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/capture",
+        json={
+            "raw_text": "undo tags test",
+            "captured_at": _now_iso(),
+            "client_tz_offset_min": 0,
+            "tags": ["alpha", "beta"],
+        },
+    )
+    loop_id = create_response.json()["id"]
+
+    update_response = client.patch(f"/loops/{loop_id}", json={"tags": ["gamma"]})
+    assert update_response.status_code == 200
+    assert update_response.json()["tags"] == ["gamma"]
+
+    undo_response = client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": _latest_reversible_event_id(client, loop_id)},
+    )
+    assert undo_response.status_code == 200
+    assert undo_response.json()["loop"]["tags"] == ["alpha", "beta"]
+
+
 def test_bulk_update_supports_undo_and_captures_before_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
 ) -> None:
@@ -376,7 +455,10 @@ def test_bulk_update_supports_undo_and_captures_before_state(
     assert bulk_response.json()["results"][0]["loop"]["title"] == "After"
     assert bulk_response.json()["results"][0]["loop"]["project"] == "beta"
 
-    undo_response = client.post(f"/loops/{loop_id}/undo")
+    undo_response = client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": _latest_reversible_event_id(client, loop_id)},
+    )
     assert undo_response.status_code == 200
     undo_data = undo_response.json()
     assert undo_data["undone_event_type"] == "update"
@@ -433,7 +515,10 @@ def test_bulk_close_supports_undo_and_captures_before_state(
     assert bulk_response.json()["ok"] is True
     assert bulk_response.json()["results"][0]["loop"]["status"] == "completed"
 
-    undo_response = client.post(f"/loops/{loop_id}/undo")
+    undo_response = client.post(
+        f"/loops/{loop_id}/undo",
+        json={"expected_event_id": _latest_reversible_event_id(client, loop_id)},
+    )
     assert undo_response.status_code == 200
     undo_data = undo_response.json()
     assert undo_data["undone_event_type"] == "close"

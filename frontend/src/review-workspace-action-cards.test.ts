@@ -200,11 +200,17 @@ describe("review-workspace-action-cards", () => {
       item,
       suggestionId: 41,
       actionType: "apply",
+      resultLoop: {
+        ...(item.loop as unknown as import("./domain").LoopResponse),
+        latest_reversible_event_id: 88,
+        latest_reversible_event_type: "update",
+      },
     });
 
     expect(card.kind).toBe("receipt");
     expect(card.summary).toContain("Applied suggestion #41");
     expect(card.actions.some((action) => action.type === "open" && action.label === "Resume queue")).toBe(true);
+    expect(card.actions.some((action) => action.type === "undo")).toBe(true);
   });
 
   it("builds planning execution receipts with rollback cues", () => {
@@ -215,12 +221,34 @@ describe("review-workspace-action-cards", () => {
       },
     } as unknown as import("./domain").PlanningSessionSnapshotResponse;
     const latestExecution = {
+      run_id: 44,
       checkpoint_index: 1,
       checkpoint_title: "Create review queue",
       operation_count: 2,
       executed_at_utc: "2026-03-19T16:30:00Z",
       launch_surfaces: [],
       follow_up_resources: [],
+      rollback: null,
+      is_active: true,
+      rollback_cues: {
+        rollback_supported_operation_count: 1,
+        undoable_operation_count: 1,
+        rollback_action_count: 1,
+        operations: [],
+      },
+      results: [
+        {
+          rollback_actions: [
+            {
+              kind: "loop.undo",
+              resource_type: "loop",
+              resource_id: 31,
+              summary: "Undo loop update for loop 31",
+              payload: { loop_id: 31, expected_event_id: 88 },
+            },
+          ],
+        },
+      ],
       summary: { summary: "Created the downstream review queue." },
     } as unknown as import("./domain").PlanningExecutionHistoryItemResponse;
 
@@ -239,5 +267,6 @@ describe("review-workspace-action-cards", () => {
     expect(card.kind).toBe("receipt");
     expect(card.trust.rollbackLabel).toBe("1 operation is directly undoable.");
     expect(card.actions.some((action) => action.type === "open")).toBe(true);
+    expect(card.actions.some((action) => action.type === "undo")).toBe(true);
   });
 });

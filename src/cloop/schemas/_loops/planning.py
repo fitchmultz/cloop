@@ -229,9 +229,21 @@ class PlanningResourceChangeSummaryResponse(BaseModel):
     downstream_summary_label: str | None = None
 
 
+class PlanningExecutionRollbackResultResponse(BaseModel):
+    """Rollback attempt metadata attached to one execution history item."""
+
+    attempted_action_count: int = 0
+    failed_action_count: int = 0
+    failed_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    rollback_complete: bool = False
+    rolled_back_at_utc: str | None = None
+    summary: str | None = None
+
+
 class PlanningExecutionHistoryItemResponse(BaseModel):
     """Stored execution history for one checkpoint."""
 
+    run_id: int
     checkpoint_index: int
     checkpoint_title: str
     executed_at_utc: str
@@ -248,6 +260,8 @@ class PlanningExecutionHistoryItemResponse(BaseModel):
     rollback_cues: PlanningExecutionRollbackCueResponse = Field(
         default_factory=PlanningExecutionRollbackCueResponse
     )
+    rollback: PlanningExecutionRollbackResultResponse | None = None
+    is_active: bool = True
 
 
 class PlanningSessionSnapshotResponse(BaseModel):
@@ -276,4 +290,17 @@ class PlanningSessionExecuteResponse(BaseModel):
     """Execute the current checkpoint in a planning session."""
 
     execution: PlanningExecutionHistoryItemResponse
+    snapshot: PlanningSessionSnapshotResponse
+
+
+class PlanningSessionRollbackRequest(BaseModel):
+    """Roll back one stored planning checkpoint execution."""
+
+    run_id: int
+
+
+class PlanningSessionRollbackResponse(BaseModel):
+    """Rollback response for one stored planning checkpoint execution."""
+
+    rollback: PlanningExecutionRollbackResultResponse
     snapshot: PlanningSessionSnapshotResponse

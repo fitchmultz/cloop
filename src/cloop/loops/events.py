@@ -1,13 +1,13 @@
 """Loop event history and undo functionality.
 
 Purpose:
-    Provide event history tracking and undo capabilities for loops,
-    including pagination and reversible event handling.
+    Provide event history tracking and freshness-safe undo capabilities for
+    loops, including pagination and reversible event handling.
 
 Responsibilities:
     - Retrieve paginated event history for loops
     - Identify reversible event types
-    - Perform one-step undo of reversible events
+    - Perform one-step undo of a specific latest reversible event
     - Record undo events for audit trail
 
 Non-scope:
@@ -57,7 +57,6 @@ def get_loop_events(
     Raises:
         LoopNotFoundError: If loop doesn't exist
     """
-    # Verify loop exists
     loop = repo.read_loop(loop_id=loop_id, conn=conn)
     if loop is None:
         raise LoopNotFoundError(loop_id)
@@ -69,7 +68,6 @@ def get_loop_events(
         conn=conn,
     )
 
-    # Parse payloads and format for API response
     result = []
     for event in events:
         payload = json.loads(event["payload_json"]) if event["payload_json"] else {}
@@ -87,46 +85,71 @@ def get_loop_events(
     return result
 
 
+def _restore_update_before_state(
+    *,
+    loop_id: int,
+    before_state: dict[str, Any],
+    conn: sqlite3.Connection,
+) -> Any:
+    """Restore fields captured by a reversible update event."""
+    restore_fields = dict(before_state)
+    previous_tags = restore_fields.pop("tags", None)
+
+    if not restore_fields and previous_tags is None:
+        raise UndoNotPossibleError(
+            loop_id=loop_id,
+            reason="empty_before_state",
+            message="Update event has no fields to restore",
+        )
+
+    updated = None
+    if restore_fields:
+        updated = repo.update_loop_fields(loop_id=loop_id, fields=restore_fields, conn=conn)
+    if previous_tags is not None:
+        repo.replace_loop_tags(loop_id=loop_id, tag_names=list(previous_tags), conn=conn)
+    if updated is None:
+        updated = repo.read_loop(loop_id=loop_id, conn=conn)
+    if updated is None:
+        raise LoopNotFoundError(loop_id)
+    return updated
+
+
 @typingx.validate_io()
 def undo_last_event(
     *,
     loop_id: int,
+    expected_event_id: int,
     claim_token: str | None = None,
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
-    """Undo the most recent reversible event for a loop.
+    """Undo the current latest reversible event for a loop.
 
     This performs a one-step rollback by:
     1. Finding the latest reversible event
-    2. Extracting the before_state from its payload
-    3. Applying the inverse mutation
-    4. Recording an undo event for audit trail
+    2. Verifying it matches the expected event handle
+    3. Extracting the before_state from its payload
+    4. Applying the inverse mutation
+    5. Recording an undo event for audit trail
 
     Args:
         loop_id: Loop to modify
+        expected_event_id: Exact reversible event ID the caller intends to undo
         claim_token: Required if loop is claimed
         conn: Database connection
 
     Returns:
-        Dict with updated loop and undo details:
-        - loop: The updated loop dict
-        - undone_event_id: ID of the event that was undone
-        - undone_event_type: Type of the undone event
+        Dict with updated loop and undo details.
 
     Raises:
         LoopNotFoundError: If loop doesn't exist
-        UndoNotPossibleError: If no reversible event exists
-        LoopClaimedError: If loop is claimed and token is invalid
-        ClaimNotFoundError: If claim_token is invalid
+        UndoNotPossibleError: If the requested event is stale or not reversible
     """
-    # Verify loop exists and check claim
     loop = repo.read_loop(loop_id=loop_id, conn=conn)
     if loop is None:
         raise LoopNotFoundError(loop_id)
 
     _validate_claim_for_update(loop_id=loop_id, claim_token=claim_token, conn=conn)
 
-    # Find latest reversible event
     event = repo.get_latest_reversible_event(loop_id=loop_id, conn=conn)
     if event is None:
         raise UndoNotPossibleError(
@@ -134,10 +157,18 @@ def undo_last_event(
             reason="no_reversible_events",
             message="No reversible events found for this loop",
         )
+    if int(event["id"]) != expected_event_id:
+        raise UndoNotPossibleError(
+            loop_id=loop_id,
+            reason="stale_event_handle",
+            message=(
+                f"expected reversible event {expected_event_id}, but loop {loop_id} now "
+                f"requires undoing event {int(event['id'])} first"
+            ),
+        )
 
     payload = json.loads(event["payload_json"]) if event["payload_json"] else {}
-    before_state = payload.get("before_state", {})
-
+    before_state = dict(payload.get("before_state") or {})
     if not before_state:
         raise UndoNotPossibleError(
             loop_id=loop_id,
@@ -145,74 +176,56 @@ def undo_last_event(
             message=f"Event {event['id']} lacks before_state needed for undo",
         )
 
-    event_type = event["event_type"]
-
+    event_type = str(event["event_type"])
     with conn:
-        if event_type == "status_change" or event_type == "close":
-            # Restore previous status
+        if event_type in {"status_change", "close"}:
             old_status = before_state.get("status")
-            if old_status:
-                restore_fields: dict[str, Any] = {"status": old_status}
-                # Restore closed_at if it was set before
-                old_closed_at = before_state.get("closed_at")
-                restore_fields["closed_at"] = old_closed_at
-                updated = repo.update_loop_fields(
-                    loop_id=loop_id,
-                    fields=restore_fields,
-                    conn=conn,
-                )
-            else:
+            if not old_status:
                 raise UndoNotPossibleError(
                     loop_id=loop_id,
                     reason="invalid_before_state",
                     message="Status change event missing previous status",
                 )
-
-        elif event_type == "update":
-            # Restore all changed fields
-            restore_fields = {}
-            for field, old_value in before_state.items():
-                restore_fields[field] = old_value
-
-            if not restore_fields:
-                raise UndoNotPossibleError(
-                    loop_id=loop_id,
-                    reason="empty_before_state",
-                    message="Update event has no fields to restore",
-                )
-
+            restore_fields = {
+                "status": old_status,
+                "closed_at": before_state.get("closed_at"),
+                "completion_note": before_state.get("completion_note"),
+                "recurrence_enabled": before_state.get("recurrence_enabled"),
+            }
             updated = repo.update_loop_fields(
                 loop_id=loop_id,
                 fields=restore_fields,
                 conn=conn,
             )
-
+        elif event_type == "update":
+            updated = _restore_update_before_state(
+                loop_id=loop_id,
+                before_state=before_state,
+                conn=conn,
+            )
         else:
-            # Should not reach here if _REVERSIBLE_EVENT_TYPES is correct
             raise UndoNotPossibleError(
                 loop_id=loop_id,
                 reason="unsupported_event_type",
                 message=f"Event type '{event_type}' is not supported for undo",
             )
 
-        # Record undo event for audit trail
+        undo_payload = {
+            "undone_event_id": int(event["id"]),
+            "undone_event_type": event_type,
+            "restored_fields": before_state,
+        }
         undo_event_id = repo.insert_loop_event(
             loop_id=loop_id,
             event_type="undo",
-            payload={
-                "undone_event_id": event["id"],
-                "undone_event_type": event_type,
-                "restored_fields": before_state,
-            },
+            payload=undo_payload,
             conn=conn,
         )
-
-        # Queue webhook delivery if configured
         queue_deliveries(
             event_id=undo_event_id,
             event_type="undo",
             payload={
-                "undone_event_id": event["id"],
+                "undone_event_id": int(event["id"]),
                 "undone_event_type": event_type,
             },
             conn=conn,
@@ -220,9 +233,18 @@ def undo_last_event(
 
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
+    loop_payload = _record_to_dict(updated, project=project, tags=tags)
+    latest_reversible_event = repo.get_latest_reversible_event(loop_id=updated.id, conn=conn)
+    loop_payload["latest_reversible_event_id"] = (
+        int(latest_reversible_event["id"]) if latest_reversible_event is not None else None
+    )
+    loop_payload["latest_reversible_event_type"] = (
+        str(latest_reversible_event["event_type"]) if latest_reversible_event is not None else None
+    )
 
     return {
-        "loop": _record_to_dict(updated, project=project, tags=tags),
-        "undone_event_id": event["id"],
+        "loop": loop_payload,
+        "undone_event_id": int(event["id"]),
         "undone_event_type": event_type,
+        "undo_event_id": undo_event_id,
     }

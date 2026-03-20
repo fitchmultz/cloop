@@ -134,15 +134,32 @@ function makeExecution(
   sessionId = 27,
 ): PlanningExecutionHistoryItemResponse {
   return {
+    run_id: 44,
     checkpoint_index: 0,
     checkpoint_title: "Execute checkpoint",
     operation_count: 2,
     executed_at_utc: "2026-03-18T18:05:00Z",
+    is_active: true,
+    rollback: null,
     rollback_cues: {
       undoable_operation_count: 1,
-      rollback_supported_operation_count: 0,
+      rollback_supported_operation_count: 1,
+      rollback_action_count: 1,
       operations: [],
     },
+    results: [
+      {
+        rollback_actions: [
+          {
+            kind: "loop.undo",
+            resource_type: "loop",
+            resource_id: 5,
+            summary: "Undo loop update for loop 5",
+            payload: { loop_id: 5, expected_event_id: 88 },
+          },
+        ],
+      },
+    ],
     follow_up_resources: [
       {
         resource_type: "review_session",
@@ -474,6 +491,7 @@ describe("shell-operator-cards", () => {
         },
         resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
         rollbackLabel: "Rejecting is no longer available after apply.",
+        undoAction: null,
       },
     });
     const { elements, renderer } = createHarness({

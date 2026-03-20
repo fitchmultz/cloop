@@ -49,6 +49,7 @@ import type {
   ContinuityBaselineSnapshot,
   OperatorActionCard,
   OperatorActionCardAction,
+  OperatorActionCardUndoAction,
   RecentShellActionEntry,
   ReviewFocus,
   WorkingSetSessionMetadata,
@@ -65,6 +66,7 @@ import {
   isLowSignalNavigationEntry,
   resolveContinuityEntry,
 } from "./continuity-outcomes";
+import { buildPlanningRollbackAction } from "./executable-undo";
 import {
   buildChangedCountPreviewItems,
   buildGroupedChangePreviewItems,
@@ -275,6 +277,10 @@ function buildPinAction(
     description,
     pinLabel,
   };
+}
+
+function isUndoAction(value: OperatorActionCardUndoAction | null): value is OperatorActionCardUndoAction {
+  return value != null;
 }
 
 function buildLocationAction(location: ShellLocation): Omit<RecentShellActionEntry, "occurredAt"> {
@@ -811,6 +817,9 @@ function buildPlanningExecutionCard(
         followUpBits[0] ?? latestExecution.checkpoint_title,
         primarySurface?.label || latestExecution.checkpoint_title,
       ),
+      ...[
+        buildPlanningRollbackAction(snapshot.session.id, latestExecution),
+      ].filter(isUndoAction),
     ],
   } satisfies OperatorActionCard;
   return withResolvedWorkingSetHandoff(card, propagatedWorkingSetId);
@@ -1168,6 +1177,11 @@ function buildFollowUpSinceLastCard(data: WorkspaceData): PrioritizedCard | null
     actions: [
       buildOpenAction("Open handoff", launchLocation, "Open the newest downstream planning handoff"),
       buildPinAction("Pin handoff recap", launchLocation, "Return to the latest plan-created handoff recap", "Resume · plan handoffs"),
+      ...[
+        data.planningSnapshot?.session?.id != null && recentExecution.at(-1)
+          ? buildPlanningRollbackAction(data.planningSnapshot.session.id, recentExecution.at(-1)!)
+          : null,
+      ].filter(isUndoAction),
     ],
   } satisfies OperatorActionCard;
   return {

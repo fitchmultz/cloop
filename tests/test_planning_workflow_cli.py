@@ -183,6 +183,12 @@ def test_planning_workflow_cli(
     assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
     assert first_execution["execution"]["launch_surfaces"] == []
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
+    assert (
+        first_execution["execution"]["results"][0]["rollback_actions"][0]["payload"][
+            "expected_event_id"
+        ]
+        > 0
+    )
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
     assert first_execution["snapshot"]["context_freshness"]["generated_at_utc"]
@@ -212,3 +218,64 @@ def test_planning_workflow_cli(
     assert main(["plan", "session", "delete", str(session_id)]) == 0
     deleted = _last_json(capsys)
     assert deleted == {"deleted": True, "session_id": session_id}
+
+
+def test_planning_workflow_cli_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    _make_settings(tmp_path, monkeypatch)
+    assert main(["capture", "Prepare launch checklist"]) == 0
+    assert main(["capture", "Confirm launch owner", "--actionable"]) == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        "cloop.loops.planning_workflows.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(_planner_payload(1, 2, title="Weekly launch reset")),
+            {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+
+    assert (
+        main(
+            [
+                "plan",
+                "session",
+                "create",
+                "--name",
+                "weekly-reset-rollback",
+                "--prompt",
+                "Build a checkpointed plan for the launch work.",
+                "--query",
+                "status:open",
+            ]
+        )
+        == 0
+    )
+    session = _last_json(capsys)
+    session_id = session["session"]["id"]
+
+    assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
+    execution = _last_json(capsys)
+    run_id = execution["execution"]["run_id"]
+
+    assert (
+        main(
+            [
+                "plan",
+                "session",
+                "rollback",
+                "--session",
+                str(session_id),
+                "--run",
+                str(run_id),
+            ]
+        )
+        == 0
+    )
+    rollback = _last_json(capsys)
+    assert rollback["rollback"]["rollback_complete"] is True
+    assert rollback["snapshot"]["session"]["current_checkpoint_index"] == 0
+    assert rollback["snapshot"]["session"]["executed_checkpoint_count"] == 0

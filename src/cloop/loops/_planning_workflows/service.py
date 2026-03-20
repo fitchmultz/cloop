@@ -253,7 +253,12 @@ def execute_planning_session_checkpoint(
                 )
             )
     except Exception as exc:  # noqa: BLE001
-        rollback_summary = _rollback_execution_results(results=results, conn=conn)
+        rollback_summary = _rollback_execution_results(
+            results=results,
+            conn=conn,
+            checkpoint_index=checkpoint_index,
+            checkpoint_title=checkpoint.title,
+        )
         rollback_note = (
             "rollback completed"
             if rollback_summary["rollback_complete"]
@@ -311,8 +316,103 @@ def execute_planning_session_checkpoint(
         raise ResourceNotFoundError("planning session", f"Planning session not found: {session_id}")
 
     snapshot_after = _build_planning_session_snapshot(session_row=updated, conn=conn)
-    execution_payload["executed_at_utc"] = str(run_row["created_at"])
-    return {"execution": execution_payload, "snapshot": snapshot_after}
+    response_execution_payload: dict[str, Any] = {
+        **execution_payload,
+        "run_id": int(run_row["id"]),
+        "executed_at_utc": str(run_row["created_at"]),
+        "rollback": None,
+        "is_active": True,
+    }
+    return {"execution": response_execution_payload, "snapshot": snapshot_after}
+
+
+@typingx.validate_io()
+def rollback_planning_session_run(
+    *,
+    session_id: int,
+    run_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    _require_planning_session_row(session_id=session_id, conn=conn)
+    execution_rows = repo.list_planning_session_runs(session_id=session_id, conn=conn)
+    target_row = next((row for row in execution_rows if int(row["id"]) == run_id), None)
+    if target_row is None:
+        raise ResourceNotFoundError(
+            "planning execution",
+            f"Planning execution not found: session={session_id}, run={run_id}",
+        )
+
+    active_rows = [
+        row
+        for row in execution_rows
+        if not bool(
+            (json.loads(str(row.get("result_json") or "{}")) if row.get("result_json") else {})
+            .get("rollback", {})
+            .get("rollback_complete", False)
+        )
+    ]
+    latest_active_row = active_rows[-1] if active_rows else None
+    if latest_active_row is None or int(latest_active_row["id"]) != run_id:
+        latest_active_run_id = (
+            int(latest_active_row["id"]) if latest_active_row is not None else None
+        )
+        latest_active_label = (
+            str(latest_active_run_id) if latest_active_run_id is not None else "none"
+        )
+        raise ValidationError(
+            "run_id",
+            f"rollback handle is stale; latest active run is {latest_active_label}",
+        )
+
+    payload = (
+        json.loads(str(target_row.get("result_json") or "{}"))
+        if target_row.get("result_json")
+        else {}
+    )
+    if bool((payload.get("rollback") or {}).get("rollback_complete", False)):
+        raise ValidationError("run_id", f"planning execution {run_id} has already been rolled back")
+
+    results = list(payload.get("results") or [])
+    rollback_action_count = sum(
+        len(list(result.get("rollback_actions") or [])) for result in results
+    )
+    if rollback_action_count < 1:
+        raise ValidationError(
+            "run_id",
+            f"planning execution {run_id} does not have rollback actions",
+        )
+
+    checkpoint_index = int(target_row["checkpoint_index"])
+    checkpoint_title = str(payload.get("checkpoint_title") or "")
+
+    with conn:
+        rollback_summary = _rollback_execution_results(
+            results=results,
+            conn=conn,
+            checkpoint_index=checkpoint_index,
+            checkpoint_title=checkpoint_title,
+            run_id=run_id,
+        )
+        updated_payload = {**payload, "rollback": rollback_summary}
+        repo.update_planning_session_run(
+            run_id=run_id,
+            result_json=updated_payload,
+            conn=conn,
+        )
+        if rollback_summary["rollback_complete"]:
+            updated_session = repo.update_planning_session(
+                session_id=session_id,
+                current_checkpoint_index=checkpoint_index,
+                conn=conn,
+            )
+        else:
+            updated_session = repo.get_planning_session(session_id=session_id, conn=conn)
+
+    if updated_session is None:
+        raise ResourceNotFoundError("planning session", f"Planning session not found: {session_id}")
+
+    snapshot_after = _build_planning_session_snapshot(session_row=updated_session, conn=conn)
+    return {"rollback": rollback_summary, "snapshot": snapshot_after}
 
 
 __all__ = [
@@ -323,4 +423,5 @@ __all__ = [
     "refresh_planning_session_impl",
     "delete_planning_session",
     "execute_planning_session_checkpoint",
+    "rollback_planning_session_run",
 ]

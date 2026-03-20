@@ -10,6 +10,7 @@ Responsibilities:
     - Move a planning checkpoint cursor through a saved session
     - Refresh an existing plan against current grounded context
     - Execute the current checkpoint with explicit idempotent mutation handling
+    - Roll back the latest active checkpoint execution through the shared rollback contract
 
 Non-scope:
     - Planning generation business logic
@@ -28,6 +29,8 @@ from ...schemas.loops import (
     PlanningSessionCreateRequest,
     PlanningSessionExecuteResponse,
     PlanningSessionResponse,
+    PlanningSessionRollbackRequest,
+    PlanningSessionRollbackResponse,
     PlanningSessionSnapshotResponse,
     ReviewSessionMoveRequest,
 )
@@ -36,6 +39,7 @@ from ._common import (
     SettingsDep,
     build_planning_session_execute_response,
     build_planning_session_response,
+    build_planning_session_rollback_response,
     build_planning_session_snapshot_response,
     map_not_found_to_404,
     map_validation_to_400,
@@ -208,6 +212,39 @@ def execute_planning_session_endpoint(
     if isinstance(result, JSONResponse):
         return result
     return build_planning_session_execute_response(result)
+
+
+@router.post(
+    "/planning/sessions/{session_id}/rollback",
+    response_model=PlanningSessionRollbackResponse,
+)
+def rollback_planning_session_endpoint(
+    session_id: int,
+    request: PlanningSessionRollbackRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> PlanningSessionRollbackResponse | JSONResponse:
+    payload = {"session_id": session_id, **request.model_dump(mode="json")}
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/planning/sessions/{session_id}/rollback",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            execute=lambda conn: planning_workflows.rollback_planning_session_run(
+                session_id=session_id,
+                run_id=request.run_id,
+                conn=conn,
+            ),
+        )
+    except ResourceNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="planning session") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return build_planning_session_rollback_response(result)
 
 
 @router.delete("/planning/sessions/{session_id}", response_model=None)

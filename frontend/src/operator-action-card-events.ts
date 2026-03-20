@@ -5,7 +5,7 @@
  *   Execute shared operator action-card semantics outside review-local event handlers.
  *
  * Responsibilities:
- *   - Decode open, pin, stage, edit, and defer button datasets.
+ *   - Decode open, pin, stage, edit, defer, and undo button datasets.
  *   - Reuse shell navigation and working-set pinning callbacks.
  *   - Keep shared follow-through actions deterministic across shell-owned surfaces.
  *
@@ -20,7 +20,13 @@
  *   - Shared follow-through actions carry full shell-location state in data-* attributes.
  */
 
-import type { RecallTool, ReviewFocus, ShellState } from "./contracts-ui";
+import type {
+  OperatorActionCardUndoAction,
+  PlanningRunUndoHandle,
+  RecallTool,
+  ReviewFocus,
+  ShellState,
+} from "./contracts-ui";
 import { parseOptionalInteger } from "./shell-core";
 import { createLocation } from "./shell-routing";
 import type { ShellLocation } from "./shell-types";
@@ -36,9 +42,13 @@ export interface OperatorActionCardDispatchOptions {
     description: string | null,
     options?: { receiptVariant?: "pin" | "stage" | "defer" },
   ) => Promise<void>;
+  executeUndoAction: (
+    action: OperatorActionCardUndoAction,
+    button: HTMLButtonElement,
+  ) => Promise<void>;
 }
 
-type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer";
+type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer" | "undoSuccess";
 
 function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): ShellLocation {
   return createLocation({
@@ -52,6 +62,70 @@ function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): Sh
     workingSetId: parseOptionalInteger(button.dataset[`${prefix}WorkingSetId`]),
     query: button.dataset[`${prefix}Query`]?.trim() || null,
   });
+}
+
+function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndoAction | null {
+  const kind = button.dataset["undoKind"]?.trim();
+  if (kind === "loop_event") {
+    const loopId = parseOptionalInteger(button.dataset["undoLoopId"]);
+    const expectedEventId = parseOptionalInteger(button.dataset["undoExpectedEventId"]);
+    if (loopId == null || expectedEventId == null) {
+      return null;
+    }
+    return {
+      type: "undo",
+      label: button.textContent?.trim() || "Undo",
+      variant: button.classList.contains("secondary") ? "secondary" : "primary",
+      description: button.dataset["undoEventType"]?.trim() || "Undo the latest loop event.",
+      undo: {
+        kind: "loop_event",
+        loopId,
+        expectedEventId,
+        eventType: button.dataset["undoEventType"]?.trim() || null,
+        claimToken: button.dataset["undoClaimToken"]?.trim() || null,
+      },
+      confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
+      confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
+      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      successLocation: button.hasAttribute("data-undo-success-state")
+        ? locationFromButton(button, "undoSuccess")
+        : null,
+      disabledReason: button.disabled ? button.title || "Undo is unavailable." : null,
+    };
+  }
+  if (kind === "planning_run") {
+    const sessionId = parseOptionalInteger(button.dataset["undoSessionId"]);
+    const runId = parseOptionalInteger(button.dataset["undoRunId"]);
+    const checkpointIndex = parseOptionalInteger(button.dataset["undoCheckpointIndex"]);
+    const actionCount = parseOptionalInteger(button.dataset["undoActionCount"]);
+    if (sessionId == null || runId == null || checkpointIndex == null || actionCount == null) {
+      return null;
+    }
+    const undo: PlanningRunUndoHandle = {
+      kind: "planning_run",
+      sessionId,
+      runId,
+      checkpointIndex,
+      checkpointTitle: button.dataset["undoCheckpointTitle"]?.trim() || "",
+      actionCount,
+      bestEffort: button.dataset["undoBestEffort"] === "true",
+    };
+    return {
+      type: "undo",
+      label: button.textContent?.trim() || (undo.bestEffort ? "Rollback checkpoint" : "Undo checkpoint"),
+      variant: button.classList.contains("secondary") ? "secondary" : "primary",
+      description: button.dataset["undoCheckpointTitle"]?.trim() || "Undo the latest planning checkpoint.",
+      undo,
+      confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
+      confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
+      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      successLocation: button.hasAttribute("data-undo-success-state")
+        ? locationFromButton(button, "undoSuccess")
+        : null,
+      disabledReason: button.disabled ? button.title || "Undo is unavailable." : null,
+    };
+  }
+  return null;
 }
 
 export async function handleOperatorActionCardClick(
@@ -85,7 +159,7 @@ export async function handleOperatorActionCardClick(
   }
 
   const actionButton = target.closest<HTMLButtonElement>("[data-card-action]");
-  if (!actionButton) {
+  if (!actionButton || actionButton.disabled) {
     return false;
   }
 
@@ -124,6 +198,14 @@ export async function handleOperatorActionCardClick(
         actionButton.dataset["deferDescription"]?.trim() || null,
         { receiptVariant: "defer" },
       );
+      return true;
+    }
+    case "undo": {
+      const action = undoActionFromButton(actionButton);
+      if (!action) {
+        return true;
+      }
+      await options.executeUndoAction(action, actionButton);
       return true;
     }
     default:

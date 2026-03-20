@@ -44,6 +44,7 @@ describe("handleOperatorActionCardClick", () => {
 
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("stage");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing stage button");
@@ -52,6 +53,7 @@ describe("handleOperatorActionCardClick", () => {
     const handled = await handleOperatorActionCardClick(new MouseEvent("click", { bubbles: true, composed: true }), {
       applyLocation,
       pinLocationToWorkingSet,
+      executeUndoAction,
     });
 
     expect(handled).toBe(false);
@@ -61,6 +63,7 @@ describe("handleOperatorActionCardClick", () => {
     const result = await handleOperatorActionCardClick(event, {
       applyLocation,
       pinLocationToWorkingSet,
+      executeUndoAction,
     });
 
     expect(result).toBe(true);
@@ -96,6 +99,7 @@ describe("handleOperatorActionCardClick", () => {
 
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("edit");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing edit button");
@@ -106,6 +110,7 @@ describe("handleOperatorActionCardClick", () => {
     const result = await handleOperatorActionCardClick(event, {
       applyLocation,
       pinLocationToWorkingSet,
+      executeUndoAction,
     });
 
     expect(result).toBe(true);
@@ -134,6 +139,7 @@ describe("handleOperatorActionCardClick", () => {
 
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("defer");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing defer button");
@@ -144,6 +150,7 @@ describe("handleOperatorActionCardClick", () => {
     const result = await handleOperatorActionCardClick(event, {
       applyLocation,
       pinLocationToWorkingSet,
+      executeUndoAction,
     });
 
     expect(result).toBe(true);
@@ -156,5 +163,67 @@ describe("handleOperatorActionCardClick", () => {
     expect(pinLocationToWorkingSet.mock.calls[0]?.[1]).toBe("Do · Review the duplicate queue first");
     expect(pinLocationToWorkingSet.mock.calls[0]?.[3]).toEqual({ receiptVariant: "defer" });
     expect(applyLocation).not.toHaveBeenCalled();
+    expect(executeUndoAction).not.toHaveBeenCalled();
+  });
+
+  it("dispatches executable undo actions", async () => {
+    document.body.innerHTML = `
+      <button
+        id="undo"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="planning_run"
+        data-undo-session-id="12"
+        data-undo-run-id="44"
+        data-undo-checkpoint-index="1"
+        data-undo-checkpoint-title="Create review queue"
+        data-undo-action-count="2"
+        data-undo-best-effort="true"
+        data-undo-confirm-title="Rollback checkpoint"
+        data-undo-confirm-description="Rollback may be partial."
+        data-undo-success-state="plan"
+        data-undo-success-recall-tool="chat"
+        data-undo-success-review-focus="planning"
+        data-undo-success-session-id="12"
+      >Rollback checkpoint</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("undo");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).toHaveBeenCalledTimes(1);
+    expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
+      type: "undo",
+      undo: {
+        kind: "planning_run",
+        sessionId: 12,
+        runId: 44,
+        checkpointIndex: 1,
+        checkpointTitle: "Create review queue",
+        actionCount: 2,
+        bestEffort: true,
+      },
+      successLocation: expect.objectContaining({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: 12,
+      }),
+    });
+    expect(applyLocation).not.toHaveBeenCalled();
+    expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
   });
 });

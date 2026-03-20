@@ -85,6 +85,7 @@ function receiptEntry(overrides: Partial<RecentShellActionEntry> = {}): RecentSh
       },
       resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 7 }),
       rollbackLabel: "Rejecting is no longer available after apply.",
+      undoAction: null,
     },
   };
 }

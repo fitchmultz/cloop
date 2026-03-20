@@ -60,16 +60,60 @@ function readMessage(value: unknown): string | null {
   return null;
 }
 
+function readErrorCode(value: unknown): string | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const detail = value["detail"];
+  const error = value["error"];
+  if (isRecord(detail) && typeof detail["code"] === "string" && detail["code"].trim()) {
+    return detail["code"];
+  }
+  if (isRecord(error)) {
+    if (typeof error["code"] === "string" && error["code"].trim()) {
+      return error["code"];
+    }
+    const errorDetails = error["details"];
+    if (isRecord(errorDetails) && typeof errorDetails["code"] === "string" && errorDetails["code"].trim()) {
+      return errorDetails["code"];
+    }
+  }
+  return null;
+}
+
+export class HttpRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = "HttpRequestError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+export async function extractErrorDetails(
+  response: Response,
+  fallbackMessage: string,
+): Promise<{ message: string; code: string | null }> {
+  try {
+    const payload: unknown = await response.json();
+    return {
+      message: readMessage(payload) ?? fallbackMessage,
+      code: readErrorCode(payload),
+    };
+  } catch {
+    return { message: fallbackMessage, code: null };
+  }
+}
+
 export async function extractErrorMessage(
   response: Response,
   fallbackMessage: string,
 ): Promise<string> {
-  try {
-    const payload: unknown = await response.json();
-    return readMessage(payload) ?? fallbackMessage;
-  } catch {
-    return fallbackMessage;
-  }
+  const details = await extractErrorDetails(response, fallbackMessage);
+  return details.message;
 }
 
 type JsonRequestInit<TBody> = Omit<RequestInit, "body"> & {
@@ -104,7 +148,8 @@ export async function requestJson<TResponse, TBody = undefined>(
   const response = await fetch(path, buildRequestInit(init));
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, fallbackMessage));
+    const details = await extractErrorDetails(response, fallbackMessage);
+    throw new HttpRequestError(details.message, response.status, details.code);
   }
 
   if (response.status === 204) {
@@ -122,7 +167,8 @@ export async function requestStream<TBody = undefined>(
   const response = await fetch(path, buildRequestInit(init));
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response, fallbackMessage));
+    const details = await extractErrorDetails(response, fallbackMessage);
+    throw new HttpRequestError(details.message, response.status, details.code);
   }
 
   return response;

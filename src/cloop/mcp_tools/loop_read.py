@@ -271,29 +271,44 @@ def loop_events(
 @with_mcp_error_handling
 def loop_undo(
     loop_id: int,
+    expected_event_id: int,
     request_id: str | None = None,
+    claim_token: str | None = None,
 ) -> dict[str, Any]:
-    """Undo the most recent reversible event for a loop.
+    """Undo one exact reversible event for a loop.
 
     Reversible events include: update, status_change, close.
     Enrichment, claim, and timer events cannot be undone.
 
     Args:
-        loop_id: Loop ID to modify
-        request_id: Optional idempotency key
+        loop_id: Loop ID to modify.
+        expected_event_id: Exact reversible event ID that must still be the
+            latest undoable event for this loop.
+        request_id: Optional idempotency key.
+        claim_token: Optional claim token for claimed loops.
 
     Returns:
         Dict with updated loop and undo details:
         - loop: The updated loop dict
         - undone_event_id: ID of the event that was undone
         - undone_event_type: Type of the undone event
+        - undo_event_id: Audit event ID recorded for the undo mutation
     """
-    payload = {"loop_id": loop_id}
+    payload = {
+        "loop_id": loop_id,
+        "expected_event_id": expected_event_id,
+        "claim_token": claim_token,
+    }
     return run_idempotent_tool_mutation(
         tool_name="loop.undo",
         request_id=request_id,
         payload=payload,
-        execute=lambda conn, settings: loop_event_ops.undo_last_event(loop_id=loop_id, conn=conn),
+        execute=lambda conn, settings: loop_event_ops.undo_last_event(
+            loop_id=loop_id,
+            expected_event_id=expected_event_id,
+            claim_token=claim_token,
+            conn=conn,
+        ),
     )
 
 

@@ -158,6 +158,29 @@ def create_planning_session_run(
     return dict(row)
 
 
+def get_planning_session_run(*, run_id: int, conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Get one planning execution row by ID."""
+    row = conn.execute(
+        "SELECT * FROM planning_session_runs WHERE id = ?",
+        (run_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_planning_session_run(
+    *,
+    run_id: int,
+    result_json: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Replace one planning execution payload."""
+    conn.execute(
+        "UPDATE planning_session_runs SET result_json = ? WHERE id = ?",
+        (json.dumps(dict(result_json)), run_id),
+    )
+    return get_planning_session_run(run_id=run_id, conn=conn)
+
+
 def list_planning_session_runs(
     *,
     session_id: int,

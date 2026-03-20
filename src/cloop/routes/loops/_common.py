@@ -64,9 +64,11 @@ from ...schemas.loops import (
     PlanningExecutionHistoryItemResponse,
     PlanningExecutionLaunchSurfaceResponse,
     PlanningExecutionRollbackCueResponse,
+    PlanningExecutionRollbackResultResponse,
     PlanningResourceChangeSummaryResponse,
     PlanningSessionExecuteResponse,
     PlanningSessionResponse,
+    PlanningSessionRollbackResponse,
     PlanningSessionSnapshotResponse,
     PlanningTargetLoopResponse,
     QueryBulkEnrichResponse,
@@ -467,11 +469,19 @@ def build_planning_execution_rollback_cue_response(
     return PlanningExecutionRollbackCueResponse.model_validate(dict(rollback_cues))
 
 
+def build_planning_execution_rollback_result_response(
+    rollback: Mapping[str, Any],
+) -> PlanningExecutionRollbackResultResponse:
+    """Convert one planning rollback result payload into the response model."""
+    return PlanningExecutionRollbackResultResponse.model_validate(dict(rollback))
+
+
 def build_planning_execution_history_item_response(
     item: Mapping[str, Any],
 ) -> PlanningExecutionHistoryItemResponse:
     """Convert one planning execution history entry into the response model."""
     return PlanningExecutionHistoryItemResponse(
+        run_id=int(item.get("run_id") or 0),
         checkpoint_index=int(item["checkpoint_index"]),
         checkpoint_title=str(item.get("checkpoint_title") or ""),
         executed_at_utc=str(item.get("executed_at_utc") or ""),
@@ -495,6 +505,12 @@ def build_planning_execution_history_item_response(
         rollback_cues=build_planning_execution_rollback_cue_response(
             item.get("rollback_cues") or {}
         ),
+        rollback=(
+            build_planning_execution_rollback_result_response(item["rollback"])
+            if item.get("rollback") is not None
+            else None
+        ),
+        is_active=bool(item.get("is_active", True)),
     )
 
 
@@ -541,6 +557,16 @@ def build_planning_session_execute_response(
     """Convert a planning execution payload into the response model."""
     return PlanningSessionExecuteResponse(
         execution=build_planning_execution_history_item_response(payload["execution"]),
+        snapshot=build_planning_session_snapshot_response(payload["snapshot"]),
+    )
+
+
+def build_planning_session_rollback_response(
+    payload: Mapping[str, Any],
+) -> PlanningSessionRollbackResponse:
+    """Convert a planning rollback payload into the response model."""
+    return PlanningSessionRollbackResponse(
+        rollback=build_planning_execution_rollback_result_response(payload["rollback"]),
         snapshot=build_planning_session_snapshot_response(payload["snapshot"]),
     )
 

@@ -33,7 +33,8 @@ from typing import Any
 
 from .. import events as loop_events
 from .. import repo, working_sets
-from ..errors import ResourceNotFoundError
+from ..errors import ResourceNotFoundError, ValidationError
+from ..models import format_utc_datetime, utc_now
 
 
 def _rollback_action(
@@ -55,13 +56,13 @@ def _rollback_action(
     return action
 
 
-def _loop_undo_action(*, loop_id: int, summary: str) -> dict[str, Any]:
+def _loop_undo_action(*, loop_id: int, expected_event_id: int, summary: str) -> dict[str, Any]:
     return _rollback_action(
         kind="loop.undo",
         resource_type="loop",
         resource_id=loop_id,
         summary=summary,
-        payload={"loop_id": loop_id},
+        payload={"loop_id": loop_id, "expected_event_id": expected_event_id},
     )
 
 
@@ -71,7 +72,17 @@ def _execute_rollback_action(*, action: Mapping[str, Any], conn: sqlite3.Connect
     payload = dict(action.get("payload") or {})
 
     if kind == "loop.undo":
-        loop_events.undo_last_event(loop_id=resource_id, conn=conn)
+        expected_event_id = payload.get("expected_event_id")
+        if not isinstance(expected_event_id, int):
+            raise ValidationError(
+                "rollback_action",
+                "loop.undo rollback actions require expected_event_id",
+            )
+        loop_events.undo_last_event(
+            loop_id=resource_id,
+            expected_event_id=expected_event_id,
+            conn=conn,
+        )
         return
     if kind == "planning.loop.delete":
         if not repo.delete_loop(loop_id=resource_id, conn=conn):
@@ -125,10 +136,51 @@ def _execute_rollback_action(*, action: Mapping[str, Any], conn: sqlite3.Connect
     raise RuntimeError(f"unsupported planning rollback action: {kind}")
 
 
+def _rollback_summary_payload(
+    *,
+    attempted: int,
+    failed_actions: Sequence[Mapping[str, Any]],
+    checkpoint_index: int | None = None,
+    checkpoint_title: str | None = None,
+    run_id: int | None = None,
+) -> dict[str, Any]:
+    rollback_complete = len(failed_actions) == 0
+    summary_bits: list[str] = []
+    if checkpoint_title:
+        summary_bits.append(f"Rolled back {checkpoint_title}")
+    else:
+        summary_bits.append("Rollback attempted")
+    if rollback_complete:
+        summary_bits.append(f"{attempted} rollback action{'s' if attempted != 1 else ''} completed")
+    else:
+        summary_bits.append(
+            f"{len(failed_actions)} rollback action{'s' if len(failed_actions) != 1 else ''} failed"
+        )
+
+    payload = {
+        "attempted_action_count": attempted,
+        "failed_action_count": len(failed_actions),
+        "failed_actions": [dict(action) for action in failed_actions],
+        "rollback_complete": rollback_complete,
+        "rolled_back_at_utc": format_utc_datetime(utc_now()),
+        "summary": "; ".join(summary_bits),
+    }
+    if checkpoint_index is not None:
+        payload["checkpoint_index"] = checkpoint_index
+    if checkpoint_title is not None:
+        payload["checkpoint_title"] = checkpoint_title
+    if run_id is not None:
+        payload["run_id"] = run_id
+    return payload
+
+
 def _rollback_execution_results(
     *,
     results: Sequence[Mapping[str, Any]],
     conn: sqlite3.Connection,
+    checkpoint_index: int | None = None,
+    checkpoint_title: str | None = None,
+    run_id: int | None = None,
 ) -> dict[str, Any]:
     attempted = 0
     failed_actions: list[dict[str, Any]] = []
@@ -146,12 +198,13 @@ def _rollback_execution_results(
                         "message": str(exc),
                     }
                 )
-    return {
-        "attempted_action_count": attempted,
-        "failed_action_count": len(failed_actions),
-        "failed_actions": failed_actions,
-        "rollback_complete": len(failed_actions) == 0,
-    }
+    return _rollback_summary_payload(
+        attempted=attempted,
+        failed_actions=failed_actions,
+        checkpoint_index=checkpoint_index,
+        checkpoint_title=checkpoint_title,
+        run_id=run_id,
+    )
 
 
 __all__ = [

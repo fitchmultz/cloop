@@ -136,10 +136,31 @@ export interface ResumeAnchorState {
   review: ResumeAnchorTarget | null;
 }
 
+export interface LoopEventUndoHandle {
+  kind: "loop_event";
+  loopId: number;
+  expectedEventId: number;
+  eventType: string | null;
+  claimToken?: string | null;
+}
+
+export interface PlanningRunUndoHandle {
+  kind: "planning_run";
+  sessionId: number;
+  runId: number;
+  checkpointIndex: number;
+  checkpointTitle: string;
+  actionCount: number;
+  bestEffort: boolean;
+}
+
+export type ExecutableUndoHandle = LoopEventUndoHandle | PlanningRunUndoHandle;
+
 export interface RecentShellActionOutcome {
   card: OperatorActionCard;
   resumeLocation: ShellLocationContract | null;
   rollbackLabel: string | null;
+  undoAction: OperatorActionCardUndoAction | null;
 }
 
 export interface RecentShellActionEntry {
@@ -154,7 +175,7 @@ export interface RecentShellActionEntry {
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context" | "receipt";
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
-export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer";
+export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer" | "undo";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
 export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
@@ -200,6 +221,7 @@ interface OperatorActionCardActionBase {
   label: string;
   variant: OperatorActionCardActionVariant;
   description: string;
+  disabledReason?: string | null;
 }
 
 export interface OperatorActionCardOpenAction extends OperatorActionCardActionBase {
@@ -239,13 +261,23 @@ export interface OperatorActionCardDeferAction extends OperatorActionCardActionB
   deferDescription?: string | null;
 }
 
+export interface OperatorActionCardUndoAction extends OperatorActionCardActionBase {
+  type: "undo";
+  undo: ExecutableUndoHandle;
+  requiresConfirmation?: boolean;
+  confirmTitle?: string | null;
+  confirmDescription?: string | null;
+  successLocation?: ShellLocationContract | null;
+}
+
 export type OperatorActionCardAction =
   | OperatorActionCardOpenAction
   | OperatorActionCardPinAction
   | OperatorActionCardEventAction
   | OperatorActionCardStageAction
   | OperatorActionCardEditAction
-  | OperatorActionCardDeferAction;
+  | OperatorActionCardDeferAction
+  | OperatorActionCardUndoAction;
 
 export interface OperatorActionCard {
   id: string;

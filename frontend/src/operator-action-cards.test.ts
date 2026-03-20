@@ -149,6 +149,29 @@ describe("renderActionCardDeck", () => {
               workingSetId: 7,
             },
           },
+          {
+            type: "undo",
+            label: "Undo checkpoint",
+            variant: "secondary",
+            description: "Undo this planning checkpoint.",
+            undo: {
+              kind: "planning_run",
+              sessionId: 12,
+              runId: 44,
+              checkpointIndex: 1,
+              checkpointTitle: "Create queue",
+              actionCount: 2,
+              bestEffort: false,
+            },
+            successLocation: {
+              state: "plan",
+              recallTool: "chat",
+              reviewFocus: "planning",
+              sessionId: 12,
+              loopId: null,
+              workingSetId: 7,
+            },
+          },
         ],
       },
     ];
@@ -161,5 +184,8 @@ describe("renderActionCardDeck", () => {
     expect(html).toContain('data-edit-query="What should I do next?"');
     expect(html).toContain('data-card-action="defer"');
     expect(html).toContain('data-defer-label="Do · Review the duplicate queue first"');
+    expect(html).toContain('data-card-action="undo"');
+    expect(html).toContain('data-undo-run-id="44"');
+    expect(html).toContain('data-undo-success-state="plan"');
   });
 });

@@ -2,7 +2,7 @@
 
 ## 1. Objective and boundaries
 
-This document is the implementation plan for **Roadmap Session 1 — Outcome-anchored continuity history** as defined in:
+This document captures the implementation plan that produced Cloop's shipped outcome-anchored continuity foundation. Treat it as historical implementation guidance and supporting detail for:
 
 - [`docs/ux/outcome-continuity.md`](outcome-continuity.md)
 - [`docs/roadmap.md`](../roadmap.md)

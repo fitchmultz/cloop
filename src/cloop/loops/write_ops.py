@@ -106,6 +106,7 @@ _LOCKABLE_FIELDS = {
 }
 
 _REVERSIBLE_UPDATE_FIELD_ALIASES: dict[str, str] = {
+    "raw_text": "raw_text",
     "title": "title",
     "summary": "summary",
     "definition_of_done": "definition_of_done",
@@ -120,6 +121,10 @@ _REVERSIBLE_UPDATE_FIELD_ALIASES: dict[str, str] = {
     "project_id": "project_id",
     "project": "project_id",
     "blocked_reason": "blocked_reason",
+    "completion_note": "completion_note",
+    "recurrence_rrule": "recurrence_rrule",
+    "recurrence_tz": "recurrence_tz",
+    "recurrence_enabled": "recurrence_enabled",
 }
 
 
@@ -203,10 +208,18 @@ def _enrich_record(
     record: LoopRecord,
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
-    """Enrich a single loop record with project name and tags."""
+    """Enrich a single loop record with project name, tags, and undo metadata."""
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-    return _record_to_dict(record, project=project, tags=tags)
+    payload = _record_to_dict(record, project=project, tags=tags)
+    latest_reversible_event = repo.get_latest_reversible_event(loop_id=record.id, conn=conn)
+    if latest_reversible_event is not None:
+        payload["latest_reversible_event_id"] = int(latest_reversible_event["id"])
+        payload["latest_reversible_event_type"] = str(latest_reversible_event["event_type"])
+    else:
+        payload["latest_reversible_event_id"] = None
+        payload["latest_reversible_event_type"] = None
+    return payload
 
 
 def _validate_claim_for_update(
@@ -223,6 +236,7 @@ def _capture_update_before_state(
     *,
     record: LoopRecord,
     fields: Mapping[str, Any],
+    conn: sqlite3.Connection,
 ) -> dict[str, Any]:
     """Capture reversible field values before applying an update."""
     before_state: dict[str, Any] = {}
@@ -233,12 +247,18 @@ def _capture_update_before_state(
             continue
 
         old_value = getattr(record, record_field, None)
-        if record_field in {"due_at_utc", "snooze_until_utc"} and old_value is not None:
+        if (
+            record_field in {"due_at_utc", "snooze_until_utc", "next_due_at_utc"}
+            and old_value is not None
+        ):
             before_state[record_field] = format_utc_datetime(old_value)
         else:
             before_state[record_field] = old_value
 
         seen_record_fields.add(record_field)
+
+    if "tags" in fields:
+        before_state["tags"] = repo.list_loop_tags(loop_id=record.id, conn=conn)
 
     return before_state
 
@@ -289,7 +309,7 @@ def _apply_loop_update(
     if record is None:
         raise LoopNotFoundError(loop_id)
 
-    before_state = _capture_update_before_state(record=record, fields=fields)
+    before_state = _capture_update_before_state(record=record, fields=fields, conn=conn)
     mutable_fields = dict(fields)
     normalize_due_fields(mutable_fields)
     normalized_tags = _extract_normalized_tags(mutable_fields)
@@ -358,7 +378,11 @@ def _apply_status_transition(
         if open_deps:
             raise DependencyNotMetError(loop_id, open_deps)
 
-    before_state: dict[str, Any] = {"status": record.status.value}
+    before_state: dict[str, Any] = {
+        "status": record.status.value,
+        "completion_note": record.completion_note,
+        "recurrence_enabled": record.recurrence_enabled,
+    }
     if record.closed_at_utc is not None:
         before_state["closed_at"] = format_utc_datetime(record.closed_at_utc)
 

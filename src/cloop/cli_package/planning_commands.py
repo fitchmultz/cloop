@@ -6,8 +6,8 @@ Purpose:
 
 Responsibilities:
     - Map planning workflow domain errors to stable CLI exit codes
-    - Delegate planning session CRUD, refresh, movement, and execution to
-      `loops/planning_workflows.py`
+    - Delegate planning session CRUD, refresh, movement, execution, and rollback
+      to `loops/planning_workflows.py`
 
 Non-scope:
     - Planning workflow business rules
@@ -106,6 +106,19 @@ def planning_session_execute_command(args: Namespace, settings: Settings) -> int
             session_id=args.session,
             conn=conn,
             settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=_common_error_handlers(),
+    )
+
+
+def planning_session_rollback_command(args: Namespace, settings: Settings) -> int:
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: planning_workflows.rollback_planning_session_run(
+            session_id=args.session,
+            run_id=args.run,
+            conn=conn,
         ),
         output_format=args.format,
         error_handlers=_common_error_handlers(),

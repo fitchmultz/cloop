@@ -19,6 +19,7 @@ from cloop.mcp_tools.planning_tools import (
     plan_session_list,
     plan_session_move,
     plan_session_refresh,
+    plan_session_rollback,
 )
 from cloop.settings import Settings, get_settings
 
@@ -160,6 +161,12 @@ def test_planning_workflow_tools(
     assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
     assert first_execution["execution"]["launch_surfaces"] == []
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
+    assert (
+        first_execution["execution"]["results"][0]["rollback_actions"][0]["payload"][
+            "expected_event_id"
+        ]
+        > 0
+    )
     assert first_execution["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execution["snapshot"]["session"]["current_checkpoint_index"] == 1
     freshness = first_execution["snapshot"]["context_freshness"]
@@ -204,3 +211,47 @@ def test_planning_workflow_tools(
 
     deleted = plan_session_delete(session_id=session_id)
     assert deleted == {"deleted": True, "session_id": session_id}
+
+
+def test_planning_workflow_tools_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_test_db(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        first_id = _create_loop(
+            raw_text="Prepare launch checklist",
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        second_id = _create_loop(
+            raw_text="Confirm launch owner",
+            status=LoopStatus.ACTIONABLE,
+            conn=conn,
+        )
+        conn.commit()
+
+    monkeypatch.setattr(
+        "cloop.loops.planning_workflows.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(_planner_payload(first_id, second_id, title="Weekly launch reset")),
+            {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+
+    session = plan_session_create(
+        name="weekly-reset-rollback",
+        prompt="Build a checkpointed plan for the launch work.",
+        query="status:open",
+    )
+    session_id = session["session"]["id"]
+
+    execution = plan_session_execute(session_id=session_id)
+    rollback = plan_session_rollback(
+        session_id=session_id,
+        run_id=execution["execution"]["run_id"],
+    )
+    assert rollback["rollback"]["rollback_complete"] is True
+    assert rollback["snapshot"]["session"]["current_checkpoint_index"] == 0
+    assert rollback["snapshot"]["session"]["executed_checkpoint_count"] == 0

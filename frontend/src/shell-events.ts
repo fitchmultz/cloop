@@ -79,6 +79,10 @@ interface CreateShellEventControllerOptions {
     description: string | null,
     options?: { receiptVariant?: "pin" | "stage" | "defer" },
   ) => Promise<void>;
+  executeUndoAction: (
+    action: import("./contracts-ui").OperatorActionCardUndoAction,
+    button: HTMLButtonElement,
+  ) => Promise<void>;
   addLoopIdsToActiveWorkingSet: (loopIds: readonly number[]) => Promise<void>;
   openGroundedChatWithPrompt: (query: string) => Promise<void>;
   openMemorySearchWithQuery: (query: string) => Promise<void>;
@@ -98,6 +102,7 @@ export function createShellEventController(
     if (await handleOperatorActionCardClick(event, {
       applyLocation: options.applyLocation,
       pinLocationToWorkingSet: options.pinLocationToWorkingSet,
+      executeUndoAction: options.executeUndoAction,
     })) {
       return;
     }

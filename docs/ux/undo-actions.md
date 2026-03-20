@@ -44,30 +44,52 @@ Reversible outcomes should behave consistently across planning, review, enrichme
 - Workflow handoffs beat tab jumping.
 - Human authority, AI acceleration.
 
-## Current implementation baseline
+## Shipped implementation
 
-Shared receipt and backend rollback primitives already exist:
+The executable undo model is now a first-class shared workflow contract.
 
-- `frontend/src/action-receipts.ts` already creates receipt cards and resume actions, but not executable undo actions
-- `frontend/src/contracts-ui.ts` currently supports shared card action types such as `open`, `pin`, `event`, `stage`, `edit`, and `defer`; there is no first-class `undo` action type yet
-- `RecentShellActionOutcome` currently stores:
-  - `card`
-  - `resumeLocation`
-  - `rollbackLabel`
-  but not a structured executable undo handle
-- `src/cloop/loops/events.py::undo_last_event` supports undo of the most recent reversible loop event:
-  - `update`
-  - `status_change`
-  - `close`
-- `src/cloop/routes/loops/events.py` exposes that behavior at `POST /loops/{loop_id}/undo`
-- `src/cloop/loops/_planning_workflows/execution_rollback.py` already defines:
-  - `_rollback_action`
-  - `_loop_undo_action`
-  - `_execute_rollback_action`
-  - `_rollback_execution_results`
-- planning execution metadata already includes `rollback_cues`, `undoable`, and `rollback_actions`
+### Backend-safe handles
 
-Current gap: backend reversal exists, but it is not exposed as a first-class shared follow-through action.
+- loop undo is freshness-safe and exact-handle only:
+  - `POST /loops/{loop_id}/undo`
+  - body requires `expected_event_id`
+  - stale handles are rejected explicitly instead of undoing “whatever is latest”
+- loop undo responses now return enough data to land a fresh receipt:
+  - restored loop payload
+  - `undone_event_id`
+  - `undo_event_id`
+  - `undone_event_type`
+- loop mutation responses now expose reversible-event metadata so the frontend can attach real undo handles:
+  - `latest_reversible_event_id`
+  - `latest_reversible_event_type`
+- planning rollback is now a public transport contract:
+  - `POST /loops/planning/sessions/{session_id}/rollback`
+  - body requires `run_id`
+  - only the latest active run can be rolled back
+  - fully rolled-back runs stay in history but are marked inactive for continuity and analytics
+
+### Shared frontend contract
+
+- `frontend/src/contracts-ui.ts` now includes a first-class `undo` action type on shared operator action cards
+- `RecentShellActionOutcome` now stores both trust copy and a structured executable `undoAction`
+- `frontend/src/executable-undo.ts` centralizes:
+  - loop-event undo handles
+  - planning-run rollback handles
+  - HTTP execution helpers
+  - stale-action failure handling
+  - post-undo receipt shaping
+
+### Shipped surfaces
+
+Executable undo now appears anywhere the backend already exposes a safe inverse contract:
+
+- planning execution receipts and operator handoff cards
+- enrichment apply receipts
+- recent shell-action continuity entries
+- operator “since last” outcome cards
+- command-palette quick undo commands
+
+Successful undo or rollback creates a new landed receipt with a clear resume target. Stale or drifted handles are disabled with explicit reasons instead of silently failing.
 
 ## Undo model
 

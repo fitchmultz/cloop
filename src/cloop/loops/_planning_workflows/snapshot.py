@@ -581,6 +581,24 @@ def _build_rollback_cues(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]
     }
 
 
+def _execution_row_payload(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Parse one planning execution row payload."""
+    return json.loads(str(row.get("result_json") or "{}")) if row.get("result_json") else {}
+
+
+def _row_has_complete_rollback(row: Mapping[str, Any]) -> bool:
+    """Return whether one planning execution row has been fully rolled back."""
+    rollback = _execution_row_payload(row).get("rollback") or {}
+    return bool(rollback.get("rollback_complete", False))
+
+
+def _active_execution_rows(
+    execution_rows: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Return execution rows that still count toward the live planning state."""
+    return [row for row in execution_rows if not _row_has_complete_rollback(row)]
+
+
 def _planning_session_payload(
     row: Mapping[str, Any],
     *,
@@ -590,7 +608,8 @@ def _planning_session_payload(
     workflow = json.loads(str(row.get("plan_json") or "{}"))
     workflow_payload = dict(workflow.get("workflow") or {})
     checkpoints = list(workflow_payload.get("checkpoints") or [])
-    executed_indices = {int(entry["checkpoint_index"]) for entry in execution_rows}
+    active_execution_rows = _active_execution_rows(execution_rows)
+    executed_indices = {int(entry["checkpoint_index"]) for entry in active_execution_rows}
     executed_checkpoint_count = len(executed_indices)
     status: PlanningSessionStatus = "draft"
     if executed_checkpoint_count >= len(checkpoints):
@@ -616,7 +635,9 @@ def _planning_session_payload(
             executed_indices=executed_indices,
         ),
         "generated_at_utc": (workflow_payload.get("context_summary") or {}).get("generated_at_utc"),
-        "last_executed_at_utc": str(execution_rows[-1]["created_at"]) if execution_rows else None,
+        "last_executed_at_utc": (
+            str(active_execution_rows[-1]["created_at"]) if active_execution_rows else None
+        ),
         "status": status,
         "created_at_utc": str(row["created_at"]),
         "updated_at_utc": str(row["updated_at"]),
@@ -630,7 +651,7 @@ def _build_execution_history(
 ) -> list[dict[str, Any]]:
     history: list[dict[str, Any]] = []
     for row in execution_rows:
-        payload = json.loads(str(row["result_json"])) if row.get("result_json") else {}
+        payload = _execution_row_payload(row)
         checkpoint_index = int(row["checkpoint_index"])
         checkpoint_title = ""
         if 0 <= checkpoint_index < len(checkpoints):
@@ -654,6 +675,7 @@ def _build_execution_history(
 
         history.append(
             {
+                "run_id": int(row["id"]),
                 "checkpoint_index": checkpoint_index,
                 "checkpoint_title": checkpoint_title,
                 "executed_at_utc": str(row["created_at"]),
@@ -664,6 +686,8 @@ def _build_execution_history(
                 "follow_up_resources": [dict(item) for item in follow_up_resources],
                 "launch_surfaces": [dict(item) for item in launch_surfaces],
                 "rollback_cues": rollback_cues,
+                "rollback": dict(payload.get("rollback") or {}) or None,
+                "is_active": not _row_has_complete_rollback(row),
             }
         )
     return history
@@ -767,10 +791,9 @@ def _build_execution_analytics(
     execution_history: Sequence[Mapping[str, Any]],
     checkpoints: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    executed_checkpoint_indexes = [int(item["checkpoint_index"]) for item in execution_history]
-    all_results = [
-        result for item in execution_history for result in list(item.get("results") or [])
-    ]
+    active_history = [item for item in execution_history if bool(item.get("is_active", True))]
+    executed_checkpoint_indexes = [int(item["checkpoint_index"]) for item in active_history]
+    all_results = [result for item in active_history for result in list(item.get("results") or [])]
     summary = _build_execution_summary(all_results)
     summary.update(
         {
@@ -781,7 +804,7 @@ def _build_execution_analytics(
                 if index not in executed_checkpoint_indexes
             ],
             "last_executed_at_utc": (
-                str(execution_history[-1]["executed_at_utc"]) if execution_history else None
+                str(active_history[-1]["executed_at_utc"]) if active_history else None
             ),
             "total_operations_executed": len(all_results),
             "completed": bool(checkpoints) and len(executed_checkpoint_indexes) >= len(checkpoints),
@@ -806,7 +829,10 @@ def _build_planning_session_snapshot(
     context_summary = dict(workflow.get("context_summary") or {})
     target_loops = list(workflow.get("target_loops") or [])
     all_results = [
-        result for item in execution_history for result in list(item.get("results") or [])
+        result
+        for item in execution_history
+        if bool(item.get("is_active", True))
+        for result in list(item.get("results") or [])
     ]
 
     return {

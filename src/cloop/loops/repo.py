@@ -112,9 +112,11 @@ from ._repo.planning_sessions import (
     delete_planning_session,
     delete_planning_session_runs,
     get_planning_session,
+    get_planning_session_run,
     list_planning_session_runs,
     list_planning_sessions,
     update_planning_session,
+    update_planning_session_run,
 )
 from ._repo.relationships import (
     insert_loop_link,
@@ -313,6 +315,8 @@ __all__ = [
     "update_planning_session",
     "delete_planning_session",
     "create_planning_session_run",
+    "get_planning_session_run",
+    "update_planning_session_run",
     "list_planning_session_runs",
     "delete_planning_session_runs",
 ]

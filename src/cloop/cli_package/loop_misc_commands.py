@@ -128,10 +128,13 @@ def loop_undo_command(args: Namespace, settings: Settings) -> int:
                 "loop": result["loop"],
                 "undone_event_id": result["undone_event_id"],
                 "undone_event_type": result["undone_event_type"],
+                "undo_event_id": result["undo_event_id"],
             }
         )(
             loop_events.undo_last_event(
                 loop_id=args.id,
+                expected_event_id=args.event_id,
+                claim_token=args.claim_token,
                 conn=conn,
             )
         ),

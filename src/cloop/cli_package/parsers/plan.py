@@ -102,6 +102,22 @@ Examples:
     execute.add_argument("--session", type=int, required=True)
     add_format_option(execute)
 
+    rollback = sub.add_parser(
+        "rollback",
+        help="Roll back the latest active checkpoint execution in a planning session",
+        formatter_class=RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  cloop plan session rollback --session 12 --run 44
+  cloop plan session rollback --session 12 --run 44 --format table
+        """,
+    )
+    rollback.add_argument("--session", type=int, required=True)
+    rollback.add_argument(
+        "--run", type=int, required=True, help="Planning execution run ID to roll back"
+    )
+    add_format_option(rollback)
+
     delete = sub.add_parser("delete", help="Delete a planning session")
     delete.add_argument("id", type=int)
     add_format_option(delete)

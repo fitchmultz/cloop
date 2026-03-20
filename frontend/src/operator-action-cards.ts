@@ -50,7 +50,7 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function locationAttributes(prefix: "open" | "pin" | "stage" | "edit" | "defer", location: ShellLocationContract): string {
+function locationAttributes(prefix: "open" | "pin" | "stage" | "edit" | "defer" | "undo-success", location: ShellLocationContract): string {
   const attributes = [
     ["state", location.state],
     ["recall-tool", location.recallTool],
@@ -76,6 +76,9 @@ function renderEventAttributes(attributes: Record<string, string>): string {
 
 function renderActionButton(card: OperatorActionCard, action: OperatorActionCardAction): string {
   const className = action.variant === "secondary" ? ' class="secondary"' : "";
+  const disabledAttributes = action.disabledReason?.trim()
+    ? ` disabled aria-disabled="true" title="${escapeHtml(action.disabledReason)}"`
+    : "";
 
   switch (action.type) {
     case "pin":
@@ -83,6 +86,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         <button
           type="button"
           ${className}
+          ${disabledAttributes}
           data-pin-label="${escapeHtml(action.pinLabel ?? card.title)}"
           data-pin-description="${escapeHtml(action.description)}"
           ${locationAttributes("pin", action.location)}
@@ -93,6 +97,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         <button
           type="button"
           ${className}
+          ${disabledAttributes}
           ${renderEventAttributes(action.attributes)}
         >${escapeHtml(action.label)}</button>
       `;
@@ -101,6 +106,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         <button
           type="button"
           ${className}
+          ${disabledAttributes}
           data-card-action="stage"
           data-stage-label="${escapeHtml(action.stageLabel)}"
           data-stage-description="${escapeHtml(action.stageDescription?.trim() || action.description)}"
@@ -113,6 +119,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         <button
           type="button"
           ${className}
+          ${disabledAttributes}
           data-card-action="edit"
           data-edit-query="${escapeHtml(action.query)}"
           ${locationAttributes("edit", action.location)}
@@ -123,10 +130,34 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         <button
           type="button"
           ${className}
+          ${disabledAttributes}
           data-card-action="defer"
           data-defer-label="${escapeHtml(action.deferLabel)}"
           data-defer-description="${escapeHtml(action.deferDescription?.trim() || action.description)}"
           ${locationAttributes("defer", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "undo":
+      return `
+        <button
+          type="button"
+          ${className}
+          ${disabledAttributes}
+          data-card-action="undo"
+          data-undo-kind="${escapeHtml(action.undo.kind)}"
+          data-undo-loop-id="${escapeHtml(action.undo.kind === "loop_event" ? String(action.undo.loopId) : "")}"
+          data-undo-expected-event-id="${escapeHtml(action.undo.kind === "loop_event" ? String(action.undo.expectedEventId) : "")}"
+          data-undo-event-type="${escapeHtml(action.undo.kind === "loop_event" ? action.undo.eventType ?? "" : "")}"
+          data-undo-claim-token="${escapeHtml(action.undo.kind === "loop_event" ? action.undo.claimToken ?? "" : "")}"
+          data-undo-session-id="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.sessionId) : "")}"
+          data-undo-run-id="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.runId) : "")}"
+          data-undo-checkpoint-index="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.checkpointIndex) : "")}"
+          data-undo-checkpoint-title="${escapeHtml(action.undo.kind === "planning_run" ? action.undo.checkpointTitle : "")}"
+          data-undo-action-count="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.actionCount) : "")}"
+          data-undo-best-effort="${escapeHtml(action.undo.kind === "planning_run" && action.undo.bestEffort ? "true" : "false")}"
+          data-undo-confirm-title="${escapeHtml(action.confirmTitle?.trim() || "")}"
+          data-undo-confirm-description="${escapeHtml(action.confirmDescription?.trim() || "")}"
+          ${action.successLocation ? locationAttributes("undo-success", action.successLocation) : ""}
         >${escapeHtml(action.label)}</button>
       `;
     case "open":
@@ -135,6 +166,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
         <button
           type="button"
           ${className}
+          ${disabledAttributes}
           ${locationAttributes("open", action.location)}
         >${escapeHtml(action.label)}</button>
       `;

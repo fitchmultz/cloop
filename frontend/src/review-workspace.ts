@@ -3321,6 +3321,7 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
     item: previousItem,
     suggestionId,
     actionType,
+    resultLoop: response.result.loop ?? null,
   });
   recordRecentShellAction(
     withReceiptOutcome(
@@ -3380,6 +3381,7 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
     item: previousItem,
     suggestionId,
     actionType: action.action_type === "reject" ? "reject" : "apply",
+    resultLoop: response.result.loop ?? null,
   });
   recordRecentShellAction(
     withReceiptOutcome(

@@ -124,6 +124,7 @@ from .planning_commands import (
     planning_session_list_command,
     planning_session_move_command,
     planning_session_refresh_command,
+    planning_session_rollback_command,
 )
 from .rag_commands import ask_command, ingest_command
 from .review_commands import (
@@ -316,6 +317,7 @@ PLAN_TARGET = _branch(
                 "move": planning_session_move_command,
                 "refresh": planning_session_refresh_command,
                 "execute": planning_session_execute_command,
+                "rollback": planning_session_rollback_command,
                 "delete": planning_session_delete_command,
             },
         )

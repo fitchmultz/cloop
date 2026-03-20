@@ -37,6 +37,7 @@ from .errors import (
     ValidationError,
 )
 from .serialization import enrich_loop_records_batch
+from .write_ops import _apply_loop_update, _enrich_record
 
 SUGGESTION_APPLYABLE_FIELDS = frozenset(
     {
@@ -234,17 +235,22 @@ def apply_suggestion(
             applied_fields.append(field_name)
 
     if "project" in apply_set and parsed.get("project"):
-        project_id = repo.upsert_project(name=str(parsed["project"]), conn=conn)
-        update_fields["project_id"] = project_id
+        update_fields["project"] = str(parsed["project"])
         applied_fields.append("project")
 
-    with conn:
-        if "tags" in apply_set and parsed.get("tags"):
-            repo.replace_loop_tags(loop_id=loop_id, tag_names=list(parsed["tags"]), conn=conn)
-            applied_fields.append("tags")
+    if "tags" in apply_set and parsed.get("tags"):
+        update_fields["tags"] = list(parsed["tags"])
+        applied_fields.append("tags")
 
+    updated_loop_payload = read_service.get_loop(loop_id=loop_id, conn=conn)
+    with conn:
         if update_fields:
-            repo.update_loop_fields(loop_id=loop_id, fields=update_fields, conn=conn)
+            updated_record = _apply_loop_update(
+                loop_id=loop_id,
+                fields=update_fields,
+                conn=conn,
+            )
+            updated_loop_payload = _enrich_record(record=updated_record, conn=conn)
 
         resolution = "applied" if len(applied_fields) == len(apply_set) else "partial"
         repo.resolve_loop_suggestion(
@@ -255,7 +261,7 @@ def apply_suggestion(
         )
 
     return {
-        "loop": read_service.get_loop(loop_id=loop_id, conn=conn),
+        "loop": updated_loop_payload,
         "suggestion_id": suggestion_id,
         "applied_fields": applied_fields,
         "resolution": resolution,

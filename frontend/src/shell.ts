@@ -26,6 +26,7 @@
 
 import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
 import {
+  markUndoActionUnavailable,
   readContinuityBaseline,
   readRecentShellReceiptEntries,
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
@@ -49,6 +50,8 @@ import {
   persistLocation,
   STATE_DESCRIPTORS,
 } from "./shell-routing";
+import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
+import { confirmDialog } from "./modals";
 import { createShellEventController } from "./shell-events";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createShellOperatorCardRenderer, type ShellOperatorCardRenderer } from "./shell-operator-cards";
@@ -687,6 +690,35 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     removeWorkingSetItem: async (workingSetId, itemId) => workingSetController!.removeWorkingSetItem(workingSetId, itemId),
     pinLocationToWorkingSet: async (location, label, description, options) =>
       workingSetController!.pinLocationToWorkingSet(location, label, description, options),
+    executeUndoAction: async (action, button) => {
+      if (action.requiresConfirmation && action.confirmDescription?.trim()) {
+        const confirmed = await confirmDialog({
+          eyebrow: action.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
+          title: action.confirmTitle?.trim() || action.label,
+          description: action.confirmDescription.trim(),
+          confirmLabel: action.label,
+          confirmVariant: "danger",
+        });
+        if (!confirmed) {
+          return;
+        }
+      }
+
+      try {
+        const result = await runExecutableUndoAction(action);
+        recordRecentShellAction(result.entry);
+        renderShellReceiptRail();
+        if (currentLocation.state === "operator") {
+          await workspaceController?.renderOperatorWorkspace();
+        }
+      } catch (error: unknown) {
+        const reason = staleUndoReason(error) ?? "Undo is no longer available.";
+        button.disabled = true;
+        button.setAttribute("aria-disabled", "true");
+        button.title = reason;
+        markUndoActionUnavailable(action.undo, reason);
+      }
+    },
     addLoopIdsToActiveWorkingSet: async (loopIds) => workingSetController!.addLoopIdsToActiveWorkingSet(loopIds),
     openGroundedChatWithPrompt,
     openMemorySearchWithQuery,

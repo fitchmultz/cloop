@@ -193,6 +193,7 @@ describe("continuity-intelligence", () => {
         },
         resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 19 }),
         rollbackLabel: "Undo from planning if needed.",
+        undoAction: null,
       },
     });
     vi.setSystemTime(new Date("2026-03-17T12:00:10Z"));
@@ -223,6 +224,7 @@ describe("continuity-intelligence", () => {
         },
         resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 19 }),
         rollbackLabel: "Undo from planning if needed.",
+        undoAction: null,
       },
     });
 
@@ -278,6 +280,7 @@ describe("continuity-intelligence", () => {
         },
         resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 9 }),
         rollbackLabel: "Rejecting is no longer available after apply.",
+        undoAction: null,
       },
     });
 
@@ -313,6 +316,7 @@ describe("continuity-intelligence", () => {
         },
         resumeLocation: location({ state: "recall", recallTool: "rag", query: "evidence" }),
         rollbackLabel: "Remove the anchor to undo this.",
+        undoAction: null,
       },
     });
     vi.setSystemTime(new Date("2026-03-17T12:00:10Z"));
@@ -343,6 +347,7 @@ describe("continuity-intelligence", () => {
         },
         resumeLocation: location({ state: "recall", recallTool: "rag", query: "evidence" }),
         rollbackLabel: "Remove the anchor to undo this.",
+        undoAction: null,
       },
     });
 

@@ -159,6 +159,12 @@ def test_planning_workflow_endpoints(
         first_execute_payload["execution"]["results"][0]["rollback_actions"][0]["kind"]
         == "loop.undo"
     )
+    assert (
+        first_execute_payload["execution"]["results"][0]["rollback_actions"][0]["payload"][
+            "expected_event_id"
+        ]
+        > 0
+    )
     assert first_execute_payload["snapshot"]["session"]["executed_checkpoint_count"] == 1
     assert first_execute_payload["snapshot"]["session"]["current_checkpoint_index"] == 1
     freshness = first_execute_payload["snapshot"]["context_freshness"]
@@ -229,3 +235,62 @@ def test_planning_workflow_endpoints(
 
     with db.core_connection(get_settings()) as conn:
         assert repo.get_planning_session(session_id=session_id, conn=conn) is None
+
+
+def test_planning_workflow_rollback_endpoint(
+    make_test_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = make_test_client()
+    first_id = _capture(client, "Prepare launch checklist")
+    second_id = _capture(client, "Confirm launch owner", actionable=True)
+
+    monkeypatch.setattr(
+        "cloop.loops.planning_workflows.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(_planner_payload(first_id, second_id, title="Weekly launch reset")),
+            {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+
+    create_response = client.post(
+        "/loops/planning/sessions",
+        json={
+            "name": "weekly-reset-rollback",
+            "prompt": "Build a checkpointed plan for the launch work.",
+            "query": "status:open",
+            "loop_limit": 10,
+            "include_memory_context": True,
+            "include_rag_context": False,
+            "rag_k": 5,
+        },
+    )
+    assert create_response.status_code == 201
+    session_id = create_response.json()["session"]["id"]
+
+    execute_response = client.post(f"/loops/planning/sessions/{session_id}/execute")
+    assert execute_response.status_code == 200
+    execute_payload = execute_response.json()
+    run_id = execute_payload["execution"]["run_id"]
+
+    rollback_response = client.post(
+        f"/loops/planning/sessions/{session_id}/rollback",
+        json={"run_id": run_id},
+    )
+    assert rollback_response.status_code == 200
+    rollback_payload = rollback_response.json()
+    assert rollback_payload["rollback"]["rollback_complete"] is True
+    assert rollback_payload["snapshot"]["session"]["current_checkpoint_index"] == 0
+    assert rollback_payload["snapshot"]["session"]["executed_checkpoint_count"] == 0
+    assert (
+        rollback_payload["snapshot"]["execution_history"][0]["rollback"]["rollback_complete"]
+        is True
+    )
+    assert rollback_payload["snapshot"]["execution_history"][0]["is_active"] is False
+
+    first_loop = client.get(f"/loops/{first_id}")
+    second_loop = client.get(f"/loops/{second_id}")
+    assert first_loop.status_code == 200
+    assert second_loop.status_code == 200
+    assert first_loop.json()["next_action"] is None
+    assert second_loop.json()["status"] == "actionable"

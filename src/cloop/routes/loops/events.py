@@ -1,11 +1,11 @@
 """Loop event history and undo endpoints.
 
 Purpose:
-    HTTP endpoints for loop event history and undo operations.
+    HTTP endpoints for loop event history and exact-event undo operations.
 
 Responsibilities:
     - Retrieve paginated event history for a loop
-    - Undo reversible events (update, status_change, close)
+    - Undo one exact reversible event with freshness validation
     - Provide SSE stream for real-time loop events
     - Support cursor-based replay for event stream reconnection
     - Send periodic heartbeats to keep SSE connections alive
@@ -17,7 +17,7 @@ Non-scope:
 
 Endpoints:
 - GET /{loop_id}/events: Get event history for a loop
-- POST /{loop_id}/undo: Undo the most recent reversible event
+- POST /{loop_id}/undo: Undo the current latest reversible event when it matches the expected handle
 - GET /events/stream: SSE stream of loop events
 """
 
@@ -35,6 +35,7 @@ from ...loops import events as loop_events
 from ...schemas.loops import (
     LoopEventListResponse,
     LoopEventResponse,
+    LoopUndoRequest,
     LoopUndoResponse,
 )
 from ...sse import format_sse_comment, format_sse_event
@@ -83,24 +84,33 @@ def loop_events_endpoint(
 @router.post("/{loop_id}/undo", response_model=LoopUndoResponse)
 def loop_undo_endpoint(
     loop_id: int,
+    request: LoopUndoRequest,
     settings: SettingsDep,
     idempotency_key: str | None = IdempotencyKeyHeader,
 ) -> LoopUndoResponse | JSONResponse:
-    """Undo the most recent reversible event for a loop.
+    """Undo one exact reversible event for a loop.
 
     Reversible events include: update, status_change, close.
-    Enrichment, claim, and timer events cannot be undone.
-
-    Returns the updated loop and details of the undone event.
+    The request must name the exact event ID that is still the latest reversible
+    event for the loop. If newer reversible work landed, undo is rejected as stale.
     """
-    payload = {"loop_id": loop_id}
+    payload = {
+        "loop_id": loop_id,
+        "expected_event_id": request.expected_event_id,
+        "claim_token": request.claim_token,
+    }
     result = run_idempotent_loop_route(
         settings=settings,
         method="POST",
         path=f"/loops/{loop_id}/undo",
         idempotency_key=idempotency_key,
         payload=payload,
-        execute=lambda conn: _undo_response(loop_id=loop_id, conn=conn),
+        execute=lambda conn: _undo_response(
+            loop_id=loop_id,
+            expected_event_id=request.expected_event_id,
+            claim_token=request.claim_token,
+            conn=conn,
+        ),
     )
 
     if isinstance(result, JSONResponse):
@@ -108,13 +118,25 @@ def loop_undo_endpoint(
     return LoopUndoResponse(**result)
 
 
-def _undo_response(*, loop_id: int, conn: Any) -> dict[str, object]:
+def _undo_response(
+    *,
+    loop_id: int,
+    expected_event_id: int,
+    claim_token: str | None,
+    conn: Any,
+) -> dict[str, object]:
     """Execute undo once and normalize the route response body."""
-    result = loop_events.undo_last_event(loop_id=loop_id, conn=conn)
+    result = loop_events.undo_last_event(
+        loop_id=loop_id,
+        expected_event_id=expected_event_id,
+        claim_token=claim_token,
+        conn=conn,
+    )
     return LoopUndoResponse(
         loop=build_loop_response(result["loop"]),
         undone_event_id=result["undone_event_id"],
         undone_event_type=result["undone_event_type"],
+        undo_event_id=result["undo_event_id"],
     ).model_dump()
 
 
@@ -132,20 +154,17 @@ def loop_events_stream(
     Heartbeat comments are sent every 30 seconds to keep connection alive.
     """
     heartbeat_interval = settings.webhook_heartbeat_interval
-    # For testing: if heartbeat is very short, also limit stream duration
     max_iterations = 100 if heartbeat_interval < 1 else None
 
     def event_generator() -> Iterator[str]:
         conn = None
         iterations = 0
         try:
-            # Open database connection (check_same_thread=False for SSE generator thread safety)
             conn = sqlite3.connect(settings.core_db_path, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             for pragma, value in db.PRAGMAS:
                 conn.execute(f"PRAGMA {pragma}={value}")
 
-            # Determine starting point for replay
             start_id = 0
             if last_event_id is not None:
                 try:
@@ -158,7 +177,6 @@ def loop_events_stream(
                 except ValueError:
                     pass
 
-            # Send historical events first (for replay)
             if start_id > 0:
                 rows = conn.execute(
                     """
@@ -184,7 +202,6 @@ def loop_events_stream(
                         event_id=str(row["id"]),
                     )
 
-            # Send live events via polling
             last_id = start_id
             last_heartbeat = time.monotonic()
 
@@ -193,13 +210,11 @@ def loop_events_stream(
                 if max_iterations is not None and iterations > max_iterations:
                     break
 
-                # Send heartbeat if needed
                 now = time.monotonic()
                 if now - last_heartbeat >= heartbeat_interval:
                     yield format_sse_comment(f"heartbeat {now}")
                     last_heartbeat = now
 
-                # Check for new events
                 rows = conn.execute(
                     """
                     SELECT id, loop_id, event_type, payload_json, created_at
@@ -226,19 +241,9 @@ def loop_events_stream(
                     )
                     last_id = row["id"]
 
-                # Short sleep to prevent tight loop
-                time.sleep(0.5)
-
+                time.sleep(0.25)
         finally:
             if conn is not None:
                 conn.close()
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering
-        },
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream")

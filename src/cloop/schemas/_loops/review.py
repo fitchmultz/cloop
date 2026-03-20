@@ -70,12 +70,20 @@ class LoopEventListResponse(BaseModel):
     next_cursor: int | None = None
 
 
+class LoopUndoRequest(BaseModel):
+    """Request the exact reversible event to undo for one loop."""
+
+    expected_event_id: int
+    claim_token: str | None = None
+
+
 class LoopUndoResponse(BaseModel):
     """Response from undo operation."""
 
     loop: LoopResponse
     undone_event_id: int
     undone_event_type: str
+    undo_event_id: int
 
 
 class ReviewSessionMoveRequest(BaseModel):

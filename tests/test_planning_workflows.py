@@ -255,6 +255,12 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         assert (
             first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
         )
+        assert (
+            first_execution["execution"]["results"][0]["rollback_actions"][0]["payload"][
+                "expected_event_id"
+            ]
+            > 0
+        )
         assert first_snapshot["session"]["executed_checkpoint_count"] == 1
         assert first_snapshot["session"]["current_checkpoint_index"] == 1
         freshness = first_snapshot["context_freshness"]

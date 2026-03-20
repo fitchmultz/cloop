@@ -60,6 +60,7 @@ import type {
   TrustTone,
 } from "./contracts-ui";
 import {
+  markUndoActionUnavailable,
   readRecentShellActions,
   readResumeAnchors,
   recordRecentShellAction,
@@ -76,6 +77,7 @@ import {
   type PaletteRankItem,
   type PaletteRankingContext,
 } from "./command-palette-ranking";
+import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
 import * as modals from "./modals";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { updateBulkActionBar } from "./bulk-actions";
@@ -191,6 +193,7 @@ interface CommandPaletteCommand extends PaletteRankItem {
   };
   execute: () => Promise<void>;
   recentAction?: RecentAction | undefined;
+  skipAutomaticReceipt?: boolean | undefined;
 }
 
 interface CommandPaletteController {
@@ -1932,10 +1935,69 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         return true;
       })
       .slice(0, 8)
-      .map(({ entry, index, resolved }) => {
+      .flatMap(({ entry, index, resolved }) => {
         const workingSetLabel = resolved.workingSet?.workingSetName
           ?? (resolved.workingSetId != null ? `Working set #${resolved.workingSetId}` : null);
-        return {
+        const commands: CommandPaletteCommand[] = [];
+        const undoAction = entry.outcome?.undoAction ?? null;
+        if (undoAction && !undoAction.disabledReason) {
+          commands.push({
+            id: `recent-undo-${recentShellActionDedupKey(entry)}`,
+            group: "recent",
+            title: `${undoAction.label}: ${resolved.displayTitle}`,
+            subtitle: undoAction.description,
+            keywords: [
+              "undo",
+              "rollback",
+              resolved.displayTitle,
+              resolved.displaySummary,
+              workingSetLabel ?? "",
+              activeWorkingSetName ?? "",
+            ],
+            badge: "Undo",
+            location: resolved.resumeLocation,
+            contextBoost: Math.max(0, 88 - index * 8),
+            detail: {
+              eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
+              description: undoAction.description,
+              meta: [
+                workingSetLabel ? `Working set: ${workingSetLabel}` : null,
+                `Recorded ${formatRelativeTime(entry.occurredAt)}`,
+                undoAction.undo.kind === "planning_run"
+                  ? `Rollback actions: ${undoAction.undo.actionCount}`
+                  : `Loop event: #${undoAction.undo.expectedEventId}`,
+              ].filter((value): value is string => Boolean(value)),
+            },
+            skipAutomaticReceipt: true,
+            execute: async () => {
+              if (undoAction.requiresConfirmation && undoAction.confirmDescription?.trim()) {
+                const confirmed = await modals.confirmDialog({
+                  eyebrow: undoAction.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
+                  title: undoAction.confirmTitle?.trim() || undoAction.label,
+                  description: undoAction.confirmDescription.trim(),
+                  confirmLabel: undoAction.label,
+                  confirmVariant: "danger",
+                });
+                if (!confirmed) {
+                  return;
+                }
+              }
+              try {
+                const result = await runExecutableUndoAction(undoAction);
+                recordRecentShellAction(result.entry);
+                await bindings.refreshWorkspace();
+                if (result.resumeLocation) {
+                  await bindings.openLocation(result.resumeLocation);
+                }
+              } catch (error: unknown) {
+                const reason = staleUndoReason(error) ?? "Undo is no longer available.";
+                markUndoActionUnavailable(undoAction.undo, reason);
+                throw error;
+              }
+            },
+          } satisfies CommandPaletteCommand);
+        }
+        commands.push({
           id: `recent-${recentShellActionDedupKey(entry)}`,
           group: "recent",
           title: resolved.displayTitle,
@@ -1964,7 +2026,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           execute: async () => {
             await bindings.openLocation(resolved.resumeLocation!);
           },
-        } satisfies CommandPaletteCommand;
+        } satisfies CommandPaletteCommand);
+        return commands;
       });
   }
 
@@ -2090,27 +2153,29 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     try {
       await command.execute();
       storeRecentCommand(command);
-      const currentContext = bindings.getContext();
-      const historyLocation = commandHistoryLocation(command, currentContext.currentLocation);
-      const receiptCard = buildCommandReceipt(command, currentContext, historyLocation);
-      recordRecentShellAction(
-        withReceiptOutcome(
-          {
-            kind: commandHistoryKind(command),
-            label: commandHistoryLabel(command, historyLocation),
-            description: command.subtitle,
-            location: historyLocation,
-            metadata: {
-              source: "command-palette",
-              commandId: command.id,
-              group: command.group,
-              badge: command.badge,
+      if (!command.skipAutomaticReceipt) {
+        const currentContext = bindings.getContext();
+        const historyLocation = commandHistoryLocation(command, currentContext.currentLocation);
+        const receiptCard = buildCommandReceipt(command, currentContext, historyLocation);
+        recordRecentShellAction(
+          withReceiptOutcome(
+            {
+              kind: commandHistoryKind(command),
+              label: commandHistoryLabel(command, historyLocation),
+              description: command.subtitle,
+              location: historyLocation,
+              metadata: {
+                source: "command-palette",
+                commandId: command.id,
+                group: command.group,
+                badge: command.badge,
+              },
             },
-          },
-          receiptCard,
-          historyLocation,
-        ),
-      );
+            receiptCard,
+            historyLocation,
+          ),
+        );
+      }
       setOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Command failed";

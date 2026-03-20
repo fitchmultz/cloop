@@ -55,6 +55,20 @@ from .models import (
 from .snapshot import _snapshot_existing_loops
 
 
+def _loop_rollback_action_from_payload(
+    *, loop: dict[str, Any], summary: str
+) -> dict[str, Any] | None:
+    """Build an exact loop-event rollback action from a mutated loop payload."""
+    latest_event_id = loop.get("latest_reversible_event_id")
+    if not isinstance(latest_event_id, int):
+        return None
+    return _loop_undo_action(
+        loop_id=int(loop["id"]),
+        expected_event_id=latest_event_id,
+        summary=summary,
+    )
+
+
 def _execute_create_loop_operation(
     *,
     operation: CreateLoopOperationModel,
@@ -127,10 +141,14 @@ def _execute_update_loop_operation(
             )
         ],
         rollback_actions=[
-            _loop_undo_action(
-                loop_id=operation.loop_id,
-                summary=f"Undo loop update for loop {operation.loop_id}",
-            )
+            action
+            for action in [
+                _loop_rollback_action_from_payload(
+                    loop=updated,
+                    summary=f"Undo loop update for loop {operation.loop_id}",
+                )
+            ]
+            if action is not None
         ],
         provenance={"loop_ids": [operation.loop_id], "fields": sorted(fields.keys())},
         undoable=True,
@@ -166,10 +184,14 @@ def _execute_transition_loop_operation(
             )
         ],
         rollback_actions=[
-            _loop_undo_action(
-                loop_id=operation.loop_id,
-                summary=f"Undo loop status transition for loop {operation.loop_id}",
-            )
+            action
+            for action in [
+                _loop_rollback_action_from_payload(
+                    loop=updated,
+                    summary=f"Undo loop status transition for loop {operation.loop_id}",
+                )
+            ]
+            if action is not None
         ],
         provenance={
             "loop_ids": [operation.loop_id],
@@ -209,10 +231,14 @@ def _execute_close_loop_operation(
             )
         ],
         rollback_actions=[
-            _loop_undo_action(
-                loop_id=operation.loop_id,
-                summary=f"Undo loop close for loop {operation.loop_id}",
-            )
+            action
+            for action in [
+                _loop_rollback_action_from_payload(
+                    loop=updated,
+                    summary=f"Undo loop close for loop {operation.loop_id}",
+                )
+            ]
+            if action is not None
         ],
         provenance={
             "loop_ids": [operation.loop_id],
@@ -344,12 +370,16 @@ def _execute_query_bulk_update_operation(
             for loop_id in affected_loop_ids
         ],
         rollback_actions=[
-            _loop_undo_action(
-                loop_id=int(item["loop_id"]),
-                summary=f"Undo query bulk update for loop {int(item['loop_id'])}",
-            )
+            action
             for item in list(result.get("results") or [])
-            if item.get("ok") and item.get("loop_id") is not None
+            if item.get("ok") and isinstance(item.get("loop"), dict)
+            for action in [
+                _loop_rollback_action_from_payload(
+                    loop=dict(item["loop"]),
+                    summary=f"Undo query bulk update for loop {int(item['loop_id'])}",
+                )
+            ]
+            if action is not None
         ],
         provenance={
             "query": operation.query,
@@ -405,12 +435,16 @@ def _execute_query_bulk_close_operation(
             for loop_id in affected_loop_ids
         ],
         rollback_actions=[
-            _loop_undo_action(
-                loop_id=int(item["loop_id"]),
-                summary=f"Undo query bulk close for loop {int(item['loop_id'])}",
-            )
+            action
             for item in list(result.get("results") or [])
-            if item.get("ok") and item.get("loop_id") is not None
+            if item.get("ok") and isinstance(item.get("loop"), dict)
+            for action in [
+                _loop_rollback_action_from_payload(
+                    loop=dict(item["loop"]),
+                    summary=f"Undo query bulk close for loop {int(item['loop_id'])}",
+                )
+            ]
+            if action is not None
         ],
         provenance={
             "query": operation.query,
@@ -465,12 +499,16 @@ def _execute_query_bulk_snooze_operation(
             for loop_id in affected_loop_ids
         ],
         rollback_actions=[
-            _loop_undo_action(
-                loop_id=int(item["loop_id"]),
-                summary=f"Undo query bulk snooze for loop {int(item['loop_id'])}",
-            )
+            action
             for item in list(result.get("results") or [])
-            if item.get("ok") and item.get("loop_id") is not None
+            if item.get("ok") and isinstance(item.get("loop"), dict)
+            for action in [
+                _loop_rollback_action_from_payload(
+                    loop=dict(item["loop"]),
+                    summary=f"Undo query bulk snooze for loop {int(item['loop_id'])}",
+                )
+            ]
+            if action is not None
         ],
         provenance={
             "query": operation.query,

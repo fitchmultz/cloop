@@ -106,6 +106,7 @@ from ._planning_workflows.service import (
     list_planning_sessions,
     move_planning_session,
     refresh_planning_session_impl,
+    rollback_planning_session_run,
 )
 from ._planning_workflows.snapshot import (
     _build_context_freshness,
@@ -252,4 +253,5 @@ __all__ = [
     "refresh_planning_session",
     "delete_planning_session",
     "execute_planning_session_checkpoint",
+    "rollback_planning_session_run",
 ]

@@ -39,25 +39,35 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Session 1 — Executable undo actions
+### Session 1 — Deterministic inverse contracts for remaining durable mutations
 
-**Primary spec:** [`docs/ux/undo-actions.md`](ux/undo-actions.md)
+**Primary specs:**
+- [`docs/ux/undo-actions.md`](ux/undo-actions.md)
+- [`docs/ux/working-sets.md`](ux/working-sets.md)
+- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 
-Goal: promote existing backend undo and rollback support into first-class executable receipt/history actions wherever reversal is already supported.
+Goal: extend the new executable-undo model to the highest-signal durable mutations that still surface advisory rollback copy or no rollback at all.
 
 Planned sequence:
 
-1. lock the safe undo handle and transport contract
-2. wire shared receipt/history/card actions to that contract
-3. extend executable undo coverage across planning, review, enrichment, working-set, and command-palette follow-through
+1. inventory remaining receipt emitters and trust surfaces that still describe reversibility without a transport-safe inverse contract
+2. add exact-handle inverse contracts in the backend for the next highest-value durable mutations, starting with working-set continuity changes and other operator-owned state that already lands as receipts
+3. plug those new inverse contracts into the shared undo model so receipt cards, recent history, and palette quick actions inherit coverage without new frontend forks
 
-Supporting specs:
+### Session 2 — Outcome-centric follow-through consolidation
 
-- [`docs/ux/trust-surfaces.md`](ux/trust-surfaces.md)
+**Primary specs:**
+- [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
+- [`docs/ux/command-palette.md`](ux/command-palette.md)
 - [`docs/ux/ai-action-cards.md`](ux/ai-action-cards.md)
-- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
-- [`docs/ux/review-redesign.md`](ux/review-redesign.md)
-- [`docs/ux/state-navigation.md`](ux/state-navigation.md)
+
+Goal: collapse the remaining duplicated “latest receipt”, “since last”, and palette-recent follow-through patterns into one prioritized outcome feed with consistent resume, undo, and rerun affordances.
+
+Planned sequence:
+
+1. define one canonical ranking model for landed outcomes across operator home, receipt rail, and command-palette recents
+2. remove duplicated render paths that restate the same landed result with different copy or action ordering
+3. preserve the same outcome contract everywhere so new durable workflows only need to emit one receipt/handoff payload
 
 ## Delivery model
 

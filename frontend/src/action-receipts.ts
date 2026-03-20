@@ -25,6 +25,7 @@
 import type {
   OperatorActionCard,
   OperatorActionCardAction,
+  OperatorActionCardUndoAction,
   OperatorActionHandoff,
   OperatorActionPreviewItem,
   RecentShellActionEntry,
@@ -128,6 +129,10 @@ export function createReceiptCard(input: CreateReceiptCardInput): OperatorAction
   };
 }
 
+function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {
+  return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
+}
+
 export function withReceiptOutcome(
   entry: Omit<RecentShellActionEntry, "occurredAt">,
   card: OperatorActionCard,
@@ -139,6 +144,7 @@ export function withReceiptOutcome(
       card,
       resumeLocation,
       rollbackLabel: card.trust.rollbackLabel ?? null,
+      undoAction: findUndoAction(card),
     },
   };
 }

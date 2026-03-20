@@ -425,22 +425,26 @@ Examples:
     # loop undo
     undo_parser = loop_subparsers.add_parser(
         "undo",
-        help="Undo the last reversible action",
+        help="Undo one exact reversible action",
         description=(
-            "Undo the most recent reversible event (update, status_change, close). "
-            "This restores the loop to its previous state."
+            "Undo the current latest reversible event (update, status_change, close) "
+            "only when it matches the exact event handle you provide."
         ),
         epilog="""
 Examples:
-  # Undo the most recent change
-  cloop loop undo 123
+  # Undo the current latest reversible event 456 for loop 123
+  cloop loop undo 123 --event-id 456
 
-  # Show result in table format
-  cloop loop undo 123 --format table
+  # Provide a claim token for claimed loops
+  cloop loop undo 123 --event-id 456 --claim-token abc123 --format table
         """,
         formatter_class=RawDescriptionHelpFormatter,
     )
     undo_parser.add_argument("id", type=int, help="Loop ID")
+    undo_parser.add_argument(
+        "--event-id", type=int, required=True, help="Exact reversible event ID to undo"
+    )
+    undo_parser.add_argument("--claim-token", help="Claim token for claimed loops")
     add_format_option(undo_parser)
 
     # loop metrics

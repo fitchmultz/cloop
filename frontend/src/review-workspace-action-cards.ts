@@ -27,6 +27,7 @@ import { createReceiptCard } from "./action-receipts";
 import type {
   OperatorActionCard,
   OperatorActionCardAction,
+  OperatorActionCardUndoAction,
   ShellLocationContract,
   TrustSurfaceMetadata,
 } from "./contracts-ui";
@@ -51,6 +52,7 @@ import {
   resolveWorkingSetSessionMetadata,
   type ReviewWorkspaceHandoffContext,
 } from "./review-workspace-handoffs";
+import { buildLoopUndoAction, buildPlanningRollbackAction } from "./executable-undo";
 import { createLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
 
@@ -83,6 +85,10 @@ function pinAction(
     description,
     pinLabel,
   };
+}
+
+function isUndoAction(value: OperatorActionCardUndoAction | null): value is OperatorActionCardUndoAction {
+  return value != null;
 }
 
 function eventAction(
@@ -705,6 +711,7 @@ export function buildEnrichmentDecisionReceiptCard(options: {
   item: EnrichmentReviewQueueItemResponse | null;
   suggestionId: number;
   actionType: "apply" | "reject" | "clarify";
+  resultLoop?: import("./domain").LoopResponse | null;
 }): OperatorActionCard {
   const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
   const loop = options.item?.loop ?? null;
@@ -764,9 +771,18 @@ export function buildEnrichmentDecisionReceiptCard(options: {
     resumeLabel: "Resume queue",
     resumeDescription: summary,
     pinLabel: `Enrichment review · ${options.sessionName}`,
-    actions: loop
-      ? [openAction("Open affected loop in Do", doLocation, `Inspect ${loopTitle(loop)} in Do`, "secondary")]
-      : [],
+    actions: [
+      ...(loop
+        ? [openAction("Open affected loop in Do", doLocation, `Inspect ${loopTitle(loop)} in Do`, "secondary")]
+        : []),
+      ...((options.actionType === "apply" && options.resultLoop)
+        ? [
+            buildLoopUndoAction(options.resultLoop, {
+              description: `Undo the applied enrichment suggestion for ${loopTitle(options.resultLoop)}.`,
+            }),
+          ].filter(isUndoAction)
+        : []),
+    ],
   });
 }
 
@@ -844,6 +860,11 @@ export function buildPlanningExecutionReceiptCard(options: {
     resumeLabel: primarySurface ? "Open next surface" : "Resume plan",
     resumeDescription: summary,
     pinLabel: `${options.snapshot.session.name} · ${options.latestExecution.checkpoint_title}`,
+    actions: [
+      ...[
+        buildPlanningRollbackAction(options.snapshot.session.id, options.latestExecution),
+      ].filter(isUndoAction),
+    ],
   });
 }
 

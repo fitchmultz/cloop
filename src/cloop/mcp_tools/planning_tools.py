@@ -6,7 +6,7 @@ Purpose:
 
 Responsibilities:
     - Register MCP tools for planning session CRUD
-    - Register MCP tools for planning session refresh, movement, and execution
+    - Register MCP tools for planning session refresh, movement, execution, and rollback
     - Reuse shared MCP idempotency and error-handling helpers around
       `loops/planning_workflows.py`
 
@@ -302,6 +302,46 @@ def plan_session_execute(
 
 
 @with_mcp_error_handling
+def plan_session_rollback(
+    session_id: int,
+    run_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Roll back the latest active planning execution for a session.
+
+    Use this when a recently executed checkpoint produced a reversible outcome
+    and you want to run the shared rollback contract instead of manually
+    reversing each downstream change.
+
+    Args:
+        session_id: Planning session ID.
+        run_id: Execution run ID returned by `plan.session.execute` or stored in
+            `execution_history[*].run_id`.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict with:
+        - `rollback`: attempted/failed action counts plus explicit failure detail
+        - `snapshot`: updated planning-session snapshot after rollback
+
+    Raises:
+        ToolError: If the rollback handle is stale, the run does not exist, or
+            the target execution has no rollback actions.
+    """
+    payload = {"session_id": session_id, "run_id": run_id}
+    return run_idempotent_tool_mutation(
+        tool_name="plan.session.rollback",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: planning_workflows.rollback_planning_session_run(
+            session_id=session_id,
+            run_id=run_id,
+            conn=conn,
+        ),
+    )
+
+
+@with_mcp_error_handling
 def plan_session_delete(
     session_id: int,
     request_id: str | None = None,
@@ -340,4 +380,5 @@ def register_planning_tools(mcp: "FastMCP") -> None:
     mcp.tool(name="plan.session.move")(with_db_init(plan_session_move))
     mcp.tool(name="plan.session.refresh")(with_db_init(plan_session_refresh))
     mcp.tool(name="plan.session.execute")(with_db_init(plan_session_execute))
+    mcp.tool(name="plan.session.rollback")(with_db_init(plan_session_rollback))
     mcp.tool(name="plan.session.delete")(with_db_init(plan_session_delete))
