@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to make landed outcomes as repeatable as they are resumable now that operator home, the receipt rail, and command-palette recents share one ranked follow-through model.
+The current priority is to relax brittle AI-runtime constraints so stochastic planning, chat, and enrichment flows can succeed through more than one valid model/tool path before more UX-level workflow affordances land.
 
 ## Direction
 
@@ -40,7 +40,121 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Shared rerun and refresh affordances
+### Next — Relax brittle AI-runtime constraints
+
+**Primary specs:**
+- [`docs/ai_runtime.md`](ai_runtime.md)
+- [`README.md`](../README.md)
+- [`docs/verification_checklist.md`](verification_checklist.md)
+
+Goal: keep strict contracts at deterministic edges while widening the stochastic middle so chat, planning, enrichment, and MCP/operator flows do not fail just because one preferred model/tool path is unavailable.
+
+Why this comes first:
+- runtime brittleness currently creates avoidable failures before the user even reaches the higher-level rerun/refresh UX
+- the current single-path assumptions leak into HTTP, CLI, MCP, docs, tests, and the frontend contract, so fixing them first reduces follow-on churn
+- later handoff UX work should build on more flexible execution contracts instead of immediately depending on contracts we already know are too narrow
+
+#### Slice 1 — Selector capability negotiation and model fallback
+
+Objective: stop treating one exact selector as the only viable runtime path when the repo already documents multiple acceptable selectors.
+
+Planned work:
+1. define one shared ordered selector-preference contract for chat and organizer generation
+2. add capability detection against pi-available models before first request execution
+3. resolve requested selector vs actual runtime selector explicitly in health, logs, and response metadata
+4. preserve an exact-selector mode for operators who want strict pinning
+5. align `.env.example`, README, runtime docs, and verification docs around preferred path + fallback path instead of fail-fast-only guidance
+
+Acceptance bar:
+- Cloop prefers `zai/glm-5` when available
+- Cloop can fall through to documented alternatives without manual code changes
+- operators can still force exact-selector behavior when they need it
+- health/debug output shows requested selector, resolved selector, and whether fallback was used
+
+#### Slice 2 — Replace the global one-round agent loop assumption
+
+Objective: remove the hidden assumption that a valid AI-assisted run should complete through one exact tool-loop shape.
+
+Planned work:
+1. replace the single global `CLOOP_PI_MAX_TOOL_ROUNDS` assumption with per-surface budgets
+2. define separate defaults for:
+   - advisory chat
+   - planning generation
+   - enrichment generation
+   - RAG answer generation
+   - mutation-heavy or tool-mutating flows
+3. keep hard bounds, but treat them as safety budgets instead of one canonical workflow script
+4. expose exhaustion outcomes in a structured way so clients can show partial progress, tool traces, and next-step guidance
+5. update tests and docs so multi-round success is treated as valid where the surface allows it
+
+Acceptance bar:
+- no shared default assumes that one round is the universally correct path
+- read-only flows can use more than one tool round when justified
+- mutating flows keep bounded, explicit safety limits
+- terminal `tool_round_limit` errors still exist, but no longer reflect a repo-wide single-step expectation
+
+#### Slice 3 — Preserve multi-tool outcomes instead of collapsing them
+
+Objective: stop forcing stochastic multi-step tool behavior through one preferred intermediate artifact.
+
+Planned work:
+1. evolve the shared chat/runtime contract from singular `tool_result` to plural tool-result handling
+2. preserve ordered `tool_calls` and `tool_results` across HTTP, CLI, MCP, frontend state, and interaction logs
+3. keep a compatibility summary field only as a migration bridge where existing surfaces still expect one primary result
+4. ensure receipts and debug views can show multiple valid tool outcomes without losing provenance
+5. update transport docs and examples to describe outcome-oriented handling rather than one canonical tool artifact
+
+Acceptance bar:
+- multi-tool runs no longer lose information in public response payloads
+- frontend/operator surfaces can render more than one tool outcome cleanly
+- logging preserves the actual tool sequence that occurred
+- compatibility shims are transitional and clearly scoped
+
+#### Slice 4 — Add bounded alternate strategies for read-only generation paths
+
+Objective: avoid repeating one failing path when the request has not produced side effects and another valid strategy could succeed.
+
+Planned work:
+1. define safe alternate-strategy rules for read-only flows only:
+   - grounded chat without mutations
+   - planning generation
+   - enrichment suggestion generation
+   - RAG answer generation
+2. use retryability signals and capability detection to choose between:
+   - retry same selector once
+   - fallback selector
+   - no-tool / lower-budget retry where appropriate
+3. keep mutation-started flows single-path after side effects begin
+4. record which strategy succeeded so operators can audit why a request completed
+5. keep failure contracts explicit when all bounded strategies are exhausted
+
+Acceptance bar:
+- retryable upstream failures can use one bounded alternate strategy when no side effects occurred
+- mutation-producing flows do not silently branch after work begins
+- logs and responses preserve provenance for fallback/retry decisions
+- operators still get deterministic final failure states when all allowed strategies fail
+
+#### Slice 5 — De-brittle prompts, tests, and operator guidance around stochastic behavior
+
+Objective: stop baking exact wording and exact preferred process into the surrounding harness when task-level invariants are what actually matter.
+
+Planned work:
+1. remove tests that require exact prompt prose where semantic intent is enough
+2. prefer assertions about:
+   - structured contract validity
+   - grounding actually being applied
+   - correct invariants at deterministic boundaries
+   - task completion / safety outcomes
+3. trim docs that imply one mandatory reasoning path or one mandatory tool path unless that constraint is truly required
+4. update examples so they present preferred paths as defaults, not the only valid path
+5. keep strict JSON/schema/output requirements only where deterministic downstream code depends on them
+
+Acceptance bar:
+- prompt iteration does not break tests unless behavior or contracts change
+- docs distinguish preferred path from required invariant
+- structured boundaries remain strict while stochastic internals become less scripted
+
+### After that — Shared rerun and refresh affordances
 
 **Primary specs:**
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
@@ -49,11 +163,17 @@ The next roadmap slice starts from work that is already live:
 
 Goal: make landed outcomes as repeatable as they are resumable by standardizing rerun, refresh, and regenerate affordances for planning, review, and recall flows.
 
+Why it follows the runtime slice:
+- rerun/refresh UX should sit on top of flexible execution contracts, not re-encode today’s brittle runtime assumptions
+- shared action cards need better provenance from selector resolution, alternate strategies, and richer multi-tool outcomes
+- refresh affordances are easier to standardize once runtime fallback and result-shaping behavior are stable across transports
+
 Planned sequence:
 
 1. inventory where landed outcomes already imply a rerun or refresh path but still describe it with bespoke copy or one-off buttons
-2. define one shared action-card contract for rerun and refresh semantics, including provenance and post-run landing behavior
+2. define one shared action-card contract for rerun and refresh semantics, including provenance, freshness, strategy summary, and post-run landing behavior
 3. reuse that contract across planning refresh, review-session regeneration, and recall follow-through so the unified outcome feed stays actionable without per-surface forks
+4. ensure rerun/refresh affordances describe what remains strict versus what may vary across AI attempts
 
 ## Delivery model
 
