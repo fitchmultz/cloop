@@ -266,6 +266,30 @@ class UndoNotPossibleError(CloopError):
         self.message = message
 
 
+class WorkingSetUndoNotPossibleError(CloopError):
+    """Raised when a working-set undo operation cannot be performed.
+
+    Maps to HTTP 400 Bad Request.
+    """
+
+    def __init__(
+        self,
+        *,
+        subject_type: str,
+        subject_id: int,
+        reason: str,
+        message: str,
+    ) -> None:
+        super().__init__(
+            f"Cannot undo working-set mutation: {message}",
+            detail=f"subject_type={subject_type}, subject_id={subject_id}, reason={reason}",
+        )
+        self.subject_type = subject_type
+        self.subject_id = subject_id
+        self.reason = reason
+        self.message = message
+
+
 class MergeConflictError(CloopError):
     """Raised when a merge operation cannot proceed due to conflicting state.
 

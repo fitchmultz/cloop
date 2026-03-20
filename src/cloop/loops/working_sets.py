@@ -37,7 +37,7 @@ from typing import Any, Mapping, cast
 from .. import typingx
 from . import repo
 from ._repo.shared import _UNSET
-from .errors import ValidationError
+from .errors import ValidationError, WorkingSetUndoNotPossibleError
 
 _WORKING_SET_ITEM_TYPES = {
     "loop",
@@ -53,6 +53,19 @@ _WORKING_SET_ITEM_TYPES = {
 _SHELL_STATES = {"operator", "capture", "do", "decide", "plan", "review", "recall", "working_set"}
 _RECALL_TOOLS = {"chat", "memory", "rag"}
 _REVIEW_FOCUSES = {"planning", "relationship", "enrichment", "cohorts"}
+_WORKING_SET_CONTEXT_SUBJECT_ID = 1
+_WORKING_SET_REVERSIBLE_EVENT_TYPES = frozenset(
+    {
+        "create",
+        "update",
+        "delete",
+        "add_item",
+        "bulk_add_items",
+        "remove_item",
+        "reorder",
+        "context_update",
+    }
+)
 
 
 def _utc_now_iso() -> str:
@@ -528,6 +541,11 @@ def _working_set_payload(row: Mapping[str, Any], *, conn: sqlite3.Connection) ->
     ]
     missing_count = sum(1 for item in items if bool(item.get("missing")))
     working_set_id = int(row["id"])
+    latest_event = repo.get_latest_reversible_working_set_event(
+        subject_type="working_set",
+        subject_id=working_set_id,
+        conn=conn,
+    )
     return {
         "id": working_set_id,
         "name": row["name"],
@@ -537,9 +555,120 @@ def _working_set_payload(row: Mapping[str, Any], *, conn: sqlite3.Connection) ->
         "last_activated_at_utc": row.get("last_activated_at"),
         "created_at_utc": row["created_at"],
         "updated_at_utc": row["updated_at"],
+        "latest_reversible_event_id": int(latest_event["id"]) if latest_event is not None else None,
+        "latest_reversible_event_type": str(latest_event["event_type"])
+        if latest_event is not None
+        else None,
         "items": items,
         "launch": _build_launch(state="working_set", working_set_id=working_set_id),
     }
+
+
+def _working_set_row_snapshot(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Capture one raw working-set row for deterministic restoration."""
+    return {
+        "id": int(row["id"]),
+        "name": str(row["name"]),
+        "description": row.get("description"),
+        "last_activated_at": row.get("last_activated_at"),
+        "created_at": str(row["created_at"]),
+        "updated_at": str(row["updated_at"]),
+    }
+
+
+def _working_set_item_snapshot(row: Mapping[str, Any]) -> dict[str, Any]:
+    """Capture one raw working-set item row for deterministic restoration."""
+    return {
+        "id": int(row["id"]),
+        "working_set_id": int(row["working_set_id"]),
+        "item_type": str(row["item_type"]),
+        "item_id": int(row["item_id"]) if row.get("item_id") is not None else None,
+        "label": str(row["label"]),
+        "description": row.get("description"),
+        "metadata": _parse_json(row.get("metadata_json")),
+        "position": int(row["position"]),
+        "created_at": str(row["created_at"]),
+    }
+
+
+def _working_set_state_snapshot(
+    *,
+    working_set_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Capture the exact persisted state for one working set and its items."""
+    row = repo.get_working_set(working_set_id=working_set_id, conn=conn)
+    if row is None:
+        return {"working_set": None, "items": []}
+    item_rows = repo.list_working_set_items(working_set_id=working_set_id, conn=conn)
+    return {
+        "working_set": _working_set_row_snapshot(row),
+        "items": [_working_set_item_snapshot(item_row) for item_row in item_rows],
+    }
+
+
+def _context_state_snapshot(*, conn: sqlite3.Connection) -> dict[str, Any]:
+    """Capture the exact persisted working-set context row."""
+    context_row = repo.get_working_set_context(conn=conn)
+    active_working_set_id = context_row.get("active_working_set_id")
+    return {
+        "active_working_set_id": (
+            int(active_working_set_id) if active_working_set_id is not None else None
+        ),
+        "focus_mode_enabled": bool(context_row.get("focus_mode_enabled")),
+        "updated_at": str(context_row["updated_at"]),
+    }
+
+
+def _working_set_context_payload(*, conn: sqlite3.Connection) -> dict[str, Any]:
+    """Return the launch-ready working-set context payload with undo metadata."""
+    context_row = repo.get_working_set_context(conn=conn)
+    active_id = context_row.get("active_working_set_id")
+    active_payload = None
+    if active_id is not None:
+        active_row = repo.get_working_set(working_set_id=int(active_id), conn=conn)
+        if active_row is not None:
+            active_payload = _working_set_payload(active_row, conn=conn)
+    latest_event = repo.get_latest_reversible_working_set_event(
+        subject_type="working_set_context",
+        subject_id=_WORKING_SET_CONTEXT_SUBJECT_ID,
+        conn=conn,
+    )
+    return {
+        "active_working_set_id": int(active_id) if active_id is not None else None,
+        "focus_mode_enabled": bool(context_row.get("focus_mode_enabled"))
+        and active_payload is not None,
+        "updated_at_utc": str(context_row["updated_at"]),
+        "latest_reversible_event_id": int(latest_event["id"]) if latest_event is not None else None,
+        "latest_reversible_event_type": str(latest_event["event_type"])
+        if latest_event is not None
+        else None,
+        "active_working_set": active_payload,
+    }
+
+
+def _restore_working_set_state(
+    *,
+    snapshot: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Restore one working set to an exact prior snapshot."""
+    working_set_snapshot = snapshot.get("working_set")
+    if not isinstance(working_set_snapshot, Mapping):
+        return None
+    restored = repo.restore_working_set(snapshot=working_set_snapshot, conn=conn)
+    item_snapshots = snapshot.get("items")
+    normalized_items = (
+        [item for item in item_snapshots if isinstance(item, Mapping)]
+        if isinstance(item_snapshots, list)
+        else []
+    )
+    repo.replace_working_set_items(
+        working_set_id=int(restored["id"]),
+        snapshots=list(normalized_items),
+        conn=conn,
+    )
+    return restored
 
 
 def _default_item_fields(
@@ -701,6 +830,233 @@ def _delete_working_set_items_for_target(
             )
 
 
+def _record_working_set_event(
+    *,
+    subject_type: str,
+    subject_id: int,
+    event_type: str,
+    before_state: Mapping[str, Any],
+    after_state: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> int:
+    """Persist one reversible working-set event and return its event ID."""
+    return repo.insert_working_set_event(
+        subject_type=subject_type,
+        subject_id=subject_id,
+        event_type=event_type,
+        before_state=before_state,
+        after_state=after_state,
+        conn=conn,
+    )
+
+
+def _working_set_undo_error(
+    *,
+    subject_type: str,
+    subject_id: int,
+    reason: str,
+    message: str,
+) -> WorkingSetUndoNotPossibleError:
+    """Build the canonical working-set undo domain error."""
+    return WorkingSetUndoNotPossibleError(
+        subject_type=subject_type,
+        subject_id=subject_id,
+        reason=reason,
+        message=message,
+    )
+
+
+@typingx.validate_io()
+def undo_working_set_event(
+    *,
+    expected_event_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Undo one exact latest working-set mutation event."""
+    event = repo.get_working_set_event(event_id=expected_event_id, conn=conn)
+    if event is None:
+        raise _working_set_undo_error(
+            subject_type="working_set",
+            subject_id=0,
+            reason="event_not_found",
+            message=f"working-set event {expected_event_id} no longer exists",
+        )
+
+    subject_type = str(event["subject_type"])
+    subject_id = int(event["subject_id"])
+    event_type = str(event["event_type"])
+    if event_type not in _WORKING_SET_REVERSIBLE_EVENT_TYPES:
+        raise _working_set_undo_error(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            reason="event_not_reversible",
+            message=f"working-set event {expected_event_id} is not reversible",
+        )
+
+    latest_event = repo.get_latest_reversible_working_set_event(
+        subject_type=subject_type,
+        subject_id=subject_id,
+        conn=conn,
+    )
+    if latest_event is None:
+        raise _working_set_undo_error(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            reason="no_reversible_events",
+            message="No reversible working-set events are available",
+        )
+    if int(latest_event["id"]) != expected_event_id:
+        raise _working_set_undo_error(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            reason="stale_event_handle",
+            message=(
+                f"expected working-set event {expected_event_id}, "
+                f"but subject {subject_type}:{subject_id} now requires "
+                f"undoing event {int(latest_event['id'])} first"
+            ),
+        )
+
+    before_state = _parse_json(str(event.get("before_state_json") or "{}"))
+    after_state = _parse_json(str(event.get("after_state_json") or "{}"))
+    if not before_state and event_type != "create":
+        raise _working_set_undo_error(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            reason="missing_before_state",
+            message=f"working-set event {expected_event_id} lacks the snapshot needed for undo",
+        )
+
+    with conn:
+        if subject_type == "working_set":
+            if before_state.get("working_set") is None:
+                deleted = repo.delete_working_set(working_set_id=subject_id, conn=conn)
+                if not deleted:
+                    raise _working_set_undo_error(
+                        subject_type=subject_type,
+                        subject_id=subject_id,
+                        reason="target_missing",
+                        message=(
+                            f"working set {subject_id} is no longer available to delete during undo"
+                        ),
+                    )
+                restored_row = None
+            else:
+                restored_row = _restore_working_set_state(snapshot=before_state, conn=conn)
+                if restored_row is None:
+                    raise _working_set_undo_error(
+                        subject_type=subject_type,
+                        subject_id=subject_id,
+                        reason="invalid_before_state",
+                        message=(
+                            f"working-set event {expected_event_id} has an invalid restore snapshot"
+                        ),
+                    )
+                context_snapshot = before_state.get("context")
+                if isinstance(context_snapshot, Mapping):
+                    active_working_set_id = context_snapshot.get("active_working_set_id")
+                    repo.update_working_set_context(
+                        active_working_set_id=(
+                            int(active_working_set_id)
+                            if active_working_set_id is not None
+                            else None
+                        ),
+                        focus_mode_enabled=bool(context_snapshot.get("focus_mode_enabled")),
+                        conn=conn,
+                    )
+        elif subject_type == "working_set_context":
+            active_working_set_id = before_state.get("active_working_set_id")
+            if active_working_set_id is not None:
+                _required_working_set(working_set_id=int(active_working_set_id), conn=conn)
+            repo.update_working_set_context(
+                active_working_set_id=(
+                    int(active_working_set_id) if active_working_set_id is not None else None
+                ),
+                focus_mode_enabled=bool(before_state.get("focus_mode_enabled")),
+                conn=conn,
+            )
+            restored_row = None
+        else:
+            raise _working_set_undo_error(
+                subject_type=subject_type,
+                subject_id=subject_id,
+                reason="unsupported_subject",
+                message=f"Unsupported working-set undo subject: {subject_type}",
+            )
+
+        restored_after_state = (
+            {
+                **_working_set_state_snapshot(working_set_id=subject_id, conn=conn),
+                **(
+                    {"context": _context_state_snapshot(conn=conn)}
+                    if isinstance(before_state.get("context"), Mapping)
+                    or isinstance(after_state.get("context"), Mapping)
+                    else {}
+                ),
+            }
+            if subject_type == "working_set"
+            else _context_state_snapshot(conn=conn)
+        )
+        undo_event_id = repo.insert_working_set_event(
+            subject_type=subject_type,
+            subject_id=subject_id,
+            event_type="undo",
+            before_state=after_state,
+            after_state=restored_after_state,
+            conn=conn,
+        )
+        repo.mark_working_set_event_undone(
+            event_id=expected_event_id,
+            undo_event_id=undo_event_id,
+            conn=conn,
+        )
+
+    context_payload = _working_set_context_payload(conn=conn)
+    working_set_payload = (
+        _working_set_payload(restored_row, conn=conn) if restored_row is not None else None
+    )
+    affected_snapshot = before_state.get("working_set") or after_state.get("working_set") or {}
+    affected_working_set_id = affected_snapshot.get("id")
+    affected_working_set_name = affected_snapshot.get("name")
+    if event_type == "create":
+        summary = (
+            f"Removed working set {affected_working_set_name or f'#{subject_id}'} "
+            f"and restored the prior unscoped state."
+        )
+    elif event_type == "delete":
+        summary = (
+            f"Restored working set {affected_working_set_name or f'#{subject_id}'} "
+            f"and its saved anchors."
+        )
+    elif event_type == "context_update":
+        summary = "Restored the prior active working-set context and focus mode."
+    elif event_type == "bulk_add_items":
+        summary = (
+            "Restored the previous anchor membership for "
+            f"{affected_working_set_name or f'working set #{subject_id}'}."
+        )
+    else:
+        summary = (
+            f"Restored the previous working-set state for "
+            f"{affected_working_set_name or f'working set #{subject_id}'}."
+        )
+
+    return {
+        "working_set": working_set_payload,
+        "context": context_payload,
+        "affected_working_set_id": (
+            int(affected_working_set_id) if affected_working_set_id is not None else None
+        ),
+        "affected_working_set_name": (
+            str(affected_working_set_name) if affected_working_set_name is not None else None
+        ),
+        "undone_event_id": expected_event_id,
+        "undone_event_type": event_type,
+        "undo_event_id": undo_event_id,
+        "summary": summary,
+    }
+
+
 @typingx.validate_io()
 def create_working_set(
     *,
@@ -711,7 +1067,18 @@ def create_working_set(
     """Create a durable working set."""
     with conn:
         row = repo.create_working_set(name=name, description=description, conn=conn)
-    return _working_set_payload(row, conn=conn)
+        event_id = _record_working_set_event(
+            subject_type="working_set",
+            subject_id=int(row["id"]),
+            event_type="create",
+            before_state={"working_set": None, "items": []},
+            after_state=_working_set_state_snapshot(working_set_id=int(row["id"]), conn=conn),
+            conn=conn,
+        )
+    payload = _working_set_payload(row, conn=conn)
+    payload["latest_reversible_event_id"] = event_id
+    payload["latest_reversible_event_type"] = "create"
+    return payload
 
 
 @typingx.validate_io()
@@ -738,6 +1105,7 @@ def update_working_set(
 ) -> dict[str, Any]:
     """Update working-set metadata."""
     _required_working_set(working_set_id=working_set_id, conn=conn)
+    before_state = _working_set_state_snapshot(working_set_id=working_set_id, conn=conn)
     with conn:
         updated = repo.update_working_set(
             working_set_id=working_set_id,
@@ -745,20 +1113,51 @@ def update_working_set(
             description=description,
             conn=conn,
         )
-    if updated is None:
-        raise ValidationError("working_set_id", f"working set {working_set_id} not found")
+        if updated is None:
+            raise ValidationError("working_set_id", f"working set {working_set_id} not found")
+        _record_working_set_event(
+            subject_type="working_set",
+            subject_id=working_set_id,
+            event_type="update",
+            before_state=before_state,
+            after_state=_working_set_state_snapshot(working_set_id=working_set_id, conn=conn),
+            conn=conn,
+        )
     return _working_set_payload(updated, conn=conn)
 
 
 @typingx.validate_io()
-def delete_working_set(*, working_set_id: int, conn: sqlite3.Connection) -> bool:
-    """Delete one working set."""
-    _required_working_set(working_set_id=working_set_id, conn=conn)
+def delete_working_set(*, working_set_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
+    """Delete one working set and return undo metadata."""
+    row = _required_working_set(working_set_id=working_set_id, conn=conn)
+    before_state = {
+        **_working_set_state_snapshot(working_set_id=working_set_id, conn=conn),
+        "context": _context_state_snapshot(conn=conn),
+    }
     with conn:
         deleted = repo.delete_working_set(working_set_id=working_set_id, conn=conn)
-    if not deleted:
-        raise ValidationError("working_set_id", f"working set {working_set_id} not found")
-    return True
+        if not deleted:
+            raise ValidationError("working_set_id", f"working set {working_set_id} not found")
+        event_id = _record_working_set_event(
+            subject_type="working_set",
+            subject_id=working_set_id,
+            event_type="delete",
+            before_state=before_state,
+            after_state={
+                "working_set": None,
+                "items": [],
+                "context": _context_state_snapshot(conn=conn),
+            },
+            conn=conn,
+        )
+    return {
+        "deleted": True,
+        "deleted_working_set_id": working_set_id,
+        "deleted_working_set_name": str(row["name"]),
+        "latest_reversible_event_id": event_id,
+        "latest_reversible_event_type": "delete",
+        "context": _working_set_context_payload(conn=conn),
+    }
 
 
 @typingx.validate_io()
@@ -773,8 +1172,9 @@ def add_working_set_item(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
     """Add one item to a working set, de-duplicating identical membership rows."""
+    before_state = _working_set_state_snapshot(working_set_id=working_set_id, conn=conn)
     with conn:
-        row = _add_working_set_item_impl(
+        _add_working_set_item_impl(
             working_set_id=working_set_id,
             item_type=item_type,
             item_id=item_id,
@@ -783,13 +1183,60 @@ def add_working_set_item(
             metadata=metadata,
             conn=conn,
         )
-    return _resolve_working_set_item(row, conn=conn)
+        _record_working_set_event(
+            subject_type="working_set",
+            subject_id=working_set_id,
+            event_type="add_item",
+            before_state=before_state,
+            after_state=_working_set_state_snapshot(working_set_id=working_set_id, conn=conn),
+            conn=conn,
+        )
+    return get_working_set(working_set_id=working_set_id, conn=conn)
 
 
 @typingx.validate_io()
-def remove_working_set_item(*, working_set_id: int, item_id: int, conn: sqlite3.Connection) -> bool:
+def add_working_set_items_bulk(
+    *,
+    working_set_id: int,
+    items: list[Mapping[str, Any]],
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Add multiple items to a working set atomically."""
+    _required_working_set(working_set_id=working_set_id, conn=conn)
+    before_state = _working_set_state_snapshot(working_set_id=working_set_id, conn=conn)
+    with conn:
+        for item in items:
+            _add_working_set_item_impl(
+                working_set_id=working_set_id,
+                item_type=str(item["item_type"]),
+                item_id=(int(item["item_id"]) if item.get("item_id") is not None else None),
+                label=(str(item["label"]) if item.get("label") is not None else None),
+                description=(
+                    str(item["description"]) if item.get("description") is not None else None
+                ),
+                metadata=(
+                    item.get("metadata") if isinstance(item.get("metadata"), Mapping) else None
+                ),
+                conn=conn,
+            )
+        _record_working_set_event(
+            subject_type="working_set",
+            subject_id=working_set_id,
+            event_type="bulk_add_items",
+            before_state=before_state,
+            after_state=_working_set_state_snapshot(working_set_id=working_set_id, conn=conn),
+            conn=conn,
+        )
+    return get_working_set(working_set_id=working_set_id, conn=conn)
+
+
+@typingx.validate_io()
+def remove_working_set_item(
+    *, working_set_id: int, item_id: int, conn: sqlite3.Connection
+) -> dict[str, Any]:
     """Remove one membership row from a working set."""
     working_set = _required_working_set(working_set_id=working_set_id, conn=conn)
+    before_state = _working_set_state_snapshot(working_set_id=working_set_id, conn=conn)
     with conn:
         deleted = repo.delete_working_set_item(
             working_set_id=working_set_id, item_id=item_id, conn=conn
@@ -800,9 +1247,17 @@ def remove_working_set_item(*, working_set_id: int, item_id: int, conn: sqlite3.
                 last_activated_at=working_set.get("last_activated_at"),
                 conn=conn,
             )
+            _record_working_set_event(
+                subject_type="working_set",
+                subject_id=working_set_id,
+                event_type="remove_item",
+                before_state=before_state,
+                after_state=_working_set_state_snapshot(working_set_id=working_set_id, conn=conn),
+                conn=conn,
+            )
     if not deleted:
         raise ValidationError("item_id", f"working-set item {item_id} not found")
-    return True
+    return get_working_set(working_set_id=working_set_id, conn=conn)
 
 
 @typingx.validate_io()
@@ -820,6 +1275,7 @@ def reorder_working_set_items(
         raise ValidationError(
             "ordered_item_ids", "must contain every working-set item exactly once"
         )
+    before_state = _working_set_state_snapshot(working_set_id=working_set_id, conn=conn)
     with conn:
         repo.reorder_working_set_items(
             working_set_id=working_set_id,
@@ -831,6 +1287,14 @@ def reorder_working_set_items(
             last_activated_at=row.get("last_activated_at"),
             conn=conn,
         )
+        _record_working_set_event(
+            subject_type="working_set",
+            subject_id=working_set_id,
+            event_type="reorder",
+            before_state=before_state,
+            after_state=_working_set_state_snapshot(working_set_id=working_set_id, conn=conn),
+            conn=conn,
+        )
     refreshed = _required_working_set(working_set_id=working_set_id, conn=conn)
     return _working_set_payload(refreshed, conn=conn)
 
@@ -838,20 +1302,7 @@ def reorder_working_set_items(
 @typingx.validate_io()
 def get_working_set_context(*, conn: sqlite3.Connection) -> dict[str, Any]:
     """Return the active working-set/focus-mode context."""
-    context_row = repo.get_working_set_context(conn=conn)
-    active_id = context_row.get("active_working_set_id")
-    active_payload = None
-    if active_id is not None:
-        active_row = repo.get_working_set(working_set_id=int(active_id), conn=conn)
-        if active_row is not None:
-            active_payload = _working_set_payload(active_row, conn=conn)
-    return {
-        "active_working_set_id": active_id,
-        "focus_mode_enabled": bool(context_row.get("focus_mode_enabled"))
-        and active_payload is not None,
-        "updated_at_utc": context_row["updated_at"],
-        "active_working_set": active_payload,
-    }
+    return _working_set_context_payload(conn=conn)
 
 
 @typingx.validate_io()
@@ -864,6 +1315,7 @@ def update_working_set_context(
     """Update the active working-set/focus-mode context."""
     if active_working_set_id is not None:
         _required_working_set(working_set_id=active_working_set_id, conn=conn)
+    before_state = _context_state_snapshot(conn=conn)
     with conn:
         repo.update_working_set_context(
             active_working_set_id=active_working_set_id,
@@ -876,6 +1328,14 @@ def update_working_set_context(
                 last_activated_at=_utc_now_iso(),
                 conn=conn,
             )
+        _record_working_set_event(
+            subject_type="working_set_context",
+            subject_id=_WORKING_SET_CONTEXT_SUBJECT_ID,
+            event_type="context_update",
+            before_state=before_state,
+            after_state=_context_state_snapshot(conn=conn),
+            conn=conn,
+        )
     return get_working_set_context(conn=conn)
 
 
@@ -886,8 +1346,10 @@ __all__ = [
     "update_working_set",
     "delete_working_set",
     "add_working_set_item",
+    "add_working_set_items_bulk",
     "remove_working_set_item",
     "reorder_working_set_items",
     "get_working_set_context",
     "update_working_set_context",
+    "undo_working_set_event",
 ]

@@ -24,6 +24,7 @@ import type {
   OperatorActionCardUndoAction,
   PlanningRunUndoHandle,
   RecallTool,
+  WorkingSetEventUndoHandle,
   ReviewFocus,
   ShellState,
 } from "./contracts-ui";
@@ -115,6 +116,33 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       label: button.textContent?.trim() || (undo.bestEffort ? "Rollback checkpoint" : "Undo checkpoint"),
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
       description: button.dataset["undoCheckpointTitle"]?.trim() || "Undo the latest planning checkpoint.",
+      undo,
+      confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
+      confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
+      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      successLocation: button.hasAttribute("data-undo-success-state")
+        ? locationFromButton(button, "undoSuccess")
+        : null,
+      disabledReason: button.disabled ? button.title || "Undo is unavailable." : null,
+    };
+  }
+  if (kind === "working_set_event") {
+    const expectedEventId = parseOptionalInteger(button.dataset["undoExpectedEventId"]);
+    if (expectedEventId == null) {
+      return null;
+    }
+    const undo: WorkingSetEventUndoHandle = {
+      kind: "working_set_event",
+      expectedEventId,
+      eventType: button.dataset["undoEventType"]?.trim() || null,
+      workingSetId: parseOptionalInteger(button.dataset["undoWorkingSetId"]),
+      workingSetName: button.dataset["undoWorkingSetName"]?.trim() || null,
+    };
+    return {
+      type: "undo",
+      label: button.textContent?.trim() || "Undo",
+      variant: button.classList.contains("secondary") ? "secondary" : "primary",
+      description: button.dataset["undoEventType"]?.trim() || "Undo the latest working-set change.",
       undo,
       confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
       confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,

@@ -29,7 +29,12 @@ from fastapi import HTTPException
 
 from cloop.ai_bridge.errors import BridgeProtocolError, BridgeUpstreamError
 from cloop.error_contract import error_response, error_view_from_exception
-from cloop.loops.errors import CloopError, LoopClaimedError, ResourceNotFoundError
+from cloop.loops.errors import (
+    CloopError,
+    LoopClaimedError,
+    ResourceNotFoundError,
+    WorkingSetUndoNotPossibleError,
+)
 
 
 class TestErrorViewFromException:
@@ -107,6 +112,28 @@ class TestErrorViewFromException:
         assert view.message == "short and stout"
         assert view.details == {"detail": "short and stout"}
         assert view.status_code == 418
+
+    def test_maps_working_set_undo_not_possible(self) -> None:
+        """Working-set undo failures should preserve their exact stale-handle context."""
+        exc = WorkingSetUndoNotPossibleError(
+            subject_type="working_set",
+            subject_id=7,
+            reason="stale_event_handle",
+            message="working-set event 11 is stale",
+        )
+
+        view = error_view_from_exception(exc)
+
+        assert view.error_type == "undo_not_possible"
+        assert view.code == "undo_not_possible"
+        assert view.message == "working-set event 11 is stale"
+        assert view.details == {
+            "subject_type": "working_set",
+            "subject_id": 7,
+            "reason": "stale_event_handle",
+            "detail": "subject_type=working_set, subject_id=7, reason=stale_event_handle",
+        }
+        assert view.status_code == 400
 
     def test_maps_generic_domain_error(self) -> None:
         """Unhandled CloopError subclasses should still use the generic domain contract."""

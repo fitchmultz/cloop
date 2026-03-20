@@ -172,6 +172,27 @@ describe("renderActionCardDeck", () => {
               workingSetId: 7,
             },
           },
+          {
+            type: "undo",
+            label: "Undo working-set change",
+            variant: "secondary",
+            description: "Restore the previous working-set state.",
+            undo: {
+              kind: "working_set_event",
+              expectedEventId: 91,
+              eventType: "reorder",
+              workingSetId: 7,
+              workingSetName: "Launch reset",
+            },
+            successLocation: {
+              state: "working_set",
+              recallTool: "chat",
+              reviewFocus: null,
+              sessionId: null,
+              loopId: null,
+              workingSetId: 7,
+            },
+          },
         ],
       },
     ];
@@ -186,6 +207,9 @@ describe("renderActionCardDeck", () => {
     expect(html).toContain('data-defer-label="Do · Review the duplicate queue first"');
     expect(html).toContain('data-card-action="undo"');
     expect(html).toContain('data-undo-run-id="44"');
+    expect(html).toContain('data-undo-working-set-id="7"');
+    expect(html).toContain('data-undo-working-set-name="Launch reset"');
     expect(html).toContain('data-undo-success-state="plan"');
+    expect(html).toContain('data-undo-success-state="working_set"');
   });
 });

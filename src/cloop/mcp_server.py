@@ -68,6 +68,7 @@ from .mcp_tools import (
     register_rag_tools,
     register_review_workflow_tools,
     register_suggestion_tools,
+    register_working_set_tools,
 )
 
 mcp = FastMCP("Cloop", json_response=True)
@@ -87,6 +88,7 @@ register_rag_tools(mcp)
 register_review_workflow_tools(mcp)
 register_planning_tools(mcp)
 register_suggestion_tools(mcp)
+register_working_set_tools(mcp)
 
 
 def main() -> None:

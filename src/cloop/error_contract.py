@@ -77,6 +77,7 @@ from .loops.errors import (
     TransitionError,
     UndoNotPossibleError,
     ValidationError,
+    WorkingSetUndoNotPossibleError,
 )
 
 
@@ -218,6 +219,19 @@ def _map_validation_error(exc: CloopError) -> AppErrorView | None:
             code="undo_not_possible",
             message=exc.message,
             details={"loop_id": exc.loop_id, "reason": exc.reason, "detail": exc.detail},
+            status_code=HTTP_BAD_REQUEST,
+        )
+    if isinstance(exc, WorkingSetUndoNotPossibleError):
+        return _build_error_view(
+            error_type="undo_not_possible",
+            code="undo_not_possible",
+            message=exc.message,
+            details={
+                "subject_type": exc.subject_type,
+                "subject_id": exc.subject_id,
+                "reason": exc.reason,
+                "detail": exc.detail,
+            },
             status_code=HTTP_BAD_REQUEST,
         )
     return None

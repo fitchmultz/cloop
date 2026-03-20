@@ -226,4 +226,57 @@ describe("handleOperatorActionCardClick", () => {
     expect(applyLocation).not.toHaveBeenCalled();
     expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
   });
+
+  it("dispatches working-set undo actions", async () => {
+    document.body.innerHTML = `
+      <button
+        id="working-set-undo"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="working_set_event"
+        data-undo-expected-event-id="91"
+        data-undo-event-type="reorder"
+        data-undo-working-set-id="7"
+        data-undo-working-set-name="Launch reset"
+        data-undo-success-state="working_set"
+        data-undo-success-recall-tool="chat"
+        data-undo-success-working-set-id="7"
+      >Undo working-set change</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("working-set-undo");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing working-set undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).toHaveBeenCalledTimes(1);
+    expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
+      type: "undo",
+      undo: {
+        kind: "working_set_event",
+        expectedEventId: 91,
+        eventType: "reorder",
+        workingSetId: 7,
+        workingSetName: "Launch reset",
+      },
+      successLocation: expect.objectContaining({
+        state: "working_set",
+        workingSetId: 7,
+      }),
+    });
+    expect(applyLocation).not.toHaveBeenCalled();
+    expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+  });
 });

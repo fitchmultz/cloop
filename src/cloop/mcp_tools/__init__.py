@@ -18,6 +18,7 @@ from .planning_tools import register_planning_tools
 from .rag_tools import register_rag_tools
 from .review_workflows import register_review_workflow_tools
 from .suggestion_tools import register_suggestion_tools
+from .working_set_tools import register_working_set_tools
 
 __all__ = [
     "register_chat_tools",
@@ -34,4 +35,5 @@ __all__ = [
     "register_rag_tools",
     "register_review_workflow_tools",
     "register_suggestion_tools",
+    "register_working_set_tools",
 ]

@@ -42,6 +42,15 @@ def _capture(client, raw_text: str) -> int:
     return int(response.json()["id"])
 
 
+def _undo_working_set(client, expected_event_id: int, *, idempotency_key: str | None = None):
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key is not None else None
+    return client.post(
+        "/loops/working-sets/undo",
+        json={"expected_event_id": expected_event_id},
+        headers=headers,
+    )
+
+
 def test_working_set_endpoints(make_test_client) -> None:
     client = make_test_client()
     first_loop_id = _capture(client, "Prepare launch checklist")
@@ -60,6 +69,8 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert created["item_count"] == 0
     assert created["launch"]["state"] == "working_set"
     assert created["launch"]["working_set_id"] == working_set_id
+    assert isinstance(created["latest_reversible_event_id"], int)
+    assert created["latest_reversible_event_type"] == "create"
 
     add_loop_response = client.post(
         f"/loops/working-sets/{working_set_id}/items",
@@ -76,6 +87,7 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert add_loop_payload["item_count"] == 1
     assert add_loop_payload["items"][0]["item_type"] == "loop"
     assert add_loop_payload["items"][0]["launch"]["loop_id"] == first_loop_id
+    assert add_loop_payload["latest_reversible_event_type"] == "add_item"
 
     add_query_anchor_response = client.post(
         f"/loops/working-sets/{working_set_id}/items",
@@ -96,6 +108,7 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert (
         add_query_anchor_payload["items"][0]["launch"]["query"] == "status:blocked project:launch"
     )
+    assert add_query_anchor_payload["latest_reversible_event_type"] == "add_item"
 
     add_second_loop_response = client.post(
         f"/loops/working-sets/{working_set_id}/items",
@@ -111,6 +124,7 @@ def test_working_set_endpoints(make_test_client) -> None:
     add_second_loop_payload = add_second_loop_response.json()
     ordered_ids = [item["id"] for item in add_second_loop_payload["items"]]
     assert len(ordered_ids) == 3
+    assert add_second_loop_payload["latest_reversible_event_type"] == "add_item"
 
     reorder_response = client.post(
         f"/loops/working-sets/{working_set_id}/reorder",
@@ -119,6 +133,7 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert reorder_response.status_code == 200
     reordered = reorder_response.json()
     assert [item["id"] for item in reordered["items"]] == list(reversed(ordered_ids))
+    assert reordered["latest_reversible_event_type"] == "reorder"
 
     context_response = client.patch(
         "/loops/working-sets/context",
@@ -132,6 +147,7 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert context_payload["active_working_set_id"] == working_set_id
     assert context_payload["focus_mode_enabled"] is True
     assert context_payload["active_working_set"]["name"] == "Launch reset"
+    assert context_payload["latest_reversible_event_type"] == "context_update"
 
     list_response = client.get("/loops/working-sets")
     assert list_response.status_code == 200
@@ -145,6 +161,7 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert remove_response.status_code == 200
     removed_payload = remove_response.json()
     assert removed_payload["item_count"] == 2
+    assert removed_payload["latest_reversible_event_type"] == "remove_item"
 
     update_response = client.patch(
         f"/loops/working-sets/{working_set_id}",
@@ -152,15 +169,202 @@ def test_working_set_endpoints(make_test_client) -> None:
     )
     assert update_response.status_code == 200
     assert update_response.json()["name"] == "Launch resume set"
+    assert update_response.json()["latest_reversible_event_type"] == "update"
 
     delete_response = client.delete(f"/loops/working-sets/{working_set_id}")
     assert delete_response.status_code == 200
-    assert delete_response.json() == {"deleted": True}
+    deleted = delete_response.json()
+    assert deleted["deleted"] is True
+    assert deleted["deleted_working_set_id"] == working_set_id
+    assert deleted["deleted_working_set_name"] == "Launch resume set"
+    assert deleted["latest_reversible_event_type"] == "delete"
+    assert deleted["context"]["active_working_set_id"] is None
 
     cleared_context_response = client.get("/loops/working-sets/context")
     assert cleared_context_response.status_code == 200
     assert cleared_context_response.json()["active_working_set_id"] is None
     assert cleared_context_response.json()["focus_mode_enabled"] is False
+
+
+def test_working_set_undo_rejects_stale_handles(make_test_client) -> None:
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/working-sets",
+        json={
+            "name": "Undo stale handle",
+            "description": "Exercise exact working-set undo handles.",
+        },
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    first_update = client.patch(
+        f"/loops/working-sets/{working_set_id}",
+        json={"name": "Undo stale handle v2"},
+    )
+    assert first_update.status_code == 200
+    stale_event_id = int(first_update.json()["latest_reversible_event_id"])
+
+    second_update = client.patch(
+        f"/loops/working-sets/{working_set_id}",
+        json={"name": "Undo stale handle v3"},
+    )
+    assert second_update.status_code == 200
+    latest_event_id = int(second_update.json()["latest_reversible_event_id"])
+
+    stale_response = _undo_working_set(client, stale_event_id)
+    assert stale_response.status_code == 400
+    stale_error = stale_response.json()["error"]
+    assert stale_error["code"] == "undo_not_possible"
+    assert stale_error["details"]["reason"] == "stale_event_handle"
+
+    undo_response = _undo_working_set(client, latest_event_id)
+    assert undo_response.status_code == 200
+    undo_payload = undo_response.json()
+    assert undo_payload["undone_event_id"] == latest_event_id
+    assert undo_payload["undone_event_type"] == "update"
+    assert undo_payload["working_set"]["name"] == "Undo stale handle v2"
+
+
+def test_working_set_delete_undo_restores_active_context(make_test_client) -> None:
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Delete restore", "description": "Restore active context after delete."},
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    context_response = client.patch(
+        "/loops/working-sets/context",
+        json={"active_working_set_id": working_set_id, "focus_mode_enabled": True},
+    )
+    assert context_response.status_code == 200
+    assert context_response.json()["active_working_set_id"] == working_set_id
+    assert context_response.json()["focus_mode_enabled"] is True
+
+    delete_response = client.delete(f"/loops/working-sets/{working_set_id}")
+    assert delete_response.status_code == 200
+    deleted = delete_response.json()
+    assert deleted["context"]["active_working_set_id"] is None
+    assert deleted["context"]["focus_mode_enabled"] is False
+
+    undo_response = _undo_working_set(client, int(deleted["latest_reversible_event_id"]))
+    assert undo_response.status_code == 200
+    undo_payload = undo_response.json()
+    assert undo_payload["working_set"]["id"] == working_set_id
+    assert undo_payload["context"]["active_working_set_id"] == working_set_id
+    assert undo_payload["context"]["focus_mode_enabled"] is True
+    assert undo_payload["context"]["active_working_set"]["name"] == "Delete restore"
+
+
+def test_working_set_context_undo_restores_prior_focus_state(make_test_client) -> None:
+    client = make_test_client()
+
+    first_create = client.post(
+        "/loops/working-sets",
+        json={"name": "Context one", "description": "First bounded context."},
+    )
+    second_create = client.post(
+        "/loops/working-sets",
+        json={"name": "Context two", "description": "Second bounded context."},
+    )
+    assert first_create.status_code == 201
+    assert second_create.status_code == 201
+    first_id = int(first_create.json()["id"])
+    second_id = int(second_create.json()["id"])
+
+    first_context = client.patch(
+        "/loops/working-sets/context",
+        json={"active_working_set_id": first_id, "focus_mode_enabled": True},
+    )
+    assert first_context.status_code == 200
+
+    second_context = client.patch(
+        "/loops/working-sets/context",
+        json={"active_working_set_id": second_id, "focus_mode_enabled": False},
+    )
+    assert second_context.status_code == 200
+    latest_event_id = int(second_context.json()["latest_reversible_event_id"])
+
+    undo_response = _undo_working_set(client, latest_event_id)
+    assert undo_response.status_code == 200
+    undo_payload = undo_response.json()
+    assert undo_payload["undone_event_type"] == "context_update"
+    assert undo_payload["context"]["active_working_set_id"] == first_id
+    assert undo_payload["context"]["focus_mode_enabled"] is True
+    assert undo_payload["context"]["active_working_set"]["name"] == "Context one"
+
+
+def test_working_set_bulk_add_and_undo(make_test_client) -> None:
+    client = make_test_client()
+    first_loop_id = _capture(client, "Bulk add first")
+    second_loop_id = _capture(client, "Bulk add second")
+
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Bulk add", "description": "Undo bulk anchor creation."},
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    bulk_response = client.post(
+        f"/loops/working-sets/{working_set_id}/items/bulk",
+        json={
+            "items": [
+                {
+                    "item_type": "loop",
+                    "item_id": first_loop_id,
+                    "label": "Bulk first",
+                    "description": "First bulk loop",
+                    "metadata": {},
+                },
+                {
+                    "item_type": "loop",
+                    "item_id": second_loop_id,
+                    "label": "Bulk second",
+                    "description": "Second bulk loop",
+                    "metadata": {},
+                },
+            ]
+        },
+    )
+    assert bulk_response.status_code == 200
+    bulk_payload = bulk_response.json()
+    assert bulk_payload["item_count"] == 2
+    assert bulk_payload["latest_reversible_event_type"] == "bulk_add_items"
+
+    undo_response = _undo_working_set(client, int(bulk_payload["latest_reversible_event_id"]))
+    assert undo_response.status_code == 200
+    undo_payload = undo_response.json()
+    assert undo_payload["working_set"]["item_count"] == 0
+    assert undo_payload["working_set"]["items"] == []
+
+
+def test_working_set_undo_replays_idempotently(make_test_client) -> None:
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Idempotent undo", "description": "Replay working-set undo safely."},
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    update_response = client.patch(
+        f"/loops/working-sets/{working_set_id}",
+        json={"name": "Idempotent undo renamed"},
+    )
+    assert update_response.status_code == 200
+    event_id = int(update_response.json()["latest_reversible_event_id"])
+
+    first_undo = _undo_working_set(client, event_id, idempotency_key="working-set-undo-idem")
+    assert first_undo.status_code == 200
+    second_undo = _undo_working_set(client, event_id, idempotency_key="working-set-undo-idem")
+    assert second_undo.status_code == 200
+    assert second_undo.json() == first_undo.json()
 
 
 def test_working_set_recall_query_anchor_round_trips_recall_tool(make_test_client) -> None:

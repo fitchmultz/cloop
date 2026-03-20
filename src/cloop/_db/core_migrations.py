@@ -31,6 +31,37 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    40: """
+    CREATE TABLE working_set_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        subject_type TEXT NOT NULL CHECK (subject_type IN ('working_set', 'working_set_context')),
+        subject_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL CHECK (
+            event_type IN (
+                'create',
+                'update',
+                'delete',
+                'add_item',
+                'bulk_add_items',
+                'remove_item',
+                'reorder',
+                'context_update',
+                'undo'
+            )
+        ),
+        before_state_json TEXT NOT NULL DEFAULT '{}',
+        after_state_json TEXT NOT NULL DEFAULT '{}',
+        undone_by_event_id INTEGER REFERENCES working_set_events(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_working_set_events_subject
+        ON working_set_events(subject_type, subject_id, id DESC);
+
+    CREATE INDEX idx_working_set_events_latest_reversible
+        ON working_set_events(subject_type, subject_id, id DESC)
+        WHERE event_type != 'undo' AND undone_by_event_id IS NULL;
+    """,
     39: """
     CREATE TABLE working_sets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

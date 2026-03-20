@@ -8,6 +8,7 @@ Responsibilities:
     - Create, list, update, and delete working sets
     - Create, list, reorder, and delete working-set membership rows
     - Read and update the singleton working-set focus context
+    - Persist working-set mutation events used for deterministic undo
 
 Scope:
     - SQLite persistence helpers for working-set tables only
@@ -29,6 +30,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Mapping
 from typing import Any
 
 from .shared import _UNSET
@@ -51,6 +53,45 @@ def create_working_set(
     row = conn.execute("SELECT * FROM working_sets WHERE id = ?", (cursor.lastrowid,)).fetchone()
     if row is None:
         raise RuntimeError("working_set_insert_failed")
+    return dict(row)
+
+
+def restore_working_set(
+    *,
+    snapshot: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Insert or replace one working-set row from an exact snapshot."""
+    conn.execute(
+        """
+        INSERT INTO working_sets (
+            id,
+            name,
+            description,
+            last_activated_at,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            description = excluded.description,
+            last_activated_at = excluded.last_activated_at,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at
+        """,
+        (
+            snapshot["id"],
+            snapshot["name"],
+            snapshot.get("description"),
+            snapshot.get("last_activated_at"),
+            snapshot["created_at"],
+            snapshot["updated_at"],
+        ),
+    )
+    row = conn.execute("SELECT * FROM working_sets WHERE id = ?", (snapshot["id"],)).fetchone()
+    if row is None:
+        raise RuntimeError("working_set_restore_failed")
     return dict(row)
 
 
@@ -184,6 +225,66 @@ def create_working_set_item(
     return dict(row)
 
 
+def restore_working_set_item(
+    *,
+    snapshot: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    """Insert or replace one working-set membership row from a snapshot."""
+    conn.execute(
+        """
+        INSERT INTO working_set_items (
+            id,
+            working_set_id,
+            item_type,
+            item_id,
+            label,
+            description,
+            metadata_json,
+            position,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            working_set_id = excluded.working_set_id,
+            item_type = excluded.item_type,
+            item_id = excluded.item_id,
+            label = excluded.label,
+            description = excluded.description,
+            metadata_json = excluded.metadata_json,
+            position = excluded.position,
+            created_at = excluded.created_at
+        """,
+        (
+            snapshot["id"],
+            snapshot["working_set_id"],
+            snapshot["item_type"],
+            snapshot.get("item_id"),
+            snapshot["label"],
+            snapshot.get("description"),
+            json.dumps(dict(snapshot.get("metadata") or {})),
+            snapshot["position"],
+            snapshot["created_at"],
+        ),
+    )
+    row = conn.execute("SELECT * FROM working_set_items WHERE id = ?", (snapshot["id"],)).fetchone()
+    if row is None:
+        raise RuntimeError("working_set_item_restore_failed")
+    return dict(row)
+
+
+def replace_working_set_items(
+    *,
+    working_set_id: int,
+    snapshots: list[Mapping[str, Any]],
+    conn: sqlite3.Connection,
+) -> list[dict[str, Any]]:
+    """Replace one working set's membership rows with an exact ordered snapshot."""
+    conn.execute("DELETE FROM working_set_items WHERE working_set_id = ?", (working_set_id,))
+    restored = [restore_working_set_item(snapshot=snapshot, conn=conn) for snapshot in snapshots]
+    return sorted(restored, key=lambda row: (int(row["position"]), int(row["id"])))
+
+
 def update_working_set_item(
     *,
     working_set_id: int,
@@ -297,3 +398,82 @@ def update_working_set_context(
         (active_working_set_id, 1 if focus_mode_enabled else 0),
     )
     return get_working_set_context(conn=conn)
+
+
+def insert_working_set_event(
+    *,
+    subject_type: str,
+    subject_id: int,
+    event_type: str,
+    before_state: Mapping[str, Any],
+    after_state: Mapping[str, Any],
+    conn: sqlite3.Connection,
+) -> int:
+    """Insert one working-set mutation event and return its ID."""
+    cursor = conn.execute(
+        """
+        INSERT INTO working_set_events (
+            subject_type,
+            subject_id,
+            event_type,
+            before_state_json,
+            after_state_json
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            subject_type,
+            subject_id,
+            event_type,
+            json.dumps(dict(before_state)),
+            json.dumps(dict(after_state)),
+        ),
+    )
+    if cursor.lastrowid is None:
+        raise RuntimeError("working_set_event_insert_failed")
+    return int(cursor.lastrowid)
+
+
+def get_working_set_event(*, event_id: int, conn: sqlite3.Connection) -> dict[str, Any] | None:
+    """Read one working-set mutation event by ID."""
+    row = conn.execute(
+        "SELECT * FROM working_set_events WHERE id = ?",
+        (event_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def mark_working_set_event_undone(
+    *,
+    event_id: int,
+    undo_event_id: int,
+    conn: sqlite3.Connection,
+) -> None:
+    """Mark one working-set event as already undone by another event."""
+    conn.execute(
+        "UPDATE working_set_events SET undone_by_event_id = ? WHERE id = ?",
+        (undo_event_id, event_id),
+    )
+
+
+def get_latest_reversible_working_set_event(
+    *,
+    subject_type: str,
+    subject_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any] | None:
+    """Read the latest reversible event for one working-set subject."""
+    row = conn.execute(
+        """
+        SELECT *
+        FROM working_set_events
+        WHERE subject_type = ?
+          AND subject_id = ?
+          AND event_type != 'undo'
+          AND undone_by_event_id IS NULL
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (subject_type, subject_id),
+    ).fetchone()
+    return dict(row) if row else None

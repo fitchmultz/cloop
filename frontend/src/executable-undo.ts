@@ -27,15 +27,21 @@ import type {
   OperatorActionCardUndoAction,
   RecentShellActionEntry,
   ShellLocationContract,
+  WorkingSetEventUndoHandle,
 } from "./contracts-ui";
 import type {
   LoopResponse,
   LoopUndoResponse,
   PlanningExecutionHistoryItemResponse,
   PlanningSessionRollbackResponse,
+  WorkingSetContextResponse,
+  WorkingSetDeleteResponse,
+  WorkingSetResponse,
+  WorkingSetUndoRequest,
+  WorkingSetUndoResponse,
 } from "./domain";
 import { HttpRequestError, requestJson } from "./http";
-import { createLocation } from "./shell-routing";
+import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
 
 export interface ExecutedUndoResult {
@@ -52,7 +58,10 @@ export function undoHandleIdentity(handle: ExecutableUndoHandle): string {
   if (handle.kind === "loop_event") {
     return `loop:${handle.loopId}:event:${handle.expectedEventId}`;
   }
-  return `planning:${handle.sessionId}:run:${handle.runId}`;
+  if (handle.kind === "planning_run") {
+    return `planning:${handle.sessionId}:run:${handle.runId}`;
+  }
+  return `working-set:event:${handle.expectedEventId}`;
 }
 
 function loopResumeLocation(loop: Pick<LoopResponse, "id">): ShellLocationContract {
@@ -61,6 +70,22 @@ function loopResumeLocation(loop: Pick<LoopResponse, "id">): ShellLocationContra
 
 function planResumeLocation(sessionId: number): ShellLocationContract {
   return createLocation({ state: "plan", reviewFocus: "planning", sessionId });
+}
+
+function workingSetResumeLocation(workingSetId: number): ShellLocationContract {
+  return workingSetSessionLocation(workingSetId);
+}
+
+function operatorResumeLocation(): ShellLocationContract {
+  return createLocation({ state: "operator" });
+}
+
+function workingSetName(value: { name?: string | null } | null | undefined, fallbackId: number | null = null): string {
+  const name = value?.name?.trim();
+  if (name) {
+    return name;
+  }
+  return fallbackId != null ? `Working set #${fallbackId}` : "Working set";
 }
 
 export function buildLoopUndoAction(
@@ -139,10 +164,62 @@ export function buildPlanningRollbackAction(
   };
 }
 
+export function buildWorkingSetUndoAction(
+  source: Pick<
+    WorkingSetResponse | WorkingSetContextResponse | WorkingSetDeleteResponse,
+    "latest_reversible_event_id" | "latest_reversible_event_type"
+  >,
+  options: {
+    description: string;
+    label?: string;
+    variant?: "primary" | "secondary";
+    successLocation?: ShellLocationContract | null | undefined;
+    workingSetId?: number | null | undefined;
+    workingSetName?: string | null | undefined;
+  },
+): OperatorActionCardUndoAction | null {
+  if (typeof source.latest_reversible_event_id !== "number") {
+    return null;
+  }
+  const undo: WorkingSetEventUndoHandle = {
+    kind: "working_set_event",
+    expectedEventId: source.latest_reversible_event_id,
+    eventType: source.latest_reversible_event_type ?? null,
+    workingSetId: options.workingSetId ?? null,
+    workingSetName: options.workingSetName ?? null,
+  };
+  return {
+    type: "undo",
+    label: options.label ?? "Undo",
+    variant: options.variant ?? "secondary",
+    description: options.description,
+    undo,
+    successLocation: options.successLocation
+      ?? (undo.workingSetId != null ? workingSetResumeLocation(undo.workingSetId) : operatorResumeLocation()),
+  };
+}
+
 function maybeChainLoopUndo(loop: LoopResponse, summary: string): OperatorActionCardUndoAction | null {
   return buildLoopUndoAction(loop, {
     description: summary,
     successLocation: loopResumeLocation(loop),
+  });
+}
+
+function maybeChainWorkingSetUndo(
+  source: WorkingSetResponse | WorkingSetContextResponse | WorkingSetDeleteResponse,
+  description: string,
+  options: {
+    workingSetId?: number | null;
+    workingSetName?: string | null;
+    successLocation?: ShellLocationContract | null;
+  } = {},
+): OperatorActionCardUndoAction | null {
+  return buildWorkingSetUndoAction(source, {
+    description,
+    successLocation: options.successLocation,
+    workingSetId: options.workingSetId,
+    workingSetName: options.workingSetName,
   });
 }
 
@@ -293,6 +370,117 @@ function buildPlanningRollbackReceipt(response: PlanningSessionRollbackResponse)
   };
 }
 
+function buildWorkingSetUndoReceipt(response: WorkingSetUndoResponse): ExecutedUndoResult {
+  const restoredWorkingSet = response.working_set;
+  const activeWorkingSet = response.context.active_working_set ?? null;
+  const primaryWorkingSet = restoredWorkingSet ?? activeWorkingSet;
+  const primaryWorkingSetId = primaryWorkingSet?.id ?? response.affected_working_set_id ?? null;
+  const primaryWorkingSetName = primaryWorkingSet?.name ?? response.affected_working_set_name ?? null;
+  const resumeLocation = primaryWorkingSetId != null
+    ? workingSetResumeLocation(primaryWorkingSetId)
+    : operatorResumeLocation();
+  const title = response.undone_event_type === "context_update"
+    ? "Restored working-set context"
+    : `Restored ${workingSetName(primaryWorkingSet, primaryWorkingSetId)}`;
+  const summary = response.summary?.trim() || "Working-set undo completed.";
+  const chainAction = restoredWorkingSet != null
+    ? maybeChainWorkingSetUndo(
+        restoredWorkingSet,
+        `Undo the next earlier reversible change for ${workingSetName(restoredWorkingSet, restoredWorkingSet.id)}.`,
+        {
+          workingSetId: restoredWorkingSet.id,
+          workingSetName: restoredWorkingSet.name,
+          successLocation: workingSetResumeLocation(restoredWorkingSet.id),
+        },
+      )
+    : maybeChainWorkingSetUndo(
+        response.context,
+        "Undo the next earlier working-set context change.",
+        {
+          workingSetId: activeWorkingSet?.id ?? null,
+          workingSetName: activeWorkingSet?.name ?? null,
+          successLocation: activeWorkingSet != null
+            ? workingSetResumeLocation(activeWorkingSet.id)
+            : operatorResumeLocation(),
+        },
+      );
+  const card = createReceiptCard({
+    id: `undo-working-set-${response.undo_event_id}`,
+    eyebrow: "Undo receipt",
+    title,
+    summary,
+    rationale:
+      "Working-set undo receipts keep bounded-context reversals explicit so resumed sessions stay trustworthy after saved-state changes.",
+    tone: "progress",
+    preview: [
+      { label: "Undid", value: response.undone_event_type.replaceAll("_", " ") },
+      { label: "Undo event", value: `#${response.undo_event_id}` },
+      ...(primaryWorkingSetName ? [{ label: "Working set", value: primaryWorkingSetName }] : []),
+      { label: "Focus mode", value: response.context.focus_mode_enabled ? "Enabled" : "Off" },
+    ],
+    trust: {
+      generationLabel: "Executed working-set undo",
+      generationTone: "progress",
+      contextSources: ["Exact working-set event handle"].concat(
+        primaryWorkingSetName ? [primaryWorkingSetName] : ["Working-set context"]
+      ),
+      assumptions: ["Undo only succeeds when the supplied working-set event is still the latest reversible change."],
+      confidenceLabel: "Reverted the intended working-set mutation",
+      confidenceTone: "progress",
+      freshnessLabel: "Saved just now",
+      freshnessTone: "progress",
+      rollbackLabel: chainAction != null
+        ? "Earlier reversible working-set history is still available from this restored state."
+        : "No earlier reversible working-set event is currently available.",
+      rollbackTone: chainAction != null ? "caution" : "neutral",
+      impactSummary: summary,
+      impactTone: "progress",
+    },
+    handoff: {
+      changeSummary: summary,
+      createdResources: primaryWorkingSetName ? [primaryWorkingSetName] : [],
+      nextStep: primaryWorkingSetId != null
+        ? "Open the restored working set and continue from the recovered bounded context."
+        : "Continue from the unscoped operator workspace or reopen another working set.",
+      breadcrumbs: ["Home", "Working set undo", primaryWorkingSetName ?? "Operator"],
+      workingSet: primaryWorkingSet != null
+        ? {
+            workingSetId: primaryWorkingSet.id,
+            workingSetName: primaryWorkingSet.name,
+            itemCount: primaryWorkingSet.item_count,
+            missingItemCount: primaryWorkingSet.missing_item_count,
+          }
+        : null,
+    },
+    resumeLocation,
+    resumeLabel: primaryWorkingSetId != null ? "Open restored working set" : "Return to operator",
+    resumeDescription: summary,
+    pinLabel: primaryWorkingSetName ? `Working set · ${primaryWorkingSetName}` : null,
+    actions: chainAction != null ? [chainAction] : [],
+  });
+
+  return {
+    card,
+    resumeLocation,
+    entry: withReceiptOutcome(
+      {
+        kind: primaryWorkingSetId != null ? "working_set" : "working_set_session",
+        label: card.title,
+        description: card.summary,
+        location: resumeLocation,
+        metadata: {
+          source: "undo",
+          workingSetId: primaryWorkingSetId,
+          undoneEventId: response.undone_event_id,
+          undoEventId: response.undo_event_id,
+        },
+      },
+      card,
+      resumeLocation,
+    ),
+  };
+}
+
 export async function executeUndoAction(action: OperatorActionCardUndoAction): Promise<ExecutedUndoResult> {
   if (action.undo.kind === "loop_event") {
     const response = await requestJson<LoopUndoResponse, { expected_event_id: number; claim_token?: string | null }>(
@@ -307,6 +495,18 @@ export async function executeUndoAction(action: OperatorActionCardUndoAction): P
       "Failed to undo loop change",
     );
     return buildLoopUndoReceipt(response);
+  }
+
+  if (action.undo.kind === "working_set_event") {
+    const response = await requestJson<WorkingSetUndoResponse, WorkingSetUndoRequest>(
+      "/loops/working-sets/undo",
+      {
+        method: "POST",
+        body: { expected_event_id: action.undo.expectedEventId },
+      },
+      "Failed to undo working-set change",
+    );
+    return buildWorkingSetUndoReceipt(response);
   }
 
   const response = await requestJson<PlanningSessionRollbackResponse, { run_id: number }>(

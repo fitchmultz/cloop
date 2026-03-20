@@ -161,6 +161,7 @@ from .template_commands import (
     template_list_command,
     template_show_command,
 )
+from .working_set_commands import working_set_undo_command
 
 CommandHandler = Callable[[argparse.Namespace, Settings], int]
 
@@ -393,6 +394,13 @@ ROOT_TARGET = _branch(
                 "create": memory_create_command,
                 "update": memory_update_command,
                 "delete": memory_delete_command,
+            },
+        ),
+        "working-set": _branch(
+            "working_set_command",
+            "working-set command",
+            {
+                "undo": working_set_undo_command,
             },
         ),
     },

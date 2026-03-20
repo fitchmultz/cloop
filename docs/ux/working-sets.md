@@ -53,7 +53,8 @@ Current implementation defaults:
 - a dedicated shell route (`#working-set/:id`) restores the set as a first-class session surface
 - focus mode is explicit and can be toggled on/off without deleting the active set
 - sets may contain both durable object references and lightweight state/query anchors when the shell needs a reusable launch target
-- working-set create/focus/pin/stage/defer/reorder/remove mutations now emit shared receipt cards so the landed outcome, rollback cue, and reopen path stay visible after the mutation lands
+- working-set create/focus/pin/stage/defer/reorder/remove/bulk-add mutations now emit shared receipt cards so the landed outcome, executable undo action, and reopen path stay visible after the mutation lands
+- working-set and focus-mode responses expose exact reversible event handles so receipts, recent history, and command-palette recents can replay the same safe undo contract everywhere
 
 ## Focus mode
 
@@ -94,9 +95,10 @@ Focus mode should:
 
 ## Contract implications
 
-- Working sets likely need a new durable domain object, not just client-local state.
+- Working sets need a durable domain object plus a reversible event log for exact-handle undo.
 - They should reference existing durable objects by IDs instead of duplicating payloads.
 - Shared surfaces should be able to read/write working-set membership consistently.
+- Working-set context changes and working-set membership mutations should reuse the same shared undo contract rather than bespoke transport-specific reversal paths.
 
 ## Acceptance criteria
 

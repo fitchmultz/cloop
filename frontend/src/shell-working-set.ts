@@ -25,6 +25,7 @@
  */
 
 import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
+import { buildWorkingSetUndoAction } from "./executable-undo";
 import { requestJson } from "./http";
 import * as modals from "./modals";
 import { recordRecentShellAction } from "./continuity-intelligence";
@@ -36,8 +37,10 @@ import {
   workingSetSessionLocation,
 } from "./shell-routing";
 import type {
+  WorkingSetBulkItemCreateRequest,
   WorkingSetContextResponse,
   WorkingSetContextUpdateRequest,
+  WorkingSetDeleteResponse,
   WorkingSetItemCreateRequest,
   WorkingSetItemResponse,
   WorkingSetResponse,
@@ -221,6 +224,42 @@ export function createShellWorkingSetController(
       itemCount: workingSet.item_count,
       missingItemCount: workingSet.missing_item_count,
     };
+  }
+
+  function appendUndoAction(
+    actions: OperatorActionCardAction[] | undefined,
+    undoAction: OperatorActionCardAction | null,
+  ): OperatorActionCardAction[] {
+    return [...(actions ?? []), ...(undoAction ? [undoAction] : [])];
+  }
+
+  function contextUndoAction(context: WorkingSetContextResponse): OperatorActionCardAction | null {
+    const activeSet = context.active_working_set ?? null;
+    return buildWorkingSetUndoAction(context, {
+      description: activeSet != null
+        ? `Restore the prior working-set context before switching into ${activeSet.name}.`
+        : "Restore the prior working-set context and focus mode.",
+      workingSetId: activeSet?.id ?? null,
+      workingSetName: activeSet?.name ?? null,
+      successLocation: activeSet != null
+        ? workingSetSessionLocation(activeSet.id)
+        : createLocation({ state: "operator" }),
+    });
+  }
+
+  function workingSetUndoAction(
+    workingSet: WorkingSetResponse | null,
+    description: string,
+  ): OperatorActionCardAction | null {
+    if (!workingSet) {
+      return null;
+    }
+    return buildWorkingSetUndoAction(workingSet, {
+      description,
+      workingSetId: workingSet.id,
+      workingSetName: workingSet.name,
+      successLocation: workingSetSessionLocation(workingSet.id),
+    });
   }
 
   function recordWorkingSetReceipt(params: {
@@ -496,7 +535,7 @@ export function createShellWorkingSetController(
     focusModeEnabled: boolean,
     requestOptions: { recordHistory?: boolean } = {},
   ): Promise<void> {
-    await requestJson<WorkingSetContextResponse, WorkingSetContextUpdateRequest>(
+    const updatedContext = await requestJson<WorkingSetContextResponse, WorkingSetContextUpdateRequest>(
       "/loops/working-sets/context",
       {
         method: "PATCH",
@@ -553,6 +592,7 @@ export function createShellWorkingSetController(
             { label: "Mode", value: focusModeEnabled ? "Focus mode" : "Session" },
           ]
         : [],
+      actions: appendUndoAction(undefined, contextUndoAction(updatedContext)),
     });
   }
 
@@ -586,6 +626,13 @@ export function createShellWorkingSetController(
         { label: "Working set", value: hydrated.name },
         { label: "Description", value: hydrated.description ?? "No description" },
       ],
+      actions: appendUndoAction(
+        undefined,
+        workingSetUndoAction(
+          hydrated,
+          `Delete ${hydrated.name} and restore the prior unscoped working-set state.`,
+        ),
+      ),
     });
     return hydrated;
   }
@@ -639,12 +686,19 @@ export function createShellWorkingSetController(
         { label: "Working set", value: updated.name },
         { label: "Description", value: updated.description ?? "No description" },
       ],
+      actions: appendUndoAction(
+        undefined,
+        workingSetUndoAction(
+          updated,
+          `Restore the previous saved details for ${updated.name}.`,
+        ),
+      ),
     });
   }
 
   async function deleteWorkingSet(workingSetId: number): Promise<void> {
     const existing = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
-    await requestJson<{ deleted: boolean }>(
+    const deleted = await requestJson<WorkingSetDeleteResponse>(
       `/loops/working-sets/${workingSetId}`,
       { method: "DELETE" },
       "Failed to delete working set",
@@ -673,6 +727,17 @@ export function createShellWorkingSetController(
             { label: "Removed items", value: `${existing.item_count}` },
           ]
         : [],
+      actions: appendUndoAction(
+        undefined,
+        buildWorkingSetUndoAction(deleted, {
+          description: existing != null
+            ? `Restore ${existing.name} and its saved anchors.`
+            : `Restore deleted working set #${workingSetId}.`,
+          workingSetId: deleted.deleted_working_set_id,
+          workingSetName: deleted.deleted_working_set_name ?? existing?.name ?? null,
+          successLocation: workingSetSessionLocation(deleted.deleted_working_set_id),
+        }),
+      ),
     });
   }
 
@@ -707,6 +772,15 @@ export function createShellWorkingSetController(
             { label: "Anchors", value: `${orderedItemIds.length}` },
           ]
         : [{ label: "Anchors", value: `${orderedItemIds.length}` }],
+      actions: appendUndoAction(
+        undefined,
+        workingSetUndoAction(
+          refreshed,
+          refreshed != null
+            ? `Restore the previous anchor order for ${refreshed.name}.`
+            : "Restore the previous working-set anchor order.",
+        ),
+      ),
     });
   }
 
@@ -737,6 +811,15 @@ export function createShellWorkingSetController(
         ...(removedItem ? [{ label: "Removed anchor", value: removedItem.label }] : []),
         ...(refreshed ? [{ label: "Working set", value: refreshed.name }] : []),
       ],
+      actions: appendUndoAction(
+        undefined,
+        workingSetUndoAction(
+          refreshed,
+          removedItem != null
+            ? `Restore ${removedItem.label} to this working set.`
+            : "Restore the removed working-set anchor.",
+        ),
+      ),
     });
   }
 
@@ -817,7 +900,7 @@ export function createShellWorkingSetController(
       metadata["query"] = pinnedLocation.query;
     }
 
-    await requestJson<WorkingSetResponse, WorkingSetItemCreateRequest>(
+    const updatedWorkingSet = await requestJson<WorkingSetResponse, WorkingSetItemCreateRequest>(
       `/loops/working-sets/${activeWorkingSetId}/items`,
       {
         method: "POST",
@@ -835,6 +918,7 @@ export function createShellWorkingSetController(
 
     const activeSet = latestWorkingSets.find((set) => set.id === activeWorkingSetId)
       ?? workingSetContext?.active_working_set
+      ?? updatedWorkingSet
       ?? null;
     const variant = receiptOptions.receiptVariant ?? "pin";
     const pastTense = variant === "stage"
@@ -867,15 +951,25 @@ export function createShellWorkingSetController(
         { label: "Surface", value: pinnedLocation.state.replaceAll("_", " ") },
         ...(activeSet ? [{ label: "Working set", value: activeSet.name }] : []),
       ],
-      actions: [
-        {
-          type: "open",
-          label: "Open landed item",
-          variant: "secondary",
-          description: description ?? label,
-          location: pinnedLocation,
-        },
-      ],
+      actions: appendUndoAction(
+        [
+          {
+            type: "open",
+            label: "Open landed item",
+            variant: "secondary",
+            description: description ?? label,
+            location: pinnedLocation,
+          },
+        ],
+        workingSetUndoAction(
+          activeSet,
+          variant === "stage"
+            ? `Remove ${label} from the working set and cancel the staged handoff.`
+            : variant === "defer"
+              ? `Remove ${label} from the working set and cancel the saved defer.`
+              : `Remove ${label} from the working set.`,
+        ),
+      ),
     });
   }
 
@@ -889,6 +983,7 @@ export function createShellWorkingSetController(
         .map((item) => item.launch.loop_id)
         .filter((value): value is number => typeof value === "number"),
     );
+    const items: WorkingSetBulkItemCreateRequest["items"] = [];
     const addedLabels: string[] = [];
     for (const loopId of loopIds) {
       if (existingLoopIds.has(loopId)) {
@@ -897,28 +992,30 @@ export function createShellWorkingSetController(
       const loop = options.getLatestWorkspaceData()?.allLoops.find((candidate) => candidate.id === loopId) ?? null;
       const label = loop ? loopTitle(loop) : `Loop #${loopId}`;
       const description = loop ? loopPreview(loop) : null;
-      await requestJson<WorkingSetResponse, WorkingSetItemCreateRequest>(
-        `/loops/working-sets/${activeWorkingSetId}/items`,
-        {
-          method: "POST",
-          body: {
-            item_type: "loop",
-            item_id: loopId,
-            label,
-            description,
-            metadata: {},
-          },
-        },
-        "Failed to add loops to working set",
-      );
+      items.push({
+        item_type: "loop",
+        item_id: loopId,
+        label,
+        description,
+        metadata: {},
+      });
       addedLabels.push(label);
     }
-    await refreshWorkingSetState();
-    if (!addedLabels.length) {
+    if (!items.length) {
       return;
     }
+    const updatedWorkingSet = await requestJson<WorkingSetResponse, WorkingSetBulkItemCreateRequest>(
+      `/loops/working-sets/${activeWorkingSetId}/items/bulk`,
+      {
+        method: "POST",
+        body: { items },
+      },
+      "Failed to add loops to working set",
+    );
+    await refreshWorkingSetState();
     const activeSet = latestWorkingSets.find((set) => set.id === activeWorkingSetId)
       ?? workingSetContext?.active_working_set
+      ?? updatedWorkingSet
       ?? null;
     recordWorkingSetReceipt({
       kind: "working_set",
@@ -936,6 +1033,13 @@ export function createShellWorkingSetController(
         { label: "Added", value: `${addedLabels.length}` },
         { label: "Examples", value: addedLabels.slice(0, 2).join(" · ") },
       ],
+      actions: appendUndoAction(
+        undefined,
+        workingSetUndoAction(
+          activeSet,
+          `Remove the ${addedLabels.length} loop anchor${addedLabels.length === 1 ? "" : "s"} added in this step.`,
+        ),
+      ),
     });
   }
 

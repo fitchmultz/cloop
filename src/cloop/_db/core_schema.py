@@ -329,6 +329,36 @@ CREATE TABLE working_set_context (
 INSERT INTO working_set_context (singleton_id, active_working_set_id, focus_mode_enabled)
 VALUES (1, NULL, 0);
 
+CREATE TABLE working_set_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('working_set', 'working_set_context')),
+    subject_id INTEGER NOT NULL,
+    event_type TEXT NOT NULL CHECK (
+        event_type IN (
+            'create',
+            'update',
+            'delete',
+            'add_item',
+            'bulk_add_items',
+            'remove_item',
+            'reorder',
+            'context_update',
+            'undo'
+        )
+    ),
+    before_state_json TEXT NOT NULL DEFAULT '{}',
+    after_state_json TEXT NOT NULL DEFAULT '{}',
+    undone_by_event_id INTEGER REFERENCES working_set_events(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_working_set_events_subject
+    ON working_set_events(subject_type, subject_id, id DESC);
+
+CREATE INDEX idx_working_set_events_latest_reversible
+    ON working_set_events(subject_type, subject_id, id DESC)
+    WHERE event_type != 'undo' AND undone_by_event_id IS NULL;
+
 CREATE TABLE webhook_subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     url TEXT NOT NULL,

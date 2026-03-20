@@ -154,7 +154,15 @@ export interface PlanningRunUndoHandle {
   bestEffort: boolean;
 }
 
-export type ExecutableUndoHandle = LoopEventUndoHandle | PlanningRunUndoHandle;
+export interface WorkingSetEventUndoHandle {
+  kind: "working_set_event";
+  expectedEventId: number;
+  eventType: string | null;
+  workingSetId: number | null;
+  workingSetName: string | null;
+}
+
+export type ExecutableUndoHandle = LoopEventUndoHandle | PlanningRunUndoHandle | WorkingSetEventUndoHandle;
 
 export interface RecentShellActionOutcome {
   card: OperatorActionCard;

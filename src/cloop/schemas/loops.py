@@ -194,15 +194,19 @@ from ._loops.views_webhooks import (
     WebhookSubscriptionUpdate,
 )
 from ._loops.working_sets import (
+    WorkingSetBulkItemCreateRequest,
     WorkingSetContextResponse,
     WorkingSetContextUpdateRequest,
     WorkingSetCreateRequest,
+    WorkingSetDeleteResponse,
     WorkingSetItemCreateRequest,
     WorkingSetItemResponse,
     WorkingSetLaunchLocationResponse,
     WorkingSetQueryAnchorRequest,
     WorkingSetReorderRequest,
     WorkingSetResponse,
+    WorkingSetUndoRequest,
+    WorkingSetUndoResponse,
     WorkingSetUpdateRequest,
 )
 
@@ -245,6 +249,7 @@ __all__ = [
     "WorkingSetCreateRequest",
     "WorkingSetUpdateRequest",
     "WorkingSetItemCreateRequest",
+    "WorkingSetBulkItemCreateRequest",
     "WorkingSetReorderRequest",
     "WorkingSetQueryAnchorRequest",
     "WorkingSetLaunchLocationResponse",
@@ -252,6 +257,9 @@ __all__ = [
     "WorkingSetResponse",
     "WorkingSetContextUpdateRequest",
     "WorkingSetContextResponse",
+    "WorkingSetDeleteResponse",
+    "WorkingSetUndoRequest",
+    "WorkingSetUndoResponse",
     "LoopClaimRequest",
     "LoopRenewClaimRequest",
     "LoopReleaseClaimRequest",

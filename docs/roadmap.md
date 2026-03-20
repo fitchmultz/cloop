@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn the shipped operator-shell foundation into a world-class cross-session decision and execution workspace: outcome-anchored continuity that reflects what actually landed, then executable undo actions everywhere the backend already supports reversal.
+The current priority is to turn the shipped operator-shell foundation into a world-class cross-session decision and execution workspace: unify landed outcomes into one ranked follow-through model now that executable undo covers loop, planning, and working-set continuity mutations.
 
 ## Direction
 
@@ -39,22 +39,7 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Session 1 — Deterministic inverse contracts for remaining durable mutations
-
-**Primary specs:**
-- [`docs/ux/undo-actions.md`](ux/undo-actions.md)
-- [`docs/ux/working-sets.md`](ux/working-sets.md)
-- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
-
-Goal: extend the new executable-undo model to the highest-signal durable mutations that still surface advisory rollback copy or no rollback at all.
-
-Planned sequence:
-
-1. inventory remaining receipt emitters and trust surfaces that still describe reversibility without a transport-safe inverse contract
-2. add exact-handle inverse contracts in the backend for the next highest-value durable mutations, starting with working-set continuity changes and other operator-owned state that already lands as receipts
-3. plug those new inverse contracts into the shared undo model so receipt cards, recent history, and palette quick actions inherit coverage without new frontend forks
-
-### Session 2 — Outcome-centric follow-through consolidation
+### Session 1 — Outcome-centric follow-through consolidation
 
 **Primary specs:**
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
@@ -68,6 +53,21 @@ Planned sequence:
 1. define one canonical ranking model for landed outcomes across operator home, receipt rail, and command-palette recents
 2. remove duplicated render paths that restate the same landed result with different copy or action ordering
 3. preserve the same outcome contract everywhere so new durable workflows only need to emit one receipt/handoff payload
+
+### Session 2 — Shared rerun and refresh affordances
+
+**Primary specs:**
+- [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
+- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
+- [`docs/ux/ai-action-cards.md`](ux/ai-action-cards.md)
+
+Goal: make landed outcomes as repeatable as they are resumable by standardizing rerun, refresh, and regenerate affordances for planning, review, and recall flows.
+
+Planned sequence:
+
+1. inventory where landed outcomes already imply a rerun or refresh path but still describe it with bespoke copy or one-off buttons
+2. define one shared action-card contract for rerun and refresh semantics, including provenance and post-run landing behavior
+3. reuse that contract across planning refresh, review-session regeneration, and recall follow-through so the unified outcome feed stays actionable without per-surface forks
 
 ## Delivery model
 

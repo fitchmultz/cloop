@@ -67,6 +67,11 @@ The executable undo model is now a first-class shared workflow contract.
   - body requires `run_id`
   - only the latest active run can be rolled back
   - fully rolled-back runs stay in history but are marked inactive for continuity and analytics
+- working-set undo is now a public exact-handle contract:
+  - `POST /loops/working-sets/undo`
+  - body requires `expected_event_id`
+  - stale handles are rejected explicitly instead of undoing a newer working-set change
+  - reversible working-set responses now expose `latest_reversible_event_id` and `latest_reversible_event_type`
 
 ### Shared frontend contract
 
@@ -85,6 +90,7 @@ Executable undo now appears anywhere the backend already exposes a safe inverse 
 
 - planning execution receipts and operator handoff cards
 - enrichment apply receipts
+- working-set continuity receipts for create/update/delete/focus/pin/stage/defer/reorder/remove/bulk-add flows
 - recent shell-action continuity entries
 - operator “since last” outcome cards
 - command-palette quick undo commands
@@ -166,7 +172,16 @@ If a review action is not actually reversible, the receipt should remain explici
 
 ### Working-set mutations
 
-Working-set mutations already emit receipt cards. Where the backend has a deterministic inverse mutation for the same landed change, those receipts should expose executable undo. If a given working-set action does not yet have a safe inverse contract, it must remain visibly irreversible until that contract exists.
+Working-set mutations now use the same executable undo model as loop and planning receipts.
+
+Shipped working-set undo coverage includes:
+
+- create, update, and delete of named working sets
+- active working-set / focus-mode context changes
+- single-item pin, stage, defer, remove, and reorder mutations
+- bulk loop-add expansion into the active working set
+
+These receipts now carry exact working-set event handles through the shared undo contract, so recent history, operator outcome cards, and command-palette quick undo all reuse the same safe backend path.
 
 ### Command-palette quick actions
 
@@ -223,6 +238,7 @@ The command palette should reuse the same executable undo handles already attach
 - `TrustSurfaceMetadata.rollbackLabel` should remain trust copy, not the executable contract.
 - Planning rollback needs a public transport-safe execution path. Internal helpers in `execution_rollback.py` are not sufficient by themselves for frontend-triggered rollback.
 - Loop-event undo should validate that the intended reversible event is still the correct one to undo. If the existing `POST /loops/{loop_id}/undo` contract is too coarse for safe receipt-driven undo, it should be extended with freshness validation such as an expected event identifier or equivalent server-side guard.
+- Working-set undo should follow the same freshness-safe rule, using durable working-set event handles instead of advisory rollback copy.
 - Undo responses should return enough structured data to create a new receipt and handoff result so continuity remains coherent after rollback.
 - `ShellLocationContract` should remain the canonical navigation target for post-undo landing states.
 

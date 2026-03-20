@@ -55,6 +55,7 @@ from .parsers.plan import add_plan_parser
 from .parsers.rag import add_ask_parser, add_ingest_parser
 from .parsers.review import add_review_parser
 from .parsers.template import add_template_parser
+from .parsers.working_set import add_working_set_parser
 
 ParserBuilder = Callable[[Any], None]
 
@@ -106,6 +107,9 @@ Examples:
     --query "status:open"
   cloop plan session execute --session 3
 
+  # Working-set undo
+  cloop working-set undo --event-id 42
+
   # Loop claims (multi-agent coordination)
   cloop loop claim 1 --owner agent-alpha
   cloop loop update 1 --title "Updated" --claim-token TOKEN
@@ -149,6 +153,7 @@ TOP_LEVEL_PARSER_BUILDERS: tuple[ParserBuilder, ...] = (
     add_review_parser,
     add_plan_parser,
     add_memory_parser,
+    add_working_set_parser,
 )
 
 

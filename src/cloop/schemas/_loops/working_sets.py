@@ -55,6 +55,16 @@ WorkingSetShellState = Literal[
 ]
 WorkingSetRecallTool = Literal["chat", "memory", "rag"]
 WorkingSetReviewFocus = Literal["planning", "relationship", "enrichment", "cohorts"]
+WorkingSetReversibleEventType = Literal[
+    "create",
+    "update",
+    "delete",
+    "add_item",
+    "bulk_add_items",
+    "remove_item",
+    "reorder",
+    "context_update",
+]
 
 
 class WorkingSetLaunchLocationResponse(BaseModel):
@@ -118,6 +128,12 @@ class WorkingSetReorderRequest(BaseModel):
     ordered_item_ids: list[int] = Field(..., min_length=1)
 
 
+class WorkingSetBulkItemCreateRequest(BaseModel):
+    """Request to add multiple items to a working set atomically."""
+
+    items: list[WorkingSetItemCreateRequest] = Field(..., min_length=1)
+
+
 class WorkingSetResponse(BaseModel):
     """Resolved working-set payload with ordered items and a session launch target."""
 
@@ -129,6 +145,8 @@ class WorkingSetResponse(BaseModel):
     last_activated_at_utc: str | None = None
     created_at_utc: str
     updated_at_utc: str
+    latest_reversible_event_id: int | None = Field(default=None, ge=1)
+    latest_reversible_event_type: WorkingSetReversibleEventType | None = None
     items: list[WorkingSetItemResponse] = Field(default_factory=list)
     launch: WorkingSetLaunchLocationResponse
 
@@ -146,7 +164,39 @@ class WorkingSetContextResponse(BaseModel):
     active_working_set_id: int | None = None
     focus_mode_enabled: bool
     updated_at_utc: str
+    latest_reversible_event_id: int | None = Field(default=None, ge=1)
+    latest_reversible_event_type: WorkingSetReversibleEventType | None = None
     active_working_set: WorkingSetResponse | None = None
+
+
+class WorkingSetDeleteResponse(BaseModel):
+    """Response body for deleting one working set with undo metadata."""
+
+    deleted: bool
+    deleted_working_set_id: int = Field(..., ge=1)
+    deleted_working_set_name: str | None = None
+    latest_reversible_event_id: int = Field(..., ge=1)
+    latest_reversible_event_type: Literal["delete"] = "delete"
+    context: WorkingSetContextResponse
+
+
+class WorkingSetUndoRequest(BaseModel):
+    """Request to undo one exact latest working-set mutation event."""
+
+    expected_event_id: int = Field(..., ge=1)
+
+
+class WorkingSetUndoResponse(BaseModel):
+    """Result of undoing one exact working-set mutation event."""
+
+    working_set: WorkingSetResponse | None = None
+    context: WorkingSetContextResponse
+    affected_working_set_id: int | None = Field(default=None, ge=1)
+    affected_working_set_name: str | None = None
+    undone_event_id: int = Field(..., ge=1)
+    undone_event_type: WorkingSetReversibleEventType
+    undo_event_id: int = Field(..., ge=1)
+    summary: str
 
 
 class WorkingSetQueryAnchorRequest(BaseModel):
