@@ -232,6 +232,8 @@ Phase-1 hardening behavior:
 
 - when a request exceeds `timeout_ms`, the bridge aborts the agent and emits a terminal timeout error
 - when tool iterations exceed `max_tool_rounds`, the bridge aborts and emits a terminal `tool_round_limit` error
+- streaming still emits one `tool_result` event per completed tool outcome
+- final chat responses now preserve ordered `tool_results`; `tool_result` remains only as a transitional first-result alias
 - `tool_round_limit` now carries structured details including `tool_rounds_used`, `max_tool_rounds`, `stop_reason`, and `partial_text`
 - Python enriches `tool_round_limit` with surface-specific guidance plus `partial_results.text`, `partial_results.tool_calls`, and `partial_results.tool_results`
 - when Python finishes consuming a session without a terminal success event, it aborts the in-flight bridge request before closing the session

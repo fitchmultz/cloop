@@ -93,6 +93,20 @@ def test_idempotency_keys_table_exists(tmp_path: Path, monkeypatch: pytest.Monke
     assert row is not None
 
 
+def test_interactions_table_tracks_tool_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fresh core schemas should persist ordered tool results alongside tool calls."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info('interactions')").fetchall()}
+
+    assert "tool_calls" in columns
+    assert "tool_results" in columns
+
+
 def test_review_workflow_tables_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Saved review actions and sessions should have durable schema tables."""
     settings = _prepare_settings(tmp_path, monkeypatch)
@@ -173,6 +187,39 @@ def test_vector_extension_manager_thread_safety(
 
     assert not errors, f"Thread-safety errors: {errors}"
     get_settings.cache_clear()
+
+
+def test_interactions_tool_results_migration_adds_column(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migrating from schema 40 should add the interactions.tool_results column."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE interactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                endpoint TEXT NOT NULL,
+                model TEXT,
+                latency_ms REAL,
+                request_payload TEXT,
+                response_payload TEXT,
+                tool_calls TEXT,
+                selected_chunks TEXT,
+                token_estimate INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute("PRAGMA user_version = 40")
+        conn.commit()
+        db.migrate_core_db(conn, from_version=40, to_version=41)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info('interactions')").fetchall()}
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    assert "tool_results" in columns
+    assert version == 41
 
 
 def test_migration_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

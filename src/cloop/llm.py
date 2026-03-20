@@ -412,7 +412,9 @@ def chat_with_tools(
         elif event_type == "tool_result":
             tool_outputs.append(
                 {
+                    "tool_call_id": event.get("tool_call_id"),
                     "name": event.get("name"),
+                    "arguments": event.get("arguments") or {},
                     "output": event.get("output"),
                     "is_error": bool(event.get("is_error", False)),
                 }

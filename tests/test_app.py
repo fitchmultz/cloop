@@ -90,10 +90,11 @@ def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> N
     write_response = test_client.post("/chat", json=write_payload)
     assert write_response.status_code == 200
     write_data = write_response.json()
-    assert write_data["tool_result"]["action"] == "write_note"
+    assert write_data["tool_results"][0]["action"] == "write_note"
+    assert write_data["tool_result"] == write_data["tool_results"][0]
     assert write_data["tool_calls"] == []
     assert write_data["model"] == "mock-llm"
-    note_id = write_data["tool_result"]["note"]["id"]
+    note_id = write_data["tool_results"][0]["note"]["id"]
 
     read_payload = {
         "messages": [{"role": "user", "content": "Fetch my note."}],
@@ -102,16 +103,78 @@ def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> N
     read_response = test_client.post("/chat", json=read_payload)
     assert read_response.status_code == 200
     read_data = read_response.json()
-    assert read_data["tool_result"]["action"] == "read_note"
-    assert read_data["tool_result"]["note"]["title"] == "todo"
+    assert read_data["tool_results"][0]["action"] == "read_note"
+    assert read_data["tool_results"][0]["note"]["title"] == "todo"
     assert read_data["tool_calls"] == []
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
-            "SELECT tool_calls FROM interactions WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+            "SELECT tool_calls, tool_results FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
         ).fetchone()
     assert row is not None
     assert row["tool_calls"] == "[]"
+    assert json.loads(row["tool_results"])[0]["action"] == "read_note"
+
+
+def test_chat_llm_tool_mode_preserves_multiple_tool_results(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM tool mode should preserve ordered tool results in the shared chat contract."""
+
+    def fake_chat_with_tools(
+        messages: list[dict[str, Any]],
+        tools: Any,
+        *,
+        surface: Any,
+        settings: Any = None,
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        return (
+            "tool-mode-final",
+            {
+                "model": "mock-llm-tool",
+                "latency_ms": 4.0,
+                "usage": {},
+                "tool_outputs": [
+                    {"name": "write_note", "output": {"action": "write_note", "note": {"id": 1}}},
+                    {"name": "loop_list", "output": {"action": "loop_list", "items": []}},
+                ],
+            },
+            [
+                {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}},
+                {"name": "loop_list", "arguments": {"status": "actionable"}},
+            ],
+        )
+
+    monkeypatch.setattr("cloop.chat_execution.chat_with_tools", fake_chat_with_tools)
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "Do the setup and then list loops."}],
+            "tool_mode": "llm",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert [item["action"] for item in data["tool_results"]] == ["write_note", "loop_list"]
+    assert data["tool_result"] == data["tool_results"][0]
+
+    from cloop import db
+    from cloop.settings import get_settings
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT tool_results FROM interactions "
+            "WHERE endpoint = '/chat' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert row is not None
+    assert [item["action"] for item in json.loads(row["tool_results"])] == [
+        "write_note",
+        "loop_list",
+    ]
 
 
 def test_chat_manual_loop_create(test_client: TestClient, tmp_data_dir: Path) -> None:

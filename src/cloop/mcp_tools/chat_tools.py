@@ -104,7 +104,8 @@ def chat_complete(
     Returns:
         Dict matching the shared `ChatResponse` contract with:
         - `message`: Final assistant text
-        - `tool_result`: Optional tool output payload
+        - `tool_results`: Ordered tool output payloads
+        - `tool_result`: Transitional compatibility alias for the first tool output
         - `tool_calls`: Tool calls performed during execution
         - `model` / `metadata`: Generation metadata
         - `options`: Effective resolved chat options

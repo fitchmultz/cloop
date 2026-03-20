@@ -46,6 +46,7 @@ CREATE TABLE interactions (
     request_payload TEXT,
     response_payload TEXT,
     tool_calls TEXT,
+    tool_results TEXT NOT NULL DEFAULT '[]',
     selected_chunks TEXT,
     token_estimate INTEGER,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP

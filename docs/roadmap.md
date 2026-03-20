@@ -54,24 +54,7 @@ Why this comes first:
 - the current single-path assumptions leak into HTTP, CLI, MCP, docs, tests, and the frontend contract, so fixing them first reduces follow-on churn
 - later handoff UX work should build on more flexible execution contracts instead of immediately depending on contracts we already know are too narrow
 
-#### Slice 1 — Preserve multi-tool outcomes instead of collapsing them
-
-Objective: stop forcing stochastic multi-step tool behavior through one preferred intermediate artifact.
-
-Planned work:
-1. evolve the shared chat/runtime contract from singular `tool_result` to plural tool-result handling
-2. preserve ordered `tool_calls` and `tool_results` across HTTP, CLI, MCP, frontend state, and interaction logs
-3. keep a compatibility summary field only as a migration bridge where existing surfaces still expect one primary result
-4. ensure receipts and debug views can show multiple valid tool outcomes without losing provenance
-5. update transport docs and examples to describe outcome-oriented handling rather than one canonical tool artifact
-
-Acceptance bar:
-- multi-tool runs no longer lose information in public response payloads
-- frontend/operator surfaces can render more than one tool outcome cleanly
-- logging preserves the actual tool sequence that occurred
-- compatibility shims are transitional and clearly scoped
-
-#### Slice 2 — Add bounded alternate strategies for read-only generation paths
+#### Slice 1 — Add bounded alternate strategies for read-only generation paths
 
 Objective: avoid repeating one failing path when the request has not produced side effects and another valid strategy could succeed.
 
@@ -95,7 +78,7 @@ Acceptance bar:
 - logs and responses preserve provenance for fallback/retry decisions
 - operators still get deterministic final failure states when all allowed strategies fail
 
-#### Slice 3 — De-brittle prompts, tests, and operator guidance around stochastic behavior
+#### Slice 2 — De-brittle prompts, tests, and operator guidance around stochastic behavior
 
 Objective: stop baking exact wording and exact preferred process into the surrounding harness when task-level invariants are what actually matter.
 

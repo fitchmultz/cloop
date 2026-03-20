@@ -353,7 +353,7 @@ export interface ChatMessage {
   options: Record<string, unknown> | null;
   context: ChatContext | null;
   toolCalls: ChatToolCall[];
-  toolResult: Record<string, unknown> | null;
+  toolResults: Record<string, unknown>[];
   sources: ChatSource[];
   error: string | null;
 }

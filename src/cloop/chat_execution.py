@@ -47,7 +47,7 @@ class PreparedChatExecution:
     request_payload: dict[str, Any]
     messages: list[dict[str, Any]]
     tool_mode: ToolMode
-    tool_result: dict[str, Any] | None
+    tool_results: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
 
 
@@ -95,6 +95,21 @@ def _coerce_usage_payload(usage: Any) -> dict[str, Any]:
     return {"value": str(usage)}
 
 
+def _coerce_tool_output(output: Any) -> dict[str, Any]:
+    if isinstance(output, dict):
+        return dict(output)
+    if hasattr(output, "model_dump"):
+        dumped = output.model_dump()
+        return dumped if isinstance(dumped, dict) else {"value": dumped}
+    if hasattr(output, "dict"):
+        dumped = output.dict()
+        return dumped if isinstance(dumped, dict) else {"value": dumped}
+    if hasattr(output, "__dict__"):
+        dumped = output.__dict__
+        return dumped if isinstance(dumped, dict) else {"value": dumped}
+    return {"value": output}
+
+
 def _metadata_payload(metadata: dict[str, Any]) -> dict[str, Any]:
     return {
         "latency_ms": float(metadata.get("latency_ms", 0.0)) if metadata else 0.0,
@@ -139,13 +154,13 @@ def _response_payload(
     *,
     prepared: PreparedChatRequest,
     message: str,
-    tool_result: dict[str, Any] | None,
+    tool_results: list[dict[str, Any]],
     tool_calls: list[dict[str, Any]],
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "message": message,
-        "tool_result": tool_result,
+        "tool_results": tool_results,
         "metadata": _metadata_payload(metadata),
         "tool_calls": tool_calls,
         "context": prepared.interaction_context,
@@ -159,14 +174,14 @@ def _chat_response(
     *,
     prepared: PreparedChatRequest,
     message: str,
-    tool_result: dict[str, Any] | None,
+    tool_results: list[dict[str, Any]],
     tool_calls: list[dict[str, Any]],
     metadata: dict[str, Any],
 ) -> ChatResponse:
     metadata_response = _metadata_response(metadata)
     return ChatResponse(
         message=message,
-        tool_result=tool_result,
+        tool_results=tool_results,
         tool_calls=tool_calls,
         model=metadata_response.model,
         metadata=metadata_response,
@@ -179,7 +194,7 @@ def _chat_response(
 def _prepare_execution(*, request: ChatRequest, settings: Settings) -> PreparedChatExecution:
     prepared = prepare_chat_request(request=request, settings=settings)
     tool_mode = prepared.effective_options.tool_mode
-    tool_result: dict[str, Any] | None = None
+    tool_results: list[dict[str, Any]] = []
     tool_calls: list[dict[str, Any]] = []
 
     if request.tool_call and tool_mode is not ToolMode.MANUAL:
@@ -190,11 +205,12 @@ def _prepare_execution(*, request: ChatRequest, settings: Settings) -> PreparedC
         tool_call = request.tool_call
         if tool_call is None:
             raise ValueError("tool_call required in manual mode")
-        tool_result = execute_manual_tool_call(name=tool_call.name, arguments=tool_call.arguments)
+        manual_output = execute_manual_tool_call(name=tool_call.name, arguments=tool_call.arguments)
+        tool_results = [_coerce_tool_output(manual_output)]
         messages.append(
             {
                 "role": "system",
-                "content": f"Tool output: {json.dumps(tool_result)}",
+                "content": f"Tool output: {json.dumps(manual_output)}",
             }
         )
 
@@ -209,7 +225,7 @@ def _prepare_execution(*, request: ChatRequest, settings: Settings) -> PreparedC
         request_payload=request_payload,
         messages=messages,
         tool_mode=tool_mode,
-        tool_result=tool_result,
+        tool_results=tool_results,
         tool_calls=tool_calls,
     )
 
@@ -231,6 +247,7 @@ def _record_chat_interaction(
         token_estimate=execution.prepared.token_estimate,
         selected_chunks=execution.prepared.rag_chunks,
         tool_calls=execution.tool_calls,
+        tool_results=execution.tool_results,
         settings=settings,
     )
 
@@ -243,7 +260,7 @@ def execute_chat_request(
 ) -> ChatExecutionResult:
     """Run the canonical non-streaming chat execution flow."""
     execution = _prepare_execution(request=request, settings=settings)
-    tool_result = execution.tool_result
+    tool_results = list(execution.tool_results)
     tool_calls = execution.tool_calls
 
     if execution.tool_mode is ToolMode.LLM:
@@ -257,11 +274,10 @@ def execute_chat_request(
         except ToolCallError as exc:
             raise ValueError(str(exc)) from exc
         outputs = metadata.get("tool_outputs") or []
-        if outputs:
-            first_output = outputs[0]
-            tool_result = (
-                first_output.get("output") if isinstance(first_output, dict) else first_output
-            )
+        tool_results = [
+            _coerce_tool_output(item.get("output") if isinstance(item, dict) else item)
+            for item in outputs
+        ]
     else:
         content, metadata = chat_completion(
             execution.messages,
@@ -272,7 +288,7 @@ def execute_chat_request(
     response_payload = _response_payload(
         prepared=execution.prepared,
         message=content,
-        tool_result=tool_result,
+        tool_results=tool_results,
         tool_calls=tool_calls,
         metadata=metadata,
     )
@@ -283,7 +299,7 @@ def execute_chat_request(
             request_payload=execution.request_payload,
             messages=execution.messages,
             tool_mode=execution.tool_mode,
-            tool_result=tool_result,
+            tool_results=tool_results,
             tool_calls=tool_calls,
         ),
         response_payload=response_payload,
@@ -294,7 +310,7 @@ def execute_chat_request(
     response = _chat_response(
         prepared=execution.prepared,
         message=content,
-        tool_result=tool_result,
+        tool_results=tool_results,
         tool_calls=tool_calls,
         metadata=metadata,
     )
@@ -314,7 +330,7 @@ def _stream_prepared_chat_request(
     endpoint: str,
 ) -> Iterator[StreamedChatEvent]:
     tool_calls = execution.tool_calls
-    tool_result = execution.tool_result
+    tool_results = list(execution.tool_results)
     metadata: dict[str, Any] = {
         "model": None,
         "latency_ms": 0.0,
@@ -363,9 +379,8 @@ def _stream_prepared_chat_request(
             )
             yield StreamedChatEvent(type="tool_call", payload=payload)
         elif event_type == "tool_result":
-            output = event.get("output")
-            if isinstance(output, dict) and tool_result is None:
-                tool_result = output
+            output = _coerce_tool_output(event.get("output"))
+            tool_results.append(output)
             yield StreamedChatEvent(
                 type="tool_result",
                 payload={
@@ -394,7 +409,7 @@ def _stream_prepared_chat_request(
     response_payload = _response_payload(
         prepared=execution.prepared,
         message=final_message,
-        tool_result=tool_result,
+        tool_results=tool_results,
         tool_calls=tool_calls,
         metadata=metadata,
     )
@@ -405,7 +420,7 @@ def _stream_prepared_chat_request(
             request_payload={**execution.request_payload, "stream": True},
             messages=execution.messages,
             tool_mode=execution.tool_mode,
-            tool_result=tool_result,
+            tool_results=tool_results,
             tool_calls=tool_calls,
         ),
         response_payload=response_payload,
@@ -415,7 +430,7 @@ def _stream_prepared_chat_request(
     response = _chat_response(
         prepared=execution.prepared,
         message=final_message,
-        tool_result=tool_result,
+        tool_results=tool_results,
         tool_calls=tool_calls,
         metadata=metadata,
     )

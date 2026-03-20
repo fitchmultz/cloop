@@ -3958,17 +3958,19 @@ def test_chat_complete_manual_tool_mode_runs_shared_manual_tool_execution(
 
     assert result["message"] == "mock-response"
     assert result["tool_calls"] == []
-    assert result["tool_result"]["action"] == "write_note"
-    assert result["tool_result"]["note"]["title"] == "todo"
+    assert result["tool_results"][0]["action"] == "write_note"
+    assert result["tool_result"] == result["tool_results"][0]
+    assert result["tool_results"][0]["note"]["title"] == "todo"
     assert result["options"]["tool_mode"] == "manual"
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
-            "SELECT tool_calls, response_payload FROM interactions "
+            "SELECT tool_calls, tool_results, response_payload FROM interactions "
             "WHERE endpoint = '/mcp/chat.complete' ORDER BY id DESC LIMIT 1"
         ).fetchone()
     assert row is not None
     assert row["tool_calls"] == "[]"
+    assert json.loads(row["tool_results"])[0]["action"] == "write_note"
     assert '"action": "write_note"' in row["response_payload"]
 
 
@@ -3988,18 +3990,58 @@ def test_chat_complete_llm_tool_mode_returns_shared_tool_call_payload(
     assert result["tool_calls"] == [
         {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}
     ]
-    assert result["tool_result"] == {"action": "write_note", "ok": True}
+    assert result["tool_results"] == [{"action": "write_note", "ok": True}]
+    assert result["tool_result"] == result["tool_results"][0]
     assert result["model"] == "mock-llm-tool"
     assert result["metadata"]["api"] == "responses"
     assert result["options"]["tool_mode"] == "llm"
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
-            "SELECT tool_calls FROM interactions "
+            "SELECT tool_calls, tool_results FROM interactions "
             "WHERE endpoint = '/mcp/chat.complete' ORDER BY id DESC LIMIT 1"
         ).fetchone()
     assert row is not None
     assert "write_note" in row["tool_calls"]
+    assert json.loads(row["tool_results"]) == [{"action": "write_note", "ok": True}]
+
+
+def test_chat_complete_llm_tool_mode_preserves_multiple_tool_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chat.complete should preserve ordered tool_results for bridge-led multi-tool runs."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    def fake_chat_with_tools(
+        messages: list[dict[str, Any]], tools: Any, *, surface: Any, settings: Settings
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        return (
+            "tool-mode-final",
+            {
+                "model": f"{settings.pi_model}-tool",
+                "latency_ms": 8.0,
+                "usage": {},
+                "tool_outputs": [
+                    {"output": {"action": "write_note", "ok": True}},
+                    {"output": {"action": "loop_list", "items": []}},
+                ],
+            },
+            [
+                {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}},
+                {"name": "loop_list", "arguments": {"status": "actionable"}},
+            ],
+        )
+
+    monkeypatch.setattr("cloop.chat_execution.chat_with_tools", fake_chat_with_tools)
+
+    result = chat_complete(
+        messages=[_user_message("Please file a note and then list loops.")],
+        tool_mode=ToolMode.LLM,
+    )
+
+    assert [item["action"] for item in result["tool_results"]] == ["write_note", "loop_list"]
+    assert result["tool_result"] == result["tool_results"][0]
 
 
 def test_chat_complete_rejects_unsupported_manual_tool(

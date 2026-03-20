@@ -114,6 +114,19 @@ function normalizeToolCalls(toolCalls: unknown): ChatToolCall[] {
   });
 }
 
+function normalizeToolResults(
+  toolResults: unknown,
+  legacyToolResult?: unknown,
+): Record<string, unknown>[] {
+  if (Array.isArray(toolResults)) {
+    return toolResults.flatMap((toolResult) => (isRecord(toolResult) ? [toolResult] : []));
+  }
+  if (isRecord(legacyToolResult)) {
+    return [legacyToolResult];
+  }
+  return [];
+}
+
 function normalizeSources(sources: unknown): ChatSource[] {
   if (!Array.isArray(sources)) {
     return [];
@@ -193,11 +206,10 @@ function normalizeChatMessage(message: unknown, index = 0): ChatMessage | null {
     options: normalizeOptions(message["options"]),
     context: normalizeContext(message["context"]),
     toolCalls: normalizeToolCalls(message["toolCalls"] ?? message["tool_calls"]),
-    toolResult: isRecord(message["toolResult"])
-      ? message["toolResult"]
-      : isRecord(message["tool_result"])
-        ? message["tool_result"]
-        : null,
+    toolResults: normalizeToolResults(
+      message["toolResults"] ?? message["tool_results"],
+      message["toolResult"] ?? message["tool_result"],
+    ),
     sources: normalizeSources(message["sources"]),
     error: typeof message["error"] === "string" ? message["error"] : null,
   };

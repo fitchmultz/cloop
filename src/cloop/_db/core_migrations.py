@@ -31,6 +31,9 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    41: """
+    ALTER TABLE interactions ADD COLUMN tool_results TEXT NOT NULL DEFAULT '[]';
+    """,
     40: """
     CREATE TABLE working_set_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

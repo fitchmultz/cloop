@@ -15,7 +15,7 @@ Non-scope:
 
 from typing import TYPE_CHECKING, Annotated, Any, Self, TypedDict
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 from ..constants import CHAT_MESSAGE_MAX
 from ..settings import ToolMode
@@ -142,10 +142,16 @@ class ChatResponse(BaseModel):
     """Response from chat completion."""
 
     message: str
-    tool_result: dict[str, Any] | None = None
+    tool_results: list[dict[str, Any]] = Field(default_factory=list)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     model: str | None = None
     metadata: ChatMetadataResponse | None = None
     options: ChatOptionsResponse
     context: ChatContextResponse = Field(default_factory=ChatContextResponse)
     sources: list[dict[str, Any]] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def tool_result(self) -> dict[str, Any] | None:
+        """Transitional compatibility alias for the first tool result."""
+        return self.tool_results[0] if self.tool_results else None

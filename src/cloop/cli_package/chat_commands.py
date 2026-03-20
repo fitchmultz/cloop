@@ -157,11 +157,13 @@ def _render_tool_calls(tool_calls: list[dict[str, Any]]) -> None:
             print(f"  {line}")
 
 
-def _render_tool_result(tool_result: dict[str, Any] | None) -> None:
-    if tool_result is None:
+def _render_tool_results(tool_results: list[dict[str, Any]]) -> None:
+    if not tool_results:
         return
-    print("\nTool result:")
-    print(json.dumps(tool_result, indent=2))
+    print("\nTool results:")
+    for index, tool_result in enumerate(tool_results, start=1):
+        print(f"- Result {index}")
+        print(json.dumps(tool_result, indent=2))
 
 
 def _render_sources(sources: list[dict[str, Any]]) -> None:
@@ -189,7 +191,7 @@ def _render_text_result(result: CliChatRunResult) -> None:
         print()
 
     _render_tool_calls(response.tool_calls)
-    _render_tool_result(response.tool_result)
+    _render_tool_results(response.tool_results)
     _render_sources(response.sources)
 
 

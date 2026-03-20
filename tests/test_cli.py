@@ -665,9 +665,50 @@ def test_chat_command_manual_tool_mode(
     assert exit_code == 0
     output = _get_last_json(capsys)
     assert output["message"] == "mock-response"
-    assert output["tool_result"]["action"] == "loop_create"
-    assert output["tool_result"]["loop"]["raw_text"] == "Pay rent"
+    assert output["tool_results"][0]["action"] == "loop_create"
+    assert output["tool_result"] == output["tool_results"][0]
+    assert output["tool_results"][0]["loop"]["raw_text"] == "Pay rent"
     assert output["options"]["tool_mode"] == "manual"
+
+
+def test_chat_command_llm_tool_mode_preserves_multiple_tool_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """CLI JSON output should expose ordered tool_results for bridge-led tool runs."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _mock_chat_runtime(monkeypatch)
+
+    def fake_chat_with_tools(
+        messages: List[dict[str, Any]], tools: Any, *, surface: Any, settings: Settings
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        return (
+            "tool-mode-final",
+            {
+                "model": f"{settings.llm_model}-tool",
+                "latency_ms": 8.0,
+                "usage": {},
+                "tool_outputs": [
+                    {"output": {"action": "write_note", "ok": True}},
+                    {"output": {"action": "loop_list", "items": []}},
+                ],
+            },
+            [
+                {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}},
+                {"name": "loop_list", "arguments": {"status": "actionable"}},
+            ],
+        )
+
+    monkeypatch.setattr("cloop.chat_execution.chat_with_tools", fake_chat_with_tools)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["chat", "Do the work", "--tool-mode", "llm", "--format", "json"])
+
+    exit_code = cli._chat_command(args, settings)
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert [item["action"] for item in output["tool_results"]] == ["write_note", "loop_list"]
+    assert output["tool_result"] == output["tool_results"][0]
 
 
 def test_chat_command_reads_prompt_from_stdin_with_dash(

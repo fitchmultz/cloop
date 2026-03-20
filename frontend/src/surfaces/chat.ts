@@ -152,8 +152,8 @@ function renderSources(sources: ChatMessage["sources"]): string {
   `;
 }
 
-function renderToolCalls(toolCalls: ChatMessage["toolCalls"], toolResult: ChatMessage["toolResult"]): string {
-  if ((!Array.isArray(toolCalls) || toolCalls.length === 0) && !toolResult) {
+function renderToolCalls(toolCalls: ChatMessage["toolCalls"], toolResults: ChatMessage["toolResults"]): string {
+  if ((!Array.isArray(toolCalls) || toolCalls.length === 0) && toolResults.length === 0) {
     return "";
   }
 
@@ -166,22 +166,22 @@ function renderToolCalls(toolCalls: ChatMessage["toolCalls"], toolResult: ChatMe
       `).join("")
     : "";
 
-  const resultMarkup = toolResult
-    ? `
-        <div class="chat-tool-result">
-          <div class="chat-tool-call-name">Result</div>
-          <pre class="chat-tool-call-args">${escapeHtml(JSON.stringify(toolResult, null, 2))}</pre>
-        </div>
-      `
-    : "";
+  const resultsMarkup = toolResults
+    .map((toolResult, index) => `
+      <div class="chat-tool-result">
+        <div class="chat-tool-call-name">${escapeHtml(toolCalls[index]?.name || `Result ${index + 1}`)}</div>
+        <pre class="chat-tool-call-args">${escapeHtml(JSON.stringify(toolResult, null, 2))}</pre>
+      </div>
+    `)
+    .join("");
 
-  const label = Array.isArray(toolCalls) && toolCalls.length > 0 ? `Tools (${toolCalls.length})` : "Tool result";
+  const label = `Tools (${Math.max(toolCalls.length, toolResults.length)})`;
   return `
     <details class="chat-message-details">
       <summary>${label}</summary>
       <div class="chat-message-detail-list">
         ${callsMarkup}
-        ${resultMarkup}
+        ${resultsMarkup}
       </div>
     </details>
   `;
@@ -244,7 +244,7 @@ function renderMessageMeta(message: ChatMessage): string {
 
   const detailsMarkup = [
     renderSources(message.sources),
-    renderToolCalls(message.toolCalls, message.toolResult),
+    renderToolCalls(message.toolCalls, message.toolResults),
   ].filter(Boolean).join("");
 
   if (metaParts.length === 0 && !detailsMarkup) {
@@ -584,7 +584,7 @@ export async function submitChat(text: string): Promise<void> {
     let accumulated = "";
     let finalPayload: SurfaceChatEventPayload | undefined;
     let pendingToolCalls: ChatMessage["toolCalls"] = [];
-    let pendingToolResult: ChatMessage["toolResult"] = null;
+    let pendingToolResults: ChatMessage["toolResults"] = [];
 
     await consumeJsonEventStream<SurfaceChatEventPayload>(response, (eventName, payload) => {
       if (eventName === "token" && typeof payload.token === "string") {
@@ -604,14 +604,22 @@ export async function submitChat(text: string): Promise<void> {
             arguments: payload.arguments && typeof payload.arguments === "object" ? payload.arguments : {},
           },
         ];
-        updateLastAssistantBubble({ status: "tools", toolCalls: pendingToolCalls, toolResult: pendingToolResult });
+        updateLastAssistantBubble({
+          status: "tools",
+          toolCalls: pendingToolCalls,
+          toolResults: pendingToolResults,
+        });
         return;
       }
 
       if (eventName === "tool_result") {
         if (payload.output && typeof payload.output === "object") {
-          pendingToolResult = payload.output;
-          updateLastAssistantBubble({ status: "tools", toolCalls: pendingToolCalls, toolResult: pendingToolResult });
+          pendingToolResults = [...pendingToolResults, payload.output];
+          updateLastAssistantBubble({
+            status: "tools",
+            toolCalls: pendingToolCalls,
+            toolResults: pendingToolResults,
+          });
         }
         return;
       }
@@ -630,7 +638,11 @@ export async function submitChat(text: string): Promise<void> {
       options: resolvedPayload?.options ?? null,
       context: resolvedPayload?.context ?? null,
       toolCalls: resolvedPayload?.tool_calls ?? pendingToolCalls,
-      toolResult: resolvedPayload?.tool_result ?? pendingToolResult,
+      toolResults: Array.isArray(resolvedPayload?.tool_results)
+        ? resolvedPayload.tool_results.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        : resolvedPayload?.tool_result && typeof resolvedPayload.tool_result === "object"
+          ? [resolvedPayload.tool_result]
+          : pendingToolResults,
       sources: resolvedPayload?.sources ?? [],
       error: null,
     });

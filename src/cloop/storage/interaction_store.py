@@ -37,6 +37,7 @@ def record_interaction(
     token_estimate: int | None,
     selected_chunks: Iterable[dict[str, Any]] | None = None,
     tool_calls: Iterable[dict[str, Any]] | None = None,
+    tool_results: Iterable[dict[str, Any]] | None = None,
     settings: Settings | None = None,
 ) -> None:
     """Persist a single interaction row."""
@@ -66,6 +67,9 @@ def record_interaction(
         "request_payload": json.dumps(request_payload, default=_json_default),
         "response_payload": json.dumps(response_payload, default=_json_default),
         "tool_calls": json.dumps(list(tool_calls) if tool_calls else [], default=_json_default),
+        "tool_results": json.dumps(
+            list(tool_results) if tool_results else [], default=_json_default
+        ),
         "selected_chunks": json.dumps(sanitized_chunks, default=_json_default),
         "token_estimate": token_estimate,
     }
@@ -74,10 +78,12 @@ def record_interaction(
             """
             INSERT INTO interactions (
                 endpoint, model, latency_ms, request_payload,
-                response_payload, tool_calls, selected_chunks, token_estimate
+                response_payload, tool_calls, tool_results, selected_chunks, token_estimate
             )
-            VALUES (:endpoint, :model, :latency_ms, :request_payload,
-                    :response_payload, :tool_calls, :selected_chunks, :token_estimate)
+            VALUES (
+                :endpoint, :model, :latency_ms, :request_payload,
+                :response_payload, :tool_calls, :tool_results, :selected_chunks, :token_estimate
+            )
             """,
             payload,
         )
