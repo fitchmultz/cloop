@@ -78,6 +78,10 @@ function splitSelector(selector) {
 	return { provider, model };
 }
 
+function canonicalSelector(model) {
+	return `${model.provider}/${model.id}`;
+}
+
 function replayAssistantMetadata(message, defaults) {
 	const selector = splitSelector(message?.model);
 	return {
@@ -201,43 +205,98 @@ export function parseConversationMessages(messages, defaults) {
 	};
 }
 
-export async function parseModelSelector(selector, registry = modelRegistry) {
+function resolveKnownModel(selector, registry) {
 	if (typeof selector !== "string" || selector.trim().length === 0) {
 		throw new Error("Bridge request missing model selector");
 	}
 
-	let model;
 	if (selector.includes("/")) {
 		const split = splitSelector(selector);
 		if (!split) {
 			throw new Error(`Invalid model selector: ${selector}`);
 		}
-		model = registry.find(split.provider, split.model);
+		const model = registry.find(split.provider, split.model);
 		if (!model) {
 			throw new Error(`Unsupported pi model selector: ${selector}`);
 		}
-	} else {
-		const matches = registry.getAll().filter((candidate) => candidate.id === selector);
-		if (matches.length === 1) {
-			model = matches[0];
-		} else if (matches.length > 1) {
-			throw new Error(`Model selector is ambiguous; use provider/model form: ${selector}`);
-		} else {
-			throw new Error(`Unsupported pi model selector: ${selector}`);
+		return model;
+	}
+
+	const matches = registry.getAll().filter((candidate) => candidate.id === selector);
+	if (matches.length === 1) {
+		return matches[0];
+	}
+	if (matches.length > 1) {
+		throw new Error(`Model selector is ambiguous; use provider/model form: ${selector}`);
+	}
+	throw new Error(`Unsupported pi model selector: ${selector}`);
+}
+
+function normalizeRequestedSelectors(selectors) {
+	if (!Array.isArray(selectors) || selectors.length === 0) {
+		throw new Error("Bridge request missing model selectors");
+	}
+	const normalized = [];
+	const seen = new Set();
+	for (const item of selectors) {
+		if (typeof item !== "string") {
+			continue;
+		}
+		const selector = item.trim();
+		if (!selector || seen.has(selector)) {
+			continue;
+		}
+		seen.add(selector);
+		normalized.push(selector);
+	}
+	if (normalized.length === 0) {
+		throw new Error("Bridge request missing model selectors");
+	}
+	return normalized;
+}
+
+export async function resolveModelSelection(
+	selectors,
+	selectorMode = "fallback",
+	registry = modelRegistry,
+) {
+	const requestedSelectors = normalizeRequestedSelectors(selectors);
+	const requestedSelector = requestedSelectors[0];
+	const exact = selectorMode === "exact";
+	const candidates = (exact ? requestedSelectors.slice(0, 1) : requestedSelectors).map(
+		(selector) => ({
+			selector,
+			model: resolveKnownModel(selector, registry),
+		}),
+	);
+	const available = await registry.getAvailable();
+	const availableSelectors = new Set(available.map((candidate) => canonicalSelector(candidate)));
+
+	for (let index = 0; index < candidates.length; index += 1) {
+		const candidate = candidates[index];
+		const resolvedSelector = canonicalSelector(candidate.model);
+		if (availableSelectors.has(resolvedSelector)) {
+			return {
+				requestedSelector,
+				requestedSelectors,
+				resolvedSelector,
+				fallbackUsed: !exact && index > 0,
+				selectorMode: exact ? "exact" : "fallback",
+				model: candidate.model,
+			};
 		}
 	}
 
-	const available = await registry.getAvailable();
-	const isAvailable = available.some(
-		(candidate) => candidate.provider === model.provider && candidate.id === model.id,
+	throw new Error(
+		`No requested pi selector is currently available (mode=${exact ? "exact" : "fallback"}; ` +
+			`tried: ${candidates.map((candidate) => candidate.selector).join(", ")}). ` +
+			"Run `pi --list-models` to confirm availability and authenticate pi for the selected provider.",
 	);
-	if (!isAvailable) {
-		throw new Error(
-			`Pi model is not currently available with current auth/config: ${selector}. ` +
-				"Run `pi --list-models` to confirm availability and authenticate pi for the selected provider.",
-		);
-	}
-	return model;
+}
+
+export async function parseModelSelector(selector, registry = modelRegistry) {
+	const resolution = await resolveModelSelection([selector], "exact", registry);
+	return resolution.model;
 }
 
 export function translateSchema(schema) {
@@ -375,7 +434,8 @@ export function buildBridgeErrorPayload({
 		request_id: requestId,
 		code: "bridge_error",
 		message:
-			finalMessage?.errorMessage || (error instanceof Error ? error.message : String(error ?? "Pi bridge request failed")),
+			finalMessage?.errorMessage ||
+			(error instanceof Error ? error.message : String(error ?? "Pi bridge request failed")),
 		retryable: false,
 	};
 }
@@ -480,7 +540,12 @@ export async function runSession(
 		if (!finalMessage) {
 			throw new Error("Pi bridge finished without an assistant message");
 		}
-		if (timedOut || roundLimitExceeded || finalMessage.stopReason === "error" || finalMessage.stopReason === "aborted") {
+		if (
+			timedOut ||
+			roundLimitExceeded ||
+			finalMessage.stopReason === "error" ||
+			finalMessage.stopReason === "aborted"
+		) {
 			emitEvent(
 				buildBridgeErrorPayload({
 					requestId: session.requestId,
@@ -498,9 +563,7 @@ export async function runSession(
 		});
 	} catch (error) {
 		log(`Bridge session ${session.requestId} failed`, error);
-		emitEvent(
-			buildBridgeErrorPayload({ requestId: session.requestId, error }),
-		);
+		emitEvent(buildBridgeErrorPayload({ requestId: session.requestId, error }));
 	} finally {
 		unsubscribe();
 		if (timeoutHandle) {
@@ -528,6 +591,26 @@ function handleStart(message, emitEvent) {
 	};
 	sessions.set(message.request_id, session);
 	void runSession(session, { emitEvent });
+}
+
+async function handleResolveModel(message, emitEvent) {
+	if (!message.request_id || typeof message.request_id !== "string") {
+		throw new Error("Bridge resolve_model message requires request_id");
+	}
+	const resolution = await resolveModelSelection(
+		message.selectors,
+		message.selector_mode,
+		modelRegistry,
+	);
+	emitEvent({
+		type: "model_resolved",
+		request_id: message.request_id,
+		requested_selector: resolution.requestedSelector,
+		requested_selectors: resolution.requestedSelectors,
+		resolved_selector: resolution.resolvedSelector,
+		fallback_used: resolution.fallbackUsed,
+		selector_mode: resolution.selectorMode,
+	});
 }
 
 function handleToolResult(message) {
@@ -568,6 +651,17 @@ function dispatch(message, emitEvent) {
 	switch (message.type) {
 		case "start":
 			handleStart(message, emitEvent);
+			return;
+		case "resolve_model":
+			void handleResolveModel(message, emitEvent).catch((error) => {
+				emitEvent({
+					type: "error",
+					request_id: message.request_id,
+					code: "resolve_model_failed",
+					message: error instanceof Error ? error.message : String(error),
+					retryable: false,
+				});
+			});
 			return;
 		case "tool_result":
 			handleToolResult(message);

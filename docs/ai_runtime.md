@@ -28,8 +28,10 @@ Canonical code locations:
 This is an intentional boundary: Cloop reuses pi for generic generative plumbing, but keeps loop lifecycle, SQLite persistence, RAG retrieval, and MCP semantics in Python.
 
 Cloop does not implement provider-specific auth or billing policy for generative calls.
-It passes the configured `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` selector strings
-through to pi, and pi remains responsible for provider resolution, auth, and runtime behavior.
+It sends ordered selector preferences from `CLOOP_PI_MODEL` and
+`CLOOP_PI_ORGANIZER_MODEL` to the local bridge, the bridge resolves those preferences
+against pi's available-model registry, and pi remains responsible for provider resolution,
+auth, and runtime behavior.
 
 ## 2) Runtime prerequisites
 
@@ -55,9 +57,12 @@ Before blaming Cloop, confirm pi can actually see the configured model selectors
 pi --list-models
 ```
 
-The project defaults both selectors to `zai/glm-5` in `settings.py` / `.env.example` today,
-but users may point them at any selector that pi reports as available.
-If `CLOOP_PI_MODEL` or `CLOOP_PI_ORGANIZER_MODEL` is not available in that list for your current auth/config, bridge startup or request execution will fail by design.
+The project defaults both selector lists to the ordered preference chain
+`zai/glm-5`, `kimi-coding/k2p5`, `openai-codex/gpt-5.4` in `settings.py` / `.env.example`.
+In the default `CLOOP_PI_SELECTOR_MODE=fallback`, Cloop asks pi which selectors are
+available and resolves to the first available match before request execution.
+If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
+selector for each env var; in that mode unavailable selectors still fail hard by design.
 
 ## 3) Bridge process lifecycle
 
@@ -84,6 +89,10 @@ All messages are JSON objects with a shared `protocol` version.
 
 ### Python -> bridge
 
+- `resolve_model`
+  - `request_id`
+  - `selectors`
+  - `selector_mode`
 - `start`
   - `request_id`
   - `model`
@@ -108,6 +117,8 @@ All messages are JSON objects with a shared `protocol` version.
   - bridge name/version handshake
 - `pong`
   - ping response for readiness checks
+- `model_resolved`
+  - selector-resolution result before request execution
 - `text_delta`
   - incremental assistant output
 - `thinking_delta`
@@ -220,8 +231,20 @@ Phase-1 hardening behavior:
 Relevant fields:
 
 - `ai_backend`
-- `chat_model`
-- `organizer_model`
+- `chat_selector`
+  - `requested_selector`
+  - `requested_selectors`
+  - `resolved_selector`
+  - `fallback_used`
+  - `selector_mode`
+  - `error`
+- `organizer_selector`
+  - `requested_selector`
+  - `requested_selectors`
+  - `resolved_selector`
+  - `fallback_used`
+  - `selector_mode`
+  - `error`
 - `embed_model`
 - `bridge_name`
 - `bridge_version`
@@ -233,9 +256,12 @@ Healthy example characteristics:
 - `checks.pi_bridge.ok == true`
 - `bridge_name == "cloop-pi-bridge"`
 - `bridge_protocol == 1`
+- `chat_selector.resolved_selector` is populated
 - non-negative `checks.pi_bridge.latency_ms`
 
-If `checks.pi_bridge.ok` is false, the `error` field should be enough to tell whether the failure is startup, process, auth/model availability, or protocol related.
+If `checks.pi_bridge.ok` is false, the selector `error` fields and `checks.pi_bridge.error`
+should be enough to tell whether the failure is startup, process, auth/model availability,
+or protocol related.
 
 ## 10) Verification commands
 

@@ -512,7 +512,10 @@ async function loadBackendDefaults(): Promise<void> {
       syncControlsFromPreferences();
       renderChatControlsSummary();
     }
-    chatRuntimeStatusEl.textContent = `Backend default tool mode: ${getToolModeLabel(health.tool_mode_default)}. Active chat model: ${health.chat_model}.`;
+    const chatSelector = health.chat_selector;
+    const activeSelector = chatSelector?.resolved_selector ?? chatSelector?.requested_selector ?? "unknown";
+    const fallbackNote = chatSelector?.fallback_used ? " (fallback active)" : "";
+    chatRuntimeStatusEl.textContent = `Backend default tool mode: ${getToolModeLabel(health.tool_mode_default)}. Active chat selector: ${activeSelector}${fallbackNote}.`;
   } catch (error: unknown) {
     chatRuntimeStatusEl.textContent = `Could not load runtime defaults: ${messageFromError(error, "Could not load runtime defaults.")}`;
   }

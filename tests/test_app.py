@@ -438,8 +438,22 @@ def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:
     payload = response.json()
     assert payload["ok"] is True
     assert payload["ai_backend"] == "pi"
-    assert payload["chat_model"] == get_settings().pi_model
-    assert payload["organizer_model"] == get_settings().pi_organizer_model
+    assert payload["chat_selector"] == {
+        "requested_selector": "mock-llm",
+        "requested_selectors": ["mock-llm"],
+        "resolved_selector": "mock-llm",
+        "fallback_used": False,
+        "selector_mode": "fallback",
+        "error": None,
+    }
+    assert payload["organizer_selector"] == {
+        "requested_selector": "mock-organizer",
+        "requested_selectors": ["mock-organizer"],
+        "resolved_selector": "mock-organizer",
+        "fallback_used": False,
+        "selector_mode": "fallback",
+        "error": None,
+    }
     assert payload["embed_model"] == get_settings().embed_model
     assert payload["bridge_name"] == "cloop-pi-bridge"
     assert payload["bridge_version"] == "0.1.0"

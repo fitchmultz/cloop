@@ -68,6 +68,53 @@ def test_bridge_runtime_ping_round_trip(tmp_path: Path) -> None:
     assert payload["latency_ms"] == 2.5
 
 
+def test_bridge_runtime_resolves_model_metadata(tmp_path: Path) -> None:
+    script = _write_bridge_script(
+        tmp_path,
+        """
+        import json
+        import sys
+
+        print(
+            json.dumps({"protocol": 1, "type": "hello", "bridge": "fake", "version": "1"}),
+            flush=True,
+        )
+        for line in sys.stdin:
+            message = json.loads(line)
+            if message["type"] == "resolve_model":
+                print(
+                    json.dumps(
+                        {
+                            "protocol": 1,
+                            "type": "model_resolved",
+                            "request_id": message["request_id"],
+                            "requested_selector": message["selectors"][0],
+                            "requested_selectors": message["selectors"],
+                            "resolved_selector": message["selectors"][1],
+                            "fallback_used": True,
+                            "selector_mode": message["selector_mode"],
+                        }
+                    ),
+                    flush=True,
+                )
+        """,
+    )
+    runtime = BridgeRuntime(command=[sys.executable, "-u", str(script)], agent_dir=None)
+    try:
+        resolution = runtime.resolve_model(
+            selectors=("zai/glm-5", "kimi-coding/k2p5"),
+            selector_mode="fallback",
+        )
+    finally:
+        runtime.shutdown()
+
+    assert resolution.requested_selector == "zai/glm-5"
+    assert resolution.requested_selectors == ("zai/glm-5", "kimi-coding/k2p5")
+    assert resolution.resolved_selector == "kimi-coding/k2p5"
+    assert resolution.fallback_used is True
+    assert resolution.selector_mode == "fallback"
+
+
 def test_bridge_runtime_rejects_malformed_handshake(tmp_path: Path) -> None:
     script = _write_bridge_script(
         tmp_path,

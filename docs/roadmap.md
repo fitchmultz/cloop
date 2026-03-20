@@ -54,24 +54,7 @@ Why this comes first:
 - the current single-path assumptions leak into HTTP, CLI, MCP, docs, tests, and the frontend contract, so fixing them first reduces follow-on churn
 - later handoff UX work should build on more flexible execution contracts instead of immediately depending on contracts we already know are too narrow
 
-#### Slice 1 — Selector capability negotiation and model fallback
-
-Objective: stop treating one exact selector as the only viable runtime path when the repo already documents multiple acceptable selectors.
-
-Planned work:
-1. define one shared ordered selector-preference contract for chat and organizer generation
-2. add capability detection against pi-available models before first request execution
-3. resolve requested selector vs actual runtime selector explicitly in health, logs, and response metadata
-4. preserve an exact-selector mode for operators who want strict pinning
-5. align `.env.example`, README, runtime docs, and verification docs around preferred path + fallback path instead of fail-fast-only guidance
-
-Acceptance bar:
-- Cloop prefers `zai/glm-5` when available
-- Cloop can fall through to documented alternatives without manual code changes
-- operators can still force exact-selector behavior when they need it
-- health/debug output shows requested selector, resolved selector, and whether fallback was used
-
-#### Slice 2 — Replace the global one-round agent loop assumption
+#### Slice 1 — Replace the global one-round agent loop assumption
 
 Objective: remove the hidden assumption that a valid AI-assisted run should complete through one exact tool-loop shape.
 
@@ -93,7 +76,7 @@ Acceptance bar:
 - mutating flows keep bounded, explicit safety limits
 - terminal `tool_round_limit` errors still exist, but no longer reflect a repo-wide single-step expectation
 
-#### Slice 3 — Preserve multi-tool outcomes instead of collapsing them
+#### Slice 2 — Preserve multi-tool outcomes instead of collapsing them
 
 Objective: stop forcing stochastic multi-step tool behavior through one preferred intermediate artifact.
 
@@ -110,7 +93,7 @@ Acceptance bar:
 - logging preserves the actual tool sequence that occurred
 - compatibility shims are transitional and clearly scoped
 
-#### Slice 4 — Add bounded alternate strategies for read-only generation paths
+#### Slice 3 — Add bounded alternate strategies for read-only generation paths
 
 Objective: avoid repeating one failing path when the request has not produced side effects and another valid strategy could succeed.
 
@@ -134,7 +117,7 @@ Acceptance bar:
 - logs and responses preserve provenance for fallback/retry decisions
 - operators still get deterministic final failure states when all allowed strategies fail
 
-#### Slice 5 — De-brittle prompts, tests, and operator guidance around stochastic behavior
+#### Slice 4 — De-brittle prompts, tests, and operator guidance around stochastic behavior
 
 Objective: stop baking exact wording and exact preferred process into the surrounding harness when task-level invariants are what actually matter.
 

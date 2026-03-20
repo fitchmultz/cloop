@@ -35,8 +35,12 @@ from pathlib import Path
 
 _DOTENV_LOADED = False
 
-DEFAULT_PI_MODEL = "zai/glm-5"
-DEFAULT_PI_ORGANIZER_MODEL = DEFAULT_PI_MODEL
+DEFAULT_PI_MODEL_PREFERENCES = (
+    "zai/glm-5",
+    "kimi-coding/k2p5",
+    "openai-codex/gpt-5.4",
+)
+DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES = DEFAULT_PI_MODEL_PREFERENCES
 
 
 class VectorSearchMode(StrEnum):
@@ -66,6 +70,11 @@ class PiThinkingLevel(StrEnum):
     XHIGH = "xhigh"
 
 
+class PiSelectorMode(StrEnum):
+    FALLBACK = "fallback"
+    EXACT = "exact"
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     # Paths and persistence
@@ -74,7 +83,7 @@ class Settings:
     rag_db_path: Path
 
     # Model and retrieval runtime
-    pi_model: str
+    pi_model_preferences: tuple[str, ...]
     embed_model: str
     default_top_k: int
     chunk_size: int
@@ -90,7 +99,8 @@ class Settings:
     pi_bridge_cmd: str | None
     pi_agent_dir: str | None
     pi_thinking_level: PiThinkingLevel
-    pi_organizer_model: str
+    pi_organizer_model_preferences: tuple[str, ...]
+    pi_selector_mode: PiSelectorMode
     pi_organizer_timeout: float
     pi_organizer_thinking_level: PiThinkingLevel
     pi_max_tool_rounds: int
@@ -162,6 +172,16 @@ class Settings:
     scheduler_lease_seconds: int
 
     @property
+    def pi_model(self) -> str:
+        """Return the preferred primary pi selector."""
+        return self.pi_model_preferences[0]
+
+    @property
+    def pi_organizer_model(self) -> str:
+        """Return the preferred organizer pi selector."""
+        return self.pi_organizer_model_preferences[0]
+
+    @property
     def llm_model(self) -> str:
         """Backward-compatible alias for the primary pi model selector."""
         return self.pi_model
@@ -224,6 +244,32 @@ def _load_dotenv(root_dir: Path) -> None:
         os.environ[key] = value
 
 
+def _resolve_selector_preferences(
+    raw: str | None,
+    default: tuple[str, ...],
+) -> tuple[str, ...]:
+    source = raw if raw is not None else ",".join(default)
+    selectors: list[str] = []
+    seen: set[str] = set()
+    for part in source.split(","):
+        selector = part.strip()
+        if not selector or selector in seen:
+            continue
+        seen.add(selector)
+        selectors.append(selector)
+    if not selectors:
+        raise ValueError("At least one pi selector must be configured")
+    return tuple(selectors)
+
+
+def _resolve_pi_selector_mode(raw: str | None) -> PiSelectorMode:
+    value = (raw or PiSelectorMode.FALLBACK.value).strip().lower()
+    try:
+        return PiSelectorMode(value)
+    except ValueError as exc:
+        raise ValueError(f"Invalid CLOOP_PI_SELECTOR_MODE: {raw}") from exc
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     root_dir = Path(os.getenv("CLOOP_ROOT_DIR", Path.cwd())).resolve()
@@ -240,7 +286,10 @@ def get_settings() -> Settings:
         root_dir=root_dir,
         core_db_path=core_db_path,
         rag_db_path=rag_db_path,
-        pi_model=os.getenv("CLOOP_PI_MODEL", DEFAULT_PI_MODEL),
+        pi_model_preferences=_resolve_selector_preferences(
+            os.getenv("CLOOP_PI_MODEL"),
+            DEFAULT_PI_MODEL_PREFERENCES,
+        ),
         embed_model=os.getenv("CLOOP_EMBED_MODEL", "ollama/nomic-embed-text"),
         default_top_k=int(os.getenv("CLOOP_DEFAULT_TOP_K", "5")),
         chunk_size=int(os.getenv("CLOOP_CHUNK_SIZE", "800")),
@@ -254,7 +303,11 @@ def get_settings() -> Settings:
         pi_bridge_cmd=os.getenv("CLOOP_PI_BRIDGE_CMD"),
         pi_agent_dir=os.getenv("CLOOP_PI_AGENT_DIR") or os.getenv("PI_CODING_AGENT_DIR"),
         pi_thinking_level=_resolve_pi_thinking_level(os.getenv("CLOOP_PI_THINKING_LEVEL")),
-        pi_organizer_model=os.getenv("CLOOP_PI_ORGANIZER_MODEL", DEFAULT_PI_ORGANIZER_MODEL),
+        pi_organizer_model_preferences=_resolve_selector_preferences(
+            os.getenv("CLOOP_PI_ORGANIZER_MODEL"),
+            DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES,
+        ),
+        pi_selector_mode=_resolve_pi_selector_mode(os.getenv("CLOOP_PI_SELECTOR_MODE")),
         pi_organizer_timeout=float(os.getenv("CLOOP_PI_ORGANIZER_TIMEOUT", "20.0")),
         pi_organizer_thinking_level=_resolve_pi_thinking_level(
             os.getenv("CLOOP_PI_ORGANIZER_THINKING_LEVEL")
@@ -330,7 +383,7 @@ def get_settings() -> Settings:
             os.getenv("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS", "24.0")
         ),
         scheduler_weekly_review_interval_hours=float(
-            os.getenv("CLOOP_SCHEDULER_WEEKLY_REVIEW_INTERVAL_HOURS", "168.0")  # 7 days
+            os.getenv("CLOOP_SCHEDULER_WEEKLY_REVIEW_INTERVAL_HOURS", "168.0")
         ),
         scheduler_due_soon_nudge_interval_hours=float(
             os.getenv("CLOOP_SCHEDULER_DUE_SOON_NUDGE_INTERVAL_HOURS", "1.0")
@@ -399,6 +452,13 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_PI_ORGANIZER_TIMEOUT must be positive")
     if settings.pi_max_tool_rounds < 1:
         raise ValueError("CLOOP_PI_MAX_TOOL_ROUNDS must be at least 1")
+    if settings.pi_selector_mode is PiSelectorMode.EXACT:
+        if len(settings.pi_model_preferences) != 1:
+            raise ValueError("CLOOP_PI_MODEL must contain exactly one selector in exact mode")
+        if len(settings.pi_organizer_model_preferences) != 1:
+            raise ValueError(
+                "CLOOP_PI_ORGANIZER_MODEL must contain exactly one selector in exact mode"
+            )
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
     if settings.next_candidates_limit < 1:
@@ -427,7 +487,6 @@ def _validate_settings(settings: Settings) -> Settings:
         weight = getattr(settings, weight_name)
         if weight < 0:
             raise ValueError(f"CLOOP_{weight_name.upper()} must be non-negative")
-    # Validate webhook settings
     if settings.webhook_max_retries < 0:
         raise ValueError("CLOOP_WEBHOOK_MAX_RETRIES must be non-negative")
     if settings.webhook_retry_base_delay <= 0:
@@ -438,31 +497,26 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_WEBHOOK_TIMEOUT_SECONDS must be positive")
     if settings.webhook_heartbeat_interval <= 0:
         raise ValueError("CLOOP_WEBHOOK_HEARTBEAT_INTERVAL must be positive")
-    # Validate LLM retry settings
     if settings.llm_max_retries < 0:
         raise ValueError("CLOOP_LLM_MAX_RETRIES must be non-negative")
     if settings.llm_retry_min_wait <= 0:
         raise ValueError("CLOOP_LLM_RETRY_MIN_WAIT must be positive")
     if settings.llm_retry_max_wait < settings.llm_retry_min_wait:
         raise ValueError("CLOOP_LLM_RETRY_MAX_WAIT must be >= CLOOP_LLM_RETRY_MIN_WAIT")
-    # Validate claim settings
     if settings.claim_default_ttl_seconds < 1:
         raise ValueError("CLOOP_CLAIM_DEFAULT_TTL_SECONDS must be at least 1")
     if settings.claim_max_ttl_seconds < settings.claim_default_ttl_seconds:
         raise ValueError("CLOOP_CLAIM_MAX_TTL_SECONDS must be >= CLOOP_CLAIM_DEFAULT_TTL_SECONDS")
     if settings.claim_token_bytes < 16:
         raise ValueError("CLOOP_CLAIM_TOKEN_BYTES must be at least 16")
-    # Validate backup settings
     if settings.backup_keep_count < 1:
         raise ValueError("CLOOP_BACKUP_KEEP_COUNT must be at least 1")
-    # Validate review settings
     if settings.review_stale_hours < 1:
         raise ValueError("CLOOP_REVIEW_STALE_HOURS must be at least 1")
     if settings.review_blocked_hours < 1:
         raise ValueError("CLOOP_REVIEW_BLOCKED_HOURS must be at least 1")
     if settings.due_soon_hours < 1:
         raise ValueError("CLOOP_DUE_SOON_HOURS must be at least 1")
-    # Validate scheduler settings
     if settings.scheduler_daily_review_interval_hours < 1:
         raise ValueError("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS must be at least 1")
     if settings.scheduler_weekly_review_interval_hours < 24:

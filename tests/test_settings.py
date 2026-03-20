@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 
 from cloop.settings import (
+    DEFAULT_PI_MODEL_PREFERENCES,
+    DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES,
     EmbedStorageMode,
+    PiSelectorMode,
     ToolMode,
     VectorSearchMode,
     get_settings,
@@ -18,6 +21,7 @@ def test_settings_use_enums(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(settings.vector_search_mode, VectorSearchMode)
     assert isinstance(settings.tool_mode_default, ToolMode)
     assert isinstance(settings.embed_storage_mode, EmbedStorageMode)
+    assert isinstance(settings.pi_selector_mode, PiSelectorMode)
 
 
 @pytest.mark.parametrize(
@@ -26,6 +30,7 @@ def test_settings_use_enums(monkeypatch: pytest.MonkeyPatch) -> None:
         ("CLOOP_VECTOR_MODE", "unsupported"),
         ("CLOOP_TOOL_MODE", "bogus"),
         ("CLOOP_EMBED_STORAGE", "invalid"),
+        ("CLOOP_PI_SELECTOR_MODE", "sideways"),
     ],
 )
 def test_invalid_enum_values_raise(
@@ -91,8 +96,55 @@ def test_default_pi_selectors_match_project_preference(
     settings_module.get_settings.cache_clear()
 
     settings = settings_module.get_settings()
-    assert settings.pi_model == "zai/glm-5"
-    assert settings.pi_organizer_model == "zai/glm-5"
+    assert settings.pi_model_preferences == DEFAULT_PI_MODEL_PREFERENCES
+    assert settings.pi_organizer_model_preferences == DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES
+    assert settings.pi_model == DEFAULT_PI_MODEL_PREFERENCES[0]
+    assert settings.pi_organizer_model == DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES[0]
+    assert settings.pi_selector_mode is PiSelectorMode.FALLBACK
+
+
+def test_selector_preferences_parse_csv_and_dedupe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cloop.settings as settings_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv(
+        "CLOOP_PI_MODEL",
+        " zai/glm-5 , kimi-coding/k2p5, zai/glm-5 , openai-codex/gpt-5.4 ",
+    )
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "kimi-coding/k2p5, zai/glm-5")
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    settings = settings_module.get_settings()
+
+    assert settings.pi_model_preferences == (
+        "zai/glm-5",
+        "kimi-coding/k2p5",
+        "openai-codex/gpt-5.4",
+    )
+    assert settings.pi_organizer_model_preferences == (
+        "kimi-coding/k2p5",
+        "zai/glm-5",
+    )
+
+
+def test_exact_selector_mode_requires_single_selector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cloop.settings as settings_module
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("CLOOP_PI_SELECTOR_MODE", "exact")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "zai/glm-5,kimi-coding/k2p5")
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    with pytest.raises(ValueError, match="CLOOP_PI_MODEL must contain exactly one selector"):
+        settings_module.get_settings()
 
 
 def test_negative_priority_weight_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -131,6 +183,7 @@ def test_root_dir_dotenv_wins_over_cwd_dotenv(
 
     assert settings.root_dir == root_dir.resolve()
     assert settings.pi_model == "from-root"
+    assert settings.pi_model_preferences == ("from-root",)
 
 
 def test_cwd_dotenv_used_when_root_dir_not_set(
@@ -153,3 +206,4 @@ def test_cwd_dotenv_used_when_root_dir_not_set(
 
     assert settings.root_dir == repo_dir.resolve()
     assert settings.pi_model == "from-cwd"
+    assert settings.pi_model_preferences == ("from-cwd",)

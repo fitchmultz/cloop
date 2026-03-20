@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from cloop import db
 from cloop.settings import (
     EmbedStorageMode,
+    PiSelectorMode,
     PiThinkingLevel,
     Settings,
     ToolMode,
@@ -55,7 +56,7 @@ def test_settings() -> Callable[..., Settings]:
             "root_dir": Path.cwd(),
             "core_db_path": Path("./data/core.db"),
             "rag_db_path": Path("./data/rag.db"),
-            "pi_model": "mock-llm",
+            "pi_model_preferences": ("mock-llm",),
             "embed_model": "ollama/nomic-embed-text",
             "default_top_k": 5,
             "chunk_size": 800,
@@ -69,7 +70,8 @@ def test_settings() -> Callable[..., Settings]:
             "pi_bridge_cmd": "node ./src/cloop/pi_bridge/bridge.mjs",
             "pi_agent_dir": None,
             "pi_thinking_level": PiThinkingLevel.NONE,
-            "pi_organizer_model": "mock-organizer",
+            "pi_organizer_model_preferences": ("mock-organizer",),
+            "pi_selector_mode": PiSelectorMode.FALLBACK,
             "pi_organizer_timeout": 20.0,
             "pi_organizer_thinking_level": PiThinkingLevel.NONE,
             "pi_max_tool_rounds": 1,
@@ -148,6 +150,8 @@ def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_PI_SELECTOR_MODE", "fallback")
     monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
@@ -171,16 +175,6 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
 
     Returns:
         A function that creates a TestClient with isolated database.
-
-    Usage:
-        # Standard usage (uses tmp_path)
-        client = make_test_client()
-
-        # For error testing
-        client = make_test_client(raise_server_exceptions=False)
-
-        # Custom data directory (e.g., for import isolation)
-        client = make_test_client(data_dir=tmp_path / "subdir")
     """
 
     def _factory(data_dir: Path | None = None, raise_server_exceptions: bool = True) -> TestClient:
@@ -188,6 +182,8 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
         monkeypatch.setenv("CLOOP_DATA_DIR", str(target_dir))
         monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
         monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
+        monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
+        monkeypatch.setenv("CLOOP_PI_SELECTOR_MODE", "fallback")
         monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
         monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
         get_settings.cache_clear()
@@ -202,7 +198,16 @@ def mock_completion_response() -> Dict[str, Any]:
     """Return a simple mock bridge-backed completion payload."""
     return {
         "message": "mock-response",
-        "metadata": {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
+        "metadata": {
+            "model": "mock-llm",
+            "requested_selector": "mock-llm",
+            "requested_selectors": ["mock-llm"],
+            "resolved_selector": "mock-llm",
+            "fallback_used": False,
+            "selector_mode": "fallback",
+            "latency_ms": 0.0,
+            "usage": {},
+        },
     }
 
 
@@ -213,6 +218,11 @@ def mock_tool_call_response() -> Dict[str, Any]:
         "message": "tool-mode-final",
         "metadata": {
             "model": "mock-llm-tool",
+            "requested_selector": "mock-llm",
+            "requested_selectors": ["mock-llm"],
+            "resolved_selector": "mock-llm-tool",
+            "fallback_used": False,
+            "selector_mode": "fallback",
             "latency_ms": 0.0,
             "usage": {},
             "tool_outputs": [
@@ -232,19 +242,22 @@ def mock_tool_final_response() -> Dict[str, Any]:
     """Return a compatibility-shaped final tool response for legacy contract checks."""
     return {
         "message": "tool-mode-final",
-        "metadata": {"model": "mock-llm-tool", "latency_ms": 0.0, "usage": {}},
+        "metadata": {
+            "model": "mock-llm-tool",
+            "requested_selector": "mock-llm",
+            "requested_selectors": ["mock-llm"],
+            "resolved_selector": "mock-llm-tool",
+            "fallback_used": False,
+            "selector_mode": "fallback",
+            "latency_ms": 0.0,
+            "usage": {},
+        },
     }
 
 
 @pytest.fixture
 def mock_embedding_response() -> Any:
-    """Factory fixture returning a mock embedding function.
-
-    Returns a function that mimics litellm.embedding() behavior:
-    - Accepts 'input' kwarg (list of strings)
-    - Returns dict with 'data' key containing embedding vectors
-    - Each vector has unique values based on input index
-    """
+    """Factory fixture returning a mock embedding function."""
 
     def _embedding(*args: Any, **kwargs: Any) -> Dict[str, Any]:
         inputs = kwargs.get("input") or []
@@ -266,6 +279,11 @@ def mock_stream_events() -> Any:
         yield {
             "type": "done",
             "model": "mock-llm",
+            "requested_selector": "mock-llm",
+            "requested_selectors": ["mock-llm"],
+            "resolved_selector": "mock-llm",
+            "fallback_used": False,
+            "selector_mode": "fallback",
             "latency_ms": 1.0,
             "usage": {},
         }
@@ -301,15 +319,7 @@ def test_client(
     mock_embedding_response: Any,
     mock_stream_events: Any,
 ) -> TestClient:
-    """Create a TestClient with all LLM/embedding mocks configured.
-
-    This fixture:
-    1. Sets up a temporary data directory
-    2. Disables autopilot to avoid background enrichment
-    3. Patches bridge-backed chat functions and embedding calls
-    4. Patches bridge health and streaming helpers in importing modules
-    5. Returns a TestClient ready for API testing
-    """
+    """Create a TestClient with all LLM/embedding mocks configured."""
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
     get_settings.cache_clear()
@@ -329,6 +339,22 @@ def test_client(
             "version": "0.1.0",
             "protocol": 1,
             "latency_ms": 1.0,
+            "chat_selector": {
+                "requested_selector": "mock-llm",
+                "requested_selectors": ["mock-llm"],
+                "resolved_selector": "mock-llm",
+                "fallback_used": False,
+                "selector_mode": "fallback",
+                "error": None,
+            },
+            "organizer_selector": {
+                "requested_selector": "mock-organizer",
+                "requested_selectors": ["mock-organizer"],
+                "resolved_selector": "mock-organizer",
+                "fallback_used": False,
+                "selector_mode": "fallback",
+                "error": None,
+            },
         },
     )
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding_response)

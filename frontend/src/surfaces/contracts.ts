@@ -90,9 +90,19 @@ export interface SurfaceChatRequestMessage {
   content: string;
 }
 
+export interface SelectorResolutionStatus {
+  requested_selector?: string | null;
+  requested_selectors?: string[] | null;
+  resolved_selector?: string | null;
+  fallback_used?: boolean | null;
+  selector_mode?: string | null;
+  error?: string | null;
+}
+
 export interface HealthStatusResponse {
   tool_mode_default?: ChatToolMode | "manual" | string | null;
-  chat_model?: string | null;
+  chat_selector?: SelectorResolutionStatus | null;
+  organizer_selector?: SelectorResolutionStatus | null;
   [key: string]: unknown;
 }
 

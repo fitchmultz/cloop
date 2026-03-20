@@ -9,7 +9,12 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bridgePath = path.resolve(testDir, "..", "bridge.mjs");
 const bridgeModule = await import(pathToFileURL(bridgePath).href);
 
-const { buildBridgeErrorPayload, parseConversationMessages, parseModelSelector } = bridgeModule;
+const {
+	buildBridgeErrorPayload,
+	parseConversationMessages,
+	parseModelSelector,
+	resolveModelSelection,
+} = bridgeModule;
 
 function startBridge() {
 	const child = spawn(process.execPath, [bridgePath], {
@@ -98,6 +103,26 @@ test("bridge emits hello and responds to ping", async () => {
 		assert.equal(pong.type, "pong");
 		assert.equal(pong.request_id, "ping-1");
 		assert.equal(pong.protocol, 1);
+	} finally {
+		await bridge.stop();
+	}
+});
+
+test("bridge rejects unsupported selector resolution requests", async () => {
+	const bridge = startBridge();
+	try {
+		await bridge.readEvent();
+		bridge.send({
+			type: "resolve_model",
+			protocol: 1,
+			request_id: "resolve-1",
+			selectors: ["definitely-missing-provider/definitely-missing-model"],
+			selector_mode: "fallback",
+		});
+		const response = await bridge.readEvent();
+		assert.equal(response.type, "error");
+		assert.equal(response.request_id, "resolve-1");
+		assert.match(response.message, /unsupported pi model selector/i);
 	} finally {
 		await bridge.stop();
 	}
@@ -208,6 +233,53 @@ test("buildBridgeErrorPayload returns explicit timeout and tool round limit erro
 			message: "Pi bridge tool round limit exceeded before the model produced a terminal response.",
 			retryable: false,
 		},
+	);
+});
+
+test("resolveModelSelection falls back to the first available selector", async () => {
+	const registry = {
+		find(provider, model) {
+			return { provider, id: model, api: "test-api" };
+		},
+		getAll() {
+			return [
+				{ provider: "zai", id: "glm-5", api: "test-api" },
+				{ provider: "kimi-coding", id: "k2p5", api: "test-api" },
+			];
+		},
+		async getAvailable() {
+			return [{ provider: "kimi-coding", id: "k2p5", api: "test-api" }];
+		},
+	};
+
+	const resolution = await resolveModelSelection(
+		["zai/glm-5", "kimi-coding/k2p5"],
+		"fallback",
+		registry,
+	);
+
+	assert.equal(resolution.requestedSelector, "zai/glm-5");
+	assert.deepEqual(resolution.requestedSelectors, ["zai/glm-5", "kimi-coding/k2p5"]);
+	assert.equal(resolution.resolvedSelector, "kimi-coding/k2p5");
+	assert.equal(resolution.fallbackUsed, true);
+});
+
+test("resolveModelSelection fails fast in exact mode", async () => {
+	const registry = {
+		find(provider, model) {
+			return { provider, id: model, api: "test-api" };
+		},
+		getAll() {
+			return [{ provider: "zai", id: "glm-5", api: "test-api" }];
+		},
+		async getAvailable() {
+			return [];
+		},
+	};
+
+	await assert.rejects(
+		resolveModelSelection(["zai/glm-5"], "exact", registry),
+		/not currently available|tried: zai\/glm-5/i,
 	);
 });
 

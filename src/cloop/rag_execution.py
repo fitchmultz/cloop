@@ -244,7 +244,7 @@ def stream_ask_request(
         return
 
     tokens: list[str] = []
-    model: str | None = settings.pi_model
+    model: str | None = settings.pi_model_preferences[0]
     latency_ms: float | None = 0.0
 
     for event in stream_events(prepared.messages, settings=settings):
@@ -256,7 +256,11 @@ def stream_ask_request(
             tokens.append(token)
             yield StreamedRagAskEvent(type="text_delta", payload={"token": token})
         elif event_type == "done":
-            model = str(event.get("model") or settings.pi_model)
+            model = str(
+                event.get("resolved_selector")
+                or event.get("model")
+                or settings.pi_model_preferences[0]
+            )
             latency_ms = float(event.get("latency_ms", 0.0))
 
     final_answer = "".join(tokens)

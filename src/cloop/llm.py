@@ -17,9 +17,10 @@ Non-scope:
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
-from collections.abc import Generator, Iterator
+from collections.abc import Generator, Iterator, Sequence
 from typing import Any
 
 from .ai_bridge import get_bridge_runtime
@@ -30,6 +31,8 @@ from .tools import get_agent_bridge_tools, get_tool_definition, normalize_tool_a
 
 Message = dict[str, Any]
 LLMEvent = dict[str, Any]
+
+logger = logging.getLogger(__name__)
 
 
 class ToolCallError(ValueError):
@@ -58,18 +61,22 @@ def _tool_error_payload(exc: Exception) -> dict[str, Any]:
 def _metadata_from_done(event: dict[str, Any]) -> dict[str, Any]:
     return {
         "latency_ms": float(event.get("latency_ms", 0.0)),
-        "model": event.get("model"),
+        "model": event.get("resolved_selector") or event.get("model"),
         "provider": event.get("provider"),
         "api": event.get("api"),
         "usage": event.get("usage") or {},
         "stop_reason": event.get("stop_reason"),
+        "requested_selector": event.get("requested_selector"),
+        "requested_selectors": list(event.get("requested_selectors") or []),
+        "resolved_selector": event.get("resolved_selector") or event.get("model"),
+        "fallback_used": bool(event.get("fallback_used", False)),
+        "selector_mode": event.get("selector_mode"),
     }
 
 
 def _build_request(
     *,
     messages: list[Message],
-    settings: Settings,
     model: str,
     thinking_level: PiThinkingLevel,
     timeout_s: float,
@@ -87,11 +94,29 @@ def _build_request(
     )
 
 
+def _selector_request(
+    *,
+    settings: Settings,
+    selector_role: str,
+    model: str | None,
+    model_preferences: Sequence[str] | None,
+) -> tuple[tuple[str, ...], str]:
+    if model is not None:
+        return (model,), "exact"
+    if model_preferences is not None:
+        return tuple(model_preferences), settings.pi_selector_mode.value
+    if selector_role == "organizer":
+        return settings.pi_organizer_model_preferences, settings.pi_selector_mode.value
+    return settings.pi_model_preferences, settings.pi_selector_mode.value
+
+
 def stream_events(
     messages: list[Message],
     *,
     settings: Settings | None = None,
     model: str | None = None,
+    model_preferences: Sequence[str] | None = None,
+    selector_role: str = "chat",
     thinking_level: PiThinkingLevel | None = None,
     timeout_s: float | None = None,
     tools: list[BridgeToolSpec] | None = None,
@@ -99,16 +124,49 @@ def stream_events(
 ) -> Iterator[LLMEvent]:
     """Yield bridge-backed structured events for one request."""
     settings = settings or get_settings()
-    active_model = model or settings.pi_model
-    active_thinking = thinking_level or settings.pi_thinking_level
-    active_timeout = timeout_s if timeout_s is not None else settings.pi_timeout
-    active_max_tool_rounds = max_tool_rounds or settings.pi_max_tool_rounds
+    active_thinking = thinking_level or (
+        settings.pi_organizer_thinking_level
+        if selector_role == "organizer"
+        else settings.pi_thinking_level
+    )
+    active_timeout = (
+        timeout_s
+        if timeout_s is not None
+        else settings.pi_organizer_timeout
+        if selector_role == "organizer"
+        else settings.pi_timeout
+    )
+    active_max_tool_rounds = (
+        max_tool_rounds if max_tool_rounds is not None else settings.pi_max_tool_rounds
+    )
+    selectors, selector_mode = _selector_request(
+        settings=settings,
+        selector_role=selector_role,
+        model=model,
+        model_preferences=model_preferences,
+    )
 
     runtime = get_bridge_runtime(settings)
+    resolution = runtime.resolve_model(
+        selectors=selectors,
+        selector_mode=selector_mode,
+        timeout_s=min(active_timeout, 5.0),
+    )
+    logger.info(
+        "Resolved pi selector",
+        extra={
+            "selector_role": selector_role,
+            "requested_selector": resolution.requested_selector,
+            "requested_selectors": list(resolution.requested_selectors),
+            "resolved_selector": resolution.resolved_selector,
+            "fallback_used": resolution.fallback_used,
+            "selector_mode": resolution.selector_mode,
+        },
+    )
+
     request = _build_request(
         messages=messages,
-        settings=settings,
-        model=active_model,
+        model=resolution.resolved_selector,
         thinking_level=active_thinking,
         timeout_s=active_timeout,
         tools=tools,
@@ -159,6 +217,11 @@ def stream_events(
                 finished = True
                 completed = dict(event)
                 completed["latency_ms"] = (time.monotonic() - start) * 1000
+                completed["requested_selector"] = resolution.requested_selector
+                completed["requested_selectors"] = list(resolution.requested_selectors)
+                completed["resolved_selector"] = resolution.resolved_selector
+                completed["fallback_used"] = resolution.fallback_used
+                completed["selector_mode"] = resolution.selector_mode
                 yield completed
                 break
 
@@ -174,6 +237,8 @@ def chat_completion(
     *,
     settings: Settings | None = None,
     model: str | None = None,
+    model_preferences: Sequence[str] | None = None,
+    selector_role: str = "chat",
     thinking_level: PiThinkingLevel | None = None,
     timeout_s: float | None = None,
 ) -> tuple[str, dict[str, Any]]:
@@ -183,6 +248,8 @@ def chat_completion(
         messages,
         settings=settings,
         model=model,
+        model_preferences=model_preferences,
+        selector_role=selector_role,
         thinking_level=thinking_level,
         timeout_s=timeout_s,
     ):
@@ -199,6 +266,8 @@ def stream_completion(
     *,
     settings: Settings | None = None,
     model: str | None = None,
+    model_preferences: Sequence[str] | None = None,
+    selector_role: str = "chat",
     thinking_level: PiThinkingLevel | None = None,
     timeout_s: float | None = None,
 ) -> Generator[str, None, None]:
@@ -206,6 +275,8 @@ def stream_completion(
         messages,
         settings=settings,
         model=model,
+        model_preferences=model_preferences,
+        selector_role=selector_role,
         thinking_level=thinking_level,
         timeout_s=timeout_s,
     ):

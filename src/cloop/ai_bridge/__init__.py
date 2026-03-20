@@ -20,9 +20,16 @@ from .errors import (
     BridgeUpstreamError,
 )
 from .protocol import PROTOCOL_VERSION
-from .runtime import BridgeRuntime, bridge_health, get_bridge_runtime, shutdown_bridge_runtime
+from .runtime import (
+    BridgeModelResolution,
+    BridgeRuntime,
+    bridge_health,
+    get_bridge_runtime,
+    shutdown_bridge_runtime,
+)
 
 __all__ = [
+    "BridgeModelResolution",
     "BridgeProcessError",
     "BridgeProtocolError",
     "BridgeRuntime",

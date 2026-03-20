@@ -315,7 +315,6 @@ def _generate_workflow_plan(
     content, metadata = planner_chat_completion(
         messages,
         settings=settings,
-        model=settings.pi_model,
         thinking_level=settings.pi_thinking_level,
         timeout_s=settings.pi_timeout,
     )

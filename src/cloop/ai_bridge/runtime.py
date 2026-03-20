@@ -27,10 +27,12 @@ import time
 import uuid
 from collections import deque
 from collections.abc import Iterator
+from dataclasses import asdict, dataclass
 from typing import Any, cast
 
 from ..settings import Settings
 from .errors import (
+    BridgeError,
     BridgeProcessError,
     BridgeProtocolError,
     BridgeStartupError,
@@ -40,9 +42,11 @@ from .errors import (
 from .protocol import (
     PROTOCOL_VERSION,
     TERMINAL_EVENT_TYPES,
+    BridgeResolveModelRequest,
     BridgeStartRequest,
     build_abort_message,
     build_ping_message,
+    build_resolve_model_message,
     build_start_message,
     build_tool_result_message,
     encode_line,
@@ -55,6 +59,18 @@ _SENTINEL = object()
 _RUNTIME_LOCK = threading.Lock()
 _RUNTIME: BridgeRuntime | None = None
 _RUNTIME_KEY: tuple[tuple[str, ...], str | None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BridgeModelResolution:
+    """Resolved model selector metadata returned by the bridge."""
+
+    requested_selector: str
+    requested_selectors: tuple[str, ...]
+    resolved_selector: str
+    fallback_used: bool
+    selector_mode: str
+    error: str | None = None
 
 
 class BridgeSession:
@@ -190,36 +206,46 @@ class BridgeRuntime:
     def ping(self, timeout_s: float = 5.0) -> dict[str, Any]:
         info = self.ensure_started()
         request_id = f"ping-{uuid.uuid4().hex}"
-        session = BridgeSession(self, request_id)
-        with self._sessions_lock:
-            self._sessions[request_id] = session
-        self._send(build_ping_message(request_id=request_id))
-        deadline = time.monotonic() + timeout_s
-        try:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise BridgeTimeoutError("Timed out waiting for pi bridge ping")
-                try:
-                    payload = session._events.get(timeout=remaining)
-                except queue.Empty as exc:
-                    raise BridgeTimeoutError("Timed out waiting for pi bridge ping") from exc
-                if payload is _SENTINEL:
-                    raise BridgeProcessError("Pi bridge closed while waiting for ping")
-                if not isinstance(payload, dict):
-                    raise BridgeProtocolError("Bridge ping received non-dict payload")
-                typed_payload = cast(dict[str, Any], payload)
-                if typed_payload.get("type") != "pong":
-                    raise BridgeProtocolError(
-                        "Expected bridge pong for request "
-                        f"{request_id}, received {typed_payload.get('type')!r}"
-                    )
-                return {
-                    "bridge": info,
-                    "latency_ms": float(typed_payload.get("latency_ms", 0.0)),
-                }
-        finally:
-            session.close()
+        payload = self._request_once(
+            request_id=request_id,
+            message=build_ping_message(request_id=request_id),
+            expected_type="pong",
+            timeout_s=timeout_s,
+        )
+        return {
+            "bridge": info,
+            "latency_ms": float(payload.get("latency_ms", 0.0)),
+        }
+
+    def resolve_model(
+        self,
+        *,
+        selectors: tuple[str, ...],
+        selector_mode: str,
+        timeout_s: float = 5.0,
+    ) -> BridgeModelResolution:
+        request_id = f"resolve-{uuid.uuid4().hex}"
+        payload = self._request_once(
+            request_id=request_id,
+            message=build_resolve_model_message(
+                BridgeResolveModelRequest(
+                    request_id=request_id,
+                    selectors=selectors,
+                    selector_mode=selector_mode,
+                )
+            ),
+            expected_type="model_resolved",
+            timeout_s=timeout_s,
+        )
+        return BridgeModelResolution(
+            requested_selector=str(payload.get("requested_selector", selectors[0])),
+            requested_selectors=tuple(
+                str(item) for item in (payload.get("requested_selectors") or selectors)
+            ),
+            resolved_selector=str(payload["resolved_selector"]),
+            fallback_used=bool(payload.get("fallback_used", False)),
+            selector_mode=str(payload.get("selector_mode", selector_mode)),
+        )
 
     def shutdown(self) -> None:
         process = self._process
@@ -242,6 +268,50 @@ class BridgeRuntime:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2.0)
+
+    def _request_once(
+        self,
+        *,
+        request_id: str,
+        message: dict[str, Any],
+        expected_type: str,
+        timeout_s: float,
+    ) -> dict[str, Any]:
+        self.ensure_started()
+        session = BridgeSession(self, request_id)
+        with self._sessions_lock:
+            self._sessions[request_id] = session
+        self._send(message)
+        deadline = time.monotonic() + timeout_s
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BridgeTimeoutError(f"Timed out waiting for pi bridge {expected_type}")
+                try:
+                    payload = session._events.get(timeout=remaining)
+                except queue.Empty as exc:
+                    raise BridgeTimeoutError(
+                        f"Timed out waiting for pi bridge {expected_type}"
+                    ) from exc
+                if payload is _SENTINEL:
+                    raise BridgeProcessError("Pi bridge closed unexpectedly")
+                if not isinstance(payload, dict):
+                    raise BridgeProtocolError("Bridge request received non-dict payload")
+                typed_payload = cast(dict[str, Any], payload)
+                if typed_payload.get("type") == "error":
+                    raise BridgeUpstreamError(
+                        str(typed_payload.get("code", "bridge_error")),
+                        str(typed_payload.get("message", "Bridge request failed")),
+                        retryable=bool(typed_payload.get("retryable", False)),
+                    )
+                if typed_payload.get("type") != expected_type:
+                    raise BridgeProtocolError(
+                        f"Expected bridge {expected_type!r}, received {typed_payload.get('type')!r}"
+                    )
+                return typed_payload
+        finally:
+            session.close()
 
     def _send(self, payload: dict[str, Any]) -> None:
         self.ensure_started()
@@ -430,4 +500,26 @@ def bridge_health(settings: Settings) -> dict[str, Any]:
     ping = runtime.ping(timeout_s=min(settings.pi_timeout, 5.0))
     bridge_info = dict(ping["bridge"])
     bridge_info["latency_ms"] = ping["latency_ms"]
+
+    def _resolve(selectors: tuple[str, ...]) -> dict[str, Any]:
+        try:
+            return asdict(
+                runtime.resolve_model(
+                    selectors=selectors,
+                    selector_mode=settings.pi_selector_mode.value,
+                    timeout_s=min(settings.pi_timeout, 5.0),
+                )
+            )
+        except BridgeError as exc:
+            return {
+                "requested_selector": selectors[0],
+                "requested_selectors": list(selectors),
+                "resolved_selector": None,
+                "fallback_used": False,
+                "selector_mode": settings.pi_selector_mode.value,
+                "error": str(exc),
+            }
+
+    bridge_info["chat_selector"] = _resolve(settings.pi_model_preferences)
+    bridge_info["organizer_selector"] = _resolve(settings.pi_organizer_model_preferences)
     return bridge_info

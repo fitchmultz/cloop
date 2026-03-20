@@ -38,7 +38,7 @@ from .ai_bridge import bridge_health, shutdown_bridge_runtime
 from .handlers import register_exception_handlers
 from .rag import _SQL_PY_METRIC, _VECLIKE_METRIC, _select_retrieval_order
 from .routes import chat_router, loops_router, memory_router, rag_router
-from .schemas.health import DependencyStatus, HealthResponse
+from .schemas.health import DependencyStatus, HealthResponse, SelectorResolutionResponse
 from .settings import Settings, get_settings
 
 
@@ -64,8 +64,6 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application instance."""
     app = FastAPI(title="Cloop LLM Service", version=__version__, lifespan=lifespan)
 
-    # Mount built static files directly on app.
-    # APIRouter.mount() does not propagate via include_router().
     app.mount(
         "/static",
         web.CloopStaticFiles(directory=web.FRONTEND_DIST_DIR, check_dir=False),
@@ -102,6 +100,23 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         if not result["ok"]:
             all_ok = False
 
+    chat_selector = SelectorResolutionResponse(
+        requested_selector=settings.pi_model_preferences[0],
+        requested_selectors=list(settings.pi_model_preferences),
+        resolved_selector=None,
+        fallback_used=False,
+        selector_mode=settings.pi_selector_mode.value,
+        error="Bridge health unavailable",
+    )
+    organizer_selector = SelectorResolutionResponse(
+        requested_selector=settings.pi_organizer_model_preferences[0],
+        requested_selectors=list(settings.pi_organizer_model_preferences),
+        resolved_selector=None,
+        fallback_used=False,
+        selector_mode=settings.pi_selector_mode.value,
+        error="Bridge health unavailable",
+    )
+
     bridge_name: str | None = None
     bridge_version: str | None = None
     bridge_protocol: int | None = None
@@ -111,13 +126,22 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
         bridge_version = str(bridge.get("version")) if bridge.get("version") is not None else None
         raw_protocol = bridge.get("protocol")
         bridge_protocol = int(raw_protocol) if raw_protocol is not None else None
+        chat_selector = SelectorResolutionResponse(**bridge["chat_selector"])
+        organizer_selector = SelectorResolutionResponse(**bridge["organizer_selector"])
+        selector_errors = [
+            item.error for item in (chat_selector, organizer_selector) if item.error is not None
+        ]
         checks["pi_bridge"] = DependencyStatus(
-            ok=True,
+            ok=not selector_errors,
             latency_ms=float(bridge.get("latency_ms", 0.0)),
-            error=None,
+            error="; ".join(selector_errors) if selector_errors else None,
         )
+        if selector_errors:
+            all_ok = False
     except Exception as exc:  # noqa: BLE001
         checks["pi_bridge"] = DependencyStatus(ok=False, latency_ms=0.0, error=str(exc))
+        chat_selector.error = str(exc)
+        organizer_selector.error = str(exc)
         all_ok = False
 
     backend = db.get_vector_backend()
@@ -136,8 +160,8 @@ def health_endpoint(settings: SettingsDep) -> HealthResponse:
     return HealthResponse(
         ok=all_ok,
         ai_backend="pi",
-        chat_model=settings.pi_model,
-        organizer_model=settings.pi_organizer_model,
+        chat_selector=chat_selector,
+        organizer_selector=organizer_selector,
         embed_model=settings.embed_model,
         bridge_name=bridge_name,
         bridge_version=bridge_version,

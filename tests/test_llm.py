@@ -49,9 +49,45 @@ class _FakeSession:
 
 
 class _FakeRuntime:
-    def __init__(self, session: _FakeSession) -> None:
+    def __init__(
+        self,
+        session: _FakeSession,
+        *,
+        resolved_selector: str = "zai/glm-5",
+        requested_selector: str = "zai/glm-5",
+        requested_selectors: tuple[str, ...] = ("zai/glm-5",),
+        fallback_used: bool = False,
+        selector_mode: str = "fallback",
+    ) -> None:
         self.session = session
         self.requests: list[Any] = []
+        self.resolve_requests: list[dict[str, Any]] = []
+        self.resolved_selector = resolved_selector
+        self.requested_selector = requested_selector
+        self.requested_selectors = requested_selectors
+        self.fallback_used = fallback_used
+        self.selector_mode = selector_mode
+
+    def resolve_model(
+        self, *, selectors: tuple[str, ...], selector_mode: str, timeout_s: float = 5.0
+    ):
+        self.resolve_requests.append(
+            {
+                "selectors": selectors,
+                "selector_mode": selector_mode,
+                "timeout_s": timeout_s,
+            }
+        )
+
+        class Resolution:
+            def __init__(self, runtime: _FakeRuntime) -> None:
+                self.requested_selector = runtime.requested_selector
+                self.requested_selectors = runtime.requested_selectors
+                self.resolved_selector = runtime.resolved_selector
+                self.fallback_used = runtime.fallback_used
+                self.selector_mode = runtime.selector_mode
+
+        return Resolution(self)
 
     def open_session(self, request):
         self.requests.append(request)
@@ -64,7 +100,7 @@ def test_chat_completion_uses_bridge_request(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5",
+        CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
     )
     runtime = _FakeRuntime(
         _FakeSession(
@@ -72,14 +108,18 @@ def test_chat_completion_uses_bridge_request(
                 {"type": "text_delta", "delta": "hi"},
                 {
                     "type": "done",
-                    "model": "zai/glm-5",
-                    "provider": "zai",
+                    "model": "kimi-coding/k2p5",
+                    "provider": "kimi-coding",
                     "api": "zai-chat",
                     "usage": {"totalTokens": 0},
                     "stop_reason": "stop",
                 },
             ]
-        )
+        ),
+        resolved_selector="kimi-coding/k2p5",
+        requested_selector="zai/glm-5",
+        requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
+        fallback_used=True,
     )
 
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
@@ -90,8 +130,12 @@ def test_chat_completion_uses_bridge_request(
     )
 
     assert content == "hi"
-    assert metadata["model"] == "zai/glm-5"
-    assert runtime.requests[0].model == "zai/glm-5"
+    assert metadata["model"] == "kimi-coding/k2p5"
+    assert metadata["requested_selector"] == "zai/glm-5"
+    assert metadata["resolved_selector"] == "kimi-coding/k2p5"
+    assert metadata["fallback_used"] is True
+    assert runtime.resolve_requests[0]["selectors"] == ("zai/glm-5", "kimi-coding/k2p5")
+    assert runtime.requests[0].model == "kimi-coding/k2p5"
     assert runtime.requests[0].messages == [{"role": "user", "content": "Hello"}]
 
 

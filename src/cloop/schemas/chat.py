@@ -109,6 +109,11 @@ class ChatMetadataResponse(BaseModel):
     api: str | None = None
     usage: dict[str, Any] = Field(default_factory=dict)
     stop_reason: str | None = None
+    requested_selector: str | None = None
+    requested_selectors: list[str] = Field(default_factory=list)
+    resolved_selector: str | None = None
+    fallback_used: bool = False
+    selector_mode: str | None = None
 
 
 class ChatOptionsResponse(BaseModel):

@@ -516,10 +516,10 @@ def enrich_loop(
     messages = _build_prompt(loop_payload, context=context)
 
     try:
-        content, _metadata = chat_completion(
+        content, metadata = chat_completion(
             messages=messages,
             settings=settings,
-            model=settings.pi_organizer_model,
+            selector_role="organizer",
             thinking_level=settings.pi_organizer_thinking_level,
             timeout_s=settings.pi_organizer_timeout,
         )
@@ -598,7 +598,11 @@ def enrich_loop(
         suggestion_id = repo.insert_loop_suggestion(
             loop_id=loop_id,
             suggestion_json=suggestion_payload,
-            model=settings.pi_organizer_model,
+            model=(
+                str(metadata.get("resolved_selector") or metadata.get("model"))
+                if metadata.get("resolved_selector") or metadata.get("model")
+                else settings.pi_organizer_model_preferences[0]
+            ),
             conn=conn,
         )
         _, applied_fields = _apply_suggestion(

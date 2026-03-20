@@ -48,6 +48,15 @@ class BridgeStartRequest:
     tools: list[BridgeToolSpec]
 
 
+@dataclass(frozen=True, slots=True)
+class BridgeResolveModelRequest:
+    """Resolve one ordered selector set against the bridge model registry."""
+
+    request_id: str
+    selectors: tuple[str, ...]
+    selector_mode: str
+
+
 def encode_line(payload: dict[str, Any]) -> bytes:
     """Serialize one protocol message as UTF-8 JSONL."""
     return (json.dumps(payload, separators=(",", ":"), ensure_ascii=True) + "\n").encode("utf-8")
@@ -72,6 +81,17 @@ def build_start_message(request: BridgeStartRequest) -> dict[str, Any]:
             }
             for tool in request.tools
         ],
+    }
+
+
+def build_resolve_model_message(request: BridgeResolveModelRequest) -> dict[str, Any]:
+    """Build a model-resolution envelope for one selector-preference request."""
+    return {
+        "type": "resolve_model",
+        "protocol": PROTOCOL_VERSION,
+        "request_id": request.request_id,
+        "selectors": list(request.selectors),
+        "selector_mode": request.selector_mode,
     }
 
 

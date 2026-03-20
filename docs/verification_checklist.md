@@ -15,19 +15,22 @@ cp .env.example .env
 For a minimal local-only run, set these in `.env`:
 
 ```dotenv
-CLOOP_PI_MODEL=zai/glm-5
-CLOOP_PI_ORGANIZER_MODEL=zai/glm-5
+CLOOP_PI_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
+CLOOP_PI_ORGANIZER_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
+CLOOP_PI_SELECTOR_MODE=fallback
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 ```
 
-Cloop passes `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` straight through to pi.
-If you prefer a different selector, common project-preferred alternatives are
-`kimi-coding/k2p5` and `openai-codex/gpt-5.4`, but any selector available from
-`pi --list-models` is valid.
+Cloop treats `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` as ordered selector preferences.
+In `fallback` mode it asks pi which selectors are available and uses the first match.
+The project preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
+`openai-codex/gpt-5.4`, but any selector available from `pi --list-models` is valid.
+If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
+selector per env var.
 
 Use `pi --list-models` to confirm the selectors available in your authenticated pi installation.
-If bridge startup, auth, or model-availability checks fail, use [`docs/ai_runtime.md`](ai_runtime.md) as the runtime troubleshooting reference.
+If bridge startup, auth, or selector-resolution checks fail, use [`docs/ai_runtime.md`](ai_runtime.md) as the runtime troubleshooting reference.
 
 `CLOOP_AUTOPILOT_ENABLED` and `CLOOP_SCHEDULER_ENABLED` default to `false` for first-run determinism.
 

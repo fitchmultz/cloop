@@ -98,11 +98,16 @@ def _coerce_usage_payload(usage: Any) -> dict[str, Any]:
 def _metadata_payload(metadata: dict[str, Any]) -> dict[str, Any]:
     return {
         "latency_ms": float(metadata.get("latency_ms", 0.0)) if metadata else 0.0,
-        "model": metadata.get("model") if metadata else None,
+        "model": metadata.get("resolved_selector") or metadata.get("model") if metadata else None,
         "provider": metadata.get("provider") if metadata else None,
         "api": metadata.get("api") if metadata else None,
         "usage": _coerce_usage_payload(metadata.get("usage")) if metadata else {},
         "stop_reason": metadata.get("stop_reason") if metadata else None,
+        "requested_selector": metadata.get("requested_selector") if metadata else None,
+        "requested_selectors": list(metadata.get("requested_selectors") or []) if metadata else [],
+        "resolved_selector": metadata.get("resolved_selector") if metadata else None,
+        "fallback_used": bool(metadata.get("fallback_used", False)) if metadata else False,
+        "selector_mode": metadata.get("selector_mode") if metadata else None,
     }
 
 
@@ -306,12 +311,17 @@ def _stream_prepared_chat_request(
     tool_calls = execution.tool_calls
     tool_result = execution.tool_result
     metadata: dict[str, Any] = {
-        "model": settings.pi_model,
+        "model": None,
         "latency_ms": 0.0,
         "usage": {},
         "provider": None,
         "api": None,
         "stop_reason": None,
+        "requested_selector": settings.pi_model_preferences[0],
+        "requested_selectors": list(settings.pi_model_preferences),
+        "resolved_selector": None,
+        "fallback_used": False,
+        "selector_mode": settings.pi_selector_mode.value,
     }
     tokens: list[str] = []
 
@@ -357,12 +367,17 @@ def _stream_prepared_chat_request(
             )
         elif event_type == "done":
             metadata = {
-                "model": event.get("model") or settings.pi_model,
+                "model": event.get("resolved_selector") or event.get("model"),
                 "latency_ms": float(event.get("latency_ms", 0.0)),
                 "usage": _coerce_usage_payload(event.get("usage")),
                 "provider": event.get("provider"),
                 "api": event.get("api"),
                 "stop_reason": event.get("stop_reason"),
+                "requested_selector": event.get("requested_selector"),
+                "requested_selectors": list(event.get("requested_selectors") or []),
+                "resolved_selector": event.get("resolved_selector") or event.get("model"),
+                "fallback_used": bool(event.get("fallback_used", False)),
+                "selector_mode": event.get("selector_mode"),
             }
 
     final_message = "".join(tokens)
