@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn the shipped operator shell, trust surfaces, workflow handoffs, shared action-card follow-through, and new receipt rail into a world-class cross-session decision and execution workspace: sharper landed-outcome history, tighter resume cues, and deeper operational memory.
+The current priority is to turn the shipped operator-shell foundation into a world-class cross-session decision and execution workspace: outcome-anchored continuity that reflects what actually landed, then executable undo actions everywhere the backend already supports reversal.
 
 ## Direction
 
@@ -24,32 +24,65 @@ Current product goals:
 - Experience vision: [`docs/ux/experience-vision.md`](ux/experience-vision.md)
 - Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
 
-## Execution Order
+## Shipped foundation
 
-### Phase 1 — Outcome-aware continuity history
+The next roadmap slice starts from work that is already live:
 
-Goal: finish turning the shipped operator shell, trust surfaces, shared action-card model, redesigned review shell, richer recall-result follow-through, and new receipt rail into a crisp decide-and-execute loop that stays coherent after work lands.
+- TypeScript/Vite operator-shell cutover with state-driven shell routing
+- operator workspace foundation and state-oriented navigation model
+- working-set sessions, focus mode, and working-set-aware handoffs
+- shared trust surfaces and shared AI/action-card rendering across planning, review, recall, and follow-through flows
+- post-action receipt cards with resume targets and rollback cues
+- review workspace redesign across relationship, enrichment, and hygiene review
+- browser-local continuity baseline snapshots, resume anchors, and recent shell-action history
+- global command palette with deterministic ranking, recent commands, and quick actions
 
-1. **Cross-surface continuity history tightening**
-   - Make recent-action history, working-set anchors, workflow handoffs, and operator summaries reflect the final landed outcome instead of just the launch point.
-   - Keep post-action context durable across operator, review, recall, and working-set surfaces so reopening a queue shows what changed and how to roll it back.
-2. **Backend-backed undo actions where rollback already exists**
-   - Turn receipt rollback cues into first-class executable actions anywhere the backend already supports undo or rollback, instead of leaving all reversibility as advisory text.
-   - Keep the same receipt/trust contract so reversible and irreversible outcomes remain visually consistent.
+## Execution order
 
-## Immediate Next Sessions
+### Session 1 — Outcome-anchored continuity history
 
-If work is being planned session-by-session, the best near-term sequence is:
+**Primary spec:** [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 
-1. **Continuity history session**
-   - align recent actions, working-set anchors, workflow handoffs, and operator since-last summaries around the landed outcome instead of the launch point
-2. **Undo action session**
-   - promote rollback cues into executable undo actions anywhere the backend already supports reversal
+Goal: make operator since-last summaries, recent-action history, working-set anchors, and workflow handoffs prefer the landed outcome instead of the launch point.
 
-## Delivery Model
+Planned sequence:
+
+1. lock the landed-outcome continuity contract and precedence rules
+2. align operator summaries, recent history, and resume anchors around that contract
+3. finish cross-surface continuity behavior across planning, review, recall, working-set, and command-palette flows
+
+Supporting specs:
+
+- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
+- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
+- [`docs/ux/working-sets.md`](ux/working-sets.md)
+- [`docs/ux/command-palette.md`](ux/command-palette.md)
+- [`docs/ux/operator-workspace.md`](ux/operator-workspace.md)
+
+### Session 2 — Executable undo actions
+
+**Primary spec:** [`docs/ux/undo-actions.md`](ux/undo-actions.md)
+
+Goal: promote existing backend undo and rollback support into first-class executable receipt/history actions wherever reversal is already supported.
+
+Planned sequence:
+
+1. lock the safe undo handle and transport contract
+2. wire shared receipt/history/card actions to that contract
+3. extend executable undo coverage across planning, review, enrichment, working-set, and command-palette follow-through
+
+Supporting specs:
+
+- [`docs/ux/trust-surfaces.md`](ux/trust-surfaces.md)
+- [`docs/ux/ai-action-cards.md`](ux/ai-action-cards.md)
+- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
+- [`docs/ux/review-redesign.md`](ux/review-redesign.md)
+- [`docs/ux/state-navigation.md`](ux/state-navigation.md)
+
+## Delivery model
 
 - Keep `docs/roadmap.md` concise and ordered.
-- Use linked UX specs for detailed workflows, interaction models, and contract implications.
+- Use linked UX specs for detailed workflows, interaction models, contract implications, and acceptance criteria.
 - Remove completed roadmap items instead of marking them done.
 - Update the relevant spec when implementation materially changes intended behavior.
 - Land UX changes as end-to-end workflow slices once a spec is accepted, not as isolated visual polish.

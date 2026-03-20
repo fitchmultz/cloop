@@ -19,5 +19,10 @@ This directory holds the product and interaction specs that back the canonical r
 
 - [`working-sets.md`](working-sets.md)
 - [`command-palette.md`](command-palette.md)
-- [`trust-surfaces.md`](trust-surfaces.md)
 - [`continuity-intelligence.md`](continuity-intelligence.md)
+- [`outcome-continuity.md`](outcome-continuity.md)
+
+## Trust and reversibility
+
+- [`trust-surfaces.md`](trust-surfaces.md)
+- [`undo-actions.md`](undo-actions.md)

@@ -112,7 +112,7 @@ Every action card should have:
 - Shared action cards now support first-class stage, edit, and defer follow-through alongside open, pin, and review-local event actions.
 - Recall result cards now use those richer follow-through actions to save durable briefs, reopen editable source questions, and defer evidence or execution handoffs without losing working-set scope.
 - Card-triggered working-set changes, review decisions, planning execution, and command-palette actions now emit shared receipt cards with rollback cues and resume-from-landed-outcome affordances instead of disappearing into one-line status text.
-- The next roadmap gap is tightening broader continuity history so operator since-last summaries and recent-action history prefer landed outcomes everywhere, not just the latest receipt rail.
+- The next roadmap work that builds on shared receipts is now specified in [`outcome-continuity.md`](outcome-continuity.md) and [`undo-actions.md`](undo-actions.md).
 
 ## Dependencies
 
