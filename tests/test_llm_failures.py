@@ -5,7 +5,12 @@ from pathlib import Path
 import litellm
 import pytest
 
-from cloop.ai_bridge.errors import BridgeProtocolError, BridgeStartupError, BridgeTimeoutError
+from cloop.ai_bridge.errors import (
+    BridgeProtocolError,
+    BridgeStartupError,
+    BridgeTimeoutError,
+    BridgeUpstreamError,
+)
 
 
 @pytest.mark.parametrize(
@@ -75,6 +80,41 @@ def test_chat_untyped_runtime_error_returns_500(
     assert response.status_code == 500
     data = response.json()
     assert data["error"]["type"] == "server_error"
+
+
+def test_chat_tool_round_limit_preserves_structured_error_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_test_client
+) -> None:
+    client = make_test_client(raise_server_exceptions=False)
+
+    def mock_failure(*args, **kwargs):
+        raise BridgeUpstreamError(
+            "tool_round_limit",
+            "tool budget exceeded",
+            details={
+                "surface": "chat",
+                "tool_rounds_used": 3,
+                "max_tool_rounds": 2,
+                "partial_results": {"text": "draft", "tool_calls": [], "tool_results": []},
+                "guidance": {"summary": "chat exhausted its tool-round budget (2)."},
+            },
+        )
+
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", mock_failure)
+
+    response = client.post(
+        "/chat",
+        json={"messages": [{"role": "user", "content": "Hello"}], "tool_mode": "none"},
+    )
+    assert response.status_code == 502
+    data = response.json()
+    assert data["error"]["code"] == "tool_round_limit"
+    assert data["error"]["details"]["surface"] == "chat"
+    assert data["error"]["details"]["tool_rounds_used"] == 3
+    assert data["error"]["details"]["partial_results"]["text"] == "draft"
+    assert data["error"]["details"]["guidance"]["summary"] == (
+        "chat exhausted its tool-round budget (2)."
+    )
 
 
 def test_embedding_timeout_during_ingest(

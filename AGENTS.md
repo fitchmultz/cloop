@@ -119,6 +119,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **MCP runtime**: keep FastMCP decorator/error-wrapping helpers in `src/cloop/mcp_tools/_runtime.py`; `src/cloop/mcp_server.py` should stay focused on server assembly.
 - **MCP operator docs**: docstrings on `chat.complete`, `plan.session.*`, and `review.*` are part of the operator-facing surface; keep Args/Returns/examples rich and aligned with README/workflow docs when those tools change.
 - **Generative runtime boundary**: pi owns chat/organizer generation through the local bridge (`src/cloop/ai_bridge/`, `src/cloop/pi_bridge/`), but Python remains the source of truth for loop state, tool execution, routing, and storage.
+- **Pi tool-round budgets**: use per-surface settings from `src/cloop/settings.py::PiToolBudgetSurface` (`chat`, `planning`, `enrichment`, `rag`, `mutation`) instead of reviving one repo-wide max-round default; `src/cloop/llm.py` callers should always pass an explicit surface.
 - **Embedding split**: embeddings stay on the LiteLLM-compatible path (`embedding_providers.py`, `litellm_retry.py`, `embeddings.py`) even after the pi cutover; do not mix generative bridge assumptions into embedding code.
 - **Chat UX**: the web chat client is expected to send `include_loop_context=true` and `include_memory_context=true` by default so responses stay grounded in actual loops and user memory.
 - **Public docs split**: keep `README.md`, `docs/architecture.md`, `docs/roadmap.md`, `docs/verification_checklist.md`, and `docs/release.md` as the primary external path.

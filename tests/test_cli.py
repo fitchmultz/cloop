@@ -131,7 +131,7 @@ def _mock_rag_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock non-streaming RAG answer generation for CLI tests."""
 
     def fake_chat_completion(
-        messages: List[dict[str, Any]], *, settings: Settings
+        messages: List[dict[str, Any]], *, surface: Any, settings: Settings
     ) -> tuple[str, dict[str, Any]]:
         return "mock-response", {"model": settings.llm_model, "latency_ms": 12.5}
 
@@ -142,12 +142,12 @@ def _mock_chat_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock shared chat execution for CLI chat tests."""
 
     def fake_chat_completion(
-        messages: List[dict[str, Any]], *, settings: Settings
+        messages: List[dict[str, Any]], *, surface: Any, settings: Settings
     ) -> tuple[str, dict[str, Any]]:
         return "mock-response", {"model": settings.llm_model, "latency_ms": 12.5, "usage": {}}
 
     def fake_chat_with_tools(
-        messages: List[dict[str, Any]], tools: Any, *, settings: Settings
+        messages: List[dict[str, Any]], tools: Any, *, surface: Any, settings: Settings
     ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
         return (
             "tool-mode-final",

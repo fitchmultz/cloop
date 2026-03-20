@@ -75,6 +75,17 @@ class PiSelectorMode(StrEnum):
     EXACT = "exact"
 
 
+class PiToolBudgetSurface(StrEnum):
+    CHAT = "chat"
+    PLANNING = "planning"
+    ENRICHMENT = "enrichment"
+    RAG = "rag"
+    MUTATION = "mutation"
+
+
+MAX_PI_TOOL_ROUND_BUDGET = 12
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     # Paths and persistence
@@ -103,7 +114,11 @@ class Settings:
     pi_selector_mode: PiSelectorMode
     pi_organizer_timeout: float
     pi_organizer_thinking_level: PiThinkingLevel
-    pi_max_tool_rounds: int
+    pi_chat_max_tool_rounds: int
+    pi_planning_max_tool_rounds: int
+    pi_enrichment_max_tool_rounds: int
+    pi_rag_max_tool_rounds: int
+    pi_mutation_max_tool_rounds: int
 
     # Embedding provider credentials and endpoints
     openai_api_base: str | None
@@ -207,6 +222,16 @@ class Settings:
             return shlex.split(self.pi_bridge_cmd)
         bridge_script = Path(__file__).resolve().parent / "pi_bridge" / "bridge.mjs"
         return ["node", str(bridge_script)]
+
+    def pi_tool_round_budget(self, surface: PiToolBudgetSurface) -> int:
+        """Return the configured tool-round safety budget for one runtime surface."""
+        return {
+            PiToolBudgetSurface.CHAT: self.pi_chat_max_tool_rounds,
+            PiToolBudgetSurface.PLANNING: self.pi_planning_max_tool_rounds,
+            PiToolBudgetSurface.ENRICHMENT: self.pi_enrichment_max_tool_rounds,
+            PiToolBudgetSurface.RAG: self.pi_rag_max_tool_rounds,
+            PiToolBudgetSurface.MUTATION: self.pi_mutation_max_tool_rounds,
+        }[surface]
 
 
 def _resolve_path(value: str | None, default: Path, *, create_parent: bool = True) -> Path:
@@ -312,7 +337,11 @@ def get_settings() -> Settings:
         pi_organizer_thinking_level=_resolve_pi_thinking_level(
             os.getenv("CLOOP_PI_ORGANIZER_THINKING_LEVEL")
         ),
-        pi_max_tool_rounds=int(os.getenv("CLOOP_PI_MAX_TOOL_ROUNDS", "1")),
+        pi_chat_max_tool_rounds=int(os.getenv("CLOOP_PI_CHAT_MAX_TOOL_ROUNDS", "4")),
+        pi_planning_max_tool_rounds=int(os.getenv("CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS", "2")),
+        pi_enrichment_max_tool_rounds=int(os.getenv("CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS", "2")),
+        pi_rag_max_tool_rounds=int(os.getenv("CLOOP_PI_RAG_MAX_TOOL_ROUNDS", "2")),
+        pi_mutation_max_tool_rounds=int(os.getenv("CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS", "2")),
         openai_api_base=os.getenv("CLOOP_OPENAI_API_BASE"),
         openai_api_key=os.getenv("CLOOP_OPENAI_API_KEY"),
         google_api_key=os.getenv("CLOOP_GOOGLE_API_KEY"),
@@ -450,8 +479,15 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_PI_TIMEOUT must be positive")
     if settings.pi_organizer_timeout <= 0:
         raise ValueError("CLOOP_PI_ORGANIZER_TIMEOUT must be positive")
-    if settings.pi_max_tool_rounds < 1:
-        raise ValueError("CLOOP_PI_MAX_TOOL_ROUNDS must be at least 1")
+    for env_name, value in (
+        ("CLOOP_PI_CHAT_MAX_TOOL_ROUNDS", settings.pi_chat_max_tool_rounds),
+        ("CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS", settings.pi_planning_max_tool_rounds),
+        ("CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS", settings.pi_enrichment_max_tool_rounds),
+        ("CLOOP_PI_RAG_MAX_TOOL_ROUNDS", settings.pi_rag_max_tool_rounds),
+        ("CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS", settings.pi_mutation_max_tool_rounds),
+    ):
+        if value < 1 or value > MAX_PI_TOOL_ROUND_BUDGET:
+            raise ValueError(f"{env_name} must be between 1 and {MAX_PI_TOOL_ROUND_BUDGET}")
     if settings.pi_selector_mode is PiSelectorMode.EXACT:
         if len(settings.pi_model_preferences) != 1:
             raise ValueError("CLOOP_PI_MODEL must contain exactly one selector in exact mode")

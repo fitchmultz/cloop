@@ -18,6 +18,11 @@ For a minimal local-only run, set these in `.env`:
 CLOOP_PI_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
 CLOOP_PI_ORGANIZER_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
 CLOOP_PI_SELECTOR_MODE=fallback
+CLOOP_PI_CHAT_MAX_TOOL_ROUNDS=4
+CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2
+CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS=2
+CLOOP_PI_RAG_MAX_TOOL_ROUNDS=2
+CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS=2
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 ```
@@ -28,6 +33,10 @@ The project preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
 `openai-codex/gpt-5.4`, but any selector available from `pi --list-models` is valid.
 If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
 selector per env var.
+
+Cloop resolves tool-round budgets per surface instead of from one repo-wide default, so
+advisory chat, planning, enrichment, RAG, and mutation-heavy flows keep distinct bounded
+budgets during verification.
 
 Use `pi --list-models` to confirm the selectors available in your authenticated pi installation.
 If bridge startup, auth, or selector-resolution checks fail, use [`docs/ai_runtime.md`](ai_runtime.md) as the runtime troubleshooting reference.

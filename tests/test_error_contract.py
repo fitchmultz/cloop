@@ -73,13 +73,23 @@ class TestErrorViewFromException:
     )
     def test_maps_bridge_upstream_errors(self, retryable: bool, expected_status: int) -> None:
         """Bridge upstream retryability should control the returned status code."""
-        exc = BridgeUpstreamError("provider_failure", "provider exploded", retryable=retryable)
+        exc = BridgeUpstreamError(
+            "provider_failure",
+            "provider exploded",
+            retryable=retryable,
+            details={"surface": "chat", "tool_rounds_used": 3},
+        )
 
         view = error_view_from_exception(exc)
 
         assert view.error_type == "ai_backend_error"
         assert view.code == "provider_failure"
-        assert view.details == {"detail": "provider exploded", "retryable": retryable}
+        assert view.details == {
+            "detail": "provider exploded",
+            "retryable": retryable,
+            "surface": "chat",
+            "tool_rounds_used": 3,
+        }
         assert view.status_code == expected_status
 
     def test_maps_http_exception_detail_dict(self) -> None:

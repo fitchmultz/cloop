@@ -6,8 +6,10 @@ import pytest
 from cloop.settings import (
     DEFAULT_PI_MODEL_PREFERENCES,
     DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES,
+    MAX_PI_TOOL_ROUND_BUDGET,
     EmbedStorageMode,
     PiSelectorMode,
+    PiToolBudgetSurface,
     ToolMode,
     VectorSearchMode,
     get_settings,
@@ -101,6 +103,11 @@ def test_default_pi_selectors_match_project_preference(
     assert settings.pi_model == DEFAULT_PI_MODEL_PREFERENCES[0]
     assert settings.pi_organizer_model == DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES[0]
     assert settings.pi_selector_mode is PiSelectorMode.FALLBACK
+    assert settings.pi_tool_round_budget(PiToolBudgetSurface.CHAT) == 4
+    assert settings.pi_tool_round_budget(PiToolBudgetSurface.PLANNING) == 2
+    assert settings.pi_tool_round_budget(PiToolBudgetSurface.ENRICHMENT) == 2
+    assert settings.pi_tool_round_budget(PiToolBudgetSurface.RAG) == 2
+    assert settings.pi_tool_round_budget(PiToolBudgetSurface.MUTATION) == 2
 
 
 def test_selector_preferences_parse_csv_and_dedupe(
@@ -144,6 +151,21 @@ def test_exact_selector_mode_requires_single_selector(
     settings_module.get_settings.cache_clear()
 
     with pytest.raises(ValueError, match="CLOOP_PI_MODEL must contain exactly one selector"):
+        settings_module.get_settings()
+
+
+def test_invalid_pi_tool_round_budget_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per-surface pi tool-round budgets should stay inside the configured safety window."""
+    import cloop.settings as settings_module
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_PI_CHAT_MAX_TOOL_ROUNDS", str(MAX_PI_TOOL_ROUND_BUDGET + 1))
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    with pytest.raises(ValueError, match="CLOOP_PI_CHAT_MAX_TOOL_ROUNDS must be between"):
         settings_module.get_settings()
 
 

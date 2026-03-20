@@ -54,29 +54,7 @@ Why this comes first:
 - the current single-path assumptions leak into HTTP, CLI, MCP, docs, tests, and the frontend contract, so fixing them first reduces follow-on churn
 - later handoff UX work should build on more flexible execution contracts instead of immediately depending on contracts we already know are too narrow
 
-#### Slice 1 — Replace the global one-round agent loop assumption
-
-Objective: remove the hidden assumption that a valid AI-assisted run should complete through one exact tool-loop shape.
-
-Planned work:
-1. replace the single global `CLOOP_PI_MAX_TOOL_ROUNDS` assumption with per-surface budgets
-2. define separate defaults for:
-   - advisory chat
-   - planning generation
-   - enrichment generation
-   - RAG answer generation
-   - mutation-heavy or tool-mutating flows
-3. keep hard bounds, but treat them as safety budgets instead of one canonical workflow script
-4. expose exhaustion outcomes in a structured way so clients can show partial progress, tool traces, and next-step guidance
-5. update tests and docs so multi-round success is treated as valid where the surface allows it
-
-Acceptance bar:
-- no shared default assumes that one round is the universally correct path
-- read-only flows can use more than one tool round when justified
-- mutating flows keep bounded, explicit safety limits
-- terminal `tool_round_limit` errors still exist, but no longer reflect a repo-wide single-step expectation
-
-#### Slice 2 — Preserve multi-tool outcomes instead of collapsing them
+#### Slice 1 — Preserve multi-tool outcomes instead of collapsing them
 
 Objective: stop forcing stochastic multi-step tool behavior through one preferred intermediate artifact.
 
@@ -93,7 +71,7 @@ Acceptance bar:
 - logging preserves the actual tool sequence that occurred
 - compatibility shims are transitional and clearly scoped
 
-#### Slice 3 — Add bounded alternate strategies for read-only generation paths
+#### Slice 2 — Add bounded alternate strategies for read-only generation paths
 
 Objective: avoid repeating one failing path when the request has not produced side effects and another valid strategy could succeed.
 
@@ -117,7 +95,7 @@ Acceptance bar:
 - logs and responses preserve provenance for fallback/retry decisions
 - operators still get deterministic final failure states when all allowed strategies fail
 
-#### Slice 4 — De-brittle prompts, tests, and operator guidance around stochastic behavior
+#### Slice 3 — De-brittle prompts, tests, and operator guidance around stochastic behavior
 
 Objective: stop baking exact wording and exact preferred process into the surrounding harness when task-level invariants are what actually matter.
 

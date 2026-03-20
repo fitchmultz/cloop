@@ -34,7 +34,7 @@ from .schemas.chat import (
     ChatRequest,
     ChatResponse,
 )
-from .settings import Settings, ToolMode
+from .settings import PiToolBudgetSurface, Settings, ToolMode
 from .storage import interaction_store
 from .tools import get_agent_bridge_tools, get_tool_definition
 
@@ -251,6 +251,7 @@ def execute_chat_request(
             content, metadata, tool_calls = chat_with_tools(
                 execution.messages,
                 get_agent_bridge_tools(),
+                surface=PiToolBudgetSurface.MUTATION,
                 settings=settings,
             )
         except ToolCallError as exc:
@@ -262,7 +263,11 @@ def execute_chat_request(
                 first_output.get("output") if isinstance(first_output, dict) else first_output
             )
     else:
-        content, metadata = chat_completion(execution.messages, settings=settings)
+        content, metadata = chat_completion(
+            execution.messages,
+            surface=PiToolBudgetSurface.CHAT,
+            settings=settings,
+        )
 
     response_payload = _response_payload(
         prepared=execution.prepared,
@@ -326,11 +331,16 @@ def _stream_prepared_chat_request(
     tokens: list[str] = []
 
     active_tools = get_agent_bridge_tools() if execution.tool_mode is ToolMode.LLM else None
+    surface = (
+        PiToolBudgetSurface.MUTATION
+        if execution.tool_mode is ToolMode.LLM
+        else PiToolBudgetSurface.CHAT
+    )
     for event in stream_events(
         execution.messages,
+        surface=surface,
         settings=settings,
         tools=active_tools,
-        max_tool_rounds=settings.pi_max_tool_rounds,
     ):
         event_type = event["type"]
         if event_type == "text_delta":

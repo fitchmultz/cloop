@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..llm import chat_completion, estimate_tokens
-from ..settings import Settings
+from ..settings import PiToolBudgetSurface, Settings
 from .search import retrieve_similar_chunks
 
 NO_KNOWLEDGE_MESSAGE = "No knowledge available. Ingest documents first."
@@ -170,7 +170,11 @@ def answer_prepared_question(
             token_estimate=0,
         )
 
-    content, metadata = chat_completion(prepared.messages, settings=settings)
+    content, metadata = chat_completion(
+        prepared.messages,
+        surface=PiToolBudgetSurface.RAG,
+        settings=settings,
+    )
     return AskAnswer(
         answer=content,
         chunks=prepared.chunks,

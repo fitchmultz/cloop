@@ -225,6 +225,8 @@ test("buildBridgeErrorPayload returns explicit timeout and tool round limit erro
 		buildBridgeErrorPayload({
 			requestId: "req-round-limit",
 			roundLimitExceeded: true,
+			toolRoundsUsed: 3,
+			maxToolRounds: 2,
 		}),
 		{
 			type: "error",
@@ -232,6 +234,10 @@ test("buildBridgeErrorPayload returns explicit timeout and tool round limit erro
 			code: "tool_round_limit",
 			message: "Pi bridge tool round limit exceeded before the model produced a terminal response.",
 			retryable: false,
+			tool_rounds_used: 3,
+			max_tool_rounds: 2,
+			stop_reason: "aborted",
+			partial_text: "",
 		},
 	);
 });

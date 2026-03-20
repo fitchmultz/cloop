@@ -399,6 +399,8 @@ export function buildBridgeErrorPayload({
 	roundLimitExceeded = false,
 	finalMessage = null,
 	error = null,
+	toolRoundsUsed = 0,
+	maxToolRounds = 0,
 }) {
 	if (timedOut) {
 		return {
@@ -418,6 +420,10 @@ export function buildBridgeErrorPayload({
 				finalMessage?.errorMessage ||
 				"Pi bridge tool round limit exceeded before the model produced a terminal response.",
 			retryable: false,
+			tool_rounds_used: toolRoundsUsed,
+			max_tool_rounds: maxToolRounds,
+			stop_reason: finalMessage?.stopReason ?? "aborted",
+			partial_text: finalMessage ? normalizeAssistantMessage(finalMessage).text : "",
 		};
 	}
 	if (finalMessage?.stopReason === "aborted") {
@@ -552,6 +558,8 @@ export async function runSession(
 					timedOut,
 					roundLimitExceeded,
 					finalMessage,
+					toolRoundsUsed: toolRounds,
+					maxToolRounds: session.request.max_tool_rounds ?? 0,
 				}),
 			);
 			return;

@@ -24,9 +24,10 @@ from collections.abc import Generator, Iterator, Sequence
 from typing import Any
 
 from .ai_bridge import get_bridge_runtime
+from .ai_bridge.errors import BridgeUpstreamError
 from .ai_bridge.protocol import BridgeStartRequest, BridgeToolSpec
 from .loops.errors import CloopError
-from .settings import PiThinkingLevel, Settings, get_settings
+from .settings import PiThinkingLevel, PiToolBudgetSurface, Settings, get_settings
 from .tools import get_agent_bridge_tools, get_tool_definition, normalize_tool_arguments
 
 Message = dict[str, Any]
@@ -110,9 +111,47 @@ def _selector_request(
     return settings.pi_model_preferences, settings.pi_selector_mode.value
 
 
+def _resolve_max_tool_rounds(
+    *,
+    settings: Settings,
+    surface: PiToolBudgetSurface,
+    max_tool_rounds: int | None,
+) -> int:
+    if max_tool_rounds is not None:
+        return max_tool_rounds
+    return settings.pi_tool_round_budget(surface)
+
+
+def _tool_round_limit_guidance(
+    *,
+    surface: PiToolBudgetSurface,
+    max_tool_rounds: int,
+) -> dict[str, Any]:
+    suggested_actions = [
+        "Retry with a narrower request or smaller grounding scope.",
+        "Inspect any partial text and tool traces before rerunning.",
+    ]
+    if surface is PiToolBudgetSurface.MUTATION:
+        suggested_actions.append(
+            "Review completed tool outputs before retrying; "
+            "Cloop did not continue mutating after the budget was exhausted."
+        )
+    elif surface is PiToolBudgetSurface.CHAT:
+        suggested_actions.append("Disable tool mode if you only need a text response.")
+    else:
+        suggested_actions.append(
+            "Reduce the number of target loops, retrieved chunks, or other grounding inputs."
+        )
+    return {
+        "summary": f"{surface.value} exhausted its tool-round budget ({max_tool_rounds}).",
+        "suggested_actions": suggested_actions,
+    }
+
+
 def stream_events(
     messages: list[Message],
     *,
+    surface: PiToolBudgetSurface,
     settings: Settings | None = None,
     model: str | None = None,
     model_preferences: Sequence[str] | None = None,
@@ -136,8 +175,10 @@ def stream_events(
         if selector_role == "organizer"
         else settings.pi_timeout
     )
-    active_max_tool_rounds = (
-        max_tool_rounds if max_tool_rounds is not None else settings.pi_max_tool_rounds
+    active_max_tool_rounds = _resolve_max_tool_rounds(
+        settings=settings,
+        surface=surface,
+        max_tool_rounds=max_tool_rounds,
     )
     selectors, selector_mode = _selector_request(
         settings=settings,
@@ -161,6 +202,8 @@ def stream_events(
             "resolved_selector": resolution.resolved_selector,
             "fallback_used": resolution.fallback_used,
             "selector_mode": resolution.selector_mode,
+            "surface": surface.value,
+            "max_tool_rounds": active_max_tool_rounds,
         },
     )
 
@@ -175,57 +218,102 @@ def stream_events(
     session = runtime.open_session(request)
     start = time.monotonic()
     finished = False
+    partial_text_parts: list[str] = []
+    partial_tool_calls: list[dict[str, Any]] = []
+    partial_tool_results: list[dict[str, Any]] = []
 
     try:
-        for event in session.events():
-            event_type = str(event.get("type"))
-            if event_type == "tool_call":
-                tool_name = str(event.get("name", ""))
-                tool_definition = get_tool_definition(tool_name)
-                if tool_definition is None or not tool_definition.agent_exposed:
-                    raise ToolCallError(f"Unsupported tool: {tool_name}")
-                arguments = normalize_tool_arguments(event.get("arguments") or {})
-                try:
-                    payload = tool_definition.executor(**arguments)
-                    is_error = False
-                except (CloopError, ValueError) as exc:
-                    payload = _tool_error_payload(exc)
-                    is_error = True
-                tool_result_event = {
-                    "type": "tool_result",
-                    "tool_call_id": event.get("tool_call_id"),
-                    "name": tool_name,
-                    "arguments": arguments,
-                    "output": payload,
-                    "is_error": is_error,
-                }
-                session.send_tool_result(
-                    tool_call_id=str(event.get("tool_call_id", "")),
-                    payload=payload,
-                    is_error=is_error,
+        try:
+            for event in session.events():
+                event_type = str(event.get("type"))
+                if event_type == "text_delta":
+                    delta = str(event.get("delta", ""))
+                    if delta:
+                        partial_text_parts.append(delta)
+                    yield dict(event)
+                    continue
+
+                if event_type == "tool_call":
+                    tool_name = str(event.get("name", ""))
+                    tool_definition = get_tool_definition(tool_name)
+                    if tool_definition is None or not tool_definition.agent_exposed:
+                        raise ToolCallError(f"Unsupported tool: {tool_name}")
+                    arguments = normalize_tool_arguments(event.get("arguments") or {})
+                    try:
+                        payload = tool_definition.executor(**arguments)
+                        is_error = False
+                    except (CloopError, ValueError) as exc:
+                        payload = _tool_error_payload(exc)
+                        is_error = True
+                    tool_call_event = {
+                        "type": "tool_call",
+                        "tool_call_id": event.get("tool_call_id"),
+                        "name": tool_name,
+                        "arguments": arguments,
+                    }
+                    tool_result_event = {
+                        "type": "tool_result",
+                        "tool_call_id": event.get("tool_call_id"),
+                        "name": tool_name,
+                        "arguments": arguments,
+                        "output": payload,
+                        "is_error": is_error,
+                    }
+                    partial_tool_calls.append(dict(tool_call_event))
+                    partial_tool_results.append(dict(tool_result_event))
+                    session.send_tool_result(
+                        tool_call_id=str(event.get("tool_call_id", "")),
+                        payload=payload,
+                        is_error=is_error,
+                    )
+                    yield tool_call_event
+                    yield tool_result_event
+                    continue
+
+                if event_type == "tool_result":
+                    continue
+
+                if event_type == "done":
+                    finished = True
+                    completed = dict(event)
+                    completed["latency_ms"] = (time.monotonic() - start) * 1000
+                    completed["requested_selector"] = resolution.requested_selector
+                    completed["requested_selectors"] = list(resolution.requested_selectors)
+                    completed["resolved_selector"] = resolution.resolved_selector
+                    completed["fallback_used"] = resolution.fallback_used
+                    completed["selector_mode"] = resolution.selector_mode
+                    yield completed
+                    break
+
+                yield dict(event)
+        except BridgeUpstreamError as exc:
+            if exc.code == "tool_round_limit":
+                details = dict(exc.details)
+                details.update(
+                    {
+                        "surface": surface.value,
+                        "tool_rounds_used": details.get(
+                            "tool_rounds_used", len(partial_tool_calls)
+                        ),
+                        "max_tool_rounds": active_max_tool_rounds,
+                        "partial_results": {
+                            "text": "".join(partial_text_parts),
+                            "tool_calls": partial_tool_calls,
+                            "tool_results": partial_tool_results,
+                        },
+                        "guidance": _tool_round_limit_guidance(
+                            surface=surface,
+                            max_tool_rounds=active_max_tool_rounds,
+                        ),
+                    }
                 )
-                yield {
-                    "type": "tool_call",
-                    "tool_call_id": event.get("tool_call_id"),
-                    "name": tool_name,
-                    "arguments": arguments,
-                }
-                yield tool_result_event
-                continue
-
-            if event_type == "done":
-                finished = True
-                completed = dict(event)
-                completed["latency_ms"] = (time.monotonic() - start) * 1000
-                completed["requested_selector"] = resolution.requested_selector
-                completed["requested_selectors"] = list(resolution.requested_selectors)
-                completed["resolved_selector"] = resolution.resolved_selector
-                completed["fallback_used"] = resolution.fallback_used
-                completed["selector_mode"] = resolution.selector_mode
-                yield completed
-                break
-
-            yield dict(event)
+                raise BridgeUpstreamError(
+                    exc.code,
+                    str(exc),
+                    retryable=exc.retryable,
+                    details=details,
+                ) from exc
+            raise
     finally:
         if not finished:
             session.abort()
@@ -235,6 +323,7 @@ def stream_events(
 def chat_completion(
     messages: list[Message],
     *,
+    surface: PiToolBudgetSurface,
     settings: Settings | None = None,
     model: str | None = None,
     model_preferences: Sequence[str] | None = None,
@@ -246,6 +335,7 @@ def chat_completion(
     metadata: dict[str, Any] = {}
     for event in stream_events(
         messages,
+        surface=surface,
         settings=settings,
         model=model,
         model_preferences=model_preferences,
@@ -264,6 +354,7 @@ def chat_completion(
 def stream_completion(
     messages: list[Message],
     *,
+    surface: PiToolBudgetSurface,
     settings: Settings | None = None,
     model: str | None = None,
     model_preferences: Sequence[str] | None = None,
@@ -273,6 +364,7 @@ def stream_completion(
 ) -> Generator[str, None, None]:
     for event in stream_events(
         messages,
+        surface=surface,
         settings=settings,
         model=model,
         model_preferences=model_preferences,
@@ -290,7 +382,9 @@ def chat_with_tools(
     messages: list[Message],
     tools: list[BridgeToolSpec] | None = None,
     *,
+    surface: PiToolBudgetSurface,
     settings: Settings | None = None,
+    max_tool_rounds: int | None = None,
 ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
     settings = settings or get_settings()
     content_parts: list[str] = []
@@ -300,9 +394,10 @@ def chat_with_tools(
 
     for event in stream_events(
         messages,
+        surface=surface,
         settings=settings,
         tools=tools or get_agent_bridge_tools(),
-        max_tool_rounds=settings.pi_max_tool_rounds,
+        max_tool_rounds=max_tool_rounds,
     ):
         event_type = event["type"]
         if event_type == "text_delta":

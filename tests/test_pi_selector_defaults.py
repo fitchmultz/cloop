@@ -25,6 +25,13 @@ VERIFICATION_DOC_PATH = REPO_ROOT / "docs" / "verification_checklist.md"
 
 DEFAULT_PI_MODEL_CHAIN = ",".join(DEFAULT_PI_MODEL_PREFERENCES)
 DEFAULT_PI_ORGANIZER_MODEL_CHAIN = ",".join(DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES)
+DEFAULT_TOOL_BUDGET_LINES = (
+    "CLOOP_PI_CHAT_MAX_TOOL_ROUNDS=4",
+    "CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2",
+    "CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS=2",
+    "CLOOP_PI_RAG_MAX_TOOL_ROUNDS=2",
+    "CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS=2",
+)
 
 
 def test_env_example_pi_selectors_match_settings_defaults() -> None:
@@ -33,6 +40,8 @@ def test_env_example_pi_selectors_match_settings_defaults() -> None:
     assert f"CLOOP_PI_MODEL={DEFAULT_PI_MODEL_CHAIN}" in env_example
     assert f"CLOOP_PI_ORGANIZER_MODEL={DEFAULT_PI_ORGANIZER_MODEL_CHAIN}" in env_example
     assert "CLOOP_PI_SELECTOR_MODE=fallback" in env_example
+    for budget_line in DEFAULT_TOOL_BUDGET_LINES:
+        assert budget_line in env_example
 
 
 def test_readme_documents_current_pi_selector_defaults() -> None:
@@ -41,6 +50,8 @@ def test_readme_documents_current_pi_selector_defaults() -> None:
     assert f"CLOOP_PI_MODEL={DEFAULT_PI_MODEL_CHAIN}" in readme
     assert f"CLOOP_PI_ORGANIZER_MODEL={DEFAULT_PI_ORGANIZER_MODEL_CHAIN}" in readme
     assert "CLOOP_PI_SELECTOR_MODE=fallback" in readme
+    for budget_line in DEFAULT_TOOL_BUDGET_LINES:
+        assert budget_line in readme
     assert "pi --list-models" in readme
     assert "first selector that `pi --list-models` reports as available" in readme
 
@@ -51,4 +62,6 @@ def test_verification_checklist_documents_current_pi_selector_defaults() -> None
     assert f"CLOOP_PI_MODEL={DEFAULT_PI_MODEL_CHAIN}" in checklist
     assert f"CLOOP_PI_ORGANIZER_MODEL={DEFAULT_PI_ORGANIZER_MODEL_CHAIN}" in checklist
     assert "CLOOP_PI_SELECTOR_MODE=fallback" in checklist
+    for budget_line in DEFAULT_TOOL_BUDGET_LINES:
+        assert budget_line in checklist
     assert "pi --list-models" in checklist

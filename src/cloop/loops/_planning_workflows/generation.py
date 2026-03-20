@@ -37,7 +37,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from ...chat_orchestration import build_memory_context, build_rag_context
 from ...schemas.chat import ChatMessage, ChatRequest
-from ...settings import Settings
+from ...settings import PiToolBudgetSurface, Settings
 from .. import read_service
 from ..errors import ValidationError
 from ..models import format_utc_datetime, utc_now
@@ -314,6 +314,7 @@ def _generate_workflow_plan(
     )
     content, metadata = planner_chat_completion(
         messages,
+        surface=PiToolBudgetSurface.PLANNING,
         settings=settings,
         thinking_level=settings.pi_thinking_level,
         timeout_s=settings.pi_timeout,

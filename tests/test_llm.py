@@ -1,3 +1,20 @@
+"""Unit coverage for the shared pi-backed LLM facade.
+
+Purpose:
+    Verify selector resolution, per-surface tool budgets, tool execution, and
+    bridge failure shaping for `cloop.llm`.
+
+Responsibilities:
+    - Assert bridge requests inherit the correct selector metadata
+    - Assert per-surface tool-round budgets resolve correctly
+    - Assert Python-owned tools execute through the bridge loop
+    - Assert tool-round exhaustion preserves structured metadata
+
+Non-scope:
+    - End-to-end HTTP transport behavior
+    - Real upstream pi availability
+"""
+
 from pathlib import Path
 from typing import Any
 
@@ -5,9 +22,10 @@ import numpy as np
 import pytest
 
 from cloop import db
+from cloop.ai_bridge.errors import BridgeUpstreamError
 from cloop.embeddings import embed_texts
 from cloop.llm import chat_completion, chat_with_tools, stream_events
-from cloop.settings import Settings, get_settings
+from cloop.settings import PiToolBudgetSurface, Settings, get_settings
 
 
 def _configure_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, **env: str) -> Settings:
@@ -46,6 +64,16 @@ class _FakeSession:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _FailingSession(_FakeSession):
+    def __init__(self, exc: BridgeUpstreamError) -> None:
+        super().__init__([])
+        self.exc = exc
+
+    def events(self):
+        yield {"type": "text_delta", "delta": "draft"}
+        raise self.exc
 
 
 class _FakeRuntime:
@@ -126,6 +154,7 @@ def test_chat_completion_uses_bridge_request(
 
     content, metadata = chat_completion(
         [{"role": "user", "content": "Hello"}],
+        surface=PiToolBudgetSurface.CHAT,
         settings=settings,
     )
 
@@ -167,6 +196,7 @@ def test_chat_with_tools_executes_python_tools(
 
     content, metadata, tool_calls = chat_with_tools(
         [{"role": "user", "content": "write a note"}],
+        surface=PiToolBudgetSurface.MUTATION,
         settings=settings,
     )
 
@@ -189,6 +219,7 @@ def test_stream_events_aborts_unfinished_bridge_session(
     events = list(
         stream_events(
             [{"role": "user", "content": "Hello"}],
+            surface=PiToolBudgetSurface.CHAT,
             settings=settings,
         )
     )
@@ -198,14 +229,28 @@ def test_stream_events_aborts_unfinished_bridge_session(
     assert session.closed is True
 
 
-def test_chat_with_tools_forwards_configured_max_tool_rounds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("surface", "env_key", "env_value"),
+    [
+        (PiToolBudgetSurface.CHAT, "CLOOP_PI_CHAT_MAX_TOOL_ROUNDS", "5"),
+        (PiToolBudgetSurface.PLANNING, "CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS", "3"),
+        (PiToolBudgetSurface.ENRICHMENT, "CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS", "4"),
+        (PiToolBudgetSurface.RAG, "CLOOP_PI_RAG_MAX_TOOL_ROUNDS", "6"),
+        (PiToolBudgetSurface.MUTATION, "CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS", "2"),
+    ],
+)
+def test_stream_events_uses_surface_budget_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    surface: PiToolBudgetSurface,
+    env_key: str,
+    env_value: str,
 ) -> None:
     settings = _configure_env(
         monkeypatch,
         tmp_path,
         CLOOP_PI_MODEL="zai/glm-5",
-        CLOOP_PI_MAX_TOOL_ROUNDS="3",
+        **{env_key: env_value},
     )
     runtime = _FakeRuntime(
         _FakeSession(
@@ -224,16 +269,91 @@ def test_chat_with_tools_forwards_configured_max_tool_rounds(
     )
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 
-    content, metadata, tool_calls = chat_with_tools(
-        [{"role": "user", "content": "write a note"}],
-        tools=[],
-        settings=settings,
+    list(
+        stream_events(
+            [{"role": "user", "content": "hello"}],
+            surface=surface,
+            settings=settings,
+        )
     )
 
-    assert content == "done"
-    assert metadata["model"] == "zai/glm-5"
-    assert tool_calls == []
-    assert runtime.requests[0].max_tool_rounds == 3
+    assert runtime.requests[0].max_tool_rounds == int(env_value)
+
+
+def test_stream_events_explicit_override_wins_over_surface_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_PI_MODEL="zai/glm-5",
+        CLOOP_PI_RAG_MAX_TOOL_ROUNDS="6",
+    )
+    runtime = _FakeRuntime(
+        _FakeSession(
+            [
+                {"type": "text_delta", "delta": "done"},
+                {
+                    "type": "done",
+                    "model": "zai/glm-5",
+                    "provider": "zai",
+                    "api": "zai-chat",
+                    "usage": {},
+                    "stop_reason": "stop",
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    list(
+        stream_events(
+            [{"role": "user", "content": "hello"}],
+            surface=PiToolBudgetSurface.RAG,
+            settings=settings,
+            max_tool_rounds=7,
+        )
+    )
+
+    assert runtime.requests[0].max_tool_rounds == 7
+
+
+def test_tool_round_limit_error_includes_structured_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_PI_MODEL="zai/glm-5",
+        CLOOP_PI_CHAT_MAX_TOOL_ROUNDS="2",
+    )
+    runtime = _FakeRuntime(
+        _FailingSession(
+            BridgeUpstreamError(
+                "tool_round_limit",
+                "tool budget exceeded",
+                details={"tool_rounds_used": 3, "max_tool_rounds": 2},
+            )
+        )
+    )
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    with pytest.raises(BridgeUpstreamError, match="tool budget exceeded") as exc_info:
+        list(
+            stream_events(
+                [{"role": "user", "content": "hello"}],
+                surface=PiToolBudgetSurface.CHAT,
+                settings=settings,
+            )
+        )
+
+    assert exc_info.value.code == "tool_round_limit"
+    assert exc_info.value.details["surface"] == "chat"
+    assert exc_info.value.details["tool_rounds_used"] == 3
+    assert exc_info.value.details["max_tool_rounds"] == 2
+    assert exc_info.value.details["partial_results"]["text"] == "draft"
+    assert exc_info.value.details["partial_results"]["tool_calls"] == []
+    assert "suggested_actions" in exc_info.value.details["guidance"]
 
 
 def test_embed_texts_forward_provider_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -59,6 +59,9 @@ _SENTINEL = object()
 _RUNTIME_LOCK = threading.Lock()
 _RUNTIME: BridgeRuntime | None = None
 _RUNTIME_KEY: tuple[tuple[str, ...], str | None] | None = None
+_UPSTREAM_ERROR_RESERVED_KEYS = frozenset(
+    {"type", "protocol", "request_id", "code", "message", "retryable"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +74,13 @@ class BridgeModelResolution:
     fallback_used: bool
     selector_mode: str
     error: str | None = None
+
+
+def _upstream_error_details(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extract structured bridge error detail fields beyond the canonical envelope."""
+    return {
+        key: value for key, value in payload.items() if key not in _UPSTREAM_ERROR_RESERVED_KEYS
+    }
 
 
 class BridgeSession:
@@ -118,6 +128,7 @@ class BridgeSession:
                         str(typed_event.get("code", "bridge_error")),
                         str(typed_event.get("message", "Bridge request failed")),
                         retryable=bool(typed_event.get("retryable", False)),
+                        details=_upstream_error_details(typed_event),
                     )
                 yield typed_event
                 if event_type in TERMINAL_EVENT_TYPES:
@@ -304,6 +315,7 @@ class BridgeRuntime:
                         str(typed_payload.get("code", "bridge_error")),
                         str(typed_payload.get("message", "Bridge request failed")),
                         retryable=bool(typed_payload.get("retryable", False)),
+                        details=_upstream_error_details(typed_payload),
                     )
                 if typed_payload.get("type") != expected_type:
                     raise BridgeProtocolError(

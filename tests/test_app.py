@@ -1842,9 +1842,11 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
     def fake_chat_completion(
         messages: list[dict[str, Any]],
         *,
+        surface: Any,
         settings: Any = None,
     ) -> tuple[str, dict[str, Any]]:
         captured["messages"] = messages
+        captured["surface"] = surface
         return "grounded-response", {"latency_ms": 1.0, "model": "mock-llm", "usage": {}}
 
     monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
@@ -1862,6 +1864,7 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
     assert messages[0]["role"] == "system"
     assert "loop-aware planning assistant" in messages[0]["content"]
     assert "Avoid motivational filler" in messages[0]["content"]
+    assert captured["surface"].value == "chat"
 
 
 def test_chat_ui_requests_grounding_and_control_options_in_surface_runtime_client() -> None:
@@ -1900,6 +1903,7 @@ def test_chat_logging_tolerates_non_json_usage_objects(
     def fake_chat_completion(
         messages: list[dict[str, Any]],
         *,
+        surface: Any,
         settings: Any = None,
     ) -> tuple[str, dict[str, Any]]:
         return "grounded-response", {

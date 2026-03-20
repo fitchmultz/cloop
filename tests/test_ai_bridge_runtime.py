@@ -174,6 +174,7 @@ def test_bridge_session_surfaces_upstream_error_events(tmp_path: Path) -> None:
                             "code": "upstream_failed",
                             "message": "model boom",
                             "retryable": False,
+                            "provider": "fake",
                         }
                     ),
                     flush=True,
@@ -183,10 +184,12 @@ def test_bridge_session_surfaces_upstream_error_events(tmp_path: Path) -> None:
     runtime = BridgeRuntime(command=[sys.executable, "-u", str(script)], agent_dir=None)
     session = runtime.open_session(_start_request())
     try:
-        with pytest.raises(BridgeUpstreamError, match="model boom"):
+        with pytest.raises(BridgeUpstreamError, match="model boom") as exc_info:
             list(session.events())
     finally:
         runtime.shutdown()
+
+    assert exc_info.value.details == {"provider": "fake"}
 
 
 def test_bridge_session_reports_invalid_event_payloads(tmp_path: Path) -> None:

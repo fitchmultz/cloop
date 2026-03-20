@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .. import db
 from ..llm import chat_completion
-from ..settings import Settings, get_settings
+from ..settings import PiToolBudgetSurface, Settings, get_settings
 from ..webhooks.service import queue_deliveries
 from . import repo, similarity
 from .errors import LoopNotFoundError
@@ -518,6 +518,7 @@ def enrich_loop(
     try:
         content, metadata = chat_completion(
             messages=messages,
+            surface=PiToolBudgetSurface.ENRICHMENT,
             settings=settings,
             selector_role="organizer",
             thinking_level=settings.pi_organizer_thinking_level,

@@ -34,7 +34,7 @@ from .rag import (
 )
 from .rag.ask_orchestration import PreparedAskContext
 from .schemas.rag import AskResponse, IngestResponse
-from .settings import Settings
+from .settings import PiToolBudgetSurface, Settings
 from .storage import interaction_store
 
 
@@ -247,7 +247,11 @@ def stream_ask_request(
     model: str | None = settings.pi_model_preferences[0]
     latency_ms: float | None = 0.0
 
-    for event in stream_events(prepared.messages, settings=settings):
+    for event in stream_events(
+        prepared.messages,
+        surface=PiToolBudgetSurface.RAG,
+        settings=settings,
+    ):
         event_type = event["type"]
         if event_type == "text_delta":
             token = str(event.get("delta", ""))

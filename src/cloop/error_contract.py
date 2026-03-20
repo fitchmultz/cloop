@@ -344,7 +344,7 @@ def _map_bridge_error(exc: Exception) -> AppErrorView | None:
             error_type="ai_backend_error",
             code=exc.code or "ai_backend_error",
             message=str(exc),
-            details={"detail": str(exc), "retryable": exc.retryable},
+            details={"detail": str(exc), "retryable": exc.retryable, **exc.details},
             status_code=HTTP_SERVICE_UNAVAILABLE if exc.retryable else HTTP_BAD_GATEWAY,
         )
     if isinstance(exc, BridgeError):

@@ -209,7 +209,7 @@ HTTP mapping:
 - upstream retryable -> `503`
 - upstream non-retryable -> `502`
 
-## 8) Tool-loop limits and abort behavior
+## 8) Tool-loop budgets, exhaustion, and abort behavior
 
 Cloop keeps Python in control of tool execution and loop policy.
 
@@ -218,10 +218,22 @@ Important request controls:
 - `timeout_ms`
 - `max_tool_rounds`
 
+Python now resolves `max_tool_rounds` per surface before sending the request to the bridge:
+
+- `chat` → `CLOOP_PI_CHAT_MAX_TOOL_ROUNDS` (default `4`)
+- `planning` → `CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS` (default `2`)
+- `enrichment` → `CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS` (default `2`)
+- `rag` → `CLOOP_PI_RAG_MAX_TOOL_ROUNDS` (default `2`)
+- `mutation` → `CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS` (default `2`)
+
+That keeps advisory/read-only flows flexible enough for bounded multi-step tool behavior without treating mutation-heavy paths as open-ended loops.
+
 Phase-1 hardening behavior:
 
 - when a request exceeds `timeout_ms`, the bridge aborts the agent and emits a terminal timeout error
 - when tool iterations exceed `max_tool_rounds`, the bridge aborts and emits a terminal `tool_round_limit` error
+- `tool_round_limit` now carries structured details including `tool_rounds_used`, `max_tool_rounds`, `stop_reason`, and `partial_text`
+- Python enriches `tool_round_limit` with surface-specific guidance plus `partial_results.text`, `partial_results.tool_calls`, and `partial_results.tool_results`
 - when Python finishes consuming a session without a terminal success event, it aborts the in-flight bridge request before closing the session
 
 ## 9) Health endpoint expectations

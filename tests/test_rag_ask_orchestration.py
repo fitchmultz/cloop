@@ -22,6 +22,7 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -52,8 +53,9 @@ def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _mock_answer_generation(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_chat_completion(
-        messages: list[dict[str, str]], *, settings: Settings
+        messages: list[dict[str, str]], *, surface: Any, settings: Settings
     ) -> tuple[str, dict[str, float | str]]:
+        assert surface.value == "rag"
         return "mock-response", {"model": settings.llm_model, "latency_ms": 8.0}
 
     monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)

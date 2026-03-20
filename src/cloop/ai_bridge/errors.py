@@ -12,6 +12,8 @@ Non-scope:
     - Tool-domain validation (see tools.py)
 """
 
+from typing import Any
+
 
 class BridgeError(RuntimeError):
     """Base class for bridge runtime failures."""
@@ -36,7 +38,15 @@ class BridgeTimeoutError(BridgeError):
 class BridgeUpstreamError(BridgeError):
     """Raised when the bridge reports a model/provider failure."""
 
-    def __init__(self, code: str, message: str, *, retryable: bool = False) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool = False,
+        details: dict[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.retryable = retryable
+        self.details = details or {}
