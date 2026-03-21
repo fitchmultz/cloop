@@ -66,6 +66,7 @@ import {
 } from "./continuity-intelligence";
 import {
   buildContinuityAvailability,
+  groupRankedWorkflowThreads,
   readRankedLandedOutcomes,
   type RankedLandedOutcome,
 } from "./continuity-follow-through";
@@ -1972,8 +1973,10 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     outcomes: readonly RankedLandedOutcome[],
   ): CommandPaletteCommand[] {
     const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
+    const grouped = groupRankedWorkflowThreads(outcomes).slice(0, 8);
 
-    return outcomes.slice(0, 8).flatMap((item) => {
+    return grouped.flatMap((thread) => {
+      const item = thread.representative;
       const commands: CommandPaletteCommand[] = [];
       const rerunAction = item.rerunAction;
       const undoAction = item.undoAction;
@@ -1982,7 +1985,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         commands.push({
           id: `recent-rerun-${item.id}`,
           group: "recent",
-          title: `${rerunAction.label}: ${item.displayTitle}`,
+          title: `${rerunAction.label}: ${thread.thread.title}`,
           subtitle: rerunAction.description,
           keywords: [
             rerunAction.label,
@@ -1990,6 +1993,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             "refresh",
             item.displayTitle,
             item.displaySummary,
+            thread.thread.title,
+            thread.thread.summary ?? "",
             item.workingSetName ?? "",
             activeWorkingSetName ?? "",
           ],
@@ -2000,6 +2005,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             eyebrow: rerunAction.contract.mode === "refresh" ? "Recent refresh" : "Recent rerun",
             description: rerunAction.description,
             meta: [
+              `Thread: ${thread.thread.title}`,
               `Strict: ${rerunAction.contract.strictInvariants.join(" · ")}`,
               `May vary: ${rerunAction.contract.mayVary.join(" · ")}`,
               rerunAction.contract.freshnessLabel,
@@ -2040,13 +2046,15 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         commands.push({
           id: `recent-undo-${item.id}`,
           group: "recent",
-          title: `${undoAction.label}: ${item.displayTitle}`,
+          title: `${undoAction.label}: ${thread.thread.title}`,
           subtitle: undoAction.description,
           keywords: [
             "undo",
             "rollback",
             item.displayTitle,
             item.displaySummary,
+            thread.thread.title,
+            thread.thread.summary ?? "",
             item.workingSetName ?? "",
             activeWorkingSetName ?? "",
           ],
@@ -2057,6 +2065,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
             description: undoAction.description,
             meta: [
+              `Thread: ${thread.thread.title}`,
               item.workingSetName ? `Working set: ${item.workingSetName}` : null,
               `Recorded ${formatRelativeTime(item.occurredAt)}`,
               item.degradedLabel,
@@ -2095,24 +2104,27 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       commands.push({
         id: `recent-${item.id}`,
         group: "recent",
-        title: item.displayTitle,
-        subtitle: item.displaySummary,
+        title: thread.thread.title,
+        subtitle: thread.thread.summary ?? item.displaySummary,
         keywords: [
           item.displayTitle,
           item.displaySummary,
+          thread.thread.title,
+          thread.thread.summary ?? "",
           item.resumeLocation.state,
           item.workingSetName ?? "",
           activeWorkingSetName ?? "",
         ],
-        badge: item.source === "anchor" ? "Resume" : "Outcome",
+        badge: item.workflowThread ? "Thread" : (item.source === "anchor" ? "Resume" : "Outcome"),
         location: item.resumeLocation,
         continuityRank: item.rank,
         detail: {
-          eyebrow: item.source === "anchor" ? "Resume anchor" : "Recent outcome",
+          eyebrow: item.workflowThread ? "Workflow thread" : (item.source === "anchor" ? "Resume anchor" : "Recent outcome"),
           description: item.degradedLabel
             ? item.degradedLabel
             : "Reopen the landed outcome using the same receipt and handoff contract shown in operator follow-through surfaces.",
           meta: [
+            item.workflowThread ? `Thread: ${item.workflowThread.title}` : null,
             item.workingSetName ? `Working set: ${item.workingSetName}` : null,
             `Recorded ${formatRelativeTime(item.occurredAt)}`,
             item.rerunAction && !item.rerunAction.disabledReason

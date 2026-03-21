@@ -38,7 +38,7 @@ A returning user should be able to answer, at a glance:
 ## Non-goals
 
 - Replacing the baseline or drift-detection model in [`continuity-intelligence.md`](continuity-intelligence.md).
-- Persisting rich operator continuity history to the backend database in this phase.
+- Persisting browser-local baseline snapshots or speculative AI interpretations to the backend database in this phase.
 - Capturing every low-signal navigation event as meaningful continuity.
 - Inventing speculative AI summaries when deterministic receipts already exist.
 
@@ -52,13 +52,15 @@ A returning user should be able to answer, at a glance:
 
 ## Current implementation baseline
 
-Frontend continuity and receipt primitives already exist:
+Frontend continuity and receipt primitives already exist, and durable backend continuity is now live:
 
 - `frontend/src/continuity-intelligence.ts` stores:
-  - `ContinuityBaselineSnapshot`
-  - `ResumeAnchorState`
-  - recent `RecentShellActionEntry[]`
-- recent shell actions are browser-local in `localStorage`, capped at 12 entries, with 15-second deduping for matching label, location, and summary
+  - browser-local `ContinuityBaselineSnapshot`
+  - cached durable `ResumeAnchorState`
+  - cached durable recent `RecentShellActionEntry[]`
+  - a pending-sync queue for unsent high-signal writes
+- recent landed outcomes are now backend-backed, cached in `localStorage`, capped at 24 entries, and still use 15-second deduping for matching landed identity
+- `src/cloop/storage/continuity_store.py` owns durable continuity outcome + anchor persistence, target resolution, and workflow-thread rollups behind `/loops/continuity*`
 - `frontend/src/continuity-intelligence.ts::readRecentShellReceiptEntries()` already filters recent actions down to receipt-kind entries
 - `frontend/src/action-receipts.ts::createReceiptCard()` builds receipt-flavored `OperatorActionCard` objects with trust metadata, handoff metadata, and resume affordances
 - `frontend/src/action-receipts.ts::withReceiptOutcome()` already attaches:
@@ -75,7 +77,7 @@ Frontend continuity and receipt primitives already exist:
   - `ResumeAnchorState`
   - `ContinuityBaselineSnapshot`
 
-Current implementation default: operator home, the global receipt rail, and command-palette recent outcomes now read from one shared ranked landed-outcome feed. `RecentShellActionEntry.location` remains useful launch metadata, but the shipped continuity model now prefers `RecentShellActionEntry.outcome.resumeLocation` and the landed receipt card everywhere a resumable outcome is rendered. When the landed card also carries a shared rerun or refresh action, continuity now preserves that affordance instead of flattening the outcome down to resume-only history.
+Current implementation default: operator home, the global receipt rail, and command-palette recent outcomes now read from one shared ranked landed-outcome feed hydrated from backend continuity history. `RecentShellActionEntry.location` remains useful launch metadata, but the shipped continuity model now prefers `RecentShellActionEntry.outcome.resumeLocation`, backend-resolved fallback targets, and the landed receipt card everywhere a resumable outcome is rendered. When the landed card also carries a shared rerun or refresh action, continuity now preserves that affordance instead of flattening the outcome down to resume-only history.
 
 ## Outcome continuity model
 

@@ -30,6 +30,7 @@ import type {
 } from "./contracts-ui";
 import {
   buildContinuityAvailability,
+  groupRankedWorkflowThreads,
   readRankedLandedOutcomes,
 } from "./continuity-follow-through";
 
@@ -136,6 +137,19 @@ function receiptEntry(overrides: Partial<RecentShellActionEntry> = {}): RecentSh
         workingSetId: 7,
       }),
       rollbackLabel: "Undo remains available from the landed outcome.",
+      workflowThread: {
+        id: "planning:41:checkpoint:0",
+        kind: "planning_checkpoint",
+        title: "Weekly reset",
+        summary: "Planning checkpoint thread",
+        parentOutcomeId: null,
+      },
+      resolvedResume: {
+        requestedLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+        resolvedLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+        status: "ok",
+        message: null,
+      },
       undoAction: {
         type: "undo",
         label: "Undo checkpoint",
@@ -194,7 +208,12 @@ describe("readRankedLandedOutcomes", () => {
       availability: buildContinuityAvailability({
         enrichmentSessionIds: [52],
       }),
-      recentActions: [receiptEntry()],
+      recentActions: [receiptEntry({
+        outcome: {
+          ...receiptEntry().outcome!,
+          resolvedResume: null,
+        },
+      })],
       resumeAnchors: { planning: null, review: null },
       now: Date.parse("2026-03-20T12:05:00Z"),
     });
@@ -240,6 +259,7 @@ describe("readRankedLandedOutcomes", () => {
           outcomeTitle: "Resume launch plan",
           outcomeSummary: "Continue the saved plan.",
           workingSetId: 7,
+          workflowThreadId: "planning:41",
         },
         review: null,
       },
@@ -248,5 +268,51 @@ describe("readRankedLandedOutcomes", () => {
 
     expect(outcomes[0]?.workingSetName).toBe("Launch Prep");
     expect(outcomes[0]?.card.handoff?.workingSet?.workingSetName).toBe("Launch Prep");
+  });
+
+  it("groups related outcomes into one ranked workflow thread", () => {
+    const outcomes = readRankedLandedOutcomes({
+      availability: buildContinuityAvailability({
+        enrichmentSessionIds: [52],
+        workingSets: [workingSet(7, "Launch Prep")],
+      }),
+      recentActions: [
+        receiptEntry(),
+        receiptEntry({
+          occurredAt: "2026-03-20T12:03:00Z",
+          label: "Refreshed launch queue",
+          description: "The enrichment queue was refreshed.",
+          outcome: {
+            ...receiptEntry().outcome!,
+            card: {
+              ...receiptEntry().outcome!.card,
+              id: "receipt-2",
+              title: "Refreshed launch queue",
+              summary: "The enrichment queue was refreshed.",
+            },
+            workflowThread: {
+              id: "planning:41:checkpoint:0",
+              kind: "planning_checkpoint",
+              title: "Weekly reset",
+              summary: "Planning checkpoint thread",
+              parentOutcomeId: null,
+            },
+            resolvedResume: {
+              requestedLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+              resolvedLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+              status: "ok",
+              message: null,
+            },
+          },
+        }),
+      ],
+      resumeAnchors: { planning: null, review: null },
+      now: Date.parse("2026-03-20T12:05:00Z"),
+    });
+
+    const threads = groupRankedWorkflowThreads(outcomes);
+    expect(threads).toHaveLength(1);
+    expect(threads[0]?.thread.id).toBe("planning:41:checkpoint:0");
+    expect(threads[0]?.outcomeCount).toBe(2);
   });
 });

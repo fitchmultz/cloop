@@ -290,6 +290,15 @@ function buildLoopUndoReceipt(response: LoopUndoResponse): ExecutedUndoResult {
       },
       card,
       resumeLocation,
+      {
+        workflowThread: {
+          id: `command:loop:${loop.id}`,
+          kind: "command",
+          title: card.title,
+          summary: card.summary,
+          parentOutcomeId: null,
+        },
+      },
     ),
   };
 }
@@ -366,6 +375,15 @@ function buildPlanningRollbackReceipt(response: PlanningSessionRollbackResponse)
       },
       card,
       resumeLocation,
+      {
+        workflowThread: {
+          id: `planning:${sessionId}`,
+          kind: "planning_checkpoint",
+          title: snapshot.session.name,
+          summary: card.summary,
+          parentOutcomeId: null,
+        },
+      },
     ),
   };
 }
@@ -477,6 +495,17 @@ function buildWorkingSetUndoReceipt(response: WorkingSetUndoResponse): ExecutedU
       },
       card,
       resumeLocation,
+      {
+        workflowThread: primaryWorkingSetId != null
+          ? {
+              id: `working-set:${primaryWorkingSetId}`,
+              kind: "working_set",
+              title: primaryWorkingSetName ?? card.title,
+              summary: card.summary,
+              parentOutcomeId: null,
+            }
+          : null,
+      },
     ),
   };
 }

@@ -61,6 +61,7 @@ import {
 } from "./continuity-intelligence";
 import {
   buildContinuityAvailability,
+  groupRankedWorkflowThreads,
   readRankedLandedOutcomes,
 } from "./continuity-follow-through";
 import {
@@ -1960,8 +1961,35 @@ function buildFollowThroughCards(
     }));
 }
 
+function buildWorkflowThreadRollupCards(data: WorkspaceData): PrioritizedCard[] {
+  return groupRankedWorkflowThreads(followThroughFeed(data))
+    .filter((thread) => thread.outcomeCount > 1)
+    .slice(0, 3)
+    .map((thread, index) => ({
+      priority: 118 - index * 4,
+      card: {
+        ...thread.representative.card,
+        id: `workflow-thread-${thread.id}`,
+        eyebrow: "Workflow thread",
+        title: thread.thread.title,
+        summary: thread.thread.summary ?? `${thread.outcomeCount} related outcomes landed in this workflow thread.`,
+        rationale:
+          "Related receipts, reruns, and downstream handoffs should read as one workflow thread instead of disconnected event fragments.",
+        preview: [
+          { label: "Latest", value: thread.representative.displayTitle },
+          { label: "Outcomes", value: `${thread.outcomeCount}` },
+          ...thread.outcomes.slice(0, 2).map((item, itemIndex) => ({
+            label: `Step ${itemIndex + 1}`,
+            value: item.displayTitle,
+          })),
+        ],
+      },
+    }));
+}
+
 function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
   const prioritized: PrioritizedCard[] = [
+    ...buildWorkflowThreadRollupCards(data),
     ...buildFollowThroughCards(data, { skip: 1, limit: 3 }),
   ];
   const maybeCards = [
@@ -2057,9 +2085,32 @@ function renderSinceLastVisit(data: WorkspaceData): void {
     return;
   }
 
-  if (!visitBaseline) {
+  const sinceLastCards = withWorkingSetHandoff(filterCardsForFocus(buildSinceLastCards(data)));
+
+  if (!visitBaseline && sinceLastCards.length === 0) {
+    const durableWarmStartCards = withWorkingSetHandoff(
+      filterCardsForFocus(
+        followThroughFeed(data)
+          .slice(0, 1)
+          .map((item) => item.card),
+      ),
+    );
+    if (durableWarmStartCards.length) {
+      elements.operatorSinceLast.innerHTML = renderActionCardDeck(
+        durableWarmStartCards,
+        `
+          <p class="operator-empty">No major changes were recorded since your last visit. This is a calm resume state.</p>
+          <div class="operator-inline-actions">
+            <button type="button" data-open-state="do">Open ready work</button>
+            <button class="secondary" type="button" data-open-state="review">Run review</button>
+          </div>
+        `,
+      );
+      return;
+    }
+
     elements.operatorSinceLast.innerHTML = `
-      <p class="operator-empty">This is the first recorded visit in this browser, so the workspace is showing the current system state instead of a delta. After this session, Cloop will summarize what changed between visits.</p>
+      <p class="operator-empty">This is the first recorded visit in this browser and there is no durable continuity history yet, so the workspace is showing the current system state instead of a delta.</p>
       <div class="operator-inline-actions">
         <button type="button" data-open-state="operator">Stay in workspace</button>
         <button class="secondary" type="button" data-open-state="recall" data-open-recall-tool="chat">Ask what matters now</button>
@@ -2069,7 +2120,7 @@ function renderSinceLastVisit(data: WorkspaceData): void {
   }
 
   elements.operatorSinceLast.innerHTML = renderActionCardDeck(
-    withWorkingSetHandoff(filterCardsForFocus(buildSinceLastCards(data))),
+    sinceLastCards,
     `
       <p class="operator-empty">No major changes were recorded since your last visit. This is a calm resume state.</p>
       <div class="operator-inline-actions">

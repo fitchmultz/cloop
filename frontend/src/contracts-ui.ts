@@ -119,6 +119,41 @@ export type RecentShellActionKind =
   | "bulk"
   | "snooze";
 
+export type WorkflowThreadKind =
+  | "planning_checkpoint"
+  | "review_session"
+  | "working_set"
+  | "command"
+  | "recall"
+  | "ad_hoc";
+
+export interface WorkflowThreadRef {
+  id: string;
+  kind: WorkflowThreadKind;
+  title: string;
+  summary: string | null;
+  parentOutcomeId: number | null;
+}
+
+export type ContinuityResolvedStatus =
+  | "ok"
+  | "working_set_scope_removed"
+  | "launch_fallback"
+  | "home_fallback";
+
+export interface ResolvedContinuityTarget {
+  requestedLocation: ShellLocationContract | null;
+  resolvedLocation: ShellLocationContract;
+  status: ContinuityResolvedStatus;
+  message: string | null;
+}
+
+export interface ContinuityPersistenceState {
+  status: "pending" | "synced" | "failed";
+  persistedOutcomeId: number | null;
+  syncedAtUtc: string | null;
+}
+
 export interface ResumeAnchorTarget {
   kind: "planning" | "review";
   reviewFocus: "planning" | "relationship" | "enrichment";
@@ -129,6 +164,7 @@ export interface ResumeAnchorTarget {
   outcomeTitle: string | null;
   outcomeSummary: string | null;
   workingSetId: number | null;
+  workflowThreadId?: string | null;
 }
 
 export interface ResumeAnchorState {
@@ -212,6 +248,8 @@ export interface RecentShellActionOutcome {
   resumeLocation: ShellLocationContract | null;
   rollbackLabel: string | null;
   undoAction: OperatorActionCardUndoAction | null;
+  workflowThread?: WorkflowThreadRef | null;
+  resolvedResume?: ResolvedContinuityTarget | null;
 }
 
 export interface RecentShellActionEntry {
@@ -222,6 +260,7 @@ export interface RecentShellActionEntry {
   metadata?: Record<string, unknown> | null;
   outcome?: RecentShellActionOutcome | null;
   occurredAt: string;
+  persistence?: ContinuityPersistenceState | null;
 }
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context" | "receipt";

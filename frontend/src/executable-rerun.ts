@@ -329,6 +329,15 @@ function planningRefreshReceipt(snapshot: PlanningSessionSnapshotResponse, actio
       },
       card,
       resumeLocation,
+      {
+        workflowThread: {
+          id: `planning:${snapshot.session.id}`,
+          kind: "planning_checkpoint",
+          title: snapshot.session.name,
+          summary,
+          parentOutcomeId: null,
+        },
+      },
     ),
   };
 }
@@ -400,6 +409,15 @@ function reviewRefreshReceipt(
       },
       card,
       resumeLocation,
+      {
+        workflowThread: {
+          id: `review:${action.rerun.reviewFocus}:${snapshot.session.id}`,
+          kind: "review_session",
+          title: snapshot.session.name,
+          summary,
+          parentOutcomeId: null,
+        },
+      },
     ),
   };
 }
@@ -456,6 +474,17 @@ function recallRerunReceipt(action: OperatorActionCardRerunAction): ExecutedReru
       },
       card,
       resumeLocation,
+      {
+        workflowThread: action.rerun.kind === "recall_query"
+          ? {
+              id: `recall:${action.rerun.recallTool}:${action.rerun.query.trim().toLowerCase()}`,
+              kind: "recall",
+              title,
+              summary,
+              parentOutcomeId: null,
+            }
+          : null,
+      },
     ),
   };
 }

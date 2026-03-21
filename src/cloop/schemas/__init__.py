@@ -22,6 +22,14 @@ from .health import HealthResponse
 from .loops import (
     BulkEnrichRequest,
     BulkEnrichResponse,
+    ContinuityAnchorResponse,
+    ContinuityAnchorsResponse,
+    ContinuityAnchorUpsertRequest,
+    ContinuityLocationResponse,
+    ContinuityOutcomeRecordResponse,
+    ContinuityOutcomeWriteRequest,
+    ContinuitySnapshotResponse,
+    ContinuityThreadSummaryResponse,
     EnrichmentReviewActionCreateRequest,
     EnrichmentReviewActionResponse,
     EnrichmentReviewActionUpdateRequest,
@@ -101,6 +109,14 @@ from .memory import (
 from .rag import AskResponse, FailedFileInfo, IngestMode, IngestRequest, IngestResponse
 
 __all__ = [
+    "ContinuityAnchorResponse",
+    "ContinuityAnchorUpsertRequest",
+    "ContinuityAnchorsResponse",
+    "ContinuityLocationResponse",
+    "ContinuityOutcomeRecordResponse",
+    "ContinuityOutcomeWriteRequest",
+    "ContinuitySnapshotResponse",
+    "ContinuityThreadSummaryResponse",
     "ChatMessage",
     "ChatRequest",
     "ChatResponse",

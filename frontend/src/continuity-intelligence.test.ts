@@ -29,6 +29,7 @@ import type {
 } from "./domain";
 import {
   buildContinuityBaseline,
+  hydrateDurableContinuityState,
   markRerunActionUnavailable,
   readRecentShellActions,
   readRecentShellReceiptEntries,
@@ -77,15 +78,23 @@ function createMemoryStorage(): Storage {
 }
 
 let originalLocalStorage: Storage;
+let originalFetch: typeof fetch;
 
 describe("continuity-intelligence", () => {
   beforeEach(() => {
     originalLocalStorage = window.localStorage as Storage;
+    originalFetch = globalThis.fetch;
     Object.defineProperty(window, "localStorage", {
       value: createMemoryStorage(),
       configurable: true,
       writable: true,
     });
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], anchors: { planning: null, review: null }, threads: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-03-17T12:00:00Z"));
   });
@@ -96,6 +105,7 @@ describe("continuity-intelligence", () => {
       configurable: true,
       writable: true,
     });
+    globalThis.fetch = originalFetch;
     vi.useRealTimers();
   });
 
@@ -130,6 +140,7 @@ describe("continuity-intelligence", () => {
         outcomeTitle: "Resume plan · Weekly reset",
         outcomeSummary: "Return to the saved planning session.",
         workingSetId: 3,
+        workflowThreadId: "planning:41",
       },
       review: {
         kind: "review",
@@ -141,8 +152,140 @@ describe("continuity-intelligence", () => {
         outcomeTitle: "Resume relationship queue · Launch duplicates",
         outcomeSummary: "Return to the saved relationship queue.",
         workingSetId: 5,
+        workflowThreadId: "review:relationship:7",
       },
     });
+  });
+
+  it("hydrates durable continuity state into the local cache", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        recorded_at_utc: "2026-03-17T12:00:00Z",
+        outcomes: [
+          {
+            id: 7,
+            kind: "planning",
+            label: "Created launch review queue",
+            description: "The enrichment queue is ready to resume.",
+            occurred_at_utc: "2026-03-17T11:55:00Z",
+            launch_location: {
+              state: "plan",
+              recall_tool: "chat",
+              review_focus: "planning",
+              session_id: 41,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: null,
+              query: null,
+            },
+            outcome_card: {
+              id: "receipt-1",
+              kind: "receipt",
+              tone: "progress",
+              eyebrow: "Planning receipt",
+              title: "Created launch review queue",
+              summary: "The enrichment queue is ready to resume.",
+              rationale: "Receipt",
+              preview: [],
+              trust: {
+                contextSources: ["Planning session"],
+                assumptions: [],
+                confidenceLabel: "Recorded",
+                freshnessLabel: "Saved just now",
+                rollbackLabel: "Undo remains available.",
+              },
+              handoff: null,
+              actions: [],
+            },
+            resume_location: {
+              state: "decide",
+              recall_tool: "chat",
+              review_focus: "enrichment",
+              session_id: 52,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: 7,
+              query: null,
+            },
+            resolved_resume: {
+              requested_location: {
+                state: "decide",
+                recall_tool: "chat",
+                review_focus: "enrichment",
+                session_id: 52,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: null,
+              },
+              resolved_location: {
+                state: "decide",
+                recall_tool: "chat",
+                review_focus: "enrichment",
+                session_id: 52,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: null,
+              },
+              status: "ok",
+              message: null,
+            },
+            workflow_thread: {
+              id: "planning:41:checkpoint:0",
+              kind: "planning_checkpoint",
+              title: "Weekly reset",
+              summary: "Planning checkpoint thread",
+              parent_outcome_id: null,
+            },
+            working_set_id: 7,
+            degraded: false,
+            degraded_label: null,
+            metadata: { sessionId: 41 },
+          },
+        ],
+        anchors: {
+          planning: {
+            kind: "planning",
+            review_focus: "planning",
+            session_id: 41,
+            visited_at_utc: "2026-03-17T11:56:00Z",
+            launch_location: null,
+            resume_location: {
+              state: "plan",
+              recall_tool: "chat",
+              review_focus: "planning",
+              session_id: 41,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: 7,
+              query: null,
+            },
+            outcome_title: "Resume weekly reset",
+            outcome_summary: "Continue the saved planning session.",
+            working_set_id: 7,
+            workflow_thread_id: "planning:41",
+            metadata: {},
+          },
+          review: null,
+        },
+        threads: [],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await hydrateDurableContinuityState();
+
+    expect(readRecentShellActions()).toHaveLength(1);
+    expect(readRecentShellActions()[0]?.outcome?.workflowThread?.id).toBe("planning:41:checkpoint:0");
+    expect(readResumeAnchors().planning?.workflowThreadId).toBe("planning:41");
   });
 
   it("keeps recent shell actions newest-first", () => {

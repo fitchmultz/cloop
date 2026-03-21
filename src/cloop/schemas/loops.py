@@ -58,6 +58,18 @@ from ._loops.comments import (
     LoopCommentResponse,
     LoopCommentUpdateRequest,
 )
+from ._loops.continuity import (
+    ContinuityAnchorResponse,
+    ContinuityAnchorsResponse,
+    ContinuityAnchorUpsertRequest,
+    ContinuityLocationResponse,
+    ContinuityOutcomeRecordResponse,
+    ContinuityOutcomeWriteRequest,
+    ContinuitySnapshotResponse,
+    ContinuityThreadSummaryResponse,
+    ResolvedContinuityTargetResponse,
+    WorkflowThreadRefResponse,
+)
 from ._loops.core import (
     LoopBase,
     LoopCaptureRequest,
@@ -218,6 +230,16 @@ ClarificationRefinementResponse.model_rebuild(_types_namespace=globals())
 EnrichmentReviewSessionClarificationResponse.model_rebuild(_types_namespace=globals())
 
 __all__ = [
+    "ContinuityAnchorResponse",
+    "ContinuityAnchorUpsertRequest",
+    "ContinuityAnchorsResponse",
+    "ContinuityLocationResponse",
+    "ContinuityOutcomeRecordResponse",
+    "ContinuityOutcomeWriteRequest",
+    "ContinuitySnapshotResponse",
+    "ContinuityThreadSummaryResponse",
+    "ResolvedContinuityTargetResponse",
+    "WorkflowThreadRefResponse",
     "LoopSearchStatusFilter",
     "LoopCaptureRequest",
     "LoopUpdateRequest",

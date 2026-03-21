@@ -20,6 +20,11 @@ Invariants/Assumptions:
       the full schema extraction is complete.
 """
 
+from .continuity_store import (
+    read_continuity_snapshot,
+    record_continuity_outcome,
+    upsert_continuity_anchor,
+)
 from .idempotency_store import claim_or_replay_idempotency, finalize_idempotency_response
 from .interaction_store import record_interaction
 from .memory_store import (
@@ -45,6 +50,9 @@ from .scheduler_store import (
 )
 
 __all__ = [
+    "read_continuity_snapshot",
+    "record_continuity_outcome",
+    "upsert_continuity_anchor",
     "claim_or_replay_idempotency",
     "claim_scheduler_push",
     "claim_task_run",

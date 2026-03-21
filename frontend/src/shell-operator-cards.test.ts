@@ -529,4 +529,60 @@ describe("shell-operator-cards", () => {
     expect(findCard(elements.operatorPlan, "Execute checkpoint")).not.toBeNull();
     expect(findCard(elements.operatorPlan, "Enrichment review queue")).not.toBeNull();
   });
+
+  it("renders durable since-last cards even without a browser-local visit baseline", () => {
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Refreshed weekly reset",
+      description: "The planning session was refreshed.",
+      location: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      outcome: {
+        card: {
+          id: "receipt-durable-1",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Refreshed weekly reset",
+          summary: "The planning session was refreshed.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Open the plan to continue.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+        rollbackLabel: "Open the plan to continue.",
+        undoAction: null,
+        workflowThread: {
+          id: "planning:41",
+          kind: "planning_checkpoint",
+          title: "Weekly reset",
+          summary: "Planning checkpoint thread",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          status: "ok",
+          message: null,
+        },
+      },
+    });
+
+    const { elements, renderer } = createHarness({
+      visitBaseline: null,
+      workingSets: [],
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    expect(findCard(elements.operatorSinceLast, "Refreshed weekly reset")).not.toBeNull();
+    expect(elements.operatorSinceLast.textContent).not.toContain("first recorded visit");
+  });
 });

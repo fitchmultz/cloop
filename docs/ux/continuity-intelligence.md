@@ -91,8 +91,9 @@ The system should surface when:
 
 ## Contract implications
 
-- The system likely needs durable “last seen” or “last visited” tracking at the UI/session level.
-- Continuity views should compose existing event history, saved session metadata, and planning execution outputs before adding new intelligence layers.
+- Durable landed outcomes and resume anchors now live in backend continuity storage, while visit baselines and local last-visit timestamps remain browser-local.
+- The next continuity-intelligence slice should add durable “last seen” markers or equivalent session-level comparison points for drift-aware summaries.
+- Continuity views should compose durable outcome history, saved session metadata, and planning execution outputs before adding new intelligence layers.
 - Drift detection should begin with deterministic comparisons, not speculative scoring.
 
 ## Acceptance criteria

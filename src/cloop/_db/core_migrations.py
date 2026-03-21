@@ -31,6 +31,57 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    42: """
+    CREATE TABLE continuity_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        description TEXT NOT NULL,
+        occurred_at_utc TEXT NOT NULL,
+        launch_location_json TEXT,
+        outcome_json TEXT NOT NULL,
+        resume_location_json TEXT,
+        working_set_id INTEGER,
+        workflow_thread_id TEXT NOT NULL,
+        workflow_thread_kind TEXT NOT NULL,
+        workflow_thread_title TEXT NOT NULL,
+        workflow_thread_summary TEXT,
+        parent_outcome_id INTEGER REFERENCES continuity_outcomes(id) ON DELETE SET NULL,
+        dedupe_key TEXT NOT NULL,
+        source_surface TEXT NOT NULL,
+        signal_level TEXT NOT NULL CHECK (signal_level IN ('high', 'secondary')),
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_continuity_outcomes_occurred_at
+        ON continuity_outcomes(occurred_at_utc DESC, id DESC);
+
+    CREATE INDEX idx_continuity_outcomes_thread
+        ON continuity_outcomes(workflow_thread_id, occurred_at_utc DESC, id DESC);
+
+    CREATE INDEX idx_continuity_outcomes_signal
+        ON continuity_outcomes(signal_level, occurred_at_utc DESC, id DESC);
+
+    CREATE INDEX idx_continuity_outcomes_working_set
+        ON continuity_outcomes(working_set_id, occurred_at_utc DESC, id DESC);
+
+    CREATE TABLE continuity_resume_anchors (
+        anchor_kind TEXT PRIMARY KEY CHECK (anchor_kind IN ('planning', 'review')),
+        review_focus TEXT NOT NULL CHECK (review_focus IN ('planning', 'relationship', 'enrichment')),
+        session_id INTEGER NOT NULL,
+        visited_at_utc TEXT NOT NULL,
+        launch_location_json TEXT,
+        resume_location_json TEXT,
+        outcome_title TEXT,
+        outcome_summary TEXT,
+        working_set_id INTEGER,
+        workflow_thread_id TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
     41: """
     ALTER TABLE interactions ADD COLUMN tool_results TEXT NOT NULL DEFAULT '[]';
     """,

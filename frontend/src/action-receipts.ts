@@ -31,6 +31,7 @@ import type {
   RecentShellActionEntry,
   ShellLocationContract,
   TrustSurfaceMetadata,
+  WorkflowThreadRef,
 } from "./contracts-ui";
 
 export interface CreateReceiptCardInput {
@@ -133,10 +134,15 @@ function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction 
   return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
 }
 
+export interface ReceiptOutcomeOptions {
+  workflowThread?: WorkflowThreadRef | null;
+}
+
 export function withReceiptOutcome(
   entry: Omit<RecentShellActionEntry, "occurredAt">,
   card: OperatorActionCard,
   resumeLocation: ShellLocationContract | null,
+  options: ReceiptOutcomeOptions = {},
 ): Omit<RecentShellActionEntry, "occurredAt"> {
   return {
     ...entry,
@@ -145,6 +151,8 @@ export function withReceiptOutcome(
       resumeLocation,
       rollbackLabel: card.trust.rollbackLabel ?? null,
       undoAction: findUndoAction(card),
+      workflowThread: options.workflowThread ?? null,
+      resolvedResume: null,
     },
   };
 }

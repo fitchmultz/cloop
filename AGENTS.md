@@ -21,6 +21,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Shared relationship review flows | `src/cloop/loops/relationship_review.py` |
 | Shared saved review actions + sessions | `src/cloop/loops/review_workflows.py` |
 | Shared planning workflows | `src/cloop/loops/planning_workflows.py` |
+| Durable continuity storage + routes | `src/cloop/storage/continuity_store.py`, `src/cloop/routes/loops/continuity.py`, `src/cloop/schemas/_loops/continuity.py` |
 | Shared direct memory management | `src/cloop/memory_management.py`, `src/cloop/storage/memory_store.py` |
 | Backup/restore facade + internals | `src/cloop/backup.py`, `src/cloop/_backup/` |
 | LLM/manual tool executors + registry | `src/cloop/tools.py`, `src/cloop/_tools/` |
@@ -82,6 +83,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - **Capture / do / recall source of truth**: the non-review work surfaces now bootstrap from `frontend/src/surfaces/bootstrap.ts`, while the shell-facing launch contracts live in `frontend/src/surface-runtime.ts`; keep new work there instead of reintroducing secondary entrypoints.
 - **Operator action-card source of truth**: typed shell-only card contracts live in `frontend/src/contracts-ui.ts`, rendering helpers live in `frontend/src/operator-action-cards.ts`, and the operator workspace should express planning/review/recall handoffs through that shared card model instead of ad-hoc summary markup.
 - **Review workspace source of truth**: the redesigned decision workspace for planning, relationship review, enrichment review, and hygiene cohorts lives in `frontend/src/review-workspace.ts`, while shared rerun/refresh card contracts and execution live in `frontend/src/executable-rerun.ts`; keep review UX there instead of reintroducing bespoke refresh buttons or per-surface rerun payloads.
+- **Durable continuity source of truth**: backend-owned landed outcomes, grouped workflow threads, and durable anchors now live in `src/cloop/storage/continuity_store.py` behind `/loops/continuity*`, while browser-local cache + pending sync behavior live in `frontend/src/continuity-intelligence.ts`; do not revert to localStorage-only continuity truth.
 - **Shared frontend runtime helpers**: modal/dialog behavior, merge-modal runtime, loop selection state, and bulk-bar DOM sync now live in `frontend/src/modals.ts`, `frontend/src/duplicates.ts`, `frontend/src/selection-state.ts`, and `frontend/src/bulk-actions.ts`; all surfaces should import those modules directly.
 - **Working-set source of truth**: durable working-set and focus-mode backend orchestration live in `src/cloop/loops/working_sets.py` with HTTP routes in `src/cloop/routes/loops/working_sets.py`, while the operator-shell rendering/integration lives in `frontend/src/shell.ts`; keep working-set UX there instead of reviving localStorage-only pinning.
 - **Working-set session route**: the first-class resume target is the shell-owned `#working-set/:id` session surface; continuity cards, command-palette launches, and working-set cards should reopen that session instead of guessing a single anchor item.

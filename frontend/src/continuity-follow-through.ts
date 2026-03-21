@@ -6,11 +6,11 @@
  *   surfaces so home, receipt rail, and palette recents consume the same data.
  *
  * Responsibilities:
- *   - Read recent landed outcomes and outcome-aware resume anchors.
- *   - Validate and safely degrade resume targets against current workspace availability.
+ *   - Read durable landed outcomes and outcome-aware resume anchors.
+ *   - Prefer server-resolved fallback targets while keeping client-safe fallback logic.
  *   - Deduplicate anchors versus recent landed outcomes.
- *   - Normalize resume, undo, and pin affordances into one consistent card shape.
- *   - Rank landed outcomes deterministically for all follow-through consumers.
+ *   - Normalize resume, undo, rerun, and pin affordances into one consistent card shape.
+ *   - Group related outcomes into workflow threads for higher-signal continuity surfaces.
  *
  * Scope:
  *   - Frontend-only continuity ranking and card normalization.
@@ -22,7 +22,7 @@
  *   - `RecentShellActionEntry.outcome` remains the canonical landed-outcome payload.
  *   - `outcome.resumeLocation` is preferred over launch location.
  *   - Anchor-only items are fallback continuity, not stronger than recent receipts.
- *   - When a landed outcome exposes a shared rerun contract, continuity should preserve it.
+ *   - When the backend already resolved a degraded target, the frontend preserves that explanation.
  */
 
 import type {
@@ -36,6 +36,7 @@ import type {
   ResumeAnchorTarget,
   ShellLocationContract,
   WorkingSetSessionMetadata,
+  WorkflowThreadRef,
 } from "./contracts-ui";
 import { readRecentShellActions, readResumeAnchors } from "./continuity-intelligence";
 import {
@@ -68,6 +69,16 @@ export interface RankedLandedOutcome {
   card: OperatorActionCard;
   undoAction: OperatorActionCardUndoAction | null;
   rerunAction: OperatorActionCardRerunAction | null;
+  workflowThread: WorkflowThreadRef | null;
+}
+
+export interface RankedWorkflowThread {
+  id: string;
+  thread: WorkflowThreadRef;
+  representative: RankedLandedOutcome;
+  outcomes: RankedLandedOutcome[];
+  outcomeCount: number;
+  rank: number;
 }
 
 export interface ReadRankedLandedOutcomesInput {
@@ -185,6 +196,21 @@ export function fallbackFollowThroughLocation(
   };
 }
 
+function resolvedFollowThroughLocation(
+  entry: RecentShellActionEntry,
+  availability: ContinuityAvailability,
+): { location: ShellLocationContract; degraded: boolean; degradedLabel: string | null } {
+  const resolved = entry.outcome?.resolvedResume ?? null;
+  if (resolved) {
+    return {
+      location: resolved.resolvedLocation,
+      degraded: resolved.status !== "ok",
+      degradedLabel: resolved.status !== "ok" ? resolved.message : null,
+    };
+  }
+  return fallbackFollowThroughLocation(resolveContinuityEntry(entry).resumeLocation, availability);
+}
+
 function buildResumeAction(location: ShellLocationContract, description: string): OperatorActionCardAction {
   return {
     type: "open",
@@ -282,6 +308,19 @@ function anchorBreadcrumb(anchor: ResumeAnchorTarget): string {
   return "Decide";
 }
 
+function anchorWorkflowThread(anchor: ResumeAnchorTarget): WorkflowThreadRef | null {
+  if (!anchor.workflowThreadId) {
+    return null;
+  }
+  return {
+    id: anchor.workflowThreadId,
+    kind: anchor.kind === "planning" ? "planning_checkpoint" : "review_session",
+    title: anchor.outcomeTitle ?? anchorLabel(anchor),
+    summary: anchor.outcomeSummary ?? null,
+    parentOutcomeId: null,
+  };
+}
+
 function buildAnchorCard(
   anchor: ResumeAnchorTarget,
   resumeLocation: ShellLocationContract,
@@ -289,7 +328,7 @@ function buildAnchorCard(
   workingSet: WorkingSetSessionMetadata | null,
 ): OperatorActionCard {
   const title = anchor.outcomeTitle ?? anchorLabel(anchor);
-  const summary = anchor.outcomeSummary ?? "Resume the most recent landed workflow state from this browser.";
+  const summary = anchor.outcomeSummary ?? "Resume the most recent landed workflow state from durable continuity.";
   const preview = [
     { label: "Last visited", value: formatRelativeTime(anchor.visitedAtUtc) },
     ...(workingSet ? [{ label: "Working set", value: workingSet.workingSetName }] : []),
@@ -306,10 +345,10 @@ function buildAnchorCard(
       "Outcome-aware resume anchors preserve the best durable handoff when there is no newer landed receipt to supersede it.",
     preview,
     trust: {
-      generationLabel: "Browser-local resume anchor",
+      generationLabel: "Durable continuity anchor",
       generationTone: "attention",
-      contextSources: ["Browser-local outcome continuity anchors"],
-      assumptions: ["Resume anchors are local to this browser."],
+      contextSources: ["Backend-backed outcome continuity anchors"],
+      assumptions: ["Resume anchors stay durable across browser sessions and devices."],
       confidenceLabel: "Deterministic resume shortcut",
       confidenceTone: "progress",
       freshnessLabel: `Visited ${formatRelativeTime(anchor.visitedAtUtc)}`,
@@ -343,6 +382,7 @@ function scoreOutcome(input: {
   degraded: boolean;
   undoAction: OperatorActionCardUndoAction | null;
   rerunAction: OperatorActionCardRerunAction | null;
+  workflowThread: WorkflowThreadRef | null;
   now: number;
 }): number {
   const ageMs = Math.max(0, input.now - safeTimestamp(input.occurredAt));
@@ -358,9 +398,10 @@ function scoreOutcome(input: {
     : 0;
   const rerunBoost = input.rerunAction && !input.rerunAction.disabledReason ? 18 : 0;
   const undoBoost = input.undoAction && !input.undoAction.disabledReason ? 16 : 0;
+  const threadBoost = input.workflowThread ? 12 : 0;
   const degradedPenalty = input.degraded ? 36 : 0;
 
-  return sourceScore + recencyScore + activeWorkingSetBoost + rerunBoost + undoBoost - degradedPenalty;
+  return sourceScore + recencyScore + activeWorkingSetBoost + rerunBoost + undoBoost + threadBoost - degradedPenalty;
 }
 
 function buildRecentOutcome(
@@ -374,18 +415,19 @@ function buildRecentOutcome(
   }
 
   const resolved = resolveContinuityEntry(entry);
-  const fallback = fallbackFollowThroughLocation(resolved.resumeLocation, availability);
+  const resolvedTarget = resolvedFollowThroughLocation(entry, availability);
   const workingSet = resolved.workingSet ?? workingSetMetadata(availability, resolved.workingSetId);
   const undoAction = entry.outcome.undoAction ?? null;
   const rerunAction = entry.outcome.card.actions.find(
     (action): action is OperatorActionCardRerunAction => action.type === "rerun",
   ) ?? null;
   const source: RankedLandedOutcome["source"] = entry.outcome.card.kind === "receipt" ? "receipt" : "recent";
+  const workflowThread = entry.outcome.workflowThread ?? null;
   const card = normalizeOutcomeCard(
     entry.outcome.card,
-    fallback.location,
+    resolvedTarget.location,
     resolved.displaySummary,
-    fallback.degraded ? fallback.degradedLabel : null,
+    resolvedTarget.degraded ? resolvedTarget.degradedLabel : null,
     undoAction,
     rerunAction,
     workingSet,
@@ -399,22 +441,24 @@ function buildRecentOutcome(
       occurredAt: entry.occurredAt,
       activeWorkingSetId,
       workingSetId: resolved.workingSetId,
-      degraded: fallback.degraded,
+      degraded: resolvedTarget.degraded,
       undoAction,
       rerunAction,
+      workflowThread,
       now,
     }),
     occurredAt: entry.occurredAt,
-    resumeLocation: fallback.location,
+    resumeLocation: resolvedTarget.location,
     displayTitle: resolved.displayTitle,
     displaySummary: resolved.displaySummary,
     workingSetId: resolved.workingSetId,
     workingSetName: workingSet?.workingSetName ?? workingSetName(availability, resolved.workingSetId),
-    degraded: fallback.degraded,
-    degradedLabel: fallback.degraded ? fallback.degradedLabel : null,
+    degraded: resolvedTarget.degraded,
+    degradedLabel: resolvedTarget.degraded ? resolvedTarget.degradedLabel : null,
     card,
     undoAction,
     rerunAction,
+    workflowThread,
   };
 }
 
@@ -426,6 +470,7 @@ function buildAnchorOutcome(
 ): RankedLandedOutcome {
   const fallback = fallbackFollowThroughLocation(anchor.resumeLocation ?? anchor.launchLocation, availability);
   const workingSet = workingSetMetadata(availability, anchor.workingSetId);
+  const workflowThread = anchorWorkflowThread(anchor);
   const card = buildAnchorCard(
     anchor,
     fallback.location,
@@ -446,6 +491,7 @@ function buildAnchorOutcome(
       degraded: fallback.degraded,
       undoAction: null,
       rerunAction: null,
+      workflowThread,
       now,
     }),
     occurredAt: anchor.visitedAtUtc,
@@ -459,6 +505,7 @@ function buildAnchorOutcome(
     card,
     undoAction: null,
     rerunAction: null,
+    workflowThread,
   };
 }
 
@@ -507,5 +554,47 @@ export function readRankedLandedOutcomes(input: ReadRankedLandedOutcomesInput): 
       return right.rank - left.rank;
     }
     return safeTimestamp(right.occurredAt) - safeTimestamp(left.occurredAt);
+  });
+}
+
+export function groupRankedWorkflowThreads(
+  outcomes: readonly RankedLandedOutcome[],
+): RankedWorkflowThread[] {
+  const buckets = new Map<string, RankedLandedOutcome[]>();
+
+  outcomes.forEach((outcome) => {
+    const key = outcome.workflowThread?.id ?? continuityLocationIdentity(outcome.resumeLocation);
+    const existing = buckets.get(key) ?? [];
+    existing.push(outcome);
+    buckets.set(key, existing);
+  });
+
+  return [...buckets.entries()].map(([id, items]) => {
+    const sortedItems = [...items].sort((left, right) => {
+      if (right.rank !== left.rank) {
+        return right.rank - left.rank;
+      }
+      return safeTimestamp(right.occurredAt) - safeTimestamp(left.occurredAt);
+    });
+    const representative = sortedItems[0]!;
+    return {
+      id,
+      thread: representative.workflowThread ?? {
+        id,
+        kind: "ad_hoc",
+        title: representative.displayTitle,
+        summary: representative.displaySummary,
+        parentOutcomeId: null,
+      },
+      representative,
+      outcomes: sortedItems,
+      outcomeCount: sortedItems.length,
+      rank: representative.rank + Math.min(sortedItems.length, 4) * 8,
+    } satisfies RankedWorkflowThread;
+  }).sort((left, right) => {
+    if (right.rank !== left.rank) {
+      return right.rank - left.rank;
+    }
+    return safeTimestamp(right.representative.occurredAt) - safeTimestamp(left.representative.occurredAt);
   });
 }

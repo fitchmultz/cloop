@@ -26,6 +26,7 @@
 
 import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
 import {
+  hydrateDurableContinuityState,
   markRerunActionUnavailable,
   markUndoActionUnavailable,
   readContinuityBaseline,
@@ -802,9 +803,21 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     openDocumentAskWithQuery,
   });
 
+  const initializeShell = (): void => {
+    eventController.initializeShell();
+    void hydrateDurableContinuityState().then(async () => {
+      renderShellReceiptRail();
+      if (currentLocation.state === "operator") {
+        await workspaceController?.renderOperatorWorkspace();
+      }
+    }).catch(() => {
+      // Durable continuity is additive; keep the shell usable if hydration fails.
+    });
+  };
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => eventController.initializeShell(), { once: true });
+    document.addEventListener("DOMContentLoaded", initializeShell, { once: true });
     return;
   }
-  eventController.initializeShell();
+  initializeShell();
 }

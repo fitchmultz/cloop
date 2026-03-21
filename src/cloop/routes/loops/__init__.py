@@ -36,6 +36,7 @@ from ._common import IdempotencyKeyHeader, SettingsDep
 from .bulk import router as bulk_router
 from .claims import router as claims_router
 from .comments import router as comments_router
+from .continuity import router as continuity_router
 from .dependencies import router as dependencies_router
 from .duplicates import router as duplicates_router
 from .events import router as events_router
@@ -77,6 +78,7 @@ router.include_router(templates_router)
 router.include_router(working_sets_router)
 
 # 6. Query / export / metrics / suggestion / review-session endpoints - static paths first
+router.include_router(continuity_router)
 router.include_router(query_router)
 router.include_router(import_export_router)
 router.include_router(metrics_router)
