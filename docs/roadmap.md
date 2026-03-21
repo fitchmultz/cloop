@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn durable continuity history into sharper resume guidance, drift recovery, and calmer operator summaries now that landed outcomes survive browser and device boundaries.
+The current priority is to turn durable continuity history and deterministic drift signals into proactive operator guidance now that resume ranking and since-last summaries are grounded in durable evidence instead of browser-local recency alone.
 
 ## Direction
 
@@ -34,34 +34,35 @@ The next roadmap slice starts from work that is already live:
 - shared trust surfaces and shared AI/action-card rendering across planning, review, recall, and follow-through flows
 - post-action receipt cards with resume targets and rollback cues
 - review workspace redesign across relationship, enrichment, and hygiene review
-- durable backend-backed continuity outcomes and resume anchors with browser-local baseline snapshots still preserved for visit-to-visit drift comparison
+- durable backend-backed continuity outcomes and resume anchors with browser-local visit baselines still preserved for local drift comparison
+- durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
 - grouped workflow-thread continuity across operator home, the receipt rail, and command-palette recents
-- canonical ranked landed-outcome follow-through feed with stale-target fallback and cross-device hydration
+- drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
 - bounded read-only alternate generation strategies with surfaced provenance metadata
 - shared rerun and refresh affordances across planning, saved review sessions, recall result cards, continuity, CLI, HTTP, and MCP
 
 ## Execution order
 
-### Next — Deterministic drift recovery and continuity intelligence
+### Next — Proactive operator guidance on top of durable continuity
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-- [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 - [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
+- [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 
-Goal: turn durable continuity history into sharper since-last summaries, explicit drift warnings, and resume prioritization so the operator workspace answers what changed and what deserves action now without reading like a ledger.
+Goal: convert durable continuity history and deterministic drift into one obvious next move, calmer proactive summaries, and better operator prompts without resorting to opaque recommendation logic.
 
 Why this comes next:
-- backend-backed continuity now preserves trustworthy landed outcomes, but the shell still ranks mostly by recency instead of explicit drift, aging, or replacement signals
-- planning and saved review sessions already expose deterministic freshness and queue metadata that can power better stale-session recovery without adding speculative AI
-- durable workflow threads should feed higher-signal summaries before any heavier personalization or proactive recommendation work lands
+- durable continuity, workflow threads, and last-seen drift markers now exist, so proactive guidance can build on trustworthy local evidence instead of browser-local gaps
+- since-last cards and palette ranking now surface stronger drift-aware signals, but the workspace still expects the operator to interpret several cards before knowing what to do first
+- proactive operator guidance should land only after durable continuity and drift cutovers are stable, so recommendation surfaces do not build on brittle recency heuristics
 
 Planned sequence:
 
-1. add durable last-seen markers and deterministic thread/session drift comparisons for planning, review, and working-set continuity
-2. distinguish calm progress, stale drift, replaced workflows, and broken resume targets directly in since-last cards and palette recents
-3. rank resume suggestions using drift severity, working-set relevance, and downstream queue readiness instead of recency alone
-4. keep operator summaries concise by collapsing low-value receipts behind thread rollups while surfacing one obvious next move
+1. derive one primary operator recommendation from deterministic readiness, drift severity, working-set relevance, and downstream handoff availability
+2. add concise grouped digests that explain why a workflow became the top recommendation and what changed since it was last seen
+3. surface replacement/gone workflow states more explicitly when a prior primary path was superseded or deleted
+4. keep every proactive recommendation grounded in visible evidence, launch targets, and reversible next steps
 
 ## Delivery model
 

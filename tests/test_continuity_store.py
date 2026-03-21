@@ -31,6 +31,8 @@ from pathlib import Path
 from cloop import db
 from cloop.schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
+    ContinuityLastSeenBatchUpsertRequest,
+    ContinuityLastSeenMarkerUpsertRequest,
     ContinuityLocationResponse,
     ContinuityOutcomeWriteRequest,
     WorkflowThreadRefResponse,
@@ -40,6 +42,7 @@ from cloop.storage.continuity_store import (
     read_continuity_snapshot,
     record_continuity_outcome,
     upsert_continuity_anchor,
+    upsert_continuity_last_seen_markers,
 )
 
 
@@ -259,3 +262,27 @@ def test_upsert_continuity_anchor_round_trips(tmp_data_dir: Path) -> None:
     assert snapshot.anchors.review is not None
     assert snapshot.anchors.review.session_id == 52
     assert snapshot.anchors.review.working_set_id == 7
+
+
+def test_upsert_last_seen_markers_round_trips(tmp_data_dir: Path) -> None:
+    upsert_continuity_last_seen_markers(
+        ContinuityLastSeenBatchUpsertRequest(
+            markers=[
+                ContinuityLastSeenMarkerUpsertRequest(
+                    entity_kind="planning_session",
+                    entity_key="planning:41",
+                    observed_at_utc="2026-03-21T12:10:00Z",
+                    observed_fingerprint='{"status":"in_progress"}',
+                    working_set_id=None,
+                    workflow_thread_id="planning:41",
+                    observed_state={"status": "in_progress", "latestOutcomeId": 5},
+                    metadata={},
+                )
+            ]
+        )
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.last_seen_markers[0].entity_key == "planning:41"
+    assert snapshot.last_seen_markers[0].workflow_thread_id == "planning:41"
+    assert snapshot.last_seen_markers[0].observed_state["latestOutcomeId"] == 5

@@ -2,10 +2,10 @@
 
 Purpose:
     Define request and response models for backend-backed continuity outcomes,
-    grouped workflow threads, resolved resume targets, and durable resume anchors.
+    grouped workflow threads, durable resume anchors, and last-seen markers.
 
 Responsibilities:
-    - Validate continuity outcome write payloads from the frontend shell.
+    - Validate continuity outcome, anchor, and last-seen write payloads.
     - Shape continuity snapshot responses for cross-device hydration.
     - Model explicit fallback states when persisted targets drift or disappear.
 
@@ -18,7 +18,7 @@ Usage:
 
 Invariants/Assumptions:
     - Location payloads remain transport-neutral and map to shell navigation.
-    - Durable continuity stores only high-signal landed outcomes and anchors.
+    - Durable continuity stores only high-signal landed outcomes, anchors, and observations.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ ContinuityShellState = Literal[
 ]
 ContinuityRecallTool = Literal["chat", "memory", "rag"]
 ContinuityReviewFocus = Literal["planning", "relationship", "enrichment", "cohorts"]
+ContinuityObservedReviewFocus = Literal["planning", "relationship", "enrichment"]
 ContinuityWorkflowThreadKind = Literal[
     "planning_checkpoint",
     "review_session",
@@ -53,6 +54,13 @@ ContinuityTargetStatus = Literal[
     "working_set_scope_removed",
     "launch_fallback",
     "home_fallback",
+]
+ContinuityObservedEntityKind = Literal[
+    "planning_session",
+    "review_session",
+    "working_set",
+    "cohort_snapshot",
+    "workflow_thread",
 ]
 
 
@@ -111,7 +119,7 @@ class ContinuityAnchorUpsertRequest(BaseModel):
     """Request to upsert one durable continuity resume anchor."""
 
     anchor_kind: Literal["planning", "review"]
-    review_focus: Literal["planning", "relationship", "enrichment"]
+    review_focus: ContinuityObservedReviewFocus
     session_id: int
     visited_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
@@ -127,7 +135,7 @@ class ContinuityAnchorResponse(BaseModel):
     """Durable continuity resume anchor response."""
 
     kind: Literal["planning", "review"]
-    review_focus: Literal["planning", "relationship", "enrichment"]
+    review_focus: ContinuityObservedReviewFocus
     session_id: int
     visited_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
@@ -144,6 +152,38 @@ class ContinuityAnchorsResponse(BaseModel):
 
     planning: ContinuityAnchorResponse | None = None
     review: ContinuityAnchorResponse | None = None
+
+
+class ContinuityLastSeenMarkerUpsertRequest(BaseModel):
+    """One durable operator observation for a continuity-relevant entity."""
+
+    entity_kind: ContinuityObservedEntityKind
+    entity_key: str
+    observed_at_utc: str
+    observed_fingerprint: str
+    working_set_id: int | None = None
+    workflow_thread_id: str | None = None
+    observed_state: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContinuityLastSeenMarkerResponse(BaseModel):
+    """Durable last-seen marker returned to the frontend."""
+
+    entity_kind: ContinuityObservedEntityKind
+    entity_key: str
+    observed_at_utc: str
+    observed_fingerprint: str
+    working_set_id: int | None = None
+    workflow_thread_id: str | None = None
+    observed_state: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContinuityLastSeenBatchUpsertRequest(BaseModel):
+    """Batch upsert for durable last-seen continuity markers."""
+
+    markers: list[ContinuityLastSeenMarkerUpsertRequest] = Field(default_factory=list)
 
 
 class ContinuityOutcomeRecordResponse(BaseModel):
@@ -183,12 +223,16 @@ class ContinuitySnapshotResponse(BaseModel):
     outcomes: list[ContinuityOutcomeRecordResponse] = Field(default_factory=list)
     anchors: ContinuityAnchorsResponse = Field(default_factory=ContinuityAnchorsResponse)
     threads: list[ContinuityThreadSummaryResponse] = Field(default_factory=list)
+    last_seen_markers: list[ContinuityLastSeenMarkerResponse] = Field(default_factory=list)
 
 
 __all__ = [
     "ContinuityAnchorResponse",
     "ContinuityAnchorUpsertRequest",
     "ContinuityAnchorsResponse",
+    "ContinuityLastSeenBatchUpsertRequest",
+    "ContinuityLastSeenMarkerResponse",
+    "ContinuityLastSeenMarkerUpsertRequest",
     "ContinuityLocationResponse",
     "ContinuityOutcomeRecordResponse",
     "ContinuityOutcomeWriteRequest",

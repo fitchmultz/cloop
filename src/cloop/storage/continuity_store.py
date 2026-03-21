@@ -37,6 +37,8 @@ from ..schemas._loops.continuity import (
     ContinuityAnchorResponse,
     ContinuityAnchorsResponse,
     ContinuityAnchorUpsertRequest,
+    ContinuityLastSeenBatchUpsertRequest,
+    ContinuityLastSeenMarkerResponse,
     ContinuityLocationResponse,
     ContinuityOutcomeRecordResponse,
     ContinuityOutcomeWriteRequest,
@@ -245,6 +247,21 @@ def _anchor_from_row(row: Mapping[str, Any]) -> ContinuityAnchorResponse:
         workflow_thread_id=str(row["workflow_thread_id"])
         if row["workflow_thread_id"] is not None
         else None,
+        metadata=_load_json_map(row["metadata_json"]),
+    )
+
+
+def _last_seen_marker_from_row(row: Mapping[str, Any]) -> ContinuityLastSeenMarkerResponse:
+    return ContinuityLastSeenMarkerResponse(
+        entity_kind=cast(Any, str(row["entity_kind"])),
+        entity_key=str(row["entity_key"]),
+        observed_at_utc=str(row["observed_at_utc"]),
+        observed_fingerprint=str(row["observed_fingerprint"]),
+        working_set_id=int(row["working_set_id"]) if row["working_set_id"] is not None else None,
+        workflow_thread_id=str(row["workflow_thread_id"])
+        if row["workflow_thread_id"] is not None
+        else None,
+        observed_state=_load_json_map(row["observed_state_json"]),
         metadata=_load_json_map(row["metadata_json"]),
     )
 
@@ -463,6 +480,55 @@ def upsert_continuity_anchor(
         conn.commit()
 
 
+def upsert_continuity_last_seen_markers(
+    payload: ContinuityLastSeenBatchUpsertRequest,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    """Upsert durable last-seen markers for continuity-relevant entities."""
+    settings = settings or get_settings()
+    if not payload.markers:
+        return
+    with db.core_connection(settings) as conn:
+        conn.executemany(
+            """
+            INSERT INTO continuity_last_seen_markers (
+                entity_kind,
+                entity_key,
+                observed_at_utc,
+                working_set_id,
+                workflow_thread_id,
+                observed_fingerprint,
+                observed_state_json,
+                metadata_json,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(entity_kind, entity_key) DO UPDATE SET
+                observed_at_utc = excluded.observed_at_utc,
+                working_set_id = excluded.working_set_id,
+                workflow_thread_id = excluded.workflow_thread_id,
+                observed_fingerprint = excluded.observed_fingerprint,
+                observed_state_json = excluded.observed_state_json,
+                metadata_json = excluded.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            [
+                (
+                    marker.entity_kind,
+                    marker.entity_key,
+                    marker.observed_at_utc,
+                    marker.working_set_id,
+                    marker.workflow_thread_id,
+                    marker.observed_fingerprint,
+                    _dump_json(marker.observed_state),
+                    _dump_json(marker.metadata),
+                )
+                for marker in payload.markers
+            ],
+        )
+        conn.commit()
+
+
 def read_continuity_snapshot(
     *,
     limit: int = 48,
@@ -486,6 +552,13 @@ def read_continuity_snapshot(
             SELECT *
             FROM continuity_resume_anchors
             ORDER BY updated_at DESC, anchor_kind ASC
+            """
+        ).fetchall()
+        marker_rows = conn.execute(
+            """
+            SELECT *
+            FROM continuity_last_seen_markers
+            ORDER BY observed_at_utc DESC, entity_kind ASC, entity_key ASC
             """
         ).fetchall()
 
@@ -530,11 +603,14 @@ def read_continuity_snapshot(
             elif anchor.kind == "review":
                 anchors.review = anchor
 
+        last_seen_markers = [_last_seen_marker_from_row(row) for row in marker_rows]
+
         return ContinuitySnapshotResponse(
             recorded_at_utc=_utc_now_iso(),
             outcomes=outcomes,
             anchors=anchors,
             threads=threads,
+            last_seen_markers=last_seen_markers,
         )
 
 
@@ -542,4 +618,5 @@ __all__ = [
     "read_continuity_snapshot",
     "record_continuity_outcome",
     "upsert_continuity_anchor",
+    "upsert_continuity_last_seen_markers",
 ]

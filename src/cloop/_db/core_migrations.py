@@ -31,6 +31,37 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    43: """
+    CREATE TABLE continuity_last_seen_markers (
+        entity_kind TEXT NOT NULL CHECK (
+            entity_kind IN (
+                'planning_session',
+                'review_session',
+                'working_set',
+                'cohort_snapshot',
+                'workflow_thread'
+            )
+        ),
+        entity_key TEXT NOT NULL,
+        observed_at_utc TEXT NOT NULL,
+        working_set_id INTEGER,
+        workflow_thread_id TEXT,
+        observed_fingerprint TEXT NOT NULL,
+        observed_state_json TEXT NOT NULL DEFAULT '{}',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (entity_kind, entity_key)
+    );
+
+    CREATE INDEX idx_continuity_last_seen_observed_at
+        ON continuity_last_seen_markers(observed_at_utc DESC, entity_kind, entity_key);
+
+    CREATE INDEX idx_continuity_last_seen_working_set
+        ON continuity_last_seen_markers(working_set_id, observed_at_utc DESC);
+
+    CREATE INDEX idx_continuity_last_seen_thread
+        ON continuity_last_seen_markers(workflow_thread_id, observed_at_utc DESC);
+    """,
     42: """
     CREATE TABLE continuity_outcomes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

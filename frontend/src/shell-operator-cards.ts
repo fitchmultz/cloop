@@ -55,7 +55,13 @@ import type {
   WorkingSetSessionMetadata,
 } from "./contracts-ui";
 import {
+  buildCohortLastSeenMarker,
+  buildPlanningLastSeenMarker,
+  buildReviewLastSeenMarker,
+  buildWorkflowThreadLastSeenMarker,
+  readContinuityLastSeenMarkers,
   readRecentShellActions,
+  rememberContinuityObservation,
   rememberPlanningAnchor,
   rememberReviewAnchor,
 } from "./continuity-intelligence";
@@ -77,6 +83,7 @@ import {
   mergePlanningResourceChangeGroups,
   sortLoopsByMostRecentUpdate,
 } from "./continuity-card-helpers";
+import { summarizeCohortDrift } from "./continuity-drift";
 import { formatRelativeTime, formatTimestamp, loopPreview, loopTitle } from "./shell-core";
 import { createLocation, locationsMatch } from "./shell-routing";
 import type { DecisionSessionSnapshot, PrioritizedCard, ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
@@ -1204,6 +1211,10 @@ function buildFollowUpSinceLastCard(data: WorkspaceData): PrioritizedCard | null
 
 type ContinuityCohortName = keyof ContinuityBaselineSnapshot["cohorts"];
 
+function lastSeenMarker(entityKind: import("./contracts-ui").ContinuityEntityKind, entityKey: string) {
+  return readContinuityLastSeenMarkers().find((marker) => marker.entityKind === entityKind && marker.entityKey === entityKey) ?? null;
+}
+
 function cohortByName(
   reviewData: LoopReviewResponse,
   cohortName: ContinuityCohortName,
@@ -1252,123 +1263,104 @@ function planningFreshness(snapshot: PlanningSessionSnapshotResponse | null): {
 }
 
 function buildNewlyStaleCard(data: WorkspaceData): PrioritizedCard | null {
-  if (!continuityBaseline) {
-    return null;
-  }
-
   const staleCohort = cohortByName(data.reviewData, "stale");
-  const previousIds = new Set(continuityBaseline.cohorts.stale.itemIds);
-  const newlyStale = (staleCohort?.items ?? []).filter((item) => !previousIds.has(item.id));
-  const delta = Math.max(0, cohortCountDelta(data, "stale"));
-  if (!newlyStale.length && delta <= 0) {
+  const marker = lastSeenMarker("cohort_snapshot", "cohort:stale");
+  const drift = summarizeCohortDrift(
+    "Stale cohort",
+    marker,
+    staleCohort?.count ?? 0,
+    (staleCohort?.items ?? []).map((item) => item.id),
+  );
+  if (drift.severity === "none") {
     return null;
   }
 
   const location = createLocation({ state: "review", reviewFocus: "cohorts" });
   return {
-    priority: 82,
+    priority: drift.severity === "major" ? 82 : 76,
     card: {
       id: "since-last-newly-stale",
       kind: "decision",
-      tone: "attention",
-      eyebrow: "Drift signal",
+      tone: drift.severity === "major" ? "attention" : "neutral",
+      eyebrow: "Durable drift",
       title: "Loops aged into stale review",
-      summary: `${delta || newlyStale.length} loop${(delta || newlyStale.length) === 1 ? "" : "s"} entered the stale cohort since your last visit.`,
+      summary: drift.summary,
       rationale:
-        "Stale loops quietly lose trust. Surfacing newly stale items makes drift visible before it turns into backlog fog.",
-      preview: (newlyStale.length ? newlyStale : staleCohort?.items ?? []).slice(0, 3).map((item, index) => ({
-        label: `Stale ${index + 1}`,
-        value: previewLoopValue(item),
-      })),
+        "Stale loops quietly lose trust. Durable cohort markers make that drift survive browser clears and device switches.",
+      preview: drift.preview,
       trust: {
-        contextSources: ["Live review cohorts", "Stored continuity cohort baseline"],
-        assumptions: ["Cohort counts stay deterministic across refreshes in the same browser."],
-        confidenceLabel: "New stale-work drift detected",
+        contextSources: ["Live review cohorts", "Durable last-seen cohort marker"],
+        assumptions: ["Durable markers reflect the last operator observation of the stale cohort."],
+        confidenceLabel: `${drift.severity} stale-work drift`,
         rollbackLabel: "Opening Review remains non-mutating until you edit or close a loop.",
-        freshnessLabel: `Previous stale count ${continuityBaseline.cohorts.stale.count} → ${staleCohort?.count ?? 0}`,
+        freshnessLabel: marker ? `Last seen ${formatRelativeTime(marker.observedAtUtc)}` : "Never seen before",
       },
       handoff: {
-        changeSummary: "More loops now require stale-work cleanup than when you last visited.",
-        createdResources: newlyStale.slice(0, 3).map((item) => previewLoopValue(item)),
+        changeSummary: drift.summary,
+        createdResources: drift.preview.map((item) => item.value),
         nextStep: "Open Review and decide whether to revive, clarify, or close the newly stale work.",
         breadcrumbs: ["Home", "Since last visit", "Stale drift"],
       },
       actions: [
-        buildOpenAction("Open stale review", location, "Review loops that aged into the stale cohort"),
-        buildPinAction("Pin stale drift", location, "Return to the stale-drift recap", "Resume · stale drift"),
+        buildOpenAction("Open stale review", location, drift.summary),
+        buildPinAction("Pin stale drift", location, drift.summary, "Resume · stale drift"),
       ],
     },
   } satisfies PrioritizedCard;
 }
 
 function buildRiskCohortCard(data: WorkspaceData): PrioritizedCard | null {
-  if (!continuityBaseline) {
+  const cohortNames: Array<{ key: ContinuityCohortName; label: string }> = [
+    { key: "blocked_too_long", label: "Blocked too long" },
+    { key: "no_next_action", label: "Missing next action" },
+    { key: "due_soon_unplanned", label: "Due soon under-planned" },
+    { key: "stale", label: "Stale open" },
+  ];
+  const driftSignals = cohortNames.map((cohort) => {
+    const current = cohortByName(data.reviewData, cohort.key);
+    return {
+      label: cohort.label,
+      drift: summarizeCohortDrift(
+        cohort.label,
+        lastSeenMarker("cohort_snapshot", `cohort:${cohort.key}`),
+        current?.count ?? 0,
+        (current?.items ?? []).map((item) => item.id),
+      ),
+    };
+  }).filter((entry) => entry.drift.severity !== "none");
+  if (!driftSignals.length) {
     return null;
   }
 
-  const blockedDelta = Math.max(0, data.metrics.blocked_too_long_count - continuityBaseline.metrics.blockedTooLongCount);
-  const noNextDelta = Math.max(0, data.metrics.no_next_action_count - continuityBaseline.metrics.noNextActionCount);
-  const dueSoonDelta = Math.max(0, cohortCountDelta(data, "due_soon_unplanned"));
-  const staleDelta = Math.max(0, data.metrics.stale_open_count - continuityBaseline.metrics.staleOpenCount);
-  const changes = [
-    blockedDelta ? `${blockedDelta} more blocked-too-long` : null,
-    noNextDelta ? `${noNextDelta} more missing next action` : null,
-    dueSoonDelta ? `${dueSoonDelta} more due-soon under-planned` : null,
-    staleDelta ? `${staleDelta} more stale open` : null,
-  ].filter((value): value is string => value != null);
-  if (!changes.length) {
-    return null;
-  }
-
+  const strongest = driftSignals[0]!;
   const location = createLocation({ state: "review", reviewFocus: "cohorts" });
   return {
-    priority: 78,
+    priority: strongest.drift.severity === "major" ? 80 : 74,
     card: {
       id: "since-last-risk-cohorts",
       kind: "decision",
-      tone: "attention",
+      tone: strongest.drift.severity === "major" ? "attention" : "neutral",
       eyebrow: "Risk growth",
-      title: "Higher-risk cohorts grew",
-      summary: changes.join(" · "),
+      title: "Higher-risk cohorts drifted",
+      summary: driftSignals.map((entry) => entry.drift.summary).join(" · "),
       rationale:
         "Growth in risk cohorts is a stronger continuity signal than raw backlog size because it changes where cleanup work should start.",
-      preview: buildChangedCountPreviewItems([
-        {
-          label: "Blocked too long",
-          previous: continuityBaseline.metrics.blockedTooLongCount,
-          current: data.metrics.blocked_too_long_count,
-        },
-        {
-          label: "Missing next action",
-          previous: continuityBaseline.metrics.noNextActionCount,
-          current: data.metrics.no_next_action_count,
-        },
-        {
-          label: "Due soon under-planned",
-          previous: continuityBaseline.cohorts.due_soon_unplanned.count,
-          current: cohortByName(data.reviewData, "due_soon_unplanned")?.count ?? 0,
-        },
-        {
-          label: "Stale open",
-          previous: continuityBaseline.metrics.staleOpenCount,
-          current: data.metrics.stale_open_count,
-        },
-      ]),
+      preview: driftSignals.flatMap((entry) => entry.drift.preview.slice(0, 1)),
       trust: {
-        contextSources: ["/loops/metrics", "/loops/review cohorts", "Stored continuity baseline"],
-        assumptions: ["Metric deltas are compared only against the last successful browser-local visit baseline."],
-        confidenceLabel: "Deterministic cohort growth",
+        contextSources: ["/loops/review cohorts", "Durable last-seen cohort markers"],
+        assumptions: ["Durable markers reflect the last operator observation of each hygiene cohort."],
+        confidenceLabel: `${strongest.drift.severity} deterministic cohort drift`,
         rollbackLabel: "This is diagnostic only until you act inside Review or Do.",
-        freshnessLabel: `Compared to ${formatTimestamp(continuityBaseline.recordedAtUtc)}`,
+        freshnessLabel: "Compared against durable last-seen cohort markers",
       },
       handoff: {
-        changeSummary: "The system has more hygiene risk than it did on your last visit.",
-        createdResources: changes,
+        changeSummary: "The system has more hygiene risk than it did when these cohorts were last seen.",
+        createdResources: driftSignals.map((entry) => entry.drift.summary),
         nextStep: "Open Review and start with the fastest cohort that reduces trust drift.",
         breadcrumbs: ["Home", "Since last visit", "Risk growth"],
       },
       actions: [
-        buildOpenAction("Open risk review", location, "Inspect the cohorts that grew since your last visit"),
+        buildOpenAction("Open risk review", location, "Inspect the cohorts that drifted since they were last seen"),
         buildPinAction("Pin risk recap", location, "Return to the risk-growth recap", "Resume · risk growth"),
       ],
     },
@@ -1376,26 +1368,35 @@ function buildRiskCohortCard(data: WorkspaceData): PrioritizedCard | null {
 }
 
 function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
-  if (!continuityBaseline?.planningSession || !data.planningSnapshot?.session) {
-    return null;
-  }
-
-  const baseline = continuityBaseline.planningSession;
   const current = data.planningSnapshot;
-  const freshness = planningFreshness(current);
-  const sameSession = baseline.sessionId === current.session.id;
-  const becameStale = freshness.isStale && (!baseline.contextIsStale || !sameSession);
-  const movedPrimarySession = !sameSession;
-  if (!becameStale && !movedPrimarySession) {
+  if (!current?.session) {
     return null;
   }
 
-  const replacementCue = movedPrimarySession ? buildPlanningReplacementCue(baseline, current) : null;
+  const marker = lastSeenMarker("planning_session", `planning:${current.session.id}`);
+  const freshness = planningFreshness(current);
+  const previousState = (marker?.observedState ?? {}) as {
+    contextIsStale?: boolean;
+    updatedAtUtc?: string;
+    status?: string;
+  };
+  const markerMissing = marker == null;
+  const fingerprintChanged = marker?.observedFingerprint != null
+    && marker.observedFingerprint !== buildPlanningLastSeenMarker(current, workingSetContext?.active_working_set_id ?? null)?.observedFingerprint;
+  const becameStale = freshness.isStale && !previousState.contextIsStale;
+  const severity = markerMissing
+    ? "moderate"
+    : freshness.isStale || fingerprintChanged
+      ? "major"
+      : "none";
+  if (severity === "none") {
+    return null;
+  }
+
   const changedTargetPreview = freshness.changedTargets.slice(0, 2).map((target, index) => ({
     label: `Changed target ${index + 1}`,
     value: `${target.label} · ${(target.changed_fields ?? []).map((field) => formatChangedFieldLabel(field)).join(", ")}`,
   }));
-
   const location = createLocation({
     state: "plan",
     reviewFocus: "planning",
@@ -1403,24 +1404,24 @@ function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
   });
 
   return {
-    priority: 90,
+    priority: severity === "major" ? 90 : 76,
     card: {
       id: "since-last-planning-drift",
       kind: "handoff",
-      tone: freshness.isStale ? "attention" : "neutral",
+      tone: severity === "major" ? "attention" : "neutral",
       eyebrow: "Plan drift",
-      title: movedPrimarySession ? "A different planning session became primary" : "Planning context drifted",
-      summary: movedPrimarySession
-        ? replacementCue?.summary ?? `${current.session.name} replaced the prior planning session.`
+      title: markerMissing ? "Planning session has never been seen" : "Planning context drifted",
+      summary: markerMissing
+        ? `${current.session.name} is now active and has not been observed from this durable continuity history yet.`
         : freshness.summaryLabel,
       rationale:
         "Saved plans are only trustworthy when their grounding still matches the real loop state and the operator still knows why this plan is the active one.",
       preview: [
         { label: "Plan", value: current.session.name },
         {
-          label: movedPrimarySession ? "Replacement cue" : "Freshness",
-          value: movedPrimarySession
-            ? replacementCue?.detail ?? replacementCue?.overlapLabel ?? "Newer planning session"
+          label: "Freshness",
+          value: markerMissing
+            ? "Never observed"
             : freshness.label,
         },
         ...(changedTargetPreview.length
@@ -1436,32 +1437,25 @@ function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
         contextSources: [
           "Planning session snapshot",
           "Typed planning context freshness",
-          "Stored browser-local planning baseline",
+          "Durable last-seen planning marker",
         ],
         assumptions: [
           "Refreshing the plan is the safest next step when target-loop grounding no longer matches current loop state.",
         ],
-        confidenceLabel: freshness.isStale ? freshness.summaryLabel : "Primary planning session shifted",
+        confidenceLabel: markerMissing ? "Unseen planning workflow" : freshness.summaryLabel,
         rollbackLabel: "Opening Plan remains non-mutating until you refresh or execute a checkpoint.",
-        freshnessLabel: sameSession
-          ? `Previous plan freshness: ${baseline.contextIsStale ? "stale" : "fresh"}`
-          : `Previous plan: ${baseline.sessionName || `Plan #${baseline.sessionId}`}`,
+        freshnessLabel: marker?.observedAtUtc
+          ? `Last seen ${formatRelativeTime(marker.observedAtUtc)}`
+          : "Never seen before",
       },
       handoff: {
-        changeSummary: freshness.isStale
-          ? freshness.summaryLabel
-          : replacementCue?.summary ?? "The operator-visible primary planning session changed.",
-        createdResources: movedPrimarySession
-          ? [
-              `${baseline.sessionName || `Plan #${baseline.sessionId}`} → ${current.session.name}`,
-              replacementCue?.overlapLabel ?? "Target overlap unavailable",
-            ]
-          : freshness.changedTargets.slice(0, 3).map((target) => {
-              return `${target.label}: ${(target.changed_fields ?? []).map((field) => formatChangedFieldLabel(field)).join(", ")}`;
-            }),
-        nextStep: freshness.isStale
+        changeSummary: markerMissing
+          ? `${current.session.name} is ready to inspect for the first durable observation.`
+          : freshness.summaryLabel,
+        createdResources: changedTargetPreview.map((item) => item.value),
+        nextStep: becameStale || markerMissing
           ? "Open the plan and refresh its context before trusting the next checkpoint."
-          : "Open the current plan and confirm it is the right workflow to resume.",
+          : "Open the current plan and confirm it is still the right workflow to resume.",
         breadcrumbs: ["Home", "Since last visit", "Planning drift"],
       },
       actions: [
@@ -1469,7 +1463,7 @@ function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
           variant: "primary",
         }),
         buildOpenAction(
-          freshness.isStale ? "Inspect plan" : "Open current plan",
+          markerMissing ? "Inspect plan" : "Open current plan",
           location,
           freshness.label,
           "secondary",
@@ -1749,13 +1743,32 @@ function summarizeQueueShift(
 }
 
 function buildQueueChangeCard(data: WorkspaceData): PrioritizedCard | null {
-  if (!continuityBaseline) {
-    return null;
-  }
+  const relationshipMarker = data.relationshipSnapshot?.session
+    ? lastSeenMarker("review_session", `review:relationship:${data.relationshipSnapshot.session.id}`)
+    : null;
+  const enrichmentMarker = data.enrichmentSnapshot?.session
+    ? lastSeenMarker("review_session", `review:enrichment:${data.enrichmentSnapshot.session.id}`)
+    : null;
+  const relationshipBaseline = relationshipMarker
+    ? {
+        sessionId: Number((relationshipMarker.observedState as { sessionId?: number }).sessionId ?? data.relationshipSnapshot?.session?.id ?? 0),
+        loopCount: Number((relationshipMarker.observedState as { loopCount?: number }).loopCount ?? 0),
+        currentLoopId: Number((relationshipMarker.observedState as { currentLoopId?: number }).currentLoopId ?? 0) || null,
+        updatedAtUtc: String((relationshipMarker.observedState as { updatedAtUtc?: string }).updatedAtUtc ?? relationshipMarker.observedAtUtc),
+      }
+    : null;
+  const enrichmentBaseline = enrichmentMarker
+    ? {
+        sessionId: Number((enrichmentMarker.observedState as { sessionId?: number }).sessionId ?? data.enrichmentSnapshot?.session?.id ?? 0),
+        loopCount: Number((enrichmentMarker.observedState as { loopCount?: number }).loopCount ?? 0),
+        currentLoopId: Number((enrichmentMarker.observedState as { currentLoopId?: number }).currentLoopId ?? 0) || null,
+        updatedAtUtc: String((enrichmentMarker.observedState as { updatedAtUtc?: string }).updatedAtUtc ?? enrichmentMarker.observedAtUtc),
+      }
+    : null;
 
   const shifts = [
-    summarizeQueueShift("Relationship", "relationship", data.relationshipSnapshot, continuityBaseline.relationshipSession),
-    summarizeQueueShift("Enrichment", "enrichment", data.enrichmentSnapshot, continuityBaseline.enrichmentSession),
+    summarizeQueueShift("Relationship", "relationship", data.relationshipSnapshot, relationshipBaseline),
+    summarizeQueueShift("Enrichment", "enrichment", data.enrichmentSnapshot, enrichmentBaseline),
   ].filter((item): item is QueueShiftSummary => item != null);
   if (!shifts.length) {
     return null;
@@ -1787,11 +1800,11 @@ function buildQueueChangeCard(data: WorkspaceData): PrioritizedCard | null {
         "Saved queues are durable operator workflows, so changes to their size or active session are high-signal continuity events.",
       preview: shifts.map((shift) => ({ label: shift.label, value: shift.detail })),
       trust: {
-        contextSources: ["Saved review session snapshots", "Stored continuity baseline"],
+        contextSources: ["Saved review session snapshots", "Durable last-seen review markers"],
         assumptions: ["The newest relationship and enrichment sessions remain the operator-visible queues to resume."],
         confidenceLabel: `${shifts.length} queue change${shifts.length === 1 ? "" : "s"} detected`,
         rollbackLabel: "Opening a queue remains non-mutating until you confirm or reject work inside it.",
-        freshnessLabel: `Compared to ${formatTimestamp(continuityBaseline.recordedAtUtc)}`,
+        freshnessLabel: "Compared against durable last-seen review markers",
       },
       handoff: {
         changeSummary: "The saved review queues no longer match the state you last saw.",
@@ -2129,6 +2142,39 @@ function renderSinceLastVisit(data: WorkspaceData): void {
       </div>
     `,
   );
+
+  queueMicrotask(() => {
+    const workingSetId = workingSetContext?.active_working_set_id ?? null;
+    const markers = [
+      buildPlanningLastSeenMarker(data.planningSnapshot, workingSetId),
+      buildReviewLastSeenMarker({
+        reviewFocus: "relationship",
+        snapshot: data.relationshipSnapshot,
+        workingSetId,
+      }),
+      buildReviewLastSeenMarker({
+        reviewFocus: "enrichment",
+        snapshot: data.enrichmentSnapshot,
+        workingSetId,
+      }),
+      buildCohortLastSeenMarker({ cohort: "stale", reviewData: data.reviewData, workingSetId }),
+      buildCohortLastSeenMarker({ cohort: "blocked_too_long", reviewData: data.reviewData, workingSetId }),
+      buildCohortLastSeenMarker({ cohort: "due_soon_unplanned", reviewData: data.reviewData, workingSetId }),
+      buildCohortLastSeenMarker({ cohort: "no_next_action", reviewData: data.reviewData, workingSetId }),
+      ...followThroughFeed(data)
+        .filter((item) => item.workflowThread)
+        .slice(0, 4)
+        .map((item) => buildWorkflowThreadLastSeenMarker({
+          workflowThreadId: item.workflowThread!.id,
+          workingSetId: item.workingSetId,
+          latestOutcomeId: item.persistedOutcomeId,
+          title: item.workflowThread!.title,
+          summary: item.workflowThread!.summary,
+        })),
+    ].filter((value): value is NonNullable<typeof value> => value != null);
+
+    rememberContinuityObservation(markers);
+  });
 }
 
 

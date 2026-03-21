@@ -148,3 +148,24 @@ def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
     anchor_payload = anchor_response.json()
     assert anchor_payload["anchors"]["planning"]["session_id"] == 41
     assert anchor_payload["anchors"]["planning"]["workflow_thread_id"] == "planning:41"
+
+    marker_response = test_client.put(
+        "/loops/continuity/last-seen",
+        json={
+            "markers": [
+                {
+                    "entity_kind": "planning_session",
+                    "entity_key": "planning:41",
+                    "observed_at_utc": "2026-03-21T12:06:00Z",
+                    "observed_fingerprint": '{"status":"in_progress"}',
+                    "working_set_id": None,
+                    "workflow_thread_id": "planning:41",
+                    "observed_state": {"status": "in_progress", "latestOutcomeId": 1},
+                    "metadata": {},
+                }
+            ]
+        },
+    )
+    assert marker_response.status_code == 200
+    marker_payload = marker_response.json()
+    assert marker_payload["last_seen_markers"][0]["entity_key"] == "planning:41"

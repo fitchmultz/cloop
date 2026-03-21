@@ -233,4 +233,39 @@ describe("rankPaletteItems", () => {
 
     expect(ranked[0]?.item.id).toBe("canonical-top");
   });
+
+  it("prefers high-drift downstream-ready continuity items over fresher local usage alone", () => {
+    const items: PaletteRankItem[] = [
+      {
+        id: "high-drift",
+        group: "recent",
+        title: "Resume enrichment queue",
+        subtitle: "Major unseen drift",
+        keywords: ["resume", "queue"],
+        continuitySignals: {
+          driftScore: 78,
+          workingSetRelevant: true,
+          downstreamReady: true,
+          degraded: false,
+          recencyTieBreaker: 4,
+        },
+      },
+      {
+        id: "fresh-usage",
+        group: "recent",
+        title: "Open chat",
+        subtitle: "Recently used",
+        keywords: ["chat"],
+      },
+    ];
+
+    const ranked = rankPaletteItems(
+      items,
+      rankingContext({
+        recentUsage: { "fresh-usage": { count: 8, usedAt: "2026-03-17T11:59:00Z" } },
+      }),
+    );
+
+    expect(ranked[0]?.item.id).toBe("high-drift");
+  });
 });

@@ -154,6 +154,56 @@ export interface ContinuityPersistenceState {
   syncedAtUtc: string | null;
 }
 
+export type ContinuityEntityKind =
+  | "planning_session"
+  | "review_session"
+  | "working_set"
+  | "cohort_snapshot"
+  | "workflow_thread";
+
+export type ContinuityDriftSeverity =
+  | "none"
+  | "minor"
+  | "moderate"
+  | "major"
+  | "replaced"
+  | "gone";
+
+export interface ContinuityLastSeenMarker {
+  entityKind: ContinuityEntityKind;
+  entityKey: string;
+  observedAtUtc: string;
+  observedFingerprint: string;
+  workingSetId: number | null;
+  workflowThreadId: string | null;
+  observedState: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+}
+
+export interface ContinuityRankingSignals {
+  driftSeverity: ContinuityDriftSeverity;
+  driftScore: number;
+  workingSetRelevant: boolean;
+  downstreamReady: boolean;
+  degraded: boolean;
+  recencyTieBreaker: number;
+}
+
+export interface ContinuityDriftSignal {
+  entityKind: ContinuityEntityKind;
+  entityKey: string;
+  severity: ContinuityDriftSeverity;
+  score: number;
+  summary: string;
+  details: string[];
+  workingSetId: number | null;
+  workflowThreadId: string | null;
+  lastSeenAtUtc: string | null;
+  relatedLocation: ShellLocationContract | null;
+  preview: OperatorActionPreviewItem[];
+  downstreamReady: boolean;
+}
+
 export interface ResumeAnchorTarget {
   kind: "planning" | "review";
   reviewFocus: "planning" | "relationship" | "enrichment";

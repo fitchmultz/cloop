@@ -8,6 +8,8 @@ A powerhouse tool should feel like it remembers what happened, what drifted, and
 
 Users can return to Cloop and immediately understand what changed, what is aging, and which workflows should resume next.
 
+Current implementation baseline: durable last-seen markers now persist planning sessions, saved review sessions, workflow threads, and review cohorts so drift-aware since-last cards and resume ranking survive browser and device changes. Browser-local visit baselines still exist for local-only comparisons, but durable continuity is now the primary resume and drift substrate.
+
 ## User jobs
 
 - Pick up where they left off.

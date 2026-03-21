@@ -2001,6 +2001,13 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           badge: rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun",
           location: item.resumeLocation,
           continuityRank: item.rank + 28,
+          continuitySignals: {
+            driftScore: item.rankingSignals.driftScore,
+            workingSetRelevant: item.rankingSignals.workingSetRelevant,
+            downstreamReady: item.rankingSignals.downstreamReady,
+            degraded: item.rankingSignals.degraded,
+            recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
+          },
           detail: {
             eyebrow: rerunAction.contract.mode === "refresh" ? "Recent refresh" : "Recent rerun",
             description: rerunAction.description,
@@ -2061,6 +2068,13 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           badge: "Undo",
           location: item.resumeLocation,
           continuityRank: item.rank + 24,
+          continuitySignals: {
+            driftScore: item.rankingSignals.driftScore,
+            workingSetRelevant: item.rankingSignals.workingSetRelevant,
+            downstreamReady: item.rankingSignals.downstreamReady,
+            degraded: item.rankingSignals.degraded,
+            recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
+          },
           detail: {
             eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
             description: undoAction.description,
@@ -2118,6 +2132,13 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         badge: item.workflowThread ? "Thread" : (item.source === "anchor" ? "Resume" : "Outcome"),
         location: item.resumeLocation,
         continuityRank: item.rank,
+        continuitySignals: {
+          driftScore: item.rankingSignals.driftScore,
+          workingSetRelevant: item.rankingSignals.workingSetRelevant,
+          downstreamReady: item.rankingSignals.downstreamReady,
+          degraded: item.rankingSignals.degraded,
+          recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
+        },
         detail: {
           eyebrow: item.workflowThread ? "Workflow thread" : (item.source === "anchor" ? "Resume anchor" : "Recent outcome"),
           description: item.degradedLabel

@@ -27,6 +27,7 @@ from fastapi import APIRouter, Query
 
 from ...schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
+    ContinuityLastSeenBatchUpsertRequest,
     ContinuityOutcomeWriteRequest,
     ContinuitySnapshotResponse,
 )
@@ -34,6 +35,7 @@ from ...storage import (
     read_continuity_snapshot,
     record_continuity_outcome,
     upsert_continuity_anchor,
+    upsert_continuity_last_seen_markers,
 )
 from ._common import SettingsDep
 
@@ -73,6 +75,17 @@ def upsert_continuity_anchor_endpoint(
         else request.model_copy(update={"anchor_kind": anchor_kind})
     )
     upsert_continuity_anchor(payload, settings=settings)
+    return read_continuity_snapshot(settings=settings)
+
+
+@router.put("/continuity/last-seen", response_model=ContinuitySnapshotResponse)
+def upsert_continuity_last_seen_endpoint(
+    request: ContinuityLastSeenBatchUpsertRequest,
+    settings: SettingsDep,
+) -> ContinuitySnapshotResponse:
+    """Upsert durable last-seen markers and return the refreshed continuity snapshot."""
+    if request.markers:
+        upsert_continuity_last_seen_markers(request, settings=settings)
     return read_continuity_snapshot(settings=settings)
 
 

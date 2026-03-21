@@ -26,6 +26,8 @@
  */
 
 import type {
+  ContinuityLastSeenMarker,
+  ContinuityRankingSignals,
   OperatorActionCard,
   OperatorActionCardAction,
   OperatorActionCardPinAction,
@@ -38,12 +40,17 @@ import type {
   WorkingSetSessionMetadata,
   WorkflowThreadRef,
 } from "./contracts-ui";
-import { readRecentShellActions, readResumeAnchors } from "./continuity-intelligence";
+import {
+  readContinuityLastSeenMarkers,
+  readRecentShellActions,
+  readResumeAnchors,
+} from "./continuity-intelligence";
 import {
   continuityLocationIdentity,
   recentShellActionDedupKey,
   resolveContinuityEntry,
 } from "./continuity-outcomes";
+import { scoreRankingSignals, totalRankingScore } from "./continuity-drift";
 import { formatRelativeTime } from "./shell-core";
 import { createLocation } from "./shell-routing";
 
@@ -58,6 +65,8 @@ export interface RankedLandedOutcome {
   id: string;
   source: "receipt" | "recent" | "anchor";
   rank: number;
+  rankingSignals: ContinuityRankingSignals;
+  persistedOutcomeId: number | null;
   occurredAt: string;
   resumeLocation: ShellLocationContract;
   displayTitle: string;
@@ -374,6 +383,16 @@ function buildAnchorCard(
   };
 }
 
+function workflowThreadMarker(
+  markers: readonly ContinuityLastSeenMarker[],
+  workflowThreadId: string | null,
+): ContinuityLastSeenMarker | null {
+  if (!workflowThreadId) {
+    return null;
+  }
+  return markers.find((marker) => marker.entityKind === "workflow_thread" && marker.entityKey === workflowThreadId) ?? null;
+}
+
 function scoreOutcome(input: {
   source: RankedLandedOutcome["source"];
   occurredAt: string;
@@ -383,31 +402,39 @@ function scoreOutcome(input: {
   undoAction: OperatorActionCardUndoAction | null;
   rerunAction: OperatorActionCardRerunAction | null;
   workflowThread: WorkflowThreadRef | null;
+  lastSeenMarkers: readonly ContinuityLastSeenMarker[];
+  persistedOutcomeId: number | null;
   now: number;
-}): number {
-  const ageMs = Math.max(0, input.now - safeTimestamp(input.occurredAt));
-  const ageMinutes = ageMs / 60_000;
-  const recencyScore = Math.max(0, 240 - Math.floor(ageMinutes / 15) * 8);
-  const sourceScore = input.source === "receipt"
-    ? 180
-    : input.source === "recent"
-      ? 140
-      : 115;
-  const activeWorkingSetBoost = input.activeWorkingSetId != null && input.workingSetId === input.activeWorkingSetId
-    ? 42
-    : 0;
-  const rerunBoost = input.rerunAction && !input.rerunAction.disabledReason ? 18 : 0;
-  const undoBoost = input.undoAction && !input.undoAction.disabledReason ? 16 : 0;
-  const threadBoost = input.workflowThread ? 12 : 0;
-  const degradedPenalty = input.degraded ? 36 : 0;
+}): ContinuityRankingSignals {
+  const ageMinutes = Math.max(0, input.now - safeTimestamp(input.occurredAt)) / 60_000;
+  const threadMarker = workflowThreadMarker(input.lastSeenMarkers, input.workflowThread?.id ?? null);
+  const lastSeenOutcomeId = Number(
+    (threadMarker?.observedState as { latestOutcomeId?: number } | undefined)?.latestOutcomeId ?? 0,
+  );
 
-  return sourceScore + recencyScore + activeWorkingSetBoost + rerunBoost + undoBoost + threadBoost - degradedPenalty;
+  let severity: ContinuityRankingSignals["driftSeverity"] = "none";
+  if (input.degraded) {
+    severity = "gone";
+  } else if (!threadMarker) {
+    severity = input.source === "anchor" ? "minor" : "moderate";
+  } else if (input.persistedOutcomeId != null && input.persistedOutcomeId > lastSeenOutcomeId) {
+    severity = input.persistedOutcomeId - lastSeenOutcomeId >= 3 ? "major" : "moderate";
+  }
+
+  return scoreRankingSignals({
+    severity,
+    workingSetRelevant: input.activeWorkingSetId != null && input.workingSetId === input.activeWorkingSetId,
+    downstreamReady: !input.degraded,
+    degraded: input.degraded,
+    ageMinutes,
+  });
 }
 
 function buildRecentOutcome(
   entry: RecentShellActionEntry,
   availability: ContinuityAvailability,
   activeWorkingSetId: number | null,
+  lastSeenMarkers: readonly ContinuityLastSeenMarker[],
   now: number,
 ): RankedLandedOutcome | null {
   if (!entry.outcome?.card) {
@@ -432,21 +459,26 @@ function buildRecentOutcome(
     rerunAction,
     workingSet,
   );
+  const rankingSignals = scoreOutcome({
+    source,
+    occurredAt: entry.occurredAt,
+    activeWorkingSetId,
+    workingSetId: resolved.workingSetId,
+    degraded: resolvedTarget.degraded,
+    undoAction,
+    rerunAction,
+    workflowThread,
+    lastSeenMarkers,
+    persistedOutcomeId: entry.persistence?.persistedOutcomeId ?? null,
+    now,
+  });
 
   return {
     id: `${source}-${recentShellActionDedupKey(entry)}`,
     source,
-    rank: scoreOutcome({
-      source,
-      occurredAt: entry.occurredAt,
-      activeWorkingSetId,
-      workingSetId: resolved.workingSetId,
-      degraded: resolvedTarget.degraded,
-      undoAction,
-      rerunAction,
-      workflowThread,
-      now,
-    }),
+    rank: totalRankingScore(rankingSignals, source),
+    rankingSignals,
+    persistedOutcomeId: entry.persistence?.persistedOutcomeId ?? null,
     occurredAt: entry.occurredAt,
     resumeLocation: resolvedTarget.location,
     displayTitle: resolved.displayTitle,
@@ -466,6 +498,7 @@ function buildAnchorOutcome(
   anchor: ResumeAnchorTarget,
   availability: ContinuityAvailability,
   activeWorkingSetId: number | null,
+  lastSeenMarkers: readonly ContinuityLastSeenMarker[],
   now: number,
 ): RankedLandedOutcome {
   const fallback = fallbackFollowThroughLocation(anchor.resumeLocation ?? anchor.launchLocation, availability);
@@ -479,21 +512,26 @@ function buildAnchorOutcome(
   );
   const displayTitle = anchor.outcomeTitle ?? anchorLabel(anchor);
   const displaySummary = anchor.outcomeSummary ?? "Resume the last saved landed workflow state.";
+  const rankingSignals = scoreOutcome({
+    source: "anchor",
+    occurredAt: anchor.visitedAtUtc,
+    activeWorkingSetId,
+    workingSetId: anchor.workingSetId,
+    degraded: fallback.degraded,
+    undoAction: null,
+    rerunAction: null,
+    workflowThread,
+    lastSeenMarkers,
+    persistedOutcomeId: null,
+    now,
+  });
 
   return {
     id: `anchor-${anchor.kind}-${anchor.reviewFocus}-${anchor.sessionId}`,
     source: "anchor",
-    rank: scoreOutcome({
-      source: "anchor",
-      occurredAt: anchor.visitedAtUtc,
-      activeWorkingSetId,
-      workingSetId: anchor.workingSetId,
-      degraded: fallback.degraded,
-      undoAction: null,
-      rerunAction: null,
-      workflowThread,
-      now,
-    }),
+    rank: totalRankingScore(rankingSignals, "anchor"),
+    rankingSignals,
+    persistedOutcomeId: null,
     occurredAt: anchor.visitedAtUtc,
     resumeLocation: fallback.location,
     displayTitle,
@@ -535,18 +573,19 @@ export function readRankedLandedOutcomes(input: ReadRankedLandedOutcomesInput): 
   const recentActions = input.recentActions ?? readRecentShellActions();
   const resumeAnchors = input.resumeAnchors ?? readResumeAnchors();
   const activeWorkingSetId = input.activeWorkingSetId ?? null;
+  const lastSeenMarkers = readContinuityLastSeenMarkers();
   const now = input.now ?? Date.now();
 
   const recent = dedupeRecentOutcomes(
     recentActions
-      .map((entry) => buildRecentOutcome(entry, input.availability, activeWorkingSetId, now))
+      .map((entry) => buildRecentOutcome(entry, input.availability, activeWorkingSetId, lastSeenMarkers, now))
       .filter((item): item is RankedLandedOutcome => item !== null),
   );
 
   const recentLocationKeys = new Set(recent.map((item) => continuityLocationIdentity(item.resumeLocation)));
   const anchors = [resumeAnchors.planning, resumeAnchors.review]
     .filter((anchor): anchor is ResumeAnchorTarget => anchor != null)
-    .map((anchor) => buildAnchorOutcome(anchor, input.availability, activeWorkingSetId, now))
+    .map((anchor) => buildAnchorOutcome(anchor, input.availability, activeWorkingSetId, lastSeenMarkers, now))
     .filter((item) => !recentLocationKeys.has(continuityLocationIdentity(item.resumeLocation)));
 
   return [...recent, ...anchors].sort((left, right) => {

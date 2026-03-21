@@ -65,6 +65,7 @@ function receiptEntry(overrides: Partial<RecentShellActionEntry> = {}): RecentSh
     location: overrides.location ?? location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
     occurredAt: overrides.occurredAt ?? "2026-03-20T12:00:00Z",
     metadata: overrides.metadata ?? null,
+    persistence: overrides.persistence ?? null,
     outcome: overrides.outcome ?? {
       card: {
         id: "receipt-1",
@@ -169,7 +170,49 @@ function receiptEntry(overrides: Partial<RecentShellActionEntry> = {}): RecentSh
   };
 }
 
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length(): number {
+      return values.size;
+    },
+    clear(): void {
+      values.clear();
+    },
+    getItem(key: string): string | null {
+      return values.get(key) ?? null;
+    },
+    key(index: number): string | null {
+      return Array.from(values.keys())[index] ?? null;
+    },
+    removeItem(key: string): void {
+      values.delete(key);
+    },
+    setItem(key: string, value: string): void {
+      values.set(key, value);
+    },
+  } satisfies Storage;
+}
+
+let originalLocalStorage: Storage;
+
 describe("readRankedLandedOutcomes", () => {
+  beforeEach(() => {
+    originalLocalStorage = window.localStorage as Storage;
+    Object.defineProperty(window, "localStorage", {
+      value: createMemoryStorage(),
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "localStorage", {
+      value: originalLocalStorage,
+      configurable: true,
+      writable: true,
+    });
+  });
   it("ranks a recent receipt above an anchor-only fallback and suppresses a duplicate anchor target", () => {
     const anchors: ResumeAnchorState = {
       planning: null,
@@ -314,5 +357,49 @@ describe("readRankedLandedOutcomes", () => {
     expect(threads).toHaveLength(1);
     expect(threads[0]?.thread.id).toBe("planning:41:checkpoint:0");
     expect(threads[0]?.outcomeCount).toBe(2);
+  });
+
+  it("marks an unseen higher outcome id in the same workflow thread as major drift", () => {
+    window.localStorage.setItem("cloop.continuity.last-seen.cache.v1", JSON.stringify([
+      {
+        entityKind: "workflow_thread",
+        entityKey: "planning:41",
+        observedAtUtc: "2026-03-20T11:59:00Z",
+        observedFingerprint: "{\"latestOutcomeId\":2}",
+        workingSetId: null,
+        workflowThreadId: "planning:41",
+        observedState: { latestOutcomeId: 2 },
+        metadata: {},
+      },
+    ]));
+
+    const outcomes = readRankedLandedOutcomes({
+      availability: buildContinuityAvailability({
+        planningSessionIds: [41],
+        workingSets: [workingSet(7, "Launch Prep")],
+      }),
+      recentActions: [
+        receiptEntry({
+          occurredAt: "2026-03-20T10:00:00Z",
+          persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-20T10:00:00Z" },
+          outcome: {
+            ...receiptEntry().outcome!,
+            workflowThread: {
+              id: "planning:41",
+              kind: "planning_checkpoint",
+              title: "Weekly reset",
+              summary: "Thread",
+              parentOutcomeId: null,
+            },
+            resolvedResume: receiptEntry().outcome!.resolvedResume ?? null,
+          },
+        }),
+      ],
+      resumeAnchors: { planning: null, review: null },
+      now: Date.parse("2026-03-20T12:05:00Z"),
+    });
+
+    expect(outcomes[0]?.persistedOutcomeId).toBe(12);
+    expect(outcomes[0]?.rankingSignals.driftSeverity).toBe("major");
   });
 });

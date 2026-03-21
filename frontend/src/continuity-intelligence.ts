@@ -28,6 +28,8 @@ import type {
   ContinuityAnchorResponse,
   ContinuityAnchorUpsertRequest,
   ContinuityAnchorsResponse,
+  ContinuityLastSeenBatchUpsertRequest,
+  ContinuityLastSeenMarkerResponse,
   ContinuityLocationResponse,
   ContinuityOutcomeRecordResponse,
   ContinuityOutcomeWriteRequest,
@@ -43,6 +45,8 @@ import type {
 } from "./domain";
 import type {
   ContinuityBaselineSnapshot,
+  ContinuityEntityKind,
+  ContinuityLastSeenMarker,
   ContinuityPersistenceState,
   ExecutableRerunHandle,
   ExecutableUndoHandle,
@@ -57,7 +61,12 @@ import type {
   WorkflowThreadKind,
   WorkflowThreadRef,
 } from "./contracts-ui";
-import { fetchContinuitySnapshot, persistContinuityOutcome, upsertContinuityAnchor } from "./continuity-api";
+import {
+  fetchContinuitySnapshot,
+  persistContinuityOutcome,
+  upsertContinuityAnchor,
+  upsertContinuityLastSeen,
+} from "./continuity-api";
 import { rerunHandleIdentity } from "./executable-rerun";
 import { undoHandleIdentity } from "./executable-undo";
 import {
@@ -69,6 +78,7 @@ import {
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
+const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
 const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
 const MAX_RECENT_ACTIONS = 24;
 const DEDUPE_WINDOW_MS = 15_000;
@@ -91,7 +101,12 @@ interface PendingAnchorWrite {
   anchor: ResumeAnchorTarget;
 }
 
-type PendingContinuityWrite = PendingOutcomeWrite | PendingAnchorWrite;
+interface PendingLastSeenWrite {
+  kind: "last_seen";
+  markers: ContinuityLastSeenMarker[];
+}
+
+type PendingContinuityWrite = PendingOutcomeWrite | PendingAnchorWrite | PendingLastSeenWrite;
 
 export interface ContinuitySnapshotInput {
   metrics: LoopMetricsResponse;
@@ -168,6 +183,21 @@ function integerValue(value: unknown): number | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim().length ? value : null;
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function buildFingerprint(state: Record<string, unknown>): string {
+  return stableSerialize(state);
 }
 
 function persistenceState(status: ContinuityPersistenceState["status"]): ContinuityPersistenceState {
@@ -360,6 +390,27 @@ function readPendingContinuityWrites(): PendingContinuityWrite[] {
       if (anchor) {
         writes.push({ kind: "anchor", anchorKind, anchor });
       }
+      return;
+    }
+    if (item["kind"] === "last_seen" && Array.isArray(item["markers"])) {
+      writes.push({
+        kind: "last_seen",
+        markers: item["markers"].flatMap((marker) => {
+          if (!isRecord(marker) || typeof marker["entityKind"] !== "string" || typeof marker["entityKey"] !== "string") {
+            return [];
+          }
+          return [{
+            entityKind: marker["entityKind"] as ContinuityEntityKind,
+            entityKey: marker["entityKey"],
+            observedAtUtc: stringValue(marker["observedAtUtc"]) ?? new Date().toISOString(),
+            observedFingerprint: stringValue(marker["observedFingerprint"]) ?? "{}",
+            workingSetId: integerValue(marker["workingSetId"]),
+            workflowThreadId: stringValue(marker["workflowThreadId"]),
+            observedState: isRecord(marker["observedState"]) ? marker["observedState"] : {},
+            metadata: isRecord(marker["metadata"]) ? marker["metadata"] : {},
+          } satisfies ContinuityLastSeenMarker];
+        }),
+      });
     }
   });
   return writes;
@@ -410,6 +461,38 @@ function writeResumeAnchorsCache(value: ResumeAnchorState): void {
     return;
   }
   window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(value));
+}
+
+export function readContinuityLastSeenMarkers(): ContinuityLastSeenMarker[] {
+  if (!canUseLocalStorage()) {
+    return [];
+  }
+  const parsed = safeJsonParse<unknown[]>(window.localStorage.getItem(LAST_SEEN_MARKERS_CACHE_KEY), []);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed.flatMap((marker) => {
+    if (!isRecord(marker) || typeof marker["entityKind"] !== "string" || typeof marker["entityKey"] !== "string") {
+      return [];
+    }
+    return [{
+      entityKind: marker["entityKind"] as ContinuityEntityKind,
+      entityKey: marker["entityKey"],
+      observedAtUtc: stringValue(marker["observedAtUtc"]) ?? new Date().toISOString(),
+      observedFingerprint: stringValue(marker["observedFingerprint"]) ?? "{}",
+      workingSetId: integerValue(marker["workingSetId"]),
+      workflowThreadId: stringValue(marker["workflowThreadId"]),
+      observedState: isRecord(marker["observedState"]) ? marker["observedState"] : {},
+      metadata: isRecord(marker["metadata"]) ? marker["metadata"] : {},
+    } satisfies ContinuityLastSeenMarker];
+  });
+}
+
+function writeContinuityLastSeenMarkers(markers: readonly ContinuityLastSeenMarker[]): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  window.localStorage.setItem(LAST_SEEN_MARKERS_CACHE_KEY, JSON.stringify(markers));
 }
 
 function dedupeRecentActions(entries: readonly RecentShellActionEntry[]): RecentShellActionEntry[] {
@@ -676,6 +759,19 @@ function mapPersistedAnchors(anchors: ContinuityAnchorsResponse): ResumeAnchorSt
   };
 }
 
+function mapLastSeenMarkerResponse(marker: ContinuityLastSeenMarkerResponse): ContinuityLastSeenMarker {
+  return {
+    entityKind: marker.entity_kind,
+    entityKey: marker.entity_key,
+    observedAtUtc: marker.observed_at_utc,
+    observedFingerprint: marker.observed_fingerprint,
+    workingSetId: marker.working_set_id ?? null,
+    workflowThreadId: marker.workflow_thread_id ?? null,
+    observedState: marker.observed_state ?? {},
+    metadata: marker.metadata ?? {},
+  };
+}
+
 function mergePendingEntries(snapshotEntries: readonly RecentShellActionEntry[]): RecentShellActionEntry[] {
   const pendingEntries = readPendingContinuityWrites()
     .flatMap((write) => write.kind === "outcome" ? [write.entry] : [])
@@ -695,11 +791,28 @@ function mergePendingAnchors(snapshotAnchors: ResumeAnchorState): ResumeAnchorSt
   }, snapshotAnchors);
 }
 
+function mergePendingLastSeenMarkers(
+  snapshotMarkers: readonly ContinuityLastSeenMarker[],
+): ContinuityLastSeenMarker[] {
+  const merged = new Map(snapshotMarkers.map((marker) => [`${marker.entityKind}:${marker.entityKey}`, marker]));
+  readPendingContinuityWrites().forEach((write) => {
+    if (write.kind !== "last_seen") {
+      return;
+    }
+    write.markers.forEach((marker) => {
+      merged.set(`${marker.entityKind}:${marker.entityKey}`, marker);
+    });
+  });
+  return [...merged.values()].sort((left, right) => Date.parse(right.observedAtUtc) - Date.parse(left.observedAtUtc));
+}
+
 function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   const snapshotEntries = (snapshot.outcomes ?? []).map((item) => mapPersistedOutcomeToRecentEntry(item));
   const anchors = snapshot.anchors ?? { planning: null, review: null };
+  const lastSeenMarkers = (snapshot.last_seen_markers ?? []).map((item) => mapLastSeenMarkerResponse(item));
   writeRecentActionsCache(mergePendingEntries(snapshotEntries));
   writeResumeAnchorsCache(mergePendingAnchors(mapPersistedAnchors(anchors)));
+  writeContinuityLastSeenMarkers(mergePendingLastSeenMarkers(lastSeenMarkers));
   emitRecentShellActionsUpdated();
 }
 
@@ -744,6 +857,23 @@ function buildAnchorWriteRequest(
   };
 }
 
+function buildLastSeenBatchWriteRequest(
+  markers: readonly ContinuityLastSeenMarker[],
+): ContinuityLastSeenBatchUpsertRequest {
+  return {
+    markers: markers.map((marker) => ({
+      entity_kind: marker.entityKind,
+      entity_key: marker.entityKey,
+      observed_at_utc: marker.observedAtUtc,
+      observed_fingerprint: marker.observedFingerprint,
+      working_set_id: marker.workingSetId,
+      workflow_thread_id: marker.workflowThreadId,
+      observed_state: marker.observedState,
+      metadata: marker.metadata,
+    })),
+  };
+}
+
 function writePendingOutcome(entry: RecentShellActionEntry): void {
   const candidate = enrichRecentActionEntry(entry);
   const candidateKey = cacheKeyForOutcome(candidate);
@@ -763,6 +893,13 @@ function writePendingAnchor(anchorKind: "planning" | "review", anchor: ResumeAnc
   });
   writes.unshift({ kind: "anchor", anchorKind, anchor });
   writePendingContinuityWrites(writes);
+}
+
+function writePendingLastSeen(markers: readonly ContinuityLastSeenMarker[]): void {
+  const writes = readPendingContinuityWrites().filter(
+    (write): write is PendingOutcomeWrite | PendingAnchorWrite => write.kind !== "last_seen",
+  );
+  writePendingContinuityWrites([{ kind: "last_seen", markers: [...markers] }, ...writes]);
 }
 
 function markOutcomePersistenceStatus(
@@ -787,7 +924,138 @@ async function persistOneWrite(write: PendingContinuityWrite): Promise<Continuit
   if (write.kind === "outcome") {
     return persistContinuityOutcome(buildOutcomeWriteRequest(write.entry));
   }
-  return upsertContinuityAnchor(write.anchorKind, buildAnchorWriteRequest(write.anchorKind, write.anchor));
+  if (write.kind === "anchor") {
+    return upsertContinuityAnchor(write.anchorKind, buildAnchorWriteRequest(write.anchorKind, write.anchor));
+  }
+  return upsertContinuityLastSeen(buildLastSeenBatchWriteRequest(write.markers));
+}
+
+function upsertLocalLastSeenMarkers(markers: readonly ContinuityLastSeenMarker[]): void {
+  const merged = new Map(
+    readContinuityLastSeenMarkers().map((marker) => [`${marker.entityKind}:${marker.entityKey}`, marker]),
+  );
+  markers.forEach((marker) => {
+    merged.set(`${marker.entityKind}:${marker.entityKey}`, marker);
+  });
+  writeContinuityLastSeenMarkers(
+    [...merged.values()].sort((left, right) => Date.parse(right.observedAtUtc) - Date.parse(left.observedAtUtc)),
+  );
+}
+
+export function rememberContinuityObservation(markers: readonly ContinuityLastSeenMarker[]): void {
+  if (!markers.length || !canUseLocalStorage()) {
+    return;
+  }
+  upsertLocalLastSeenMarkers(markers);
+  writePendingLastSeen(markers);
+  void flushPendingContinuityWrites();
+}
+
+export function buildPlanningLastSeenMarker(
+  snapshot: PlanningSessionSnapshotResponse | null,
+  workingSetId: number | null,
+): ContinuityLastSeenMarker | null {
+  if (!snapshot?.session) {
+    return null;
+  }
+  const observedState = {
+    sessionId: snapshot.session.id,
+    status: snapshot.session.status,
+    checkpointIndex: snapshot.session.current_checkpoint_index,
+    targetLoopIds: (snapshot.target_loops ?? []).map((loop) => loop.id).sort((left, right) => left - right),
+    contextIsStale: snapshot.context_freshness?.is_stale ?? false,
+    staleTargetLoopCount: snapshot.context_freshness?.stale_target_loop_count ?? 0,
+    missingTargetLoopCount: snapshot.context_freshness?.missing_target_loop_count ?? 0,
+    downstreamResourceChangeCount: snapshot.resource_change_summary?.downstream_change_count ?? 0,
+    updatedAtUtc: snapshot.session.updated_at_utc,
+  } satisfies Record<string, unknown>;
+
+  return {
+    entityKind: "planning_session",
+    entityKey: `planning:${snapshot.session.id}`,
+    observedAtUtc: new Date().toISOString(),
+    observedFingerprint: buildFingerprint(observedState),
+    workingSetId,
+    workflowThreadId: `planning:${snapshot.session.id}`,
+    observedState,
+    metadata: {},
+  };
+}
+
+export function buildReviewLastSeenMarker(input: {
+  reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">;
+  snapshot: RelationshipReviewSessionSnapshotResponse | EnrichmentReviewSessionSnapshotResponse | null;
+  workingSetId: number | null;
+}): ContinuityLastSeenMarker | null {
+  const snapshot = input.snapshot;
+  if (!snapshot?.session) {
+    return null;
+  }
+  const observedState = {
+    sessionId: snapshot.session.id,
+    reviewFocus: input.reviewFocus,
+    loopCount: snapshot.loop_count,
+    currentLoopId: snapshot.current_item?.loop.id ?? snapshot.session.current_loop_id ?? null,
+    updatedAtUtc: snapshot.session.updated_at_utc,
+  } satisfies Record<string, unknown>;
+  return {
+    entityKind: "review_session",
+    entityKey: `review:${input.reviewFocus}:${snapshot.session.id}`,
+    observedAtUtc: new Date().toISOString(),
+    observedFingerprint: buildFingerprint(observedState),
+    workingSetId: input.workingSetId,
+    workflowThreadId: `review:${input.reviewFocus}:${snapshot.session.id}`,
+    observedState,
+    metadata: {},
+  };
+}
+
+export function buildCohortLastSeenMarker(input: {
+  cohort: LoopReviewCohortResponse["cohort"];
+  reviewData: LoopReviewResponse;
+  workingSetId: number | null;
+}): ContinuityLastSeenMarker {
+  const cohort = [...input.reviewData.daily, ...input.reviewData.weekly].find((item) => item.cohort === input.cohort) ?? null;
+  const observedState = {
+    cohort: input.cohort,
+    count: cohort?.count ?? 0,
+    itemIds: (cohort?.items ?? []).map((item) => item.id).sort((left, right) => left - right),
+    generatedAtUtc: input.reviewData.generated_at_utc,
+  } satisfies Record<string, unknown>;
+  return {
+    entityKind: "cohort_snapshot",
+    entityKey: `cohort:${input.cohort}`,
+    observedAtUtc: new Date().toISOString(),
+    observedFingerprint: buildFingerprint(observedState),
+    workingSetId: input.workingSetId,
+    workflowThreadId: null,
+    observedState,
+    metadata: {},
+  };
+}
+
+export function buildWorkflowThreadLastSeenMarker(input: {
+  workflowThreadId: string;
+  workingSetId: number | null;
+  latestOutcomeId: number | null;
+  title: string;
+  summary: string | null;
+}): ContinuityLastSeenMarker {
+  const observedState = {
+    latestOutcomeId: input.latestOutcomeId,
+    title: input.title,
+    summary: input.summary,
+  } satisfies Record<string, unknown>;
+  return {
+    entityKind: "workflow_thread",
+    entityKey: input.workflowThreadId,
+    observedAtUtc: new Date().toISOString(),
+    observedFingerprint: buildFingerprint(observedState),
+    workingSetId: input.workingSetId,
+    workflowThreadId: input.workflowThreadId,
+    observedState,
+    metadata: {},
+  };
 }
 
 export async function hydrateDurableContinuityState(): Promise<void> {

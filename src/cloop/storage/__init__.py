@@ -24,6 +24,7 @@ from .continuity_store import (
     read_continuity_snapshot,
     record_continuity_outcome,
     upsert_continuity_anchor,
+    upsert_continuity_last_seen_markers,
 )
 from .idempotency_store import claim_or_replay_idempotency, finalize_idempotency_response
 from .interaction_store import record_interaction
@@ -53,6 +54,7 @@ __all__ = [
     "read_continuity_snapshot",
     "record_continuity_outcome",
     "upsert_continuity_anchor",
+    "upsert_continuity_last_seen_markers",
     "claim_or_replay_idempotency",
     "claim_scheduler_push",
     "claim_task_run",

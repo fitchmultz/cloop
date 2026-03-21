@@ -638,6 +638,34 @@ CREATE TABLE continuity_resume_anchors (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE continuity_last_seen_markers (
+    entity_kind TEXT NOT NULL CHECK (
+        entity_kind IN (
+            'planning_session',
+            'review_session',
+            'working_set',
+            'cohort_snapshot',
+            'workflow_thread'
+        )
+    ),
+    entity_key TEXT NOT NULL,
+    observed_at_utc TEXT NOT NULL,
+    working_set_id INTEGER,
+    workflow_thread_id TEXT,
+    observed_fingerprint TEXT NOT NULL,
+    observed_state_json TEXT NOT NULL DEFAULT '{}',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (entity_kind, entity_key)
+);
+
+CREATE INDEX idx_continuity_last_seen_observed_at
+    ON continuity_last_seen_markers(observed_at_utc DESC, entity_kind, entity_key);
+CREATE INDEX idx_continuity_last_seen_working_set
+    ON continuity_last_seen_markers(working_set_id, observed_at_utc DESC);
+CREATE INDEX idx_continuity_last_seen_thread
+    ON continuity_last_seen_markers(workflow_thread_id, observed_at_utc DESC);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),

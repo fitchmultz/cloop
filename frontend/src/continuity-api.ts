@@ -23,6 +23,7 @@
 
 import type {
   ContinuityAnchorUpsertRequest,
+  ContinuityLastSeenBatchUpsertRequest,
   ContinuitySnapshotResponse,
   ContinuityOutcomeWriteRequest,
 } from "./domain";
@@ -60,5 +61,18 @@ export function upsertContinuityAnchor(
       body: payload,
     },
     "Failed to persist durable continuity anchor",
+  );
+}
+
+export function upsertContinuityLastSeen(
+  payload: ContinuityLastSeenBatchUpsertRequest,
+): Promise<ContinuitySnapshotResponse> {
+  return requestJson<ContinuitySnapshotResponse, ContinuityLastSeenBatchUpsertRequest>(
+    "/loops/continuity/last-seen",
+    {
+      method: "PUT",
+      body: payload,
+    },
+    "Failed to persist durable last-seen continuity markers",
   );
 }

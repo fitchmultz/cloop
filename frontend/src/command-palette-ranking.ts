@@ -40,6 +40,14 @@ export interface PaletteRecentUsage {
   usedAt: string;
 }
 
+export interface PaletteContinuitySignals {
+  driftScore: number;
+  workingSetRelevant: boolean;
+  downstreamReady: boolean;
+  degraded: boolean;
+  recencyTieBreaker: number;
+}
+
 export interface PaletteRankItem {
   id: string;
   group: PaletteGroup;
@@ -50,6 +58,7 @@ export interface PaletteRankItem {
   searchText?: string | null;
   contextBoost?: number | undefined;
   continuityRank?: number | undefined;
+  continuitySignals?: PaletteContinuitySignals | undefined;
   disabled?: boolean | undefined;
 }
 
@@ -202,6 +211,20 @@ function recentUsageScore(usage: PaletteRecentUsage | undefined, now: number): n
   return clamp(usage.count * 16, 0, 96) + freshness;
 }
 
+function continuityScore(item: PaletteRankItem): number {
+  const signals = item.continuitySignals;
+  if (!signals) {
+    return item.continuityRank ?? 0;
+  }
+  return (
+    signals.driftScore * 6
+    + (signals.workingSetRelevant ? 140 : 0)
+    + (signals.downstreamReady ? 110 : -140)
+    - (signals.degraded ? 80 : 0)
+    + signals.recencyTieBreaker
+  );
+}
+
 function locationContextScore(
   itemLocation: ShellLocationContract | null | undefined,
   context: PaletteRankingContext,
@@ -248,8 +271,8 @@ export function rankPaletteItems<T extends PaletteRankItem>(
       const score = GROUP_BASE_SCORES[item.group]
         + titleScore
         + Math.max(0, tokenMatch.score)
-        + (item.continuityRank ?? 0)
-        + recentUsageScore(context.recentUsage[item.id], context.now)
+        + continuityScore(item)
+        + Math.floor(recentUsageScore(context.recentUsage[item.id], context.now) / 4)
         + locationContextScore(item.location, context)
         + (item.contextBoost ?? 0)
         - (item.disabled ? 160 : 0);
