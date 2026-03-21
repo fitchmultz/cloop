@@ -54,9 +54,24 @@ def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
 def _mock_answer_generation(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_chat_completion(
         messages: list[dict[str, str]], *, surface: Any, settings: Settings
-    ) -> tuple[str, dict[str, float | str]]:
+    ) -> tuple[str, dict[str, Any]]:
         assert surface.value == "rag"
-        return "mock-response", {"model": settings.llm_model, "latency_ms": 8.0}
+        return (
+            "mock-response",
+            {
+                "model": settings.llm_model,
+                "latency_ms": 8.0,
+                "generation_strategy": "primary",
+                "strategy_attempts": [
+                    {
+                        "attempt": 1,
+                        "strategy": "primary",
+                        "surface": "rag",
+                        "success": True,
+                    }
+                ],
+            },
+        )
 
     monkeypatch.setattr("cloop.rag.ask_orchestration.chat_completion", fake_chat_completion)
 
@@ -133,3 +148,4 @@ def test_answer_question_returns_shared_answer_payload(
     assert result.model == "mock-llm"
     assert result.chunks
     assert result.sources
+    assert result.metadata["generation_strategy"] == "primary"

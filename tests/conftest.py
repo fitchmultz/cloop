@@ -79,6 +79,8 @@ def test_settings() -> Callable[..., Settings]:
             "pi_enrichment_max_tool_rounds": 2,
             "pi_rag_max_tool_rounds": 2,
             "pi_mutation_max_tool_rounds": 2,
+            "pi_readonly_alternate_strategy_enabled": True,
+            "pi_readonly_lower_budget_max_tool_rounds": 1,
             "openai_api_base": None,
             "openai_api_key": None,
             "google_api_key": None,

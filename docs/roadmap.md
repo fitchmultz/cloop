@@ -54,31 +54,7 @@ Why this comes first:
 - the current single-path assumptions leak into HTTP, CLI, MCP, docs, tests, and the frontend contract, so fixing them first reduces follow-on churn
 - later handoff UX work should build on more flexible execution contracts instead of immediately depending on contracts we already know are too narrow
 
-#### Slice 1 — Add bounded alternate strategies for read-only generation paths
-
-Objective: avoid repeating one failing path when the request has not produced side effects and another valid strategy could succeed.
-
-Planned work:
-1. define safe alternate-strategy rules for read-only flows only:
-   - grounded chat without mutations
-   - planning generation
-   - enrichment suggestion generation
-   - RAG answer generation
-2. use retryability signals and capability detection to choose between:
-   - retry same selector once
-   - fallback selector
-   - no-tool / lower-budget retry where appropriate
-3. keep mutation-started flows single-path after side effects begin
-4. record which strategy succeeded so operators can audit why a request completed
-5. keep failure contracts explicit when all bounded strategies are exhausted
-
-Acceptance bar:
-- retryable upstream failures can use one bounded alternate strategy when no side effects occurred
-- mutation-producing flows do not silently branch after work begins
-- logs and responses preserve provenance for fallback/retry decisions
-- operators still get deterministic final failure states when all allowed strategies fail
-
-#### Slice 2 — De-brittle prompts, tests, and operator guidance around stochastic behavior
+#### Slice 1 — De-brittle prompts, tests, and operator guidance around stochastic behavior
 
 Objective: stop baking exact wording and exact preferred process into the surrounding harness when task-level invariants are what actually matter.
 

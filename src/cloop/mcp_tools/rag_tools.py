@@ -57,6 +57,7 @@ def rag_ask(
         - chunks: Sanitized retrieved chunks used for grounding
         - model: Generative model name when an answer was generated
         - sources: Source references derived from the retrieved chunks
+        - metadata: Generation provenance including selector and strategy attempts
 
     Raises:
         ToolError: If retrieval or answer generation fails, or if `top_k` is invalid.

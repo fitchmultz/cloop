@@ -114,6 +114,10 @@ class ChatMetadataResponse(BaseModel):
     resolved_selector: str | None = None
     fallback_used: bool = False
     selector_mode: str | None = None
+    generation_strategy: str = "primary"
+    alternate_strategy_used: bool = False
+    strategy_reason: str | None = None
+    strategy_attempts: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ChatOptionsResponse(BaseModel):

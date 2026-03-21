@@ -96,12 +96,16 @@ def _ask_response_payload(
     answer: str,
     sources: list[dict[str, Any]],
     context: dict[str, str],
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "answer": answer,
         "sources": sources,
         "context": context,
     }
+    if metadata:
+        payload["metadata"] = metadata
+    return payload
 
 
 def _record_ask_interaction(
@@ -123,6 +127,7 @@ def _record_ask_interaction(
         token_estimate=prepared.token_estimate,
         selected_chunks=prepared.chunks,
         tool_calls=[],
+        tool_results=[],
         settings=settings,
     )
 
@@ -166,7 +171,7 @@ def execute_ask_request(
             latency_ms=None,
             settings=settings,
         )
-        response = AskResponse(answer=NO_KNOWLEDGE_MESSAGE, chunks=[])
+        response = AskResponse(answer=NO_KNOWLEDGE_MESSAGE, chunks=[], metadata={})
         return RagAskExecutionResult(
             response=response,
             request_payload=request_payload,
@@ -179,6 +184,7 @@ def execute_ask_request(
         answer=answer.answer,
         sources=answer.sources,
         context=context_snapshot,
+        metadata=answer.metadata,
     )
     _record_ask_interaction(
         endpoint=endpoint,
@@ -194,6 +200,7 @@ def execute_ask_request(
         chunks=answer.chunks,
         model=answer.model,
         sources=answer.sources,
+        metadata=answer.metadata,
     )
     return RagAskExecutionResult(
         response=response,
@@ -239,13 +246,32 @@ def stream_ask_request(
         )
         yield StreamedRagAskEvent(
             type="done",
-            payload=AskResponse(answer=NO_KNOWLEDGE_MESSAGE, chunks=[]).model_dump(mode="json"),
+            payload=AskResponse(
+                answer=NO_KNOWLEDGE_MESSAGE,
+                chunks=[],
+                metadata={},
+            ).model_dump(mode="json"),
         )
         return
 
     tokens: list[str] = []
-    model: str | None = settings.pi_model_preferences[0]
-    latency_ms: float | None = 0.0
+    metadata: dict[str, Any] = {
+        "model": settings.pi_model_preferences[0],
+        "latency_ms": 0.0,
+        "usage": {},
+        "provider": None,
+        "api": None,
+        "stop_reason": None,
+        "requested_selector": settings.pi_model_preferences[0],
+        "requested_selectors": list(settings.pi_model_preferences),
+        "resolved_selector": None,
+        "fallback_used": False,
+        "selector_mode": settings.pi_selector_mode.value,
+        "generation_strategy": "primary",
+        "alternate_strategy_used": False,
+        "strategy_reason": None,
+        "strategy_attempts": [],
+    }
 
     for event in stream_events(
         prepared.messages,
@@ -260,26 +286,40 @@ def stream_ask_request(
             tokens.append(token)
             yield StreamedRagAskEvent(type="text_delta", payload={"token": token})
         elif event_type == "done":
-            model = str(
-                event.get("resolved_selector")
+            metadata = {
+                "model": event.get("resolved_selector")
                 or event.get("model")
-                or settings.pi_model_preferences[0]
-            )
-            latency_ms = float(event.get("latency_ms", 0.0))
+                or settings.pi_model_preferences[0],
+                "latency_ms": float(event.get("latency_ms", 0.0)),
+                "usage": event.get("usage") or {},
+                "provider": event.get("provider"),
+                "api": event.get("api"),
+                "stop_reason": event.get("stop_reason"),
+                "requested_selector": event.get("requested_selector"),
+                "requested_selectors": list(event.get("requested_selectors") or []),
+                "resolved_selector": event.get("resolved_selector") or event.get("model"),
+                "fallback_used": bool(event.get("fallback_used", False)),
+                "selector_mode": event.get("selector_mode"),
+                "generation_strategy": event.get("generation_strategy", "primary"),
+                "alternate_strategy_used": bool(event.get("alternate_strategy_used", False)),
+                "strategy_reason": event.get("strategy_reason"),
+                "strategy_attempts": list(event.get("strategy_attempts") or []),
+            }
 
     final_answer = "".join(tokens)
     response_payload = _ask_response_payload(
         answer=final_answer,
         sources=prepared.sources,
         context=context_snapshot,
+        metadata=metadata,
     )
     _record_ask_interaction(
         endpoint=endpoint,
         request_payload=request_payload,
         response_payload=response_payload,
         prepared=prepared,
-        model=model,
-        latency_ms=latency_ms,
+        model=metadata.get("model"),
+        latency_ms=metadata.get("latency_ms"),
         settings=settings,
     )
     yield StreamedRagAskEvent(
@@ -287,8 +327,9 @@ def stream_ask_request(
         payload=AskResponse(
             answer=final_answer,
             chunks=prepared.chunks,
-            model=model,
+            model=metadata.get("model"),
             sources=prepared.sources,
+            metadata=metadata,
         ).model_dump(mode="json"),
     )
 

@@ -66,3 +66,4 @@ class AskResponse(BaseModel):
     chunks: List[Dict[str, Any]]
     model: str | None = None
     sources: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)

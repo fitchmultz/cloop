@@ -123,6 +123,14 @@ def _metadata_payload(metadata: dict[str, Any]) -> dict[str, Any]:
         "resolved_selector": metadata.get("resolved_selector") if metadata else None,
         "fallback_used": bool(metadata.get("fallback_used", False)) if metadata else False,
         "selector_mode": metadata.get("selector_mode") if metadata else None,
+        "generation_strategy": metadata.get("generation_strategy", "primary")
+        if metadata
+        else "primary",
+        "alternate_strategy_used": bool(metadata.get("alternate_strategy_used", False))
+        if metadata
+        else False,
+        "strategy_reason": metadata.get("strategy_reason") if metadata else None,
+        "strategy_attempts": (list(metadata.get("strategy_attempts") or []) if metadata else []),
     }
 
 
@@ -343,6 +351,10 @@ def _stream_prepared_chat_request(
         "resolved_selector": None,
         "fallback_used": False,
         "selector_mode": settings.pi_selector_mode.value,
+        "generation_strategy": "primary",
+        "alternate_strategy_used": False,
+        "strategy_reason": None,
+        "strategy_attempts": [],
     }
     tokens: list[str] = []
 
@@ -403,6 +415,10 @@ def _stream_prepared_chat_request(
                 "resolved_selector": event.get("resolved_selector") or event.get("model"),
                 "fallback_used": bool(event.get("fallback_used", False)),
                 "selector_mode": event.get("selector_mode"),
+                "generation_strategy": event.get("generation_strategy", "primary"),
+                "alternate_strategy_used": bool(event.get("alternate_strategy_used", False)),
+                "strategy_reason": event.get("strategy_reason"),
+                "strategy_attempts": list(event.get("strategy_attempts") or []),
             }
 
     final_message = "".join(tokens)

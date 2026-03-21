@@ -1,12 +1,13 @@
 """Unit coverage for the shared pi-backed LLM facade.
 
 Purpose:
-    Verify selector resolution, per-surface tool budgets, tool execution, and
-    bridge failure shaping for `cloop.llm`.
+    Verify selector resolution, per-surface tool budgets, alternate strategies,
+    tool execution, and bridge failure shaping for `cloop.llm`.
 
 Responsibilities:
     - Assert bridge requests inherit the correct selector metadata
     - Assert per-surface tool-round budgets resolve correctly
+    - Assert bounded read-only alternate strategies behave as designed
     - Assert Python-owned tools execute through the bridge loop
     - Assert tool-round exhaustion preserves structured metadata
 
@@ -22,7 +23,8 @@ import numpy as np
 import pytest
 
 from cloop import db
-from cloop.ai_bridge.errors import BridgeUpstreamError
+from cloop.ai_bridge.errors import BridgeUpstreamError, ReadOnlyGenerationExhaustedError
+from cloop.ai_bridge.protocol import BridgeToolSpec
 from cloop.embeddings import embed_texts
 from cloop.llm import chat_completion, chat_with_tools, stream_events
 from cloop.settings import PiToolBudgetSurface, Settings, get_settings
@@ -76,29 +78,26 @@ class _FailingSession(_FakeSession):
         raise self.exc
 
 
-class _FakeRuntime:
-    def __init__(
-        self,
-        session: _FakeSession,
-        *,
-        resolved_selector: str = "zai/glm-5",
-        requested_selector: str = "zai/glm-5",
-        requested_selectors: tuple[str, ...] = ("zai/glm-5",),
-        fallback_used: bool = False,
-        selector_mode: str = "fallback",
-    ) -> None:
-        self.session = session
+class _ImmediateFailingSession(_FakeSession):
+    def __init__(self, exc: BridgeUpstreamError) -> None:
+        super().__init__([])
+        self.exc = exc
+
+    def events(self):
+        raise self.exc
+
+
+class _QueuedRuntime:
+    def __init__(self, sessions: list[_FakeSession], resolutions: list[dict[str, Any]]) -> None:
+        self._sessions = list(sessions)
+        self._resolutions = list(resolutions)
         self.requests: list[Any] = []
         self.resolve_requests: list[dict[str, Any]] = []
-        self.resolved_selector = resolved_selector
-        self.requested_selector = requested_selector
-        self.requested_selectors = requested_selectors
-        self.fallback_used = fallback_used
-        self.selector_mode = selector_mode
 
     def resolve_model(
         self, *, selectors: tuple[str, ...], selector_mode: str, timeout_s: float = 5.0
     ):
+        current = self._resolutions.pop(0)
         self.resolve_requests.append(
             {
                 "selectors": selectors,
@@ -108,18 +107,35 @@ class _FakeRuntime:
         )
 
         class Resolution:
-            def __init__(self, runtime: _FakeRuntime) -> None:
-                self.requested_selector = runtime.requested_selector
-                self.requested_selectors = runtime.requested_selectors
-                self.resolved_selector = runtime.resolved_selector
-                self.fallback_used = runtime.fallback_used
-                self.selector_mode = runtime.selector_mode
+            def __init__(self, payload: dict[str, Any]) -> None:
+                self.requested_selector = payload["requested_selector"]
+                self.requested_selectors = tuple(payload["requested_selectors"])
+                self.resolved_selector = payload["resolved_selector"]
+                self.fallback_used = payload["fallback_used"]
+                self.selector_mode = payload["selector_mode"]
 
-        return Resolution(self)
+        return Resolution(current)
 
     def open_session(self, request):
         self.requests.append(request)
-        return self.session
+        return self._sessions.pop(0)
+
+
+def _resolution(
+    *,
+    requested_selector: str,
+    requested_selectors: tuple[str, ...],
+    resolved_selector: str,
+    fallback_used: bool = False,
+    selector_mode: str = "fallback",
+) -> dict[str, Any]:
+    return {
+        "requested_selector": requested_selector,
+        "requested_selectors": requested_selectors,
+        "resolved_selector": resolved_selector,
+        "fallback_used": fallback_used,
+        "selector_mode": selector_mode,
+    }
 
 
 def test_chat_completion_uses_bridge_request(
@@ -130,24 +146,30 @@ def test_chat_completion_uses_bridge_request(
         tmp_path,
         CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
     )
-    runtime = _FakeRuntime(
-        _FakeSession(
-            [
-                {"type": "text_delta", "delta": "hi"},
-                {
-                    "type": "done",
-                    "model": "kimi-coding/k2p5",
-                    "provider": "kimi-coding",
-                    "api": "zai-chat",
-                    "usage": {"totalTokens": 0},
-                    "stop_reason": "stop",
-                },
-            ]
-        ),
-        resolved_selector="kimi-coding/k2p5",
-        requested_selector="zai/glm-5",
-        requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
-        fallback_used=True,
+    runtime = _QueuedRuntime(
+        sessions=[
+            _FakeSession(
+                [
+                    {"type": "text_delta", "delta": "hi"},
+                    {
+                        "type": "done",
+                        "model": "kimi-coding/k2p5",
+                        "provider": "kimi-coding",
+                        "api": "zai-chat",
+                        "usage": {"totalTokens": 0},
+                        "stop_reason": "stop",
+                    },
+                ]
+            )
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
+                resolved_selector="kimi-coding/k2p5",
+                fallback_used=True,
+            )
+        ],
     )
 
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
@@ -163,9 +185,278 @@ def test_chat_completion_uses_bridge_request(
     assert metadata["requested_selector"] == "zai/glm-5"
     assert metadata["resolved_selector"] == "kimi-coding/k2p5"
     assert metadata["fallback_used"] is True
+    assert metadata["generation_strategy"] == "primary"
+    assert metadata["alternate_strategy_used"] is False
+    assert metadata["strategy_attempts"] == [
+        {
+            "attempt": 1,
+            "strategy": "primary",
+            "reason": None,
+            "surface": "chat",
+            "requested_selector": "zai/glm-5",
+            "requested_selectors": ["zai/glm-5", "kimi-coding/k2p5"],
+            "resolved_selector": "kimi-coding/k2p5",
+            "fallback_used": True,
+            "selector_mode": "fallback",
+            "max_tool_rounds": 4,
+            "tool_count": 0,
+            "success": True,
+        }
+    ]
     assert runtime.resolve_requests[0]["selectors"] == ("zai/glm-5", "kimi-coding/k2p5")
     assert runtime.requests[0].model == "kimi-coding/k2p5"
     assert runtime.requests[0].messages == [{"role": "user", "content": "Hello"}]
+
+
+def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
+    )
+    runtime = _QueuedRuntime(
+        sessions=[
+            _ImmediateFailingSession(
+                BridgeUpstreamError("provider_timeout", "timeout", retryable=True)
+            ),
+            _FakeSession(
+                [
+                    {"type": "text_delta", "delta": "recovered"},
+                    {
+                        "type": "done",
+                        "model": "kimi-coding/k2p5",
+                        "provider": "kimi-coding",
+                        "api": "zai-chat",
+                        "usage": {},
+                        "stop_reason": "stop",
+                    },
+                ]
+            ),
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
+                resolved_selector="zai/glm-5",
+            ),
+            _resolution(
+                requested_selector="kimi-coding/k2p5",
+                requested_selectors=("kimi-coding/k2p5",),
+                resolved_selector="kimi-coding/k2p5",
+            ),
+        ],
+    )
+
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    content, metadata = chat_completion(
+        [{"role": "user", "content": "Recover"}],
+        surface=PiToolBudgetSurface.CHAT,
+        settings=settings,
+    )
+
+    assert content == "recovered"
+    assert metadata["generation_strategy"] == "fallback_selector"
+    assert metadata["alternate_strategy_used"] is True
+    assert metadata["strategy_reason"] == "retryable upstream failure on the resolved selector"
+    assert [attempt["success"] for attempt in metadata["strategy_attempts"]] == [False, True]
+    assert metadata["strategy_attempts"][0]["error_code"] == "provider_timeout"
+    assert runtime.resolve_requests[1]["selectors"] == ("kimi-coding/k2p5",)
+    assert runtime.requests[1].model == "kimi-coding/k2p5"
+
+
+def test_chat_completion_retries_same_selector_when_no_fallback_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    runtime = _QueuedRuntime(
+        sessions=[
+            _ImmediateFailingSession(
+                BridgeUpstreamError("provider_timeout", "timeout", retryable=True)
+            ),
+            _FakeSession(
+                [
+                    {"type": "text_delta", "delta": "retry worked"},
+                    {
+                        "type": "done",
+                        "model": "zai/glm-5",
+                        "provider": "zai",
+                        "api": "zai-chat",
+                        "usage": {},
+                        "stop_reason": "stop",
+                    },
+                ]
+            ),
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            ),
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+                selector_mode="exact",
+            ),
+        ],
+    )
+
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    content, metadata = chat_completion(
+        [{"role": "user", "content": "Retry same selector"}],
+        surface=PiToolBudgetSurface.CHAT,
+        settings=settings,
+    )
+
+    assert content == "retry worked"
+    assert metadata["generation_strategy"] == "retry_same_selector"
+    assert runtime.resolve_requests[1]["selectors"] == ("zai/glm-5",)
+    assert runtime.resolve_requests[1]["selector_mode"] == "exact"
+
+
+def test_stream_events_does_not_retry_after_visible_output_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(
+        monkeypatch,
+        tmp_path,
+        CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
+    )
+    runtime = _QueuedRuntime(
+        sessions=[
+            _FailingSession(BridgeUpstreamError("provider_timeout", "timeout", retryable=True))
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
+                resolved_selector="zai/glm-5",
+            )
+        ],
+    )
+
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    iterator = stream_events(
+        [{"role": "user", "content": "hello"}],
+        surface=PiToolBudgetSurface.CHAT,
+        settings=settings,
+    )
+    first_event = next(iterator)
+    assert first_event == {"type": "text_delta", "delta": "draft"}
+
+    with pytest.raises(ReadOnlyGenerationExhaustedError, match="chat") as exc_info:
+        next(iterator)
+
+    assert exc_info.value.details["exhaustion_reason"] == "response_started"
+    assert len(runtime.requests) == 1
+
+
+def test_readonly_tool_loop_failure_deescalates_to_no_tool_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    runtime = _QueuedRuntime(
+        sessions=[
+            _ImmediateFailingSession(
+                BridgeUpstreamError(
+                    "tool_round_limit",
+                    "tool budget exceeded",
+                    retryable=True,
+                    details={"tool_rounds_used": 2, "max_tool_rounds": 2},
+                )
+            ),
+            _FakeSession(
+                [
+                    {"type": "text_delta", "delta": "deescalated"},
+                    {
+                        "type": "done",
+                        "model": "zai/glm-5",
+                        "provider": "zai",
+                        "api": "zai-chat",
+                        "usage": {},
+                        "stop_reason": "stop",
+                    },
+                ]
+            ),
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            ),
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+                selector_mode="exact",
+            ),
+        ],
+    )
+    tools = [
+        BridgeToolSpec(
+            name="read_note",
+            description="Read a note",
+            input_schema={"type": "object", "properties": {}},
+        )
+    ]
+
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+
+    events = list(
+        stream_events(
+            [{"role": "user", "content": "Use tools if needed"}],
+            surface=PiToolBudgetSurface.CHAT,
+            settings=settings,
+            tools=tools,
+            max_tool_rounds=2,
+        )
+    )
+    done_event = events[-1]
+
+    assert done_event["generation_strategy"] == "no_tool_lower_budget"
+    assert done_event["alternate_strategy_used"] is True
+    assert runtime.requests[0].tools == tools
+    assert runtime.requests[1].tools == []
+    assert runtime.requests[1].max_tool_rounds == 1
+
+
+def test_mutation_surface_never_uses_alternate_strategy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    runtime = _QueuedRuntime(
+        sessions=[
+            _ImmediateFailingSession(
+                BridgeUpstreamError("provider_timeout", "timeout", retryable=True)
+            )
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            )
+        ],
+    )
+
+    monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
+    monkeypatch.setattr("cloop.llm.get_agent_bridge_tools", lambda: [])
+
+    with pytest.raises(BridgeUpstreamError, match="timeout"):
+        chat_with_tools(
+            [{"role": "user", "content": "do work"}],
+            surface=PiToolBudgetSurface.MUTATION,
+            settings=settings,
+        )
+
+    assert len(runtime.requests) == 1
 
 
 def test_chat_with_tools_executes_python_tools(
@@ -191,7 +482,16 @@ def test_chat_with_tools_executes_python_tools(
             },
         ]
     )
-    runtime = _FakeRuntime(session)
+    runtime = _QueuedRuntime(
+        sessions=[session],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            )
+        ],
+    )
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 
     content, metadata, tool_calls = chat_with_tools(
@@ -213,7 +513,16 @@ def test_stream_events_aborts_unfinished_bridge_session(
 ) -> None:
     settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
     session = _FakeSession([{"type": "text_delta", "delta": "partial"}])
-    runtime = _FakeRuntime(session)
+    runtime = _QueuedRuntime(
+        sessions=[session],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            )
+        ],
+    )
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 
     events = list(
@@ -252,20 +561,29 @@ def test_stream_events_uses_surface_budget_defaults(
         CLOOP_PI_MODEL="zai/glm-5",
         **{env_key: env_value},
     )
-    runtime = _FakeRuntime(
-        _FakeSession(
-            [
-                {"type": "text_delta", "delta": "done"},
-                {
-                    "type": "done",
-                    "model": "zai/glm-5",
-                    "provider": "zai",
-                    "api": "zai-chat",
-                    "usage": {},
-                    "stop_reason": "stop",
-                },
-            ]
-        )
+    runtime = _QueuedRuntime(
+        sessions=[
+            _FakeSession(
+                [
+                    {"type": "text_delta", "delta": "done"},
+                    {
+                        "type": "done",
+                        "model": "zai/glm-5",
+                        "provider": "zai",
+                        "api": "zai-chat",
+                        "usage": {},
+                        "stop_reason": "stop",
+                    },
+                ]
+            )
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            )
+        ],
     )
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 
@@ -289,20 +607,29 @@ def test_stream_events_explicit_override_wins_over_surface_budget(
         CLOOP_PI_MODEL="zai/glm-5",
         CLOOP_PI_RAG_MAX_TOOL_ROUNDS="6",
     )
-    runtime = _FakeRuntime(
-        _FakeSession(
-            [
-                {"type": "text_delta", "delta": "done"},
-                {
-                    "type": "done",
-                    "model": "zai/glm-5",
-                    "provider": "zai",
-                    "api": "zai-chat",
-                    "usage": {},
-                    "stop_reason": "stop",
-                },
-            ]
-        )
+    runtime = _QueuedRuntime(
+        sessions=[
+            _FakeSession(
+                [
+                    {"type": "text_delta", "delta": "done"},
+                    {
+                        "type": "done",
+                        "model": "zai/glm-5",
+                        "provider": "zai",
+                        "api": "zai-chat",
+                        "usage": {},
+                        "stop_reason": "stop",
+                    },
+                ]
+            )
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            )
+        ],
     )
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 
@@ -327,14 +654,23 @@ def test_tool_round_limit_error_includes_structured_metadata(
         CLOOP_PI_MODEL="zai/glm-5",
         CLOOP_PI_CHAT_MAX_TOOL_ROUNDS="2",
     )
-    runtime = _FakeRuntime(
-        _FailingSession(
-            BridgeUpstreamError(
-                "tool_round_limit",
-                "tool budget exceeded",
-                details={"tool_rounds_used": 3, "max_tool_rounds": 2},
+    runtime = _QueuedRuntime(
+        sessions=[
+            _FailingSession(
+                BridgeUpstreamError(
+                    "tool_round_limit",
+                    "tool budget exceeded",
+                    details={"tool_rounds_used": 3, "max_tool_rounds": 2},
+                )
             )
-        )
+        ],
+        resolutions=[
+            _resolution(
+                requested_selector="zai/glm-5",
+                requested_selectors=("zai/glm-5",),
+                resolved_selector="zai/glm-5",
+            )
+        ],
     )
     monkeypatch.setattr("cloop.llm.get_bridge_runtime", lambda _settings: runtime)
 

@@ -23,6 +23,8 @@ CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2
 CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS=2
 CLOOP_PI_RAG_MAX_TOOL_ROUNDS=2
 CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS=2
+CLOOP_PI_READONLY_ALTERNATE_STRATEGY_ENABLED=true
+CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS=1
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 ```
@@ -36,7 +38,8 @@ selector per env var.
 
 Cloop resolves tool-round budgets per surface instead of from one repo-wide default, so
 advisory chat, planning, enrichment, RAG, and mutation-heavy flows keep distinct bounded
-budgets during verification.
+budgets during verification. Read-only generation paths can also use one bounded alternate
+strategy before surfacing a deterministic `readonly_generation_exhausted` error.
 
 Use `pi --list-models` to confirm the selectors available in your authenticated pi installation.
 If bridge startup, auth, or selector-resolution checks fail, use [`docs/ai_runtime.md`](ai_runtime.md) as the runtime troubleshooting reference.

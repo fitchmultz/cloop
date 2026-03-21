@@ -2009,7 +2009,21 @@ def test_loop_enrich_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
                 "needs_clarification": ["What is the deadline?"],
             }
         ),
-        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        {
+            "model": "mock-organizer",
+            "latency_ms": 0.0,
+            "usage": {},
+            "generation_strategy": "fallback_selector",
+            "strategy_attempts": [
+                {"attempt": 1, "strategy": "primary", "surface": "enrichment", "success": False},
+                {
+                    "attempt": 2,
+                    "strategy": "fallback_selector",
+                    "surface": "enrichment",
+                    "success": True,
+                },
+            ],
+        },
     )
 
     with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
@@ -2020,6 +2034,7 @@ def test_loop_enrich_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     assert output["suggestion_id"] > 0
     assert output["needs_clarification"] == ["What is the deadline?"]
     assert output["applied_fields"] == []
+    assert output["generation_metadata"]["generation_strategy"] == "fallback_selector"
     assert output["loop"]["id"] == 1
     assert output["loop"]["raw_text"] == "Test"
     assert output["loop"]["enrichment_state"] == "complete"

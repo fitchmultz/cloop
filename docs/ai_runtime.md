@@ -208,8 +208,47 @@ HTTP mapping:
 - protocol -> `502 ai_backend_protocol_error`
 - upstream retryable -> `503`
 - upstream non-retryable -> `502`
+- exhausted bounded read-only strategies -> `503 readonly_generation_exhausted`
 
-## 8) Tool-loop budgets, exhaustion, and abort behavior
+## 8) Read-only alternate strategies
+
+Read-only generation surfaces may use one bounded alternate strategy after a
+retryable upstream failure, but only before side effects or client-visible
+output begin.
+
+In scope:
+
+- grounded chat on the `chat` surface
+- planning generation
+- enrichment suggestion generation
+- RAG answer generation
+
+Out of scope:
+
+- `mutation` requests after Python-owned tool execution begins
+- any request that already emitted client-visible output in streaming mode
+
+Selection order:
+
+1. if a read-only request used tools and failed with `tool_round_limit`, retry once
+   on the same resolved selector with `tools=[]` and the lower budget from
+   `CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS`
+2. otherwise, if selector fallback candidates remain, retry once on the next
+   ordered selector
+3. otherwise, retry once on the same resolved selector in exact mode
+
+Execution contract:
+
+- at most one alternate attempt is allowed
+- successful responses record `generation_strategy`,
+  `alternate_strategy_used`, `strategy_reason`, and ordered `strategy_attempts`
+- if all bounded strategies are exhausted, Python raises
+  `readonly_generation_exhausted` with `surface`, `exhaustion_reason`,
+  `attempts`, and `final_error`
+- streaming retries only happen before the first visible event (`text_delta`,
+  `tool_call`, or `tool_result`)
+
+## 9) Tool-loop budgets, exhaustion, and abort behavior
 
 Cloop keeps Python in control of tool execution and loop policy.
 
@@ -238,7 +277,7 @@ Phase-1 hardening behavior:
 - Python enriches `tool_round_limit` with surface-specific guidance plus `partial_results.text`, `partial_results.tool_calls`, and `partial_results.tool_results`
 - when Python finishes consuming a session without a terminal success event, it aborts the in-flight bridge request before closing the session
 
-## 9) Health endpoint expectations
+## 10) Health endpoint expectations
 
 `GET /health` and `GET /healthz` report bridge readiness alongside database status.
 
@@ -277,7 +316,7 @@ If `checks.pi_bridge.ok` is false, the selector `error` fields and `checks.pi_br
 should be enough to tell whether the failure is startup, process, auth/model availability,
 or protocol related.
 
-## 10) Verification commands
+## 11) Verification commands
 
 Fast focused checks for bridge work:
 

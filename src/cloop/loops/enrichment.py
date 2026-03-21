@@ -32,8 +32,9 @@ from typing import Any, Mapping
 from pydantic import BaseModel, Field, ValidationError
 
 from .. import db
-from ..llm import chat_completion
+from ..llm import chat_completion, estimate_tokens
 from ..settings import PiToolBudgetSurface, Settings, get_settings
+from ..storage import interaction_store
 from ..webhooks.service import queue_deliveries
 from . import repo, similarity
 from .errors import LoopNotFoundError
@@ -618,22 +619,21 @@ def enrich_loop(
             fields={"enrichment_state": EnrichmentState.COMPLETE.value},
             conn=conn,
         )
+        success_payload = {
+            "suggestion_id": suggestion_id,
+            "applied_fields": sorted(set(applied_fields)),
+            "generation_metadata": metadata,
+        }
         event_id = repo.insert_loop_event(
             loop_id=loop_id,
             event_type=LoopEventType.ENRICH_SUCCESS.value,
-            payload={
-                "suggestion_id": suggestion_id,
-                "applied_fields": sorted(set(applied_fields)),
-            },
+            payload=success_payload,
             conn=conn,
         )
         queue_deliveries(
             event_id=event_id,
             event_type=LoopEventType.ENRICH_SUCCESS.value,
-            payload={
-                "suggestion_id": suggestion_id,
-                "applied_fields": sorted(set(applied_fields)),
-            },
+            payload=success_payload,
             conn=conn,
         )
 
@@ -650,6 +650,25 @@ def enrich_loop(
                         question=question_text,
                         conn=conn,
                     )
+
+    interaction_store.record_interaction(
+        endpoint="/loops/enrich",
+        request_payload={
+            "loop_id": loop_id,
+            "selector_role": "organizer",
+            "messages": messages,
+        },
+        response_payload={
+            "suggestion": suggestion.model_dump(mode="json"),
+            "metadata": metadata,
+        },
+        model=metadata.get("model"),
+        latency_ms=metadata.get("latency_ms"),
+        token_estimate=estimate_tokens(messages),
+        tool_calls=[],
+        tool_results=[],
+        settings=settings,
+    )
 
     if settings.autopilot_enabled:
         try:
@@ -687,4 +706,5 @@ def enrich_loop(
         "suggestion_id": suggestion_id,
         "applied_fields": sorted(set(applied_fields)),
         "needs_clarification": suggestion.needs_clarification,
+        "generation_metadata": metadata,
     }

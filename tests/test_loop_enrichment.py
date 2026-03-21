@@ -626,7 +626,12 @@ def test_enrichment_persists_clarification_questions(
                 "confidence": {"title": 0.9},
             }
         ),
-        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        {
+            "model": "mock-organizer",
+            "latency_ms": 0.0,
+            "usage": {},
+            "generation_strategy": "fallback_selector",
+        },
     )
 
     with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
@@ -634,6 +639,7 @@ def test_enrichment_persists_clarification_questions(
 
     # Verify clarifications were persisted
     assert result["needs_clarification"] == ["When is the deadline?", "Who should attend?"]
+    assert result["generation_metadata"]["generation_strategy"] == "fallback_selector"
 
     clarifications = repo.list_loop_clarifications(loop_id=record.id, conn=conn)
     assert len(clarifications) == 2
@@ -642,6 +648,14 @@ def test_enrichment_persists_clarification_questions(
     assert "Who should attend?" in questions
     # All should be unanswered initially
     assert all(c["answer"] is None for c in clarifications)
+
+    interaction_row = conn.execute(
+        "SELECT response_payload FROM interactions "
+        "WHERE endpoint = '/loops/enrich' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    assert interaction_row is not None
+    interaction_payload = json.loads(interaction_row["response_payload"])
+    assert interaction_payload["metadata"]["generation_strategy"] == "fallback_selector"
 
     conn.close()
 

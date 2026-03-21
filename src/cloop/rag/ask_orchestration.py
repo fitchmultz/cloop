@@ -66,6 +66,7 @@ class AskAnswer:
     model: str | None
     sources: list[dict[str, Any]]
     token_estimate: int
+    metadata: dict[str, Any]
 
 
 def sanitize_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
@@ -168,6 +169,7 @@ def answer_prepared_question(
             model=None,
             sources=[],
             token_estimate=0,
+            metadata={},
         )
 
     content, metadata = chat_completion(
@@ -182,4 +184,5 @@ def answer_prepared_question(
         model=metadata.get("model"),
         sources=prepared.sources,
         token_estimate=prepared.token_estimate,
+        metadata=metadata,
     )

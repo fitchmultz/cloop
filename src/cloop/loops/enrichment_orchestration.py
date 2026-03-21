@@ -42,6 +42,7 @@ class LoopEnrichmentResult:
     suggestion_id: int
     applied_fields: list[str]
     needs_clarification: list[str]
+    generation_metadata: dict[str, Any]
 
     def to_payload(self) -> dict[str, Any]:
         """Convert the result into a transport-ready payload."""
@@ -50,6 +51,7 @@ class LoopEnrichmentResult:
             "suggestion_id": self.suggestion_id,
             "applied_fields": self.applied_fields,
             "needs_clarification": self.needs_clarification,
+            "generation_metadata": self.generation_metadata,
         }
 
 
@@ -64,6 +66,7 @@ class BulkLoopEnrichmentItemResult:
     suggestion_id: int | None = None
     applied_fields: list[str] = field(default_factory=list)
     needs_clarification: list[str] = field(default_factory=list)
+    generation_metadata: dict[str, Any] = field(default_factory=dict)
     error: dict[str, Any] | None = None
 
     def to_payload(self) -> dict[str, Any]:
@@ -81,6 +84,8 @@ class BulkLoopEnrichmentItemResult:
             payload["applied_fields"] = self.applied_fields
         if self.needs_clarification:
             payload["needs_clarification"] = self.needs_clarification
+        if self.generation_metadata:
+            payload["generation_metadata"] = self.generation_metadata
         if self.error is not None:
             payload["error"] = self.error
         return payload
@@ -175,6 +180,7 @@ def orchestrate_loop_enrichment(
         suggestion_id=int(enrichment_result["suggestion_id"]),
         applied_fields=list(enrichment_result.get("applied_fields") or []),
         needs_clarification=list(enrichment_result.get("needs_clarification") or []),
+        generation_metadata=dict(enrichment_result.get("generation_metadata") or {}),
     )
 
 
@@ -264,6 +270,7 @@ def orchestrate_bulk_loop_enrichment(
                 suggestion_id=result.suggestion_id,
                 applied_fields=result.applied_fields,
                 needs_clarification=result.needs_clarification,
+                generation_metadata=result.generation_metadata,
             )
         )
 

@@ -108,6 +108,8 @@ def test_default_pi_selectors_match_project_preference(
     assert settings.pi_tool_round_budget(PiToolBudgetSurface.ENRICHMENT) == 2
     assert settings.pi_tool_round_budget(PiToolBudgetSurface.RAG) == 2
     assert settings.pi_tool_round_budget(PiToolBudgetSurface.MUTATION) == 2
+    assert settings.pi_readonly_alternate_strategy_enabled is True
+    assert settings.pi_readonly_lower_budget_max_tool_rounds == 1
 
 
 def test_selector_preferences_parse_csv_and_dedupe(
@@ -166,6 +168,27 @@ def test_invalid_pi_tool_round_budget_rejected(
     settings_module.get_settings.cache_clear()
 
     with pytest.raises(ValueError, match="CLOOP_PI_CHAT_MAX_TOOL_ROUNDS must be between"):
+        settings_module.get_settings()
+
+
+def test_invalid_readonly_lower_budget_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Read-only lower-budget retries should stay inside the configured safety window."""
+    import cloop.settings as settings_module
+
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv(
+        "CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS",
+        str(MAX_PI_TOOL_ROUND_BUDGET + 1),
+    )
+    monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
+    settings_module.get_settings.cache_clear()
+
+    with pytest.raises(
+        ValueError,
+        match="CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS must be between",
+    ):
         settings_module.get_settings()
 
 

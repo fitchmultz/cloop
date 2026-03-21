@@ -283,6 +283,7 @@ class LoopEnrichmentResponse(BaseModel):
     suggestion_id: int
     applied_fields: List[str]
     needs_clarification: List[str]
+    generation_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class LoopNextResponse(BaseModel):

@@ -128,6 +128,7 @@ class BulkEnrichmentResultItem(BulkResultItem):
     suggestion_id: int | None = None
     applied_fields: List[str] = Field(default_factory=list)
     needs_clarification: List[str] = Field(default_factory=list)
+    generation_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class BulkUpdateResponse(BaseModel):

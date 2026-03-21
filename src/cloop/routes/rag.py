@@ -27,7 +27,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from ..loops.errors import CloopError
+from ..ai_bridge.errors import BridgeError
 from ..rag_execution import execute_ask_request, execute_ingest_request, stream_ask_request
 from ..schemas.rag import AskResponse, IngestMode, IngestRequest, IngestResponse
 from ..settings import Settings, get_settings
@@ -98,7 +98,9 @@ def ask_endpoint(
             settings=settings,
             endpoint="/ask",
         )
-    except (RuntimeError, ValueError, CloopError) as exc:
+    except (RuntimeError, ValueError) as exc:
+        if isinstance(exc, BridgeError):
+            raise
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return result.response

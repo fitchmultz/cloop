@@ -191,6 +191,7 @@ def build_loop_enrichment_response(result: Mapping[str, Any]) -> LoopEnrichmentR
         suggestion_id=result["suggestion_id"],
         applied_fields=list(result.get("applied_fields") or []),
         needs_clarification=list(result.get("needs_clarification") or []),
+        generation_metadata=dict(result.get("generation_metadata") or {}),
     )
 
 
@@ -635,6 +636,7 @@ def build_bulk_enrichment_result_items(
             suggestion_id=result.get("suggestion_id"),
             applied_fields=list(result.get("applied_fields") or []),
             needs_clarification=list(result.get("needs_clarification") or []),
+            generation_metadata=dict(result.get("generation_metadata") or {}),
             error=result.get("error"),
         )
         for result in results

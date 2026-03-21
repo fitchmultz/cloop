@@ -791,7 +791,21 @@ def test_loop_enrich_returns_updated_loop_and_metadata(
                 "needs_clarification": ["What is the budget?"],
             }
         ),
-        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        {
+            "model": "mock-organizer",
+            "latency_ms": 0.0,
+            "usage": {},
+            "generation_strategy": "fallback_selector",
+            "strategy_attempts": [
+                {"attempt": 1, "strategy": "primary", "surface": "enrichment", "success": False},
+                {
+                    "attempt": 2,
+                    "strategy": "fallback_selector",
+                    "surface": "enrichment",
+                    "success": True,
+                },
+            ],
+        },
     )
 
     with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
@@ -802,6 +816,8 @@ def test_loop_enrich_returns_updated_loop_and_metadata(
     assert data["suggestion_id"] > 0
     assert data["needs_clarification"] == ["What is the budget?"]
     assert data["applied_fields"] == []
+    assert data["generation_metadata"]["generation_strategy"] == "fallback_selector"
+    assert len(data["generation_metadata"]["strategy_attempts"]) == 2
     assert data["loop"]["id"] == loop_id
     assert data["loop"]["raw_text"] == "Plan offsite"
     assert data["loop"]["enrichment_state"] == "complete"

@@ -610,6 +610,7 @@ class TestLoopExecutorParity:
                 "suggestion_id": 123,
                 "applied_fields": ["summary", "next_action"],
                 "needs_clarification": [],
+                "generation_metadata": {"generation_strategy": "primary"},
             }
 
         monkeypatch.setattr("cloop.loops.enrichment.enrich_loop", fake_enrich_loop)
@@ -621,6 +622,7 @@ class TestLoopExecutorParity:
 
         assert result["suggestion_id"] == 123
         assert result["applied_fields"] == ["summary", "next_action"]
+        assert result["generation_metadata"]["generation_strategy"] == "primary"
         assert result["loop"]["summary"] == canonical["summary"] == "Enriched summary"
         assert result["loop"]["next_action"] == canonical["next_action"] == "Do enriched work"
 

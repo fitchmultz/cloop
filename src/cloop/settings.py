@@ -119,6 +119,8 @@ class Settings:
     pi_enrichment_max_tool_rounds: int
     pi_rag_max_tool_rounds: int
     pi_mutation_max_tool_rounds: int
+    pi_readonly_alternate_strategy_enabled: bool
+    pi_readonly_lower_budget_max_tool_rounds: int
 
     # Embedding provider credentials and endpoints
     openai_api_base: str | None
@@ -342,6 +344,12 @@ def get_settings() -> Settings:
         pi_enrichment_max_tool_rounds=int(os.getenv("CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS", "2")),
         pi_rag_max_tool_rounds=int(os.getenv("CLOOP_PI_RAG_MAX_TOOL_ROUNDS", "2")),
         pi_mutation_max_tool_rounds=int(os.getenv("CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS", "2")),
+        pi_readonly_alternate_strategy_enabled=_resolve_bool(
+            os.getenv("CLOOP_PI_READONLY_ALTERNATE_STRATEGY_ENABLED", "true")
+        ),
+        pi_readonly_lower_budget_max_tool_rounds=int(
+            os.getenv("CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS", "1")
+        ),
         openai_api_base=os.getenv("CLOOP_OPENAI_API_BASE"),
         openai_api_key=os.getenv("CLOOP_OPENAI_API_KEY"),
         google_api_key=os.getenv("CLOOP_GOOGLE_API_KEY"),
@@ -495,6 +503,14 @@ def _validate_settings(settings: Settings) -> Settings:
             raise ValueError(
                 "CLOOP_PI_ORGANIZER_MODEL must contain exactly one selector in exact mode"
             )
+    if (
+        settings.pi_readonly_lower_budget_max_tool_rounds < 1
+        or settings.pi_readonly_lower_budget_max_tool_rounds > MAX_PI_TOOL_ROUND_BUDGET
+    ):
+        raise ValueError(
+            "CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS must be between 1 and "
+            f"{MAX_PI_TOOL_ROUND_BUDGET}"
+        )
     if settings.related_max_candidates < 1:
         raise ValueError("CLOOP_RELATED_MAX_CANDIDATES must be at least 1")
     if settings.next_candidates_limit < 1:

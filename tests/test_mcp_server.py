@@ -899,7 +899,21 @@ def test_loop_enrich_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         '{"title": "Team Offsite Planning", '
         '"summary": "Organize team offsite", '
         '"confidence": {"title": 0.9, "summary": 0.9}}',
-        {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        {
+            "model": "mock-organizer",
+            "latency_ms": 0.0,
+            "usage": {},
+            "generation_strategy": "retry_same_selector",
+            "strategy_attempts": [
+                {"attempt": 1, "strategy": "primary", "surface": "enrichment", "success": False},
+                {
+                    "attempt": 2,
+                    "strategy": "retry_same_selector",
+                    "surface": "enrichment",
+                    "success": True,
+                },
+            ],
+        },
     )
 
     with patch("cloop.loops.enrichment.chat_completion", return_value=mock_response):
@@ -908,6 +922,7 @@ def test_loop_enrich_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "loop" in result
     assert "suggestion_id" in result
     assert "applied_fields" in result
+    assert result["generation_metadata"]["generation_strategy"] == "retry_same_selector"
     assert result["loop"]["id"] == created["id"]
     assert result["loop"]["raw_text"] == "Plan the team offsite for next month"
     assert result["loop"]["enrichment_state"] == "complete"

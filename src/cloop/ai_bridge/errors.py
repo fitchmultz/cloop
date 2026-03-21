@@ -50,3 +50,37 @@ class BridgeUpstreamError(BridgeError):
         self.code = code
         self.retryable = retryable
         self.details = details or {}
+
+
+class ReadOnlyGenerationExhaustedError(BridgeUpstreamError):
+    """Raised when a read-only request exhausts its bounded alternate strategy."""
+
+    def __init__(
+        self,
+        *,
+        surface: str,
+        attempts: list[dict[str, Any]],
+        final_error: BridgeUpstreamError,
+        exhaustion_reason: str,
+    ) -> None:
+        final_error_payload = {
+            "code": final_error.code,
+            "message": str(final_error),
+            "retryable": final_error.retryable,
+            **final_error.details,
+        }
+        super().__init__(
+            "readonly_generation_exhausted",
+            f"Read-only generation exhausted bounded alternate strategies for {surface}",
+            retryable=final_error.retryable,
+            details={
+                "surface": surface,
+                "exhausted": True,
+                "exhaustion_reason": exhaustion_reason,
+                "attempts": attempts,
+                "final_error": final_error_payload,
+            },
+        )
+        self.attempts = attempts
+        self.final_error = final_error
+        self.exhaustion_reason = exhaustion_reason

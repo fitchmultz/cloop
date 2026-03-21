@@ -133,6 +133,8 @@ CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2
 CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS=2
 CLOOP_PI_RAG_MAX_TOOL_ROUNDS=2
 CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS=2
+CLOOP_PI_READONLY_ALTERNATE_STRATEGY_ENABLED=true
+CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS=1
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 CLOOP_AUTOPILOT_ENABLED=false
@@ -146,6 +148,9 @@ The project preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
 `openai-codex/gpt-5.4`, but any pi-supported selectors are valid.
 If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
 selector for each of `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL`.
+Read-only chat, planning, enrichment, and RAG generation paths can use one bounded
+alternate strategy after a retryable upstream failure before returning a deterministic
+final `readonly_generation_exhausted` error; mutation flows stay single-path.
 
 When you do enable scheduling, run it as a separate process:
 

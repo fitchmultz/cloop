@@ -314,6 +314,7 @@ def execute_loop_enrich(**kwargs: Any) -> dict[str, Any]:
         "suggestion_id": result["suggestion_id"],
         "applied_fields": result.get("applied_fields", []),
         "needs_clarification": result.get("needs_clarification", []),
+        "generation_metadata": result.get("generation_metadata", {}),
     }
 
 
