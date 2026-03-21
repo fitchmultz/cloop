@@ -28,6 +28,7 @@ import type {
   ShellLocationContract,
   WorkingSetSessionMetadata,
 } from "./contracts-ui";
+import { markContinuityRecoveryAcknowledged } from "./continuity-intelligence";
 import {
   buildContinuityAvailability,
   groupRankedWorkflowThreads,
@@ -264,6 +265,15 @@ describe("readRankedLandedOutcomes", () => {
     expect(outcomes[0]?.resumeLocation.workingSetId).toBeNull();
     expect(outcomes[0]?.degraded).toBe(true);
     expect(outcomes[0]?.degradedLabel).toMatch(/Working-set scope was removed/i);
+    expect(outcomes[0]?.recovery).toMatchObject({
+      kind: "working_set_scope_removed",
+      ctaLabel: "Open durable target",
+    });
+    expect(outcomes[0]?.card.actions[0]).toMatchObject({
+      type: "recover",
+      label: "Open durable target",
+    });
+    expect(outcomes[0]?.card.actions[1]?.type).toBe("acknowledge");
   });
 
   it("normalizes resume first, rerun second, then undo", () => {
@@ -282,6 +292,102 @@ describe("readRankedLandedOutcomes", () => {
     expect(outcomes[0]?.card.actions[2]?.type).toBe("undo");
     expect(outcomes[0]?.card.actions[3]?.type).toBe("pin");
     expect(outcomes[0]?.rerunAction?.type).toBe("rerun");
+  });
+
+  it("adds replacement recovery when an older anchor was superseded", () => {
+    const outcomes = readRankedLandedOutcomes({
+      availability: buildContinuityAvailability({
+        planningSessionIds: [41, 99],
+      }),
+      recentActions: [receiptEntry({
+        occurredAt: "2026-03-20T12:03:00Z",
+        outcome: {
+          ...receiptEntry().outcome!,
+          card: {
+            ...receiptEntry().outcome!.card,
+            title: "Replacement plan is ready",
+            summary: "Open the refreshed planning session.",
+          },
+          resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+          workflowThread: {
+            id: "planning:99",
+            kind: "planning_checkpoint",
+            title: "Replacement plan",
+            summary: "New planning thread",
+            parentOutcomeId: null,
+          },
+          resolvedResume: {
+            requestedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+            resolvedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+            status: "ok",
+            message: null,
+          },
+        },
+      })],
+      resumeAnchors: {
+        planning: {
+          kind: "planning",
+          reviewFocus: "planning",
+          sessionId: 41,
+          visitedAtUtc: "2026-03-20T12:00:00Z",
+          launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          outcomeTitle: "Old plan",
+          outcomeSummary: "Prior planning path",
+          workingSetId: null,
+          workflowThreadId: "planning:41",
+        },
+        review: null,
+      },
+      now: Date.parse("2026-03-20T12:05:00Z"),
+    });
+
+    const anchorOutcome = outcomes.find((item) => item.source === "anchor");
+    expect(anchorOutcome?.recovery).toMatchObject({
+      kind: "replacement",
+      ctaLabel: "Open replacement workflow",
+    });
+    expect(anchorOutcome?.card.actions[0]).toMatchObject({
+      type: "recover",
+      label: "Open replacement workflow",
+    });
+  });
+
+  it("removes the acknowledgement action once recovery is acknowledged", () => {
+    const outcomes = readRankedLandedOutcomes({
+      availability: buildContinuityAvailability({
+        enrichmentSessionIds: [52],
+      }),
+      recentActions: [receiptEntry({
+        outcome: {
+          ...receiptEntry().outcome!,
+          resolvedResume: null,
+        },
+      })],
+      resumeAnchors: { planning: null, review: null },
+      now: Date.parse("2026-03-20T12:05:00Z"),
+    });
+
+    const recoveryKey = outcomes[0]?.recovery?.key;
+    expect(recoveryKey).toBeTruthy();
+    markContinuityRecoveryAcknowledged(recoveryKey!);
+
+    const acknowledged = readRankedLandedOutcomes({
+      availability: buildContinuityAvailability({
+        enrichmentSessionIds: [52],
+      }),
+      recentActions: [receiptEntry({
+        outcome: {
+          ...receiptEntry().outcome!,
+          resolvedResume: null,
+        },
+      })],
+      resumeAnchors: { planning: null, review: null },
+      now: Date.parse("2026-03-20T12:05:00Z"),
+    });
+
+    expect(acknowledged[0]?.recovery?.acknowledged).toBe(true);
+    expect(acknowledged[0]?.card.actions.some((action) => action.type === "acknowledge")).toBe(false);
   });
 
   it("uses working-set metadata from availability when anchors need a fallback name", () => {

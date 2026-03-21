@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn proactive operator guidance into explicit recovery flows whenever a previously saved path was superseded, degraded, or deleted, so resume can stay calm even when the original workflow is no longer the right place to land.
+The current priority is to move continuity recovery from frontend-only best-effort inference to backend-assisted provenance and broader downstream-surface adoption, so every stale workflow can explain exactly what replaced it and where to go next.
 
 ## Direction
 
@@ -39,31 +39,32 @@ The next roadmap slice starts from work that is already live:
 - grouped workflow-thread continuity across operator home, the receipt rail, and command-palette recents
 - drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
 - proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
+- explicit continuity recovery flows for superseded or unavailable workflows across operator cards, the receipt rail, and command-palette recommendations
 - bounded read-only alternate generation strategies with surfaced provenance metadata
 - shared rerun and refresh affordances across planning, saved review sessions, recall result cards, continuity, CLI, HTTP, and MCP
 
 ## Execution order
 
-### Next — Explicit recovery flows for superseded or unavailable workflows
+### Next — Backend-assisted recovery provenance and downstream-surface cutover
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 
-Goal: turn replaced, gone, or degraded continuity paths into explicit recovery UX with clear replacement targets, safe fallbacks, and minimal dead-end navigation across operator home, review, planning, and recall handoffs.
+Goal: replace frontend-only recovery inference with explicit backend-assisted successor provenance and extend the same recovery contract into downstream planning, review, and recall surfaces.
 
 Why this comes next:
-- proactive next-move guidance now exists in the operator workspace and command palette, so the next churn-reducing step is to make stale destinations recoverable everywhere they appear
-- replaced/gone reasoning is now computed from durable anchors and last-seen evidence, but degraded destinations still surface mostly as labels instead of full recovery flows
-- recovery UX should land before deeper recommendation expansion so every surfaced recommendation remains trustworthy when the original target disappears
+- the operator workspace, receipt rail, and command palette now expose explicit recovery CTAs, so the next churn-reducing step is to make their provenance exact instead of inferred from local ranked outcomes alone
+- replacement and fallback reasoning is still synthesized mostly in the frontend, which limits how precisely non-shell surfaces can explain what replaced a stale destination
+- backend-assisted successor metadata should land before broader recommendation expansion so future continuity UX can reuse one canonical recovery contract everywhere
 
 Planned sequence:
 
-1. add explicit replacement and gone-state recovery actions anywhere a saved continuity target is opened or resumed
-2. prefer jump-to-replacement affordances over home fallbacks when a deterministic successor exists
-3. preserve the same recovery explanation across operator cards, the command palette, receipt rail, and downstream work surfaces
-4. expose recovery provenance and rollback cues so operators can see why the original path changed before they jump
+1. extend durable continuity resolution to emit explicit successor or replacement targets when a stale path can be mapped deterministically
+2. thread that recovery provenance through frontend hydration, typed contracts, and shared continuity helpers instead of recomputing it per surface
+3. reuse the same recovery contract in downstream planning, review, and recall action cards so stale handoffs stay recoverable outside operator home
+4. preserve recovery acknowledgement state and provenance labels consistently across browser sessions, devices, and refreshed shells
 
 ## Delivery model
 

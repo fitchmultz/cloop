@@ -30,6 +30,8 @@ import type {
 import {
   buildContinuityBaseline,
   hydrateDurableContinuityState,
+  isContinuityRecoveryAcknowledged,
+  markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
   readRecentShellActions,
   readRecentShellReceiptEntries,
@@ -107,6 +109,12 @@ describe("continuity-intelligence", () => {
     });
     globalThis.fetch = originalFetch;
     vi.useRealTimers();
+  });
+
+  it("persists continuity recovery acknowledgements", () => {
+    expect(isContinuityRecoveryAcknowledged("replacement::planning:99")).toBe(false);
+    markContinuityRecoveryAcknowledged("replacement::planning:99");
+    expect(isContinuityRecoveryAcknowledged("replacement::planning:99")).toBe(true);
   });
 
   it("persists planning and review resume anchors", () => {

@@ -488,6 +488,77 @@ describe("shell-operator-cards", () => {
       .toBe("Launch review queue is ready");
   });
 
+  it("surfaces explicit recovery cards near the top of since-last", () => {
+    rememberPlanningAnchor({
+      sessionId: 41,
+      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      outcomeTitle: "Old launch plan",
+      outcomeSummary: "Prior planning path",
+      workflowThreadId: "planning:41",
+    });
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Created launch review queue",
+      description: "Created the downstream queue.",
+      location: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      outcome: {
+        card: {
+          id: "receipt-recovery",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Launch review queue is ready",
+          summary: "Open the prepared queue.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo remains available.",
+          },
+          handoff: {
+            changeSummary: "Queue created",
+            createdResources: ["Launch review queue"],
+            nextStep: "Open the queue.",
+            breadcrumbs: ["Home", "Plan"],
+          },
+          actions: [],
+        },
+        resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+        rollbackLabel: "Undo remains available.",
+        undoAction: null,
+        workflowThread: {
+          id: "planning:99",
+          kind: "planning_checkpoint",
+          title: "Replacement plan",
+          summary: "New planning thread",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+          resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+          status: "ok",
+          message: null,
+        },
+      },
+      persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
+    });
+
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    const headings = Array.from(elements.operatorSinceLast.querySelectorAll("h3")).map((node) => node.textContent);
+    expect(headings[0]).toBe("Why this workflow became the top recommendation");
+    expect(elements.operatorSinceLast.textContent).toContain("Old launch plan was superseded by Launch review queue is ready.");
+    expect(elements.operatorSinceLast.textContent).toContain("Open replacement workflow");
+  });
+
   it("renders a calm digest explaining why the workflow became the top recommendation", () => {
     recordRecentShellAction({
       kind: "planning",

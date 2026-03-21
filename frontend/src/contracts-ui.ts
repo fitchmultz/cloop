@@ -141,6 +141,8 @@ export type ContinuityResolvedStatus =
   | "launch_fallback"
   | "home_fallback";
 
+export type ContinuityRecoveryKind = Exclude<ContinuityResolvedStatus, "ok"> | "replacement";
+
 export interface ResolvedContinuityTarget {
   requestedLocation: ShellLocationContract | null;
   resolvedLocation: ShellLocationContract;
@@ -315,9 +317,31 @@ export interface RecentShellActionEntry {
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context" | "receipt";
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
-export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer" | "undo" | "rerun";
+export type OperatorActionCardActionType =
+  | "open"
+  | "pin"
+  | "event"
+  | "stage"
+  | "edit"
+  | "defer"
+  | "undo"
+  | "rerun"
+  | "recover"
+  | "acknowledge";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
 export type OperatorActionCardEmphasis = "standard" | "primary";
+
+export interface ContinuityRecoveryPlan {
+  key: string;
+  kind: ContinuityRecoveryKind;
+  title: string;
+  summary: string;
+  nextStep: string;
+  ctaLabel: string;
+  ctaDescription: string;
+  location: ShellLocationContract;
+  acknowledged: boolean;
+}
 export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
 export interface OperatorActionPreviewItem {
@@ -417,6 +441,18 @@ export interface OperatorActionCardRerunAction extends OperatorActionCardActionB
   contract: RerunAttemptContract;
 }
 
+export interface OperatorActionCardRecoverAction extends OperatorActionCardActionBase {
+  type: "recover";
+  location: ShellLocationContract;
+  recoveryKey: string;
+  recoveryKind: ContinuityRecoveryKind;
+}
+
+export interface OperatorActionCardAcknowledgeAction extends OperatorActionCardActionBase {
+  type: "acknowledge";
+  acknowledgementKey: string;
+}
+
 export type OperatorActionCardAction =
   | OperatorActionCardOpenAction
   | OperatorActionCardPinAction
@@ -425,7 +461,9 @@ export type OperatorActionCardAction =
   | OperatorActionCardEditAction
   | OperatorActionCardDeferAction
   | OperatorActionCardUndoAction
-  | OperatorActionCardRerunAction;
+  | OperatorActionCardRerunAction
+  | OperatorActionCardRecoverAction
+  | OperatorActionCardAcknowledgeAction;
 
 export interface OperatorActionCard {
   id: string;
@@ -441,6 +479,7 @@ export interface OperatorActionCard {
   actionContextLabel?: string | null;
   actionWarning?: string | null;
   emphasis?: OperatorActionCardEmphasis;
+  recovery?: ContinuityRecoveryPlan | null;
   actions: OperatorActionCardAction[];
 }
 

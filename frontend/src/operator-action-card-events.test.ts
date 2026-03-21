@@ -9,6 +9,7 @@
  *   - Assert stage pins a durable anchor and optionally opens the destination.
  *   - Assert edit replays the encoded query through shell navigation.
  *   - Assert defer only saves the anchor without forcing navigation.
+ *   - Assert recovery actions acknowledge drift and launch the surviving path.
  *
  * Scope:
  *   - Shared click-dispatch behavior only.
@@ -56,6 +57,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(handled).toBe(false);
@@ -67,6 +69,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -116,6 +119,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -158,6 +162,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -211,6 +216,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -269,6 +275,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -289,6 +296,85 @@ describe("handleOperatorActionCardClick", () => {
     });
     expect(applyLocation).not.toHaveBeenCalled();
     expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges and opens recovery actions", async () => {
+    document.body.innerHTML = `
+      <button
+        id="recover"
+        type="button"
+        data-card-action="recover"
+        data-recovery-key="replacement::planning:41"
+        data-recovery-kind="replacement"
+        data-recover-state="decide"
+        data-recover-recall-tool="chat"
+        data-recover-review-focus="enrichment"
+        data-recover-session-id="52"
+      >Open replacement workflow</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const acknowledgeContinuityRecovery = vi.fn();
+    const button = document.getElementById("recover");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing recover button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery,
+    });
+
+    expect(result).toBe(true);
+    expect(acknowledgeContinuityRecovery).toHaveBeenCalledWith("replacement::planning:41");
+    expect(applyLocation).toHaveBeenCalledWith(expect.objectContaining({
+      state: "decide",
+      reviewFocus: "enrichment",
+      sessionId: 52,
+    }));
+  });
+
+  it("acknowledges recovery changes without navigating", async () => {
+    document.body.innerHTML = `
+      <button
+        id="acknowledge"
+        type="button"
+        data-card-action="acknowledge"
+        data-acknowledgement-key="replacement::planning:41"
+      >Acknowledge change</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const acknowledgeContinuityRecovery = vi.fn();
+    const button = document.getElementById("acknowledge");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing acknowledge button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery,
+    });
+
+    expect(result).toBe(true);
+    expect(acknowledgeContinuityRecovery).toHaveBeenCalledWith("replacement::planning:41");
+    expect(applyLocation).not.toHaveBeenCalled();
   });
 
   it("dispatches shared rerun actions", async () => {
@@ -318,6 +404,7 @@ describe("handleOperatorActionCardClick", () => {
       pinLocationToWorkingSet,
       executeUndoAction,
       executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
     });
 
     expect(result).toBe(true);

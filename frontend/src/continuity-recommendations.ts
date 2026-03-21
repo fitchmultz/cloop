@@ -25,6 +25,7 @@
 
 import type {
   ContinuityLastSeenMarker,
+  ContinuityRecoveryPlan,
   OperatorActionCard,
   ResumeAnchorState,
   ResumeAnchorTarget,
@@ -38,6 +39,10 @@ import {
   fallbackFollowThroughLocation,
   groupRankedWorkflowThreads,
 } from "./continuity-follow-through";
+import {
+  applyContinuityRecovery,
+  buildReplacementRecoveryPlan,
+} from "./continuity-recovery";
 import { continuityLocationIdentity } from "./continuity-outcomes";
 
 export interface PrimaryRecommendationPriorState {
@@ -53,6 +58,7 @@ export interface PrimaryRecommendation {
   whyNow: string[];
   changedSinceLastSeen: string[];
   priorState: PrimaryRecommendationPriorState | null;
+  recovery: ContinuityRecoveryPlan | null;
 }
 
 function uniqueLines(values: Array<string | null | undefined>): string[] {
@@ -228,7 +234,18 @@ export function derivePrimaryRecommendation(input: {
     priorState?.summary,
   ]).join(" · ");
 
-  const card: OperatorActionCard = {
+  const recovery = representative.recovery ?? (priorState
+    ? buildReplacementRecoveryPlan({
+        priorTitle: priorState.title,
+        representativeTitle: representative.displayTitle,
+        location: representative.resumeLocation,
+        workflowThread: representative.workflowThread,
+        gone: priorState.kind === "gone",
+        summaryOverride: priorState.summary,
+      })
+    : null);
+
+  const baseCard: OperatorActionCard = {
     ...representative.card,
     id: `primary-next-move-${representative.id}`,
     emphasis: "primary",
@@ -269,7 +286,10 @@ export function derivePrimaryRecommendation(input: {
         },
     actionContextLabel: "Do this next",
     actionWarning: priorState?.kind === "gone" ? priorState.summary : (representative.card.actionWarning ?? null),
+    recovery: null,
   };
+
+  const card = applyContinuityRecovery(baseCard, recovery);
 
   return {
     workflow,
@@ -278,6 +298,7 @@ export function derivePrimaryRecommendation(input: {
     whyNow,
     changedSinceLastSeen,
     priorState,
+    recovery,
   };
 }
 

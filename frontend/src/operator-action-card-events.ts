@@ -5,9 +5,9 @@
  *   Execute shared operator action-card semantics outside review-local event handlers.
  *
  * Responsibilities:
- *   - Decode open, pin, stage, edit, defer, and undo button datasets.
+ *   - Decode open, pin, stage, edit, defer, undo, and recovery button datasets.
  *   - Reuse shell navigation and working-set pinning callbacks.
- *   - Keep shared follow-through actions deterministic across shell-owned surfaces.
+ *   - Keep shared follow-through and recovery actions deterministic across shell-owned surfaces.
  *
  * Scope:
  *   - Shared shell-side action-card dispatch only.
@@ -54,9 +54,10 @@ export interface OperatorActionCardDispatchOptions {
     action: OperatorActionCardRerunAction,
     button: HTMLButtonElement,
   ) => Promise<void>;
+  acknowledgeContinuityRecovery: (key: string) => void;
 }
 
-type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer" | "undoSuccess";
+type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer" | "undoSuccess" | "recover";
 
 function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): ShellLocation {
   return createLocation({
@@ -277,6 +278,21 @@ export async function handleOperatorActionCardClick(
         return true;
       }
       await options.executeRerunAction(action, actionButton);
+      return true;
+    }
+    case "recover": {
+      const key = actionButton.dataset["recoveryKey"]?.trim();
+      if (key) {
+        options.acknowledgeContinuityRecovery(key);
+      }
+      await options.applyLocation(locationFromButton(actionButton, "recover"));
+      return true;
+    }
+    case "acknowledge": {
+      const key = actionButton.dataset["acknowledgementKey"]?.trim();
+      if (key) {
+        options.acknowledgeContinuityRecovery(key);
+      }
       return true;
     }
     default:

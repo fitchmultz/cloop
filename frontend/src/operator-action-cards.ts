@@ -7,7 +7,7 @@
  *
  * Responsibilities:
  *   - Render typed action cards and card decks to HTML strings.
- *   - Encode shell-navigation, pin, and follow-through actions as data attributes.
+ *   - Encode shell-navigation, pin, follow-through, and recovery actions as data attributes.
  *   - Keep card anatomy consistent across workflow-specific shell sections.
  *
  * Scope:
@@ -51,7 +51,7 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
-function locationAttributes(prefix: "open" | "pin" | "stage" | "edit" | "defer" | "undo-success", location: ShellLocationContract): string {
+function locationAttributes(prefix: "open" | "pin" | "stage" | "edit" | "defer" | "undo-success" | "recover", location: ShellLocationContract): string {
   const attributes = [
     ["state", location.state],
     ["recall-tool", location.recallTool],
@@ -188,6 +188,28 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
           data-rerun-contract="${escapeHtml(JSON.stringify(action.contract))}"
         >${escapeHtml(action.label)}</button>
       `;
+    case "recover":
+      return `
+        <button
+          type="button"
+          ${className}
+          ${disabledAttributes}
+          data-card-action="recover"
+          data-recovery-key="${escapeHtml(action.recoveryKey)}"
+          data-recovery-kind="${escapeHtml(action.recoveryKind)}"
+          ${locationAttributes("recover", action.location)}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "acknowledge":
+      return `
+        <button
+          type="button"
+          ${className}
+          ${disabledAttributes}
+          data-card-action="acknowledge"
+          data-acknowledgement-key="${escapeHtml(action.acknowledgementKey)}"
+        >${escapeHtml(action.label)}</button>
+      `;
     case "open":
     default:
       return `
@@ -271,17 +293,27 @@ function renderActionArea(card: OperatorActionCard): string {
   const contextLabel = card.actionContextLabel?.trim()
     || (card.kind === "receipt" && card.actions.length ? "Continue from here" : "");
   const warning = card.actionWarning?.trim() ?? "";
+  const recoveryBlock = card.recovery
+    ? `
+      <div class="operator-action-recovery operator-action-recovery--${escapeHtml(card.recovery.kind)}">
+        <p class="operator-action-section-title">${escapeHtml(card.recovery.title)}</p>
+        ${!card.recovery.acknowledged ? `<p class="operator-action-warning">${escapeHtml(card.recovery.summary)}</p>` : ""}
+        <p><strong>Do this now:</strong> ${escapeHtml(card.recovery.nextStep)}</p>
+      </div>
+    `
+    : "";
   const rerunContracts = card.actions
     .filter((action): action is OperatorActionCardRerunAction => action.type === "rerun")
     .map((action) => renderRerunContract(action))
     .join("");
-  if (!card.actions.length && !contextLabel && !warning && !rerunContracts) {
+  if (!card.actions.length && !contextLabel && !warning && !recoveryBlock && !rerunContracts) {
     return "";
   }
   return `
     <section class="operator-action-section" aria-label="Actions">
       ${contextLabel ? `<p class="operator-action-section-title">${escapeHtml(contextLabel)}</p>` : ""}
-      ${warning ? `<p class="operator-action-warning">${escapeHtml(warning)}</p>` : ""}
+      ${recoveryBlock}
+      ${warning && !card.recovery ? `<p class="operator-action-warning">${escapeHtml(warning)}</p>` : ""}
       ${card.actions.length
         ? `
           <div class="operator-card-actions operator-action-card-actions">

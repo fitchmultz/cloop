@@ -1892,7 +1892,8 @@ function isLocationAction(
     || action.type === "pin"
     || action.type === "stage"
     || action.type === "edit"
-    || action.type === "defer";
+    || action.type === "defer"
+    || action.type === "recover";
 }
 
 function firstLocationAction(
@@ -2001,11 +2002,35 @@ function buildFollowThroughCards(
   excludedThreadId: string | null,
 ): PrioritizedCard[] {
   return outcomes
-    .filter((item) => (item.workflowThread?.id ?? continuityLocationIdentity(item.resumeLocation)) !== excludedThreadId)
+    .filter((item) => {
+      const identity = item.workflowThread?.id ?? continuityLocationIdentity(item.resumeLocation);
+      return identity !== excludedThreadId && (item.recovery == null || item.recovery.acknowledged);
+    })
     .slice(0, 3)
     .map((item, index) => ({
       priority: 120 - index * 5,
       card: item.card,
+    }));
+}
+
+function buildRecoveryCards(
+  outcomes: readonly ReturnType<typeof readRankedLandedOutcomes>[number][],
+  excludedThreadId: string | null,
+): PrioritizedCard[] {
+  return outcomes
+    .filter((item) => {
+      const identity = item.workflowThread?.id ?? continuityLocationIdentity(item.resumeLocation);
+      return identity !== excludedThreadId && item.recovery != null && !item.recovery.acknowledged;
+    })
+    .slice(0, 2)
+    .map((item, index) => ({
+      priority: 129 - index * 3,
+      card: index === 0
+        ? {
+            ...item.card,
+            emphasis: "primary",
+          }
+        : item.card,
     }));
 }
 
@@ -2045,6 +2070,7 @@ function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
     ...(model.recommendation
       ? [{ priority: 132, card: buildPrimaryRecommendationDigestCard(model.recommendation) }]
       : []),
+    ...buildRecoveryCards(model.outcomes, excludedThreadId),
     ...buildWorkflowThreadRollupCards(model.outcomes, excludedThreadId),
     ...buildFollowThroughCards(model.outcomes, excludedThreadId),
   ];

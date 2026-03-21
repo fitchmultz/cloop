@@ -199,7 +199,7 @@ Recall surfaces should record continuity around the durable result of a recall-s
 ## States and edge cases
 
 - **No receipt outcome available**: fall back to `RecentShellActionEntry.location`, but treat that as degraded continuity, not the desired standard.
-- **Landed target deleted or stale**: show a stale or missing state and offer a safe fallback to the originating workflow or operator workspace.
+- **Landed target deleted or stale**: show a stale or missing state and offer an explicit recovery CTA such as open replacement workflow, open launch workflow, open durable target, or return home safely.
 - **Multiple resources created by one action**: use the receipt’s primary `resumeLocation` as the main CTA and expose the remaining created resources in the secondary details or handoff area.
 - **Rapid repeated actions**: dedupe based on landed outcome identity and summary when possible, not just launch-point label.
 - **First browser session or cleared local storage**: continuity can fall back to baseline snapshots and active saved sessions without pretending there is recent local outcome history.

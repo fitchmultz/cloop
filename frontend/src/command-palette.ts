@@ -7,8 +7,8 @@
  *
  * Responsibilities:
  *   - Render and manage the palette dialog.
- *   - Build deterministic commands from shell context, working sets, sessions,
- *     saved views, and current selection state.
+ *   - Build deterministic commands from shell context, continuity recovery,
+ *     working sets, sessions, saved views, and current selection state.
  *   - Execute navigation, capture, mutation, and recall actions through shared
  *     HTTP contracts and shell callbacks.
  *   - Persist recent command usage for fast resume behavior.
@@ -51,6 +51,7 @@ import type {
   WorkingSetResponse,
 } from "./domain";
 import type {
+  ContinuityRecoveryPlan,
   RecallTool,
   RecentShellActionKind,
   ReviewFocus,
@@ -60,6 +61,7 @@ import type {
   TrustTone,
 } from "./contracts-ui";
 import {
+  markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
   markUndoActionUnavailable,
   readContinuityLastSeenMarkers,
@@ -198,6 +200,7 @@ interface CommandPaletteCommand extends PaletteRankItem {
     description: string;
     meta: string[];
     trust?: Partial<TrustSurfaceMetadata> | undefined;
+    recovery?: ContinuityRecoveryPlan | undefined;
   };
   execute: () => Promise<void>;
   recentAction?: RecentAction | undefined;
@@ -431,6 +434,9 @@ function requestSubmit(form: HTMLFormElement): void {
 }
 
 function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {
+  if (command.detail.recovery) {
+    return "Deterministic continuity recovery path";
+  }
   if (command.group === "act" || command.group === "capture") {
     return "Explicit mutation contract";
   }
@@ -454,6 +460,9 @@ function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {
 
 function defaultCommandContextSources(command: CommandPaletteCommand, selectedCount: number): string[] {
   const sources: string[] = [command.detail.eyebrow];
+  if (command.detail.recovery) {
+    sources.push("Recovery evidence from continuity outcomes and durable anchors");
+  }
   if (command.location?.sessionId != null) {
     sources.push(`Saved session #${command.location.sessionId}`);
   }
@@ -485,6 +494,9 @@ function defaultCommandContextSources(command: CommandPaletteCommand, selectedCo
 }
 
 function defaultCommandAssumptions(command: CommandPaletteCommand, selectedCount: number): string[] {
+  if (command.detail.recovery) {
+    return ["Recovery commands stay deterministic and only open the surviving destination."];
+  }
   if (command.disabled && command.group === "act") {
     return ["Select one or more loops before this command can run."];
   }
@@ -507,6 +519,9 @@ function defaultCommandAssumptions(command: CommandPaletteCommand, selectedCount
 }
 
 function defaultCommandConfidence(command: CommandPaletteCommand): { label: string | null; tone: TrustTone } {
+  if (command.detail.recovery) {
+    return { label: "Explicit recovery path", tone: "attention" };
+  }
   if (command.disabled) {
     return { label: "Unavailable until prerequisites are met", tone: "caution" };
   }
@@ -585,6 +600,16 @@ function detailTrustMetadata(command: CommandPaletteCommand, selectedCount: numb
 }
 
 function buildDetailHtml(command: CommandPaletteCommand, selectedCount: number): string {
+  const recoveryBlock = command.detail.recovery
+    ? `
+      <div class="command-palette-detail-recovery command-palette-detail-recovery--${escapeHtml(command.detail.recovery.kind)}">
+        <p class="support-eyebrow">${escapeHtml(command.detail.recovery.title)}</p>
+        <p>${escapeHtml(command.detail.recovery.summary)}</p>
+        <p><strong>Do this now:</strong> ${escapeHtml(command.detail.recovery.nextStep)}</p>
+      </div>
+    `
+    : "";
+
   return `
     <div class="command-palette-detail-header">
       <p class="support-eyebrow">${escapeHtml(command.detail.eyebrow)}</p>
@@ -592,6 +617,7 @@ function buildDetailHtml(command: CommandPaletteCommand, selectedCount: number):
       <p>${escapeHtml(command.subtitle)}</p>
     </div>
     <p class="command-palette-detail-body">${escapeHtml(command.detail.description)}</p>
+    ${recoveryBlock}
     ${renderTrustSurface(detailTrustMetadata(command, selectedCount), {
       variant: "detail",
       title: "Trust surface",
@@ -973,7 +999,7 @@ function commandItemHtml(command: CommandPaletteCommand, active: boolean): strin
   return `
     <button
       type="button"
-      class="command-palette-result${active ? " is-active" : ""}${command.disabled ? " is-disabled" : ""}${command.group === "recommended" ? " is-recommended" : ""}"
+      class="command-palette-result${active ? " is-active" : ""}${command.disabled ? " is-disabled" : ""}${command.group === "recommended" ? " is-recommended" : ""}${command.detail.recovery ? " is-recovery" : ""}"
       data-command-id="${escapeHtml(command.id)}"
       role="option"
       aria-selected="${active ? "true" : "false"}"
@@ -2011,6 +2037,80 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     });
   }
 
+  function continuityLocationLabel(location: ShellLocationContract): string {
+    switch (location.state) {
+      case "plan":
+        return location.sessionId != null ? `Plan #${location.sessionId}` : "Planning workspace";
+      case "decide":
+        return location.sessionId != null
+          ? `${location.reviewFocus ?? "review"} queue #${location.sessionId}`
+          : "Decision workspace";
+      case "working_set":
+        return location.workingSetId != null ? `Working set #${location.workingSetId}` : "Working-set workspace";
+      case "do":
+        return location.loopId != null ? `Loop #${location.loopId}` : "Do workspace";
+      case "recall":
+        return location.recallTool === "chat"
+          ? "Grounded chat"
+          : location.recallTool === "memory"
+            ? "Memory"
+            : "Documents";
+      default:
+        return "Operator workspace";
+    }
+  }
+
+  function buildRecoveryPaletteCommand(input: {
+    id: string;
+    group: "recommended" | "recent";
+    title: string;
+    recovery: ContinuityRecoveryPlan;
+    keywords: string[];
+    continuityRank: number;
+    continuitySignals: RankedLandedOutcome["rankingSignals"];
+  }): CommandPaletteCommand {
+    return {
+      id: input.id,
+      group: input.group,
+      title: `${input.recovery.ctaLabel} · ${input.title}`,
+      subtitle: input.recovery.summary,
+      keywords: [
+        ...input.keywords,
+        input.recovery.title,
+        input.recovery.summary,
+        input.recovery.nextStep,
+        "recover",
+        "replacement",
+        "fallback",
+      ],
+      badge: input.recovery.kind === "replacement" ? "Replacement" : "Recover",
+      location: input.recovery.location,
+      continuityRank: input.continuityRank + 48,
+      continuitySignals: {
+        driftScore: input.continuitySignals.driftScore,
+        workingSetRelevant: input.continuitySignals.workingSetRelevant,
+        downstreamReady: true,
+        degraded: false,
+        recencyTieBreaker: input.continuitySignals.recencyTieBreaker,
+      },
+      detail: {
+        eyebrow: "Continuity recovery",
+        description: input.recovery.nextStep,
+        meta: [
+          input.recovery.title,
+          input.recovery.summary,
+          `Destination: ${continuityLocationLabel(input.recovery.location)}`,
+        ],
+        recovery: input.recovery,
+      },
+      recentAction: { kind: "open-location", location: input.recovery.location },
+      execute: async () => {
+        markContinuityRecoveryAcknowledged(input.recovery.key);
+        await bindings.openLocation(input.recovery.location);
+      },
+    } satisfies CommandPaletteCommand;
+  }
+
   function recommendedCommands(
     context: CommandPaletteContext,
     outcomes: readonly RankedLandedOutcome[],
@@ -2021,6 +2121,25 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     }
 
     const item = recommendation.representative;
+    if (recommendation.recovery && !recommendation.recovery.acknowledged) {
+      return [buildRecoveryPaletteCommand({
+        id: `recommended-recovery-${item.id}`,
+        group: "recommended",
+        title: recommendation.workflow.thread.title,
+        recovery: recommendation.recovery,
+        keywords: [
+          recommendation.workflow.thread.title,
+          recommendation.card.summary,
+          item.displayTitle,
+          item.displaySummary,
+          ...recommendation.whyNow,
+          ...recommendation.changedSinceLastSeen,
+        ],
+        continuityRank: item.rank + 400,
+        continuitySignals: item.rankingSignals,
+      })];
+    }
+
     return [{
       id: `recommended-${item.id}`,
       group: "recommended",
@@ -2055,6 +2174,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             : null,
         ].filter((value): value is string => Boolean(value)),
         trust: recommendation.card.trust,
+        recovery: recommendation.recovery ?? undefined,
       },
       recentAction: { kind: "open-location", location: item.resumeLocation },
       execute: async () => {
@@ -2078,6 +2198,26 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       const commands: CommandPaletteCommand[] = [];
       const rerunAction = item.rerunAction;
       const undoAction = item.undoAction;
+
+      if (item.recovery && !item.recovery.acknowledged) {
+        commands.push(buildRecoveryPaletteCommand({
+          id: `recent-recovery-${item.id}`,
+          group: "recent",
+          title: thread.thread.title,
+          recovery: item.recovery,
+          keywords: [
+            item.displayTitle,
+            item.displaySummary,
+            thread.thread.title,
+            thread.thread.summary ?? "",
+            item.workingSetName ?? "",
+            activeWorkingSetName ?? "",
+          ],
+          continuityRank: item.rank + 32,
+          continuitySignals: item.rankingSignals,
+        }));
+        return commands;
+      }
 
       if (rerunAction && !rerunAction.disabledReason) {
         commands.push({
@@ -2252,6 +2392,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
                 ? "Undo available"
                 : "Resume only",
           ].filter((value): value is string => Boolean(value)),
+          recovery: item.recovery ?? undefined,
         },
         execute: async () => {
           await bindings.openLocation(item.resumeLocation);

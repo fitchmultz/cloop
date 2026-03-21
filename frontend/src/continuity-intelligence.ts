@@ -10,7 +10,8 @@
  *   - Read and write browser-local continuity baseline snapshots.
  *   - Hydrate durable recent outcomes and resume anchors from the backend.
  *   - Queue high-signal landed outcomes and anchors for backend persistence.
- *   - Keep local cache state deterministic for receipts, reruns, and undo state.
+ *   - Keep local cache state deterministic for receipts, reruns, undo state,
+ *     and recovery acknowledgements.
  *
  * Scope:
  *   - Frontend continuity persistence helpers and backend sync only.
@@ -80,6 +81,7 @@ const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
 const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
 const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
+const CONTINUITY_RECOVERY_ACKS_KEY = "cloop.continuity.recovery-acks.v1";
 const MAX_RECENT_ACTIONS = 24;
 const DEDUPE_WINDOW_MS = 15_000;
 
@@ -164,6 +166,44 @@ function emitRecentShellActionsUpdated(): void {
     return;
   }
   window.dispatchEvent(new CustomEvent(RECENT_SHELL_ACTIONS_UPDATED_EVENT));
+}
+
+function readContinuityRecoveryAckMap(): Record<string, string> {
+  if (!canUseLocalStorage()) {
+    return {};
+  }
+  const parsed = safeJsonParse<Record<string, string>>(
+    window.localStorage.getItem(CONTINUITY_RECOVERY_ACKS_KEY),
+    {},
+  );
+  return parsed && typeof parsed === "object" ? parsed : {};
+}
+
+function writeContinuityRecoveryAckMap(value: Record<string, string>): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  window.localStorage.setItem(CONTINUITY_RECOVERY_ACKS_KEY, JSON.stringify(value));
+}
+
+export function isContinuityRecoveryAcknowledged(key: string): boolean {
+  const normalizedKey = key.trim();
+  if (!normalizedKey) {
+    return false;
+  }
+  return typeof readContinuityRecoveryAckMap()[normalizedKey] === "string";
+}
+
+export function markContinuityRecoveryAcknowledged(key: string): void {
+  const normalizedKey = key.trim();
+  if (!normalizedKey || !canUseLocalStorage()) {
+    return;
+  }
+  writeContinuityRecoveryAckMap({
+    ...readContinuityRecoveryAckMap(),
+    [normalizedKey]: new Date().toISOString(),
+  });
+  emitRecentShellActionsUpdated();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

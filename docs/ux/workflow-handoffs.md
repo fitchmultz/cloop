@@ -73,7 +73,7 @@ Every handoff-capable workflow result should render:
 - **No downstream surface created**: result still explains completion and likely next manual option.
 - **Multiple follow-up resources**: present ranked recommendations plus full list.
 - **Partial failure**: make the handoff safe and explicit; do not imply full success.
-- **Stale downstream target**: explain drift and offer refresh/reload.
+- **Stale downstream target**: explain drift and offer an explicit recovery path such as open replacement workflow, reopen launch workflow, or return home safely.
 
 ## Contract implications
 

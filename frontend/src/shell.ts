@@ -704,7 +704,12 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     return;
   }
 
-  window.addEventListener(RECENT_SHELL_ACTIONS_UPDATED_EVENT, renderShellReceiptRail);
+  window.addEventListener(RECENT_SHELL_ACTIONS_UPDATED_EVENT, () => {
+    renderShellReceiptRail();
+    if (currentLocation.state === "operator") {
+      void workspaceController?.renderOperatorWorkspace();
+    }
+  });
 
   const eventController = createShellEventController({
     setElements: (nextElements) => {

@@ -9,6 +9,7 @@
  * Responsibilities:
  *   - Assert event-style action buttons keep their custom data attributes.
  *   - Assert stage/edit/defer actions render deterministic follow-through datasets.
+ *   - Assert recovery actions render dedicated recovery UI and datasets.
  *   - Guard shared card rendering from dropping trust or handoff sections.
  *
  * Scope:
@@ -76,6 +77,81 @@ describe("renderActionCardDeck", () => {
     expect(html).toContain("mutates loop fields immediately");
     expect(html).toContain("Trust surface");
     expect(html).toContain("Workflow handoff");
+  });
+
+  it("renders recovery blocks and recovery actions", () => {
+    const cards: OperatorActionCard[] = [
+      {
+        id: "recovery-1",
+        kind: "receipt",
+        tone: "attention",
+        eyebrow: "Continuity recovery",
+        title: "Launch review queue is ready",
+        summary: "The original queue is unavailable.",
+        rationale: "Recovery keeps continuity actionable when the original path disappears.",
+        preview: [],
+        trust: {
+          contextSources: ["Durable continuity"],
+          assumptions: [],
+          confidenceLabel: "Explicit recovery path",
+          freshnessLabel: "Detected just now",
+          rollbackLabel: "Navigation only until you act downstream.",
+        },
+        handoff: null,
+        actionContextLabel: "Recovery path",
+        recovery: {
+          key: "replacement::planning:41",
+          kind: "replacement",
+          title: "Old launch plan was replaced",
+          summary: "Old launch plan was superseded by Launch review queue is ready.",
+          nextStep: "Open the replacement workflow and continue from the newer path.",
+          ctaLabel: "Open replacement workflow",
+          ctaDescription: "Continue from the workflow that replaced the prior path.",
+          location: {
+            state: "decide",
+            recallTool: "chat",
+            reviewFocus: "enrichment",
+            sessionId: 52,
+            loopId: null,
+            workingSetId: null,
+          },
+          acknowledged: false,
+        },
+        actions: [
+          {
+            type: "recover",
+            label: "Open replacement workflow",
+            variant: "primary",
+            description: "Continue from the replacement workflow.",
+            recoveryKey: "replacement::planning:41",
+            recoveryKind: "replacement",
+            location: {
+              state: "decide",
+              recallTool: "chat",
+              reviewFocus: "enrichment",
+              sessionId: 52,
+              loopId: null,
+              workingSetId: null,
+            },
+          },
+          {
+            type: "acknowledge",
+            label: "Acknowledge change",
+            variant: "secondary",
+            description: "Old launch plan was superseded by Launch review queue is ready.",
+            acknowledgementKey: "replacement::planning:41",
+          },
+        ],
+      },
+    ];
+
+    const html = renderActionCardDeck(cards, "<p>Empty</p>");
+
+    expect(html).toContain("Old launch plan was replaced");
+    expect(html).toContain("Open replacement workflow");
+    expect(html).toContain('data-card-action="recover"');
+    expect(html).toContain('data-card-action="acknowledge"');
+    expect(html).toContain('data-recovery-kind="replacement"');
   });
 
   it("renders stage, edit, and defer datasets for shared follow-through actions", () => {
