@@ -62,6 +62,8 @@ import type {
 import {
   markRerunActionUnavailable,
   markUndoActionUnavailable,
+  readContinuityLastSeenMarkers,
+  readResumeAnchors,
   recordRecentShellAction,
 } from "./continuity-intelligence";
 import {
@@ -70,6 +72,7 @@ import {
   readRankedLandedOutcomes,
   type RankedLandedOutcome,
 } from "./continuity-follow-through";
+import { derivePrimaryRecommendation } from "./continuity-recommendations";
 import { continuityLocationIdentity } from "./continuity-outcomes";
 import { renderTrustSurface } from "./trust-surface";
 import {
@@ -210,6 +213,7 @@ interface CommandPaletteController {
 const RECENT_COMMANDS_STORAGE_KEY = "cloop.command-palette.recent.v1";
 const VIEW_CACHE_TTL_MS = 60 * 1000;
 const GROUP_LABELS = {
+  recommended: "Recommended",
   recent: "Recent",
   navigate: "Navigate",
   capture: "Capture",
@@ -430,6 +434,9 @@ function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {
   if (command.group === "act" || command.group === "capture") {
     return "Explicit mutation contract";
   }
+  if (command.group === "recommended") {
+    return "Deterministic continuity recommendation";
+  }
   if (command.group === "review") {
     return "Saved-session or review handoff";
   }
@@ -468,6 +475,9 @@ function defaultCommandContextSources(command: CommandPaletteCommand, selectedCo
   if (selectedCount > 0 && command.group === "act") {
     sources.push(`${selectedCount} selected loop${selectedCount === 1 ? "" : "s"}`);
   }
+  if (command.group === "recommended") {
+    sources.push("Durable continuity outcomes and last-seen evidence");
+  }
   if (command.group === "recent") {
     sources.push("Browser-local recent usage history");
   }
@@ -484,6 +494,9 @@ function defaultCommandAssumptions(command: CommandPaletteCommand, selectedCount
   if (command.group === "capture") {
     return ["A confirmation dialog or follow-up form will collect any missing required fields."];
   }
+  if (command.group === "recommended") {
+    return ["Recommendation ranking uses only visible continuity evidence, drift, readiness, and working-set relevance."];
+  }
   if (command.group === "recent") {
     return ["Recent commands are stored locally in this browser and may not reflect work done elsewhere."];
   }
@@ -499,6 +512,9 @@ function defaultCommandConfidence(command: CommandPaletteCommand): { label: stri
   }
   if (command.location?.loopId != null || command.location?.memoryId != null || command.location?.viewId != null) {
     return { label: "Exact object target", tone: "progress" };
+  }
+  if (command.group === "recommended") {
+    return { label: "Deterministic next move", tone: "attention" };
   }
   if (command.group === "recent") {
     return { label: "Recent repeat candidate", tone: "progress" };
@@ -517,6 +533,9 @@ function defaultCommandFreshness(command: CommandPaletteCommand): { label: strin
     const recentLine = command.detail.meta.find((item) => item.startsWith("Last used ")) ?? null;
     return { label: recentLine ? recentLine.replace(/^Last used /, "") : "Browser-local recent history", tone: "neutral" };
   }
+  if (command.group === "recommended") {
+    return { label: "Resolved from durable continuity and live shell state", tone: "neutral" };
+  }
   if (command.group === "act") {
     return { label: "Uses current shell selection and focus context", tone: command.disabled ? "caution" : "neutral" };
   }
@@ -527,7 +546,14 @@ function defaultCommandFreshness(command: CommandPaletteCommand): { label: strin
 }
 
 function defaultCommandRollback(command: CommandPaletteCommand): { label: string | null; tone: TrustTone } {
-  if (command.group === "navigate" || command.group === "review" || command.group === "recall" || command.group === "search" || command.group === "recent") {
+  if (
+    command.group === "recommended"
+    || command.group === "navigate"
+    || command.group === "review"
+    || command.group === "recall"
+    || command.group === "search"
+    || command.group === "recent"
+  ) {
     return { label: "Navigation only until you act downstream", tone: "progress" };
   }
   if (command.group === "capture") {
@@ -919,9 +945,26 @@ function continuityAvailabilityFromContext(context: CommandPaletteContext) {
 }
 
 function rankedFollowThrough(context: CommandPaletteContext): RankedLandedOutcome[] {
+  const resumeAnchors = readResumeAnchors();
+  const lastSeenMarkers = readContinuityLastSeenMarkers();
   return readRankedLandedOutcomes({
     availability: continuityAvailabilityFromContext(context),
     activeWorkingSetId: context.workingSetContext?.active_working_set_id ?? null,
+    resumeAnchors,
+    lastSeenMarkers,
+  });
+}
+
+function primaryRecommendationForContext(
+  context: CommandPaletteContext,
+  outcomes: readonly RankedLandedOutcome[],
+) {
+  const availability = continuityAvailabilityFromContext(context);
+  return derivePrimaryRecommendation({
+    outcomes,
+    availability,
+    resumeAnchors: readResumeAnchors(),
+    lastSeenMarkers: readContinuityLastSeenMarkers(),
   });
 }
 
@@ -930,7 +973,7 @@ function commandItemHtml(command: CommandPaletteCommand, active: boolean): strin
   return `
     <button
       type="button"
-      class="command-palette-result${active ? " is-active" : ""}${command.disabled ? " is-disabled" : ""}"
+      class="command-palette-result${active ? " is-active" : ""}${command.disabled ? " is-disabled" : ""}${command.group === "recommended" ? " is-recommended" : ""}"
       data-command-id="${escapeHtml(command.id)}"
       role="option"
       aria-selected="${active ? "true" : "false"}"
@@ -959,7 +1002,7 @@ function groupedResultsHtml(commands: readonly CommandPaletteCommand[], activeId
   return Array.from(grouped.entries())
     .map(([group, items]) => {
       return `
-        <section class="command-palette-group" aria-label="${escapeHtml(GROUP_LABELS[group])}">
+        <section class="command-palette-group command-palette-group--${escapeHtml(group)}" aria-label="${escapeHtml(GROUP_LABELS[group])}">
           <p class="command-palette-group-label">${escapeHtml(GROUP_LABELS[group])}</p>
           <div class="command-palette-group-list">
             ${items.map((item) => commandItemHtml(item, item.id === activeId)).join("")}
@@ -1968,12 +2011,67 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     });
   }
 
+  function recommendedCommands(
+    context: CommandPaletteContext,
+    outcomes: readonly RankedLandedOutcome[],
+    recommendation = primaryRecommendationForContext(context, outcomes),
+  ): CommandPaletteCommand[] {
+    if (!recommendation) {
+      return [];
+    }
+
+    const item = recommendation.representative;
+    return [{
+      id: `recommended-${item.id}`,
+      group: "recommended",
+      title: `Next move · ${recommendation.workflow.thread.title}`,
+      subtitle: recommendation.card.summary,
+      keywords: [
+        recommendation.workflow.thread.title,
+        recommendation.card.summary,
+        item.displayTitle,
+        item.displaySummary,
+        ...recommendation.whyNow,
+        ...recommendation.changedSinceLastSeen,
+      ],
+      badge: "Next move",
+      location: item.resumeLocation,
+      continuityRank: item.rank + 400,
+      continuitySignals: {
+        driftScore: item.rankingSignals.driftScore,
+        workingSetRelevant: item.rankingSignals.workingSetRelevant,
+        downstreamReady: item.rankingSignals.downstreamReady,
+        degraded: item.rankingSignals.degraded,
+        recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
+      },
+      detail: {
+        eyebrow: "Recommended next move",
+        description: recommendation.card.rationale,
+        meta: [
+          ...recommendation.whyNow,
+          ...recommendation.changedSinceLastSeen,
+          recommendation.priorState
+            ? `${recommendation.priorState.kind === "gone" ? "Prior path gone" : "Prior path replaced"}: ${recommendation.priorState.summary}`
+            : null,
+        ].filter((value): value is string => Boolean(value)),
+        trust: recommendation.card.trust,
+      },
+      recentAction: { kind: "open-location", location: item.resumeLocation },
+      execute: async () => {
+        await bindings.openLocation(item.resumeLocation);
+      },
+    } satisfies CommandPaletteCommand];
+  }
+
   function recentCommands(
     context: CommandPaletteContext,
     outcomes: readonly RankedLandedOutcome[],
+    excludedThreadId: string | null,
   ): CommandPaletteCommand[] {
     const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
-    const grouped = groupRankedWorkflowThreads(outcomes).slice(0, 8);
+    const grouped = groupRankedWorkflowThreads(outcomes)
+      .filter((thread) => thread.id !== excludedThreadId)
+      .slice(0, 8);
 
     return grouped.flatMap((thread) => {
       const item = thread.representative;
@@ -2169,8 +2267,10 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const normalizedQuery = query.trim();
     const views = await ensureViewsLoaded().catch(() => [] as LoopViewResponse[]);
     const outcomes = rankedFollowThrough(context);
+    const recommendation = primaryRecommendationForContext(context, outcomes);
     const commands: CommandPaletteCommand[] = [
-      ...recentCommands(context, outcomes),
+      ...recommendedCommands(context, outcomes, recommendation),
+      ...recentCommands(context, outcomes, recommendation?.workflow.id ?? null),
       ...baseNavigationCommands(context),
       ...baseCaptureCommands(),
       ...baseActCommands(context),

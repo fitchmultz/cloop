@@ -320,6 +320,14 @@
   box-shadow: inset 0 0 0 1px rgba(87, 149, 111, 0.08);
 }
 
+.operator-action-card--primary {
+  border-color: rgba(214, 107, 63, 0.42);
+  background:
+    linear-gradient(180deg, rgba(214, 107, 63, 0.12), rgba(255, 255, 255, 0.94)),
+    var(--color-card-alt);
+  box-shadow: 0 0 0 1px rgba(214, 107, 63, 0.08), var(--shadow-lg);
+}
+
 .operator-action-card--receipt {
   border-left: 4px solid rgba(87, 149, 111, 0.32);
   background:
@@ -652,6 +660,10 @@ body.shell-focus-mode .operator-grid {
   color: var(--color-muted);
 }
 
+.command-palette-group--recommended .command-palette-group-label {
+  color: var(--color-brand);
+}
+
 .command-palette-group-list {
   display: grid;
   gap: var(--space-2);
@@ -674,6 +686,12 @@ body.shell-focus-mode .operator-grid {
 .command-palette-result.is-active {
   border-color: rgba(214, 107, 63, 0.26);
   background: rgba(255, 247, 242, 0.96);
+  box-shadow: var(--shadow-md);
+}
+
+.command-palette-result.is-recommended {
+  border-color: rgba(214, 107, 63, 0.32);
+  background: linear-gradient(180deg, rgba(255, 247, 242, 0.98), rgba(255, 255, 255, 0.94));
   box-shadow: var(--shadow-md);
 }
 

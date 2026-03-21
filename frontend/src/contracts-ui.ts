@@ -317,6 +317,7 @@ export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refr
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
 export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer" | "undo" | "rerun";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
+export type OperatorActionCardEmphasis = "standard" | "primary";
 export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
 export interface OperatorActionPreviewItem {
@@ -439,6 +440,7 @@ export interface OperatorActionCard {
   handoff: OperatorActionHandoff | null;
   actionContextLabel?: string | null;
   actionWarning?: string | null;
+  emphasis?: OperatorActionCardEmphasis;
   actions: OperatorActionCardAction[];
 }
 

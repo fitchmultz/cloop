@@ -296,7 +296,7 @@ function renderActionArea(card: OperatorActionCard): string {
 
 function renderActionCard(card: OperatorActionCard): string {
   return `
-    <article class="operator-action-card operator-action-card--${escapeHtml(card.kind)} operator-action-card--${escapeHtml(card.tone)}">
+    <article class="operator-action-card operator-action-card--${escapeHtml(card.kind)} operator-action-card--${escapeHtml(card.tone)}${card.emphasis === "primary" ? " operator-action-card--primary" : ""}">
       <div class="operator-action-card-header">
         <div>
           <p class="support-eyebrow">${escapeHtml(card.eyebrow)}</p>

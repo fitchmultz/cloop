@@ -402,4 +402,51 @@ describe("readRankedLandedOutcomes", () => {
     expect(outcomes[0]?.persistedOutcomeId).toBe(12);
     expect(outcomes[0]?.rankingSignals.driftSeverity).toBe("major");
   });
+
+  it("marks a newer workflow as replaced when it supersedes the durable anchor in the same family", () => {
+    const outcomes = readRankedLandedOutcomes({
+      availability: buildContinuityAvailability({
+        planningSessionIds: [41, 99],
+      }),
+      recentActions: [
+        receiptEntry({
+          occurredAt: "2026-03-20T12:03:00Z",
+          outcome: {
+            ...receiptEntry().outcome!,
+            workflowThread: {
+              id: "planning:99",
+              kind: "planning_checkpoint",
+              title: "Replacement plan",
+              summary: "New planning thread",
+              parentOutcomeId: null,
+            },
+            resolvedResume: {
+              requestedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+              resolvedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+              status: "ok",
+              message: null,
+            },
+          },
+        }),
+      ],
+      resumeAnchors: {
+        planning: {
+          kind: "planning",
+          reviewFocus: "planning",
+          sessionId: 41,
+          visitedAtUtc: "2026-03-20T12:00:00Z",
+          launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          outcomeTitle: "Old plan",
+          outcomeSummary: "Prior planning path",
+          workingSetId: null,
+          workflowThreadId: "planning:41",
+        },
+        review: null,
+      },
+      now: Date.parse("2026-03-20T12:05:00Z"),
+    });
+
+    expect(outcomes[0]?.rankingSignals.driftSeverity).toBe("replaced");
+  });
 });

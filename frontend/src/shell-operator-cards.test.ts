@@ -2,11 +2,12 @@
  * shell-operator-cards.test.ts - Regression tests for working-set-aware operator handoff cards.
  *
  * Purpose:
- *   Guard operator-card assembly so propagated working-set context remains
- *   visible on planning and since-last handoff cards.
+ *   Guard operator-card assembly so propagated working-set context and the
+ *   primary continuity recommendation remain visible in operator zones.
  *
  * Responsibilities:
  *   - Assert planning execution and launch cards keep propagated working-set metadata.
+ *   - Assert primary-next-move and since-last digest cards render from durable continuity.
  *   - Assert since-last handoff and resume-anchor cards expose working-set context.
  *   - Assert focus-mode filtering still keeps matching handoff cards when legacy launches omit working-set ids.
  *
@@ -426,6 +427,127 @@ describe("shell-operator-cards", () => {
     expect(button?.getAttribute("data-open-working-set-id")).toBe("2");
   });
 
+  it("renders a primary next move at the top of the Now zone", () => {
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Created launch review queue",
+      description: "Created the downstream queue.",
+      location: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      outcome: {
+        card: {
+          id: "receipt-primary",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Launch review queue is ready",
+          summary: "Open the prepared queue.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo remains available.",
+          },
+          handoff: {
+            changeSummary: "Queue created",
+            createdResources: ["Launch review queue"],
+            nextStep: "Open the queue.",
+            breadcrumbs: ["Home", "Plan"],
+          },
+          actions: [],
+        },
+        resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+        rollbackLabel: "Undo remains available.",
+        undoAction: null,
+        workflowThread: {
+          id: "planning:41",
+          kind: "planning_checkpoint",
+          title: "Weekly reset",
+          summary: "Planning checkpoint thread",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+          resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+          status: "ok",
+          message: null,
+        },
+      },
+      persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
+    });
+
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+    });
+
+    renderer.renderNowZone(makeWorkspaceData(null));
+
+    expect(elements.operatorNow.querySelector(".operator-action-card--primary h3")?.textContent)
+      .toBe("Launch review queue is ready");
+  });
+
+  it("renders a calm digest explaining why the workflow became the top recommendation", () => {
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Created launch review queue",
+      description: "Created the downstream queue.",
+      location: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      outcome: {
+        card: {
+          id: "receipt-primary-digest",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Launch review queue is ready",
+          summary: "Open the prepared queue.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo remains available.",
+          },
+          handoff: {
+            changeSummary: "Queue created",
+            createdResources: ["Launch review queue"],
+            nextStep: "Open the queue.",
+            breadcrumbs: ["Home", "Plan"],
+          },
+          actions: [],
+        },
+        resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+        rollbackLabel: "Undo remains available.",
+        undoAction: null,
+        workflowThread: {
+          id: "planning:41",
+          kind: "planning_checkpoint",
+          title: "Weekly reset",
+          summary: "Planning checkpoint thread",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+          resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+          status: "ok",
+          message: null,
+        },
+      },
+      persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
+    });
+
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    expect(findCard(elements.operatorSinceLast, "Why this workflow became the top recommendation")).not.toBeNull();
+  });
+
   it("renders the next-ranked follow-through card with propagated working-set context after the top outcome is reserved for the rail", () => {
     const propagatedSet = makeWorkingSet(2, "Review Prep");
     rememberPlanningAnchor({
@@ -510,8 +632,9 @@ describe("shell-operator-cards", () => {
     renderer.renderSinceLastVisit(makeWorkspaceData(null));
 
     const firstHeading = elements.operatorSinceLast.querySelector("h3");
-    expect(firstHeading?.textContent).toBe("Resume plan · Weekly reset");
-    expect(elements.operatorSinceLast.textContent).not.toContain("Applied enrichment suggestion");
+    expect(firstHeading?.textContent).toBe("Why this workflow became the top recommendation");
+    expect(elements.operatorSinceLast.textContent).toContain("Resume plan · Weekly reset");
+    expect(findCard(elements.operatorSinceLast, "Applied enrichment suggestion")).toBeNull();
   });
 
   it("keeps matching handoff cards visible in focus mode when saved items omit working-set ids", () => {
@@ -582,7 +705,7 @@ describe("shell-operator-cards", () => {
 
     renderer.renderSinceLastVisit(makeWorkspaceData(null));
 
-    expect(findCard(elements.operatorSinceLast, "Refreshed weekly reset")).not.toBeNull();
+    expect(findCard(elements.operatorSinceLast, "Why this workflow became the top recommendation")).not.toBeNull();
     expect(elements.operatorSinceLast.textContent).not.toContain("first recorded visit");
   });
 });

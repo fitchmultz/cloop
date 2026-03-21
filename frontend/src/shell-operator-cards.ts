@@ -61,6 +61,7 @@ import {
   buildWorkflowThreadLastSeenMarker,
   readContinuityLastSeenMarkers,
   readRecentShellActions,
+  readResumeAnchors,
   rememberContinuityObservation,
   rememberPlanningAnchor,
   rememberReviewAnchor,
@@ -71,10 +72,15 @@ import {
   readRankedLandedOutcomes,
 } from "./continuity-follow-through";
 import {
+  buildPrimaryRecommendationDigestCard,
+  derivePrimaryRecommendation,
+} from "./continuity-recommendations";
+import {
   buildPlanningRefreshAction,
   buildReviewSessionRefreshAction,
 } from "./executable-rerun";
 import { buildPlanningRollbackAction } from "./executable-undo";
+import { continuityLocationIdentity } from "./continuity-outcomes";
 import {
   buildChangedCountPreviewItems,
   buildGroupedChangePreviewItems,
@@ -461,12 +467,12 @@ function clarificationLabel(clarification: ClarificationResponse | null): string
   return clarification.question;
 }
 
-function buildNowCards(data: WorkspaceData): OperatorActionCard[] {
+function buildLoopNowCards(data: WorkspaceData): OperatorActionCard[] {
   const buckets: Array<{ label: string; tone: OperatorActionCard["tone"]; items: LoopResponse[] }> = [
-    { label: "Due soon", tone: "attention", items: data.nextLoops.due_soon },
-    { label: "Quick wins", tone: "progress", items: data.nextLoops.quick_wins },
-    { label: "High leverage", tone: "progress", items: data.nextLoops.high_leverage },
-    { label: "Standard", tone: "neutral", items: data.nextLoops.standard },
+    { label: "Due soon", tone: "attention", items: data.nextLoops.due_soon ?? [] },
+    { label: "Quick wins", tone: "progress", items: data.nextLoops.quick_wins ?? [] },
+    { label: "High leverage", tone: "progress", items: data.nextLoops.high_leverage ?? [] },
+    { label: "Standard", tone: "neutral", items: data.nextLoops.standard ?? [] },
   ];
 
   return buckets.flatMap((bucket) => {
@@ -524,6 +530,11 @@ function buildNowCards(data: WorkspaceData): OperatorActionCard[] {
       } satisfies OperatorActionCard;
     });
   });
+}
+
+function buildNowCards(data: WorkspaceData): OperatorActionCard[] {
+  const recommendation = followThroughModel(data).recommendation;
+  return recommendation ? [recommendation.card, ...buildLoopNowCards(data)] : buildLoopNowCards(data);
 }
 
 function buildRelationshipDecisionCard(
@@ -1952,31 +1963,58 @@ function followThroughAvailability(data: WorkspaceData) {
   });
 }
 
-function followThroughFeed(data: WorkspaceData) {
-  return readRankedLandedOutcomes({
-    availability: followThroughAvailability(data),
-    activeWorkingSetId: workingSetContext?.active_working_set_id ?? continuityBaseline?.activeWorkingSetId ?? null,
+interface FollowThroughModel {
+  outcomes: ReturnType<typeof readRankedLandedOutcomes>;
+  recommendation: ReturnType<typeof derivePrimaryRecommendation>;
+}
+
+function followThroughModel(data: WorkspaceData): FollowThroughModel {
+  const availability = followThroughAvailability(data);
+  const activeWorkingSetId = workingSetContext?.active_working_set_id ?? continuityBaseline?.activeWorkingSetId ?? null;
+  const resumeAnchors = readResumeAnchors();
+  const lastSeenMarkers = readContinuityLastSeenMarkers();
+  const outcomes = readRankedLandedOutcomes({
+    availability,
+    activeWorkingSetId,
+    resumeAnchors,
+    lastSeenMarkers,
   });
+  const recommendation = derivePrimaryRecommendation({
+    outcomes,
+    availability,
+    resumeAnchors,
+    lastSeenMarkers,
+  });
+
+  return {
+    outcomes,
+    recommendation,
+  };
+}
+
+function followThroughFeed(data: WorkspaceData) {
+  return followThroughModel(data).outcomes;
 }
 
 function buildFollowThroughCards(
-  data: WorkspaceData,
-  options: { skip?: number; limit?: number } = {},
+  outcomes: readonly ReturnType<typeof readRankedLandedOutcomes>[number][],
+  excludedThreadId: string | null,
 ): PrioritizedCard[] {
-  const skip = options.skip ?? 0;
-  const limit = options.limit ?? 3;
-
-  return followThroughFeed(data)
-    .slice(skip, skip + limit)
+  return outcomes
+    .filter((item) => (item.workflowThread?.id ?? continuityLocationIdentity(item.resumeLocation)) !== excludedThreadId)
+    .slice(0, 3)
     .map((item, index) => ({
       priority: 120 - index * 5,
       card: item.card,
     }));
 }
 
-function buildWorkflowThreadRollupCards(data: WorkspaceData): PrioritizedCard[] {
-  return groupRankedWorkflowThreads(followThroughFeed(data))
-    .filter((thread) => thread.outcomeCount > 1)
+function buildWorkflowThreadRollupCards(
+  outcomes: readonly ReturnType<typeof readRankedLandedOutcomes>[number][],
+  excludedThreadId: string | null,
+): PrioritizedCard[] {
+  return groupRankedWorkflowThreads(outcomes)
+    .filter((thread) => thread.id !== excludedThreadId && thread.outcomeCount > 1)
     .slice(0, 3)
     .map((thread, index) => ({
       priority: 118 - index * 4,
@@ -2001,9 +2039,14 @@ function buildWorkflowThreadRollupCards(data: WorkspaceData): PrioritizedCard[] 
 }
 
 function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
+  const model = followThroughModel(data);
+  const excludedThreadId = model.recommendation?.workflow.id ?? null;
   const prioritized: PrioritizedCard[] = [
-    ...buildWorkflowThreadRollupCards(data),
-    ...buildFollowThroughCards(data, { skip: 1, limit: 3 }),
+    ...(model.recommendation
+      ? [{ priority: 132, card: buildPrimaryRecommendationDigestCard(model.recommendation) }]
+      : []),
+    ...buildWorkflowThreadRollupCards(model.outcomes, excludedThreadId),
+    ...buildFollowThroughCards(model.outcomes, excludedThreadId),
   ];
   const maybeCards = [
     buildPlanningDriftCard(data),

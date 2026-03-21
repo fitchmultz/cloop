@@ -268,4 +268,28 @@ describe("rankPaletteItems", () => {
 
     expect(ranked[0]?.item.id).toBe("high-drift");
   });
+
+  it("keeps the dedicated recommended group above recent results", () => {
+    const items: PaletteRankItem[] = [
+      {
+        id: "recommended-next",
+        group: "recommended",
+        title: "Next move · Launch review queue",
+        subtitle: "Open the prepared queue.",
+        keywords: ["next", "move", "queue"],
+        continuityRank: 300,
+      },
+      {
+        id: "recent-thread",
+        group: "recent",
+        title: "Launch review queue",
+        subtitle: "Recent workflow thread",
+        keywords: ["queue", "recent"],
+        continuityRank: 320,
+      },
+    ];
+
+    const ranked = rankPaletteItems(items, rankingContext({ query: "" }));
+    expect(ranked[0]?.item.id).toBe("recommended-next");
+  });
 });

@@ -95,6 +95,7 @@ export interface ReadRankedLandedOutcomesInput {
   activeWorkingSetId?: number | null;
   recentActions?: readonly RecentShellActionEntry[];
   resumeAnchors?: ResumeAnchorState;
+  lastSeenMarkers?: readonly ContinuityLastSeenMarker[];
   now?: number;
 }
 
@@ -393,6 +394,56 @@ function workflowThreadMarker(
   return markers.find((marker) => marker.entityKind === "workflow_thread" && marker.entityKey === workflowThreadId) ?? null;
 }
 
+function outcomeFamily(
+  workflowThread: WorkflowThreadRef | null,
+  resumeLocation: ShellLocationContract,
+): "planning" | "review" | null {
+  if (workflowThread?.kind === "planning_checkpoint" || resumeLocation.state === "plan") {
+    return "planning";
+  }
+  if (
+    workflowThread?.kind === "review_session"
+    || (resumeLocation.state === "decide"
+      && (resumeLocation.reviewFocus === "relationship" || resumeLocation.reviewFocus === "enrichment"))
+  ) {
+    return "review";
+  }
+  return null;
+}
+
+function supersedesDurableAnchor(input: {
+  source: RankedLandedOutcome["source"];
+  workflowThread: WorkflowThreadRef | null;
+  resumeLocation: ShellLocationContract;
+  occurredAt: string;
+  resumeAnchors: ResumeAnchorState;
+}): boolean {
+  if (input.source === "anchor") {
+    return false;
+  }
+
+  const family = outcomeFamily(input.workflowThread, input.resumeLocation);
+  const anchor = family === "planning"
+    ? input.resumeAnchors.planning
+    : family === "review"
+      ? input.resumeAnchors.review
+      : null;
+  if (!anchor) {
+    return false;
+  }
+
+  if (safeTimestamp(input.occurredAt) < safeTimestamp(anchor.visitedAtUtc)) {
+    return false;
+  }
+
+  if (anchor.workflowThreadId && input.workflowThread?.id) {
+    return anchor.workflowThreadId !== input.workflowThread.id;
+  }
+
+  return continuityLocationIdentity(anchor.resumeLocation ?? anchor.launchLocation)
+    !== continuityLocationIdentity(input.resumeLocation);
+}
+
 function scoreOutcome(input: {
   source: RankedLandedOutcome["source"];
   occurredAt: string;
@@ -402,6 +453,8 @@ function scoreOutcome(input: {
   undoAction: OperatorActionCardUndoAction | null;
   rerunAction: OperatorActionCardRerunAction | null;
   workflowThread: WorkflowThreadRef | null;
+  resumeLocation: ShellLocationContract;
+  resumeAnchors: ResumeAnchorState;
   lastSeenMarkers: readonly ContinuityLastSeenMarker[];
   persistedOutcomeId: number | null;
   now: number;
@@ -415,6 +468,8 @@ function scoreOutcome(input: {
   let severity: ContinuityRankingSignals["driftSeverity"] = "none";
   if (input.degraded) {
     severity = "gone";
+  } else if (supersedesDurableAnchor(input)) {
+    severity = "replaced";
   } else if (!threadMarker) {
     severity = input.source === "anchor" ? "minor" : "moderate";
   } else if (input.persistedOutcomeId != null && input.persistedOutcomeId > lastSeenOutcomeId) {
@@ -434,6 +489,7 @@ function buildRecentOutcome(
   entry: RecentShellActionEntry,
   availability: ContinuityAvailability,
   activeWorkingSetId: number | null,
+  resumeAnchors: ResumeAnchorState,
   lastSeenMarkers: readonly ContinuityLastSeenMarker[],
   now: number,
 ): RankedLandedOutcome | null {
@@ -468,6 +524,8 @@ function buildRecentOutcome(
     undoAction,
     rerunAction,
     workflowThread,
+    resumeLocation: resolvedTarget.location,
+    resumeAnchors,
     lastSeenMarkers,
     persistedOutcomeId: entry.persistence?.persistedOutcomeId ?? null,
     now,
@@ -498,6 +556,7 @@ function buildAnchorOutcome(
   anchor: ResumeAnchorTarget,
   availability: ContinuityAvailability,
   activeWorkingSetId: number | null,
+  resumeAnchors: ResumeAnchorState,
   lastSeenMarkers: readonly ContinuityLastSeenMarker[],
   now: number,
 ): RankedLandedOutcome {
@@ -521,6 +580,8 @@ function buildAnchorOutcome(
     undoAction: null,
     rerunAction: null,
     workflowThread,
+    resumeLocation: fallback.location,
+    resumeAnchors,
     lastSeenMarkers,
     persistedOutcomeId: null,
     now,
@@ -573,19 +634,19 @@ export function readRankedLandedOutcomes(input: ReadRankedLandedOutcomesInput): 
   const recentActions = input.recentActions ?? readRecentShellActions();
   const resumeAnchors = input.resumeAnchors ?? readResumeAnchors();
   const activeWorkingSetId = input.activeWorkingSetId ?? null;
-  const lastSeenMarkers = readContinuityLastSeenMarkers();
+  const lastSeenMarkers = input.lastSeenMarkers ?? readContinuityLastSeenMarkers();
   const now = input.now ?? Date.now();
 
   const recent = dedupeRecentOutcomes(
     recentActions
-      .map((entry) => buildRecentOutcome(entry, input.availability, activeWorkingSetId, lastSeenMarkers, now))
+      .map((entry) => buildRecentOutcome(entry, input.availability, activeWorkingSetId, resumeAnchors, lastSeenMarkers, now))
       .filter((item): item is RankedLandedOutcome => item !== null),
   );
 
   const recentLocationKeys = new Set(recent.map((item) => continuityLocationIdentity(item.resumeLocation)));
   const anchors = [resumeAnchors.planning, resumeAnchors.review]
     .filter((anchor): anchor is ResumeAnchorTarget => anchor != null)
-    .map((anchor) => buildAnchorOutcome(anchor, input.availability, activeWorkingSetId, lastSeenMarkers, now))
+    .map((anchor) => buildAnchorOutcome(anchor, input.availability, activeWorkingSetId, resumeAnchors, lastSeenMarkers, now))
     .filter((item) => !recentLocationKeys.has(continuityLocationIdentity(item.resumeLocation)));
 
   return [...recent, ...anchors].sort((left, right) => {

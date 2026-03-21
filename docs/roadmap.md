@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to turn durable continuity history and deterministic drift signals into proactive operator guidance now that resume ranking and since-last summaries are grounded in durable evidence instead of browser-local recency alone.
+The current priority is to turn proactive operator guidance into explicit recovery flows whenever a previously saved path was superseded, degraded, or deleted, so resume can stay calm even when the original workflow is no longer the right place to land.
 
 ## Direction
 
@@ -38,31 +38,32 @@ The next roadmap slice starts from work that is already live:
 - durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
 - grouped workflow-thread continuity across operator home, the receipt rail, and command-palette recents
 - drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
+- proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
 - bounded read-only alternate generation strategies with surfaced provenance metadata
 - shared rerun and refresh affordances across planning, saved review sessions, recall result cards, continuity, CLI, HTTP, and MCP
 
 ## Execution order
 
-### Next — Proactive operator guidance on top of durable continuity
+### Next — Explicit recovery flows for superseded or unavailable workflows
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 
-Goal: convert durable continuity history and deterministic drift into one obvious next move, calmer proactive summaries, and better operator prompts without resorting to opaque recommendation logic.
+Goal: turn replaced, gone, or degraded continuity paths into explicit recovery UX with clear replacement targets, safe fallbacks, and minimal dead-end navigation across operator home, review, planning, and recall handoffs.
 
 Why this comes next:
-- durable continuity, workflow threads, and last-seen drift markers now exist, so proactive guidance can build on trustworthy local evidence instead of browser-local gaps
-- since-last cards and palette ranking now surface stronger drift-aware signals, but the workspace still expects the operator to interpret several cards before knowing what to do first
-- proactive operator guidance should land only after durable continuity and drift cutovers are stable, so recommendation surfaces do not build on brittle recency heuristics
+- proactive next-move guidance now exists in the operator workspace and command palette, so the next churn-reducing step is to make stale destinations recoverable everywhere they appear
+- replaced/gone reasoning is now computed from durable anchors and last-seen evidence, but degraded destinations still surface mostly as labels instead of full recovery flows
+- recovery UX should land before deeper recommendation expansion so every surfaced recommendation remains trustworthy when the original target disappears
 
 Planned sequence:
 
-1. derive one primary operator recommendation from deterministic readiness, drift severity, working-set relevance, and downstream handoff availability
-2. add concise grouped digests that explain why a workflow became the top recommendation and what changed since it was last seen
-3. surface replacement/gone workflow states more explicitly when a prior primary path was superseded or deleted
-4. keep every proactive recommendation grounded in visible evidence, launch targets, and reversible next steps
+1. add explicit replacement and gone-state recovery actions anywhere a saved continuity target is opened or resumed
+2. prefer jump-to-replacement affordances over home fallbacks when a deterministic successor exists
+3. preserve the same recovery explanation across operator cards, the command palette, receipt rail, and downstream work surfaces
+4. expose recovery provenance and rollback cues so operators can see why the original path changed before they jump
 
 ## Delivery model
 
