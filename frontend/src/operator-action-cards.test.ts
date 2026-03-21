@@ -193,6 +193,36 @@ describe("renderActionCardDeck", () => {
               workingSetId: 7,
             },
           },
+          {
+            type: "rerun",
+            label: "Refresh plan",
+            variant: "secondary",
+            description: "Land back in the saved planning session.",
+            rerun: {
+              kind: "planning_session",
+              sessionId: 12,
+              sessionName: "Weekly reset",
+            },
+            contract: {
+              mode: "refresh",
+              provenanceLabel: "Planning session: Weekly reset",
+              freshnessLabel: "1 target changed",
+              strategySummary: "Reuse the saved planning session and refresh it against current loop state.",
+              strictInvariants: ["Same planning session identity"],
+              mayVary: ["Checkpoint wording"],
+              postRun: {
+                summary: "Land back in the saved planning session.",
+                location: {
+                  state: "plan",
+                  recallTool: "chat",
+                  reviewFocus: "planning",
+                  sessionId: 12,
+                  loopId: null,
+                  workingSetId: 7,
+                },
+              },
+            },
+          },
         ],
       },
     ];
@@ -211,5 +241,10 @@ describe("renderActionCardDeck", () => {
     expect(html).toContain('data-undo-working-set-name="Launch reset"');
     expect(html).toContain('data-undo-success-state="plan"');
     expect(html).toContain('data-undo-success-state="working_set"');
+    expect(html).toContain('data-card-action="rerun"');
+    expect(html).toContain('data-rerun-handle="{&quot;kind&quot;:&quot;planning_session&quot;');
+    expect(html).toContain("Refresh contract");
+    expect(html).toContain("Strict:");
+    expect(html).toContain("May vary:");
   });
 });

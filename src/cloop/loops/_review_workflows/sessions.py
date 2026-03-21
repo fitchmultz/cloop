@@ -50,6 +50,7 @@ from .shared import (
 from .snapshots import (
     _build_enrichment_session_snapshot,
     _build_relationship_session_snapshot,
+    _candidate_loop_ids,
     _move_session_loop_id,
 )
 
@@ -164,6 +165,28 @@ def move_relationship_review_session(
             f"Relationship review session not found: {session_id}",
         )
     return _build_relationship_session_snapshot(session_row=updated, conn=conn, settings=settings)
+
+
+@typingx.validate_io()
+def refresh_relationship_review_session(
+    *,
+    session_id: int,
+    conn: sqlite3.Connection,
+    settings: Any,
+) -> dict[str, Any]:
+    session_row = _require_relationship_session_row(session_id=session_id, conn=conn)
+    before = _build_relationship_session_snapshot(
+        session_row=session_row,
+        conn=conn,
+        settings=settings,
+    )
+    return _build_relationship_session_snapshot(
+        session_row=_require_relationship_session_row(session_id=session_id, conn=conn),
+        conn=conn,
+        settings=settings,
+        previous_order=_candidate_loop_ids(before["items"]),
+        previous_index=before["current_index"],
+    )
 
 
 @typingx.validate_io()
@@ -339,6 +362,22 @@ def move_enrichment_review_session(
 
 
 @typingx.validate_io()
+def refresh_enrichment_review_session(
+    *,
+    session_id: int,
+    conn: sqlite3.Connection,
+) -> dict[str, Any]:
+    session_row = _require_enrichment_session_row(session_id=session_id, conn=conn)
+    before = _build_enrichment_session_snapshot(session_row=session_row, conn=conn)
+    return _build_enrichment_session_snapshot(
+        session_row=_require_enrichment_session_row(session_id=session_id, conn=conn),
+        conn=conn,
+        previous_order=_candidate_loop_ids(before["items"]),
+        previous_index=before["current_index"],
+    )
+
+
+@typingx.validate_io()
 def update_enrichment_review_session(
     *,
     session_id: int,
@@ -414,12 +453,14 @@ __all__ = [
     "list_relationship_review_sessions",
     "get_relationship_review_session",
     "move_relationship_review_session",
+    "refresh_relationship_review_session",
     "update_relationship_review_session",
     "delete_relationship_review_session",
     "create_enrichment_review_session",
     "list_enrichment_review_sessions",
     "get_enrichment_review_session",
     "move_enrichment_review_session",
+    "refresh_enrichment_review_session",
     "update_enrichment_review_session",
     "delete_enrichment_review_session",
 ]

@@ -68,6 +68,7 @@ describe("buildRecallActionCards", () => {
 
     expect(cards[0]?.title).toContain("Stage this grounded brief");
     expect(cards[0]?.actions.some((action) => action.type === "stage" && action.location.state === "do")).toBe(true);
+    expect(cards[0]?.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(cards[0]?.actions.some((action) => action.type === "edit" && action.location.recallTool === "chat")).toBe(true);
     expect(cards[0]?.actions.some((action) => action.type === "defer" && action.location.state === "do")).toBe(true);
     expect(cards[1]?.title).toContain("source-backed follow-up");
@@ -87,6 +88,7 @@ describe("buildRecallActionCards", () => {
     });
 
     expect(cards[0]?.actions.some((action) => action.type === "stage" && action.location.state === "recall")).toBe(true);
+    expect(cards[0]?.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(cards[0]?.actions.some((action) => action.type === "edit" && action.location.recallTool === "rag")).toBe(true);
     expect(cards[0]?.actions.some((action) => action.type === "defer" && action.location.recallTool === "rag")).toBe(true);
     expect(cards[1]?.actions.some((action) => action.type === "defer" && action.location.state === "do")).toBe(true);
@@ -107,6 +109,7 @@ describe("buildRecallActionCards", () => {
     expect(markup).toContain("recall-inline-action-card-deck");
     expect(markup).toContain("Grounded answer action cards");
     expect(markup).toContain('data-card-action="stage"');
+    expect(markup).toContain('data-card-action="rerun"');
     expect(markup).toContain('data-card-action="edit"');
     expect(markup).toContain('data-card-action="defer"');
   });

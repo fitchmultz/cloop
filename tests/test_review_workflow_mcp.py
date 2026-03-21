@@ -18,10 +18,12 @@ from cloop.mcp_tools.review_workflows import (
     review_enrichment_session_apply_action,
     review_enrichment_session_create,
     review_enrichment_session_move,
+    review_enrichment_session_refresh,
     review_relationship_action_create,
     review_relationship_session_apply_action,
     review_relationship_session_create,
     review_relationship_session_move,
+    review_relationship_session_refresh,
 )
 from cloop.settings import Settings, get_settings
 
@@ -173,6 +175,11 @@ def test_review_session_move_tools(
     )
     assert moved_relationship["current_item"]["loop"]["id"] == relationship_target
 
+    refreshed_relationship = review_relationship_session_refresh(
+        session_id=relationship_session["session"]["id"],
+    )
+    assert refreshed_relationship["session"]["id"] == relationship_session["session"]["id"]
+
     enrichment_session = review_enrichment_session_create(
         name="move-enrich",
         query="status:open",
@@ -189,6 +196,11 @@ def test_review_session_move_tools(
         direction=enrichment_direction,
     )
     assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
+
+    refreshed_enrichment = review_enrichment_session_refresh(
+        session_id=enrichment_session["session"]["id"],
+    )
+    assert refreshed_enrichment["session"]["id"] == enrichment_session["session"]["id"]
 
 
 def test_enrichment_review_workflow_tools(

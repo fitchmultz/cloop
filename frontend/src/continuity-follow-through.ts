@@ -22,13 +22,14 @@
  *   - `RecentShellActionEntry.outcome` remains the canonical landed-outcome payload.
  *   - `outcome.resumeLocation` is preferred over launch location.
  *   - Anchor-only items are fallback continuity, not stronger than recent receipts.
- *   - Rerun remains intentionally reserved as `null` until the next roadmap slice.
+ *   - When a landed outcome exposes a shared rerun contract, continuity should preserve it.
  */
 
 import type {
   OperatorActionCard,
   OperatorActionCardAction,
   OperatorActionCardPinAction,
+  OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
   RecentShellActionEntry,
   ResumeAnchorState,
@@ -66,7 +67,7 @@ export interface RankedLandedOutcome {
   degradedLabel: string | null;
   card: OperatorActionCard;
   undoAction: OperatorActionCardUndoAction | null;
-  rerunAction: OperatorActionCardAction | null;
+  rerunAction: OperatorActionCardRerunAction | null;
 }
 
 export interface ReadRankedLandedOutcomesInput {
@@ -221,12 +222,20 @@ function normalizeOutcomeCard(
   summary: string,
   degradedLabel: string | null,
   undoAction: OperatorActionCardUndoAction | null,
+  rerunAction: OperatorActionCardRerunAction | null,
   workingSet: WorkingSetSessionMetadata | null,
 ): OperatorActionCard {
   const carryForward = base.actions.filter((action) => {
-    return action.type !== "open" && action.type !== "pin" && action.type !== "undo";
+    return action.type !== "open" && action.type !== "pin" && action.type !== "undo" && action.type !== "rerun";
   });
   const actions: OperatorActionCardAction[] = [buildResumeAction(resumeLocation, degradedLabel ?? summary)];
+
+  if (rerunAction) {
+    actions.push({
+      ...rerunAction,
+      variant: "secondary",
+    });
+  }
 
   if (undoAction) {
     actions.push({
@@ -333,6 +342,7 @@ function scoreOutcome(input: {
   workingSetId: number | null;
   degraded: boolean;
   undoAction: OperatorActionCardUndoAction | null;
+  rerunAction: OperatorActionCardRerunAction | null;
   now: number;
 }): number {
   const ageMs = Math.max(0, input.now - safeTimestamp(input.occurredAt));
@@ -346,10 +356,11 @@ function scoreOutcome(input: {
   const activeWorkingSetBoost = input.activeWorkingSetId != null && input.workingSetId === input.activeWorkingSetId
     ? 42
     : 0;
+  const rerunBoost = input.rerunAction && !input.rerunAction.disabledReason ? 18 : 0;
   const undoBoost = input.undoAction && !input.undoAction.disabledReason ? 16 : 0;
   const degradedPenalty = input.degraded ? 36 : 0;
 
-  return sourceScore + recencyScore + activeWorkingSetBoost + undoBoost - degradedPenalty;
+  return sourceScore + recencyScore + activeWorkingSetBoost + rerunBoost + undoBoost - degradedPenalty;
 }
 
 function buildRecentOutcome(
@@ -366,6 +377,9 @@ function buildRecentOutcome(
   const fallback = fallbackFollowThroughLocation(resolved.resumeLocation, availability);
   const workingSet = resolved.workingSet ?? workingSetMetadata(availability, resolved.workingSetId);
   const undoAction = entry.outcome.undoAction ?? null;
+  const rerunAction = entry.outcome.card.actions.find(
+    (action): action is OperatorActionCardRerunAction => action.type === "rerun",
+  ) ?? null;
   const source: RankedLandedOutcome["source"] = entry.outcome.card.kind === "receipt" ? "receipt" : "recent";
   const card = normalizeOutcomeCard(
     entry.outcome.card,
@@ -373,6 +387,7 @@ function buildRecentOutcome(
     resolved.displaySummary,
     fallback.degraded ? fallback.degradedLabel : null,
     undoAction,
+    rerunAction,
     workingSet,
   );
 
@@ -386,6 +401,7 @@ function buildRecentOutcome(
       workingSetId: resolved.workingSetId,
       degraded: fallback.degraded,
       undoAction,
+      rerunAction,
       now,
     }),
     occurredAt: entry.occurredAt,
@@ -398,7 +414,7 @@ function buildRecentOutcome(
     degradedLabel: fallback.degraded ? fallback.degradedLabel : null,
     card,
     undoAction,
-    rerunAction: null,
+    rerunAction,
   };
 }
 
@@ -429,6 +445,7 @@ function buildAnchorOutcome(
       workingSetId: anchor.workingSetId,
       degraded: fallback.degraded,
       undoAction: null,
+      rerunAction: null,
       now,
     }),
     occurredAt: anchor.visitedAtUtc,

@@ -887,7 +887,7 @@ function relationshipReasonText(item: RelationshipReviewSessionSnapshotResponse[
 function relationshipDecisionLabel(item: RelationshipReviewSessionSnapshotResponse["current_item"] | null): string {
   const candidate = relationshipPrimaryCandidate(item);
   if (!candidate) {
-    return "Refresh, broaden the query, or move to the next loop.";
+    return "Refresh the saved queue, edit the session query, or move to the next loop.";
   }
   return candidate.relationship_type === "duplicate"
     ? "Confirm duplicate, merge the loops, or dismiss this candidate."
@@ -968,7 +968,7 @@ function enrichmentReasonText(item: EnrichmentReviewQueueItemResponse | null): s
 
 function enrichmentDecisionLabel(item: EnrichmentReviewQueueItemResponse | null): string {
   if (!item) {
-    return "Refresh, broaden the query, or move to the next queue.";
+    return "Refresh the saved queue, edit the session query, or move to the next queue.";
   }
   if (item.pending_clarification_count > 0) {
     return "Answer clarifications before trusting or applying older suggestions.";
@@ -2291,7 +2291,7 @@ function renderEnrichmentImpact(snapshot: EnrichmentReviewSessionSnapshotRespons
     return '<p class="review-shell-empty">Impact previews appear after an enrichment session loads.</p>';
   }
   if (!item) {
-    return '<p class="review-shell-empty">Refresh the session after new suggestions or clarifications appear, or broaden the query.</p>';
+    return '<p class="review-shell-empty">Refresh the saved session after new suggestions or clarifications appear, or edit the query if the queue needs a broader scope.</p>';
   }
   const firstSuggestion = item.pending_suggestions[0] ?? null;
   const suggestionFields = firstSuggestion && typeof firstSuggestion.parsed === "object" && firstSuggestion.parsed

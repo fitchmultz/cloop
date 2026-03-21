@@ -294,6 +294,36 @@ def move_enrichment_review_session_endpoint(
     return build_enrichment_review_session_snapshot_response(result)
 
 
+@router.post(
+    "/review/enrichment/sessions/{session_id}/refresh",
+    response_model=EnrichmentReviewSessionSnapshotResponse,
+)
+def refresh_enrichment_review_session_endpoint(
+    session_id: int,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> EnrichmentReviewSessionSnapshotResponse | JSONResponse:
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/review/enrichment/sessions/{session_id}/refresh",
+            idempotency_key=idempotency_key,
+            payload={"session_id": session_id},
+            execute=lambda conn: review_workflows.refresh_enrichment_review_session(
+                session_id=session_id,
+                conn=conn,
+            ),
+        )
+    except ResourceNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="review session") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return build_enrichment_review_session_snapshot_response(result)
+
+
 @router.patch(
     "/review/enrichment/sessions/{session_id}",
     response_model=EnrichmentReviewSessionSnapshotResponse,
@@ -463,6 +493,7 @@ __all__ = [
     "create_enrichment_review_session_endpoint",
     "get_enrichment_review_session_endpoint",
     "move_enrichment_review_session_endpoint",
+    "refresh_enrichment_review_session_endpoint",
     "update_enrichment_review_session_endpoint",
     "delete_enrichment_review_session_endpoint",
     "execute_enrichment_review_session_action_endpoint",

@@ -65,6 +65,7 @@ Every handoff-capable workflow result should render:
 - Breadcrumbs should preserve prior session identity and cursor where relevant.
 - Working-set-aware handoffs should render the same working-set badge, next-step cue, and breadcrumb trail in operator cards and downstream review/planning impact cards.
 - Handoffs should prefer existing saved session IDs and resource references, not inferred client state.
+- If the same workflow can be rerun or refreshed, the handoff should make strict invariants, variable attempt behavior, and the post-run landing surface explicit before execution.
 - When several deterministic handoff themes changed at once, the operator shell may surface a grouped rollup card before deeper workflow-specific cards.
 
 ## States and edge cases

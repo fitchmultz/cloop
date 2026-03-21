@@ -45,6 +45,7 @@ describe("handleOperatorActionCardClick", () => {
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("stage");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing stage button");
@@ -54,6 +55,7 @@ describe("handleOperatorActionCardClick", () => {
       applyLocation,
       pinLocationToWorkingSet,
       executeUndoAction,
+      executeRerunAction,
     });
 
     expect(handled).toBe(false);
@@ -64,6 +66,7 @@ describe("handleOperatorActionCardClick", () => {
       applyLocation,
       pinLocationToWorkingSet,
       executeUndoAction,
+      executeRerunAction,
     });
 
     expect(result).toBe(true);
@@ -100,6 +103,7 @@ describe("handleOperatorActionCardClick", () => {
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("edit");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing edit button");
@@ -111,6 +115,7 @@ describe("handleOperatorActionCardClick", () => {
       applyLocation,
       pinLocationToWorkingSet,
       executeUndoAction,
+      executeRerunAction,
     });
 
     expect(result).toBe(true);
@@ -140,6 +145,7 @@ describe("handleOperatorActionCardClick", () => {
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("defer");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing defer button");
@@ -151,6 +157,7 @@ describe("handleOperatorActionCardClick", () => {
       applyLocation,
       pinLocationToWorkingSet,
       executeUndoAction,
+      executeRerunAction,
     });
 
     expect(result).toBe(true);
@@ -191,6 +198,7 @@ describe("handleOperatorActionCardClick", () => {
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("undo");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing undo button");
@@ -202,6 +210,7 @@ describe("handleOperatorActionCardClick", () => {
       applyLocation,
       pinLocationToWorkingSet,
       executeUndoAction,
+      executeRerunAction,
     });
 
     expect(result).toBe(true);
@@ -247,6 +256,7 @@ describe("handleOperatorActionCardClick", () => {
     const applyLocation = vi.fn().mockResolvedValue(undefined);
     const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const button = document.getElementById("working-set-undo");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing working-set undo button");
@@ -258,6 +268,7 @@ describe("handleOperatorActionCardClick", () => {
       applyLocation,
       pinLocationToWorkingSet,
       executeUndoAction,
+      executeRerunAction,
     });
 
     expect(result).toBe(true);
@@ -278,5 +289,53 @@ describe("handleOperatorActionCardClick", () => {
     });
     expect(applyLocation).not.toHaveBeenCalled();
     expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+  });
+
+  it("dispatches shared rerun actions", async () => {
+    document.body.innerHTML = `
+      <button
+        id="rerun"
+        type="button"
+        data-card-action="rerun"
+        data-rerun-handle='{"kind":"planning_session","sessionId":12,"sessionName":"Weekly reset"}'
+        data-rerun-contract='{"mode":"refresh","provenanceLabel":"Planning session: Weekly reset","freshnessLabel":"1 target changed","strategySummary":"Reuse the saved planning session and refresh it against current loop state.","strictInvariants":["Same planning session identity"],"mayVary":["Checkpoint wording"],"postRun":{"summary":"Land back in the saved planning session.","location":{"state":"plan","recallTool":"chat","reviewFocus":"planning","sessionId":12,"loopId":null,"viewId":null,"memoryId":null,"workingSetId":7,"query":null}}}'
+      >Refresh plan</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("rerun");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing rerun button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+    });
+
+    expect(result).toBe(true);
+    expect(executeRerunAction).toHaveBeenCalledTimes(1);
+    expect(executeRerunAction.mock.calls[0]?.[0]).toMatchObject({
+      type: "rerun",
+      rerun: {
+        kind: "planning_session",
+        sessionId: 12,
+        sessionName: "Weekly reset",
+      },
+      contract: {
+        mode: "refresh",
+        provenanceLabel: "Planning session: Weekly reset",
+      },
+    });
+    expect(applyLocation).not.toHaveBeenCalled();
+    expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+    expect(executeUndoAction).not.toHaveBeenCalled();
   });
 });

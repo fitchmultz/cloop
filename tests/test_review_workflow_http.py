@@ -191,6 +191,12 @@ def test_review_session_move_endpoints(
     assert relationship_move.status_code == 200
     assert relationship_move.json()["current_item"]["loop"]["id"] == relationship_target
 
+    relationship_refresh = client.post(
+        f"/loops/review/relationship/sessions/{relationship_session_id}/refresh",
+    )
+    assert relationship_refresh.status_code == 200
+    assert relationship_refresh.json()["session"]["id"] == relationship_session_id
+
     enrichment_session = client.post(
         "/loops/review/enrichment/sessions",
         json={
@@ -220,6 +226,12 @@ def test_review_session_move_endpoints(
     )
     assert enrichment_move.status_code == 200
     assert enrichment_move.json()["current_item"]["loop"]["id"] == enrichment_target
+
+    enrichment_refresh = client.post(
+        f"/loops/review/enrichment/sessions/{enrichment_session_id}/refresh",
+    )
+    assert enrichment_refresh.status_code == 200
+    assert enrichment_refresh.json()["session"]["id"] == enrichment_session_id
 
 
 def test_enrichment_review_workflow_endpoints(

@@ -40,6 +40,7 @@ from ._review_workflows.enrichment import (
     list_enrichment_review_actions_endpoint,
     list_enrichment_review_sessions_endpoint,
     move_enrichment_review_session_endpoint,
+    refresh_enrichment_review_session_endpoint,
     update_enrichment_review_action_endpoint,
     update_enrichment_review_session_endpoint,
 )
@@ -57,6 +58,7 @@ from ._review_workflows.relationship import (
     list_relationship_review_actions_endpoint,
     list_relationship_review_sessions_endpoint,
     move_relationship_review_session_endpoint,
+    refresh_relationship_review_session_endpoint,
     update_relationship_review_action_endpoint,
     update_relationship_review_session_endpoint,
 )
@@ -79,6 +81,7 @@ __all__ = [
     "create_relationship_review_session_endpoint",
     "get_relationship_review_session_endpoint",
     "move_relationship_review_session_endpoint",
+    "refresh_relationship_review_session_endpoint",
     "update_relationship_review_session_endpoint",
     "delete_relationship_review_session_endpoint",
     "execute_relationship_review_session_action_endpoint",
@@ -91,6 +94,7 @@ __all__ = [
     "create_enrichment_review_session_endpoint",
     "get_enrichment_review_session_endpoint",
     "move_enrichment_review_session_endpoint",
+    "refresh_enrichment_review_session_endpoint",
     "update_enrichment_review_session_endpoint",
     "delete_enrichment_review_session_endpoint",
     "execute_enrichment_review_session_action_endpoint",

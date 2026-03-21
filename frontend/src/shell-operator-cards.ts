@@ -63,6 +63,10 @@ import {
   buildContinuityAvailability,
   readRankedLandedOutcomes,
 } from "./continuity-follow-through";
+import {
+  buildPlanningRefreshAction,
+  buildReviewSessionRefreshAction,
+} from "./executable-rerun";
 import { buildPlanningRollbackAction } from "./executable-undo";
 import {
   buildChangedCountPreviewItems,
@@ -565,6 +569,10 @@ function buildRelationshipDecisionCard(
     },
     actions: [
       buildOpenAction("Open decision queue", location, `${snapshot.loop_count} relationship decisions queued`),
+      buildReviewSessionRefreshAction({
+        reviewFocus: "relationship",
+        snapshot,
+      }),
       buildPinAction("Pin queue", location, `${snapshot.loop_count} relationship decisions queued`, `Decide · ${snapshot.session.name}`),
     ],
   } satisfies OperatorActionCard;
@@ -630,6 +638,10 @@ function buildEnrichmentDecisionCard(
     },
     actions: [
       buildOpenAction("Open enrichment queue", location, `${snapshot.loop_count} enrichment follow-up items queued`),
+      buildReviewSessionRefreshAction({
+        reviewFocus: "enrichment",
+        snapshot,
+      }),
       buildPinAction("Pin queue", location, `${snapshot.loop_count} enrichment follow-up items queued`, `Decide · ${snapshot.session.name}`),
     ],
   } satisfies OperatorActionCard;
@@ -747,6 +759,7 @@ function buildPlanningResumeCard(snapshot: PlanningSessionSnapshotResponse): Ope
     },
     actions: [
       buildOpenAction("Resume plan", location, `Resume ${currentCheckpointTitle}`),
+      buildPlanningRefreshAction(snapshot),
       buildPinAction("Pin plan", location, `Resume ${currentCheckpointTitle}`, `Plan · ${snapshot.session.name}`),
     ],
   } satisfies OperatorActionCard;
@@ -808,6 +821,7 @@ function buildPlanningExecutionCard(
         primaryLocation,
         followUpBits[0] ?? latestExecution.checkpoint_title,
       ),
+      buildPlanningRefreshAction(snapshot),
       buildPinAction(
         "Pin handoff",
         primaryLocation,
@@ -1450,10 +1464,14 @@ function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
         breadcrumbs: ["Home", "Since last visit", "Planning drift"],
       },
       actions: [
+        buildPlanningRefreshAction(current, {
+          variant: "primary",
+        }),
         buildOpenAction(
-          freshness.isStale ? "Refresh plan context" : "Open current plan",
+          freshness.isStale ? "Inspect plan" : "Open current plan",
           location,
           freshness.label,
+          "secondary",
         ),
         buildPinAction("Pin planning drift", location, freshness.label, `Plan · ${current.session.name}`),
       ],

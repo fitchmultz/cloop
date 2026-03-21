@@ -293,6 +293,37 @@ def move_relationship_review_session_endpoint(
     return build_relationship_review_session_snapshot_response(result)
 
 
+@router.post(
+    "/review/relationship/sessions/{session_id}/refresh",
+    response_model=RelationshipReviewSessionSnapshotResponse,
+)
+def refresh_relationship_review_session_endpoint(
+    session_id: int,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> RelationshipReviewSessionSnapshotResponse | JSONResponse:
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/review/relationship/sessions/{session_id}/refresh",
+            idempotency_key=idempotency_key,
+            payload={"session_id": session_id},
+            execute=lambda conn: review_workflows.refresh_relationship_review_session(
+                session_id=session_id,
+                conn=conn,
+                settings=settings,
+            ),
+        )
+    except ResourceNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="review session") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return build_relationship_review_session_snapshot_response(result)
+
+
 @router.patch(
     "/review/relationship/sessions/{session_id}",
     response_model=RelationshipReviewSessionSnapshotResponse,
@@ -416,6 +447,7 @@ __all__ = [
     "create_relationship_review_session_endpoint",
     "get_relationship_review_session_endpoint",
     "move_relationship_review_session_endpoint",
+    "refresh_relationship_review_session_endpoint",
     "update_relationship_review_session_endpoint",
     "delete_relationship_review_session_endpoint",
     "execute_relationship_review_session_action_endpoint",

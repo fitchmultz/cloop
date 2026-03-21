@@ -9,7 +9,7 @@
  *   - Assert recent receipts outrank anchor-only fallbacks.
  *   - Assert anchors do not duplicate recent landed targets.
  *   - Assert degraded working-set scope falls back safely.
- *   - Assert resume and undo affordances normalize consistently.
+ *   - Assert resume, rerun, and undo affordances normalize consistently.
  *
  * Scope:
  *   - Pure follow-through feed helpers only.
@@ -19,7 +19,7 @@
  *
  * Invariants/Assumptions:
  *   - The canonical feed is the only ranking truth for landed follow-through.
- *   - Rerun remains intentionally null until the next roadmap slice.
+ *   - Landed rerun actions should survive normalization when present on the card.
  */
 
 import type {
@@ -104,6 +104,29 @@ function receiptEntry(overrides: Partial<RecentShellActionEntry> = {}): RecentSh
               bestEffort: false,
             },
           },
+          {
+            type: "rerun",
+            label: "Refresh plan",
+            variant: "secondary",
+            description: "Land back in the saved planning session with refreshed checkpoints.",
+            rerun: {
+              kind: "planning_session",
+              sessionId: 41,
+              sessionName: "Weekly reset",
+            },
+            contract: {
+              mode: "refresh",
+              provenanceLabel: "Planning session: Weekly reset",
+              freshnessLabel: "1 target changed",
+              strategySummary: "Reuse the saved planning session and refresh it against current loop state.",
+              strictInvariants: ["Same planning session identity"],
+              mayVary: ["Checkpoint wording"],
+              postRun: {
+                summary: "Land back in the saved planning session with refreshed checkpoints.",
+                location: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 7 }),
+              },
+            },
+          },
         ],
       },
       resumeLocation: location({
@@ -181,7 +204,7 @@ describe("readRankedLandedOutcomes", () => {
     expect(outcomes[0]?.degradedLabel).toMatch(/Working-set scope was removed/i);
   });
 
-  it("normalizes resume first, undo second, and preserves rerun as null", () => {
+  it("normalizes resume first, rerun second, then undo", () => {
     const outcomes = readRankedLandedOutcomes({
       availability: buildContinuityAvailability({
         enrichmentSessionIds: [52],
@@ -193,9 +216,10 @@ describe("readRankedLandedOutcomes", () => {
     });
 
     expect(outcomes[0]?.card.actions[0]?.type).toBe("open");
-    expect(outcomes[0]?.card.actions[1]?.type).toBe("undo");
-    expect(outcomes[0]?.card.actions[2]?.type).toBe("pin");
-    expect(outcomes[0]?.rerunAction).toBeNull();
+    expect(outcomes[0]?.card.actions[1]?.type).toBe("rerun");
+    expect(outcomes[0]?.card.actions[2]?.type).toBe("undo");
+    expect(outcomes[0]?.card.actions[3]?.type).toBe("pin");
+    expect(outcomes[0]?.rerunAction?.type).toBe("rerun");
   });
 
   it("uses working-set metadata from availability when anchors need a fallback name", () => {

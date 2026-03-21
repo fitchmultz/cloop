@@ -27,6 +27,7 @@
 import type {
   OperatorActionCard,
   OperatorActionCardAction,
+  OperatorActionCardRerunAction,
   ShellLocationContract,
 } from "./contracts-ui";
 import { renderTrustSurface } from "./trust-surface";
@@ -72,6 +73,20 @@ function renderEventAttributes(attributes: Record<string, string>): string {
   return Object.entries(attributes)
     .map(([name, value]) => `${name}="${escapeHtml(value)}"`)
     .join(" ");
+}
+
+function renderRerunContract(action: OperatorActionCardRerunAction): string {
+  return `
+    <section class="operator-action-section" aria-label="${escapeHtml(action.contract.mode === "refresh" ? "Refresh contract" : "Rerun contract")}">
+      <p class="operator-action-section-title">${escapeHtml(action.contract.mode === "refresh" ? "Refresh contract" : "Rerun contract")}</p>
+      <p><strong>Provenance:</strong> ${escapeHtml(action.contract.provenanceLabel)}</p>
+      ${action.contract.freshnessLabel ? `<p><strong>Freshness:</strong> ${escapeHtml(action.contract.freshnessLabel)}</p>` : ""}
+      <p><strong>Strategy:</strong> ${escapeHtml(action.contract.strategySummary)}</p>
+      <p><strong>Strict:</strong> ${escapeHtml(action.contract.strictInvariants.join(" · "))}</p>
+      <p><strong>May vary:</strong> ${escapeHtml(action.contract.mayVary.join(" · "))}</p>
+      <p><strong>After run:</strong> ${escapeHtml(action.contract.postRun.summary)}</p>
+    </section>
+  `;
 }
 
 function renderActionButton(card: OperatorActionCard, action: OperatorActionCardAction): string {
@@ -156,10 +171,21 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
           data-undo-checkpoint-index="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.checkpointIndex) : "")}"
           data-undo-checkpoint-title="${escapeHtml(action.undo.kind === "planning_run" ? action.undo.checkpointTitle : "")}"
           data-undo-action-count="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.actionCount) : "")}"
-          data-undo-best-effort="${escapeHtml(action.undo.kind === "planning_run" && action.undo.bestEffort ? "true" : "false")}"
-          data-undo-confirm-title="${escapeHtml(action.confirmTitle?.trim() || "")}"
+          data-undo-best-effort="${escapeHtml(action.undo.kind === "planning_run" && action.undo.bestEffort ? "true" : "false")}" 
+          data-undo-confirm-title="${escapeHtml(action.confirmTitle?.trim() || "")}" 
           data-undo-confirm-description="${escapeHtml(action.confirmDescription?.trim() || "")}"
           ${action.successLocation ? locationAttributes("undo-success", action.successLocation) : ""}
+        >${escapeHtml(action.label)}</button>
+      `;
+    case "rerun":
+      return `
+        <button
+          type="button"
+          ${className}
+          ${disabledAttributes}
+          data-card-action="rerun"
+          data-rerun-handle="${escapeHtml(JSON.stringify(action.rerun))}"
+          data-rerun-contract="${escapeHtml(JSON.stringify(action.contract))}"
         >${escapeHtml(action.label)}</button>
       `;
     case "open":
@@ -245,7 +271,11 @@ function renderActionArea(card: OperatorActionCard): string {
   const contextLabel = card.actionContextLabel?.trim()
     || (card.kind === "receipt" && card.actions.length ? "Continue from here" : "");
   const warning = card.actionWarning?.trim() ?? "";
-  if (!card.actions.length && !contextLabel && !warning) {
+  const rerunContracts = card.actions
+    .filter((action): action is OperatorActionCardRerunAction => action.type === "rerun")
+    .map((action) => renderRerunContract(action))
+    .join("");
+  if (!card.actions.length && !contextLabel && !warning && !rerunContracts) {
     return "";
   }
   return `
@@ -259,6 +289,7 @@ function renderActionArea(card: OperatorActionCard): string {
           </div>
         `
         : ""}
+      ${rerunContracts}
     </section>
   `;
 }

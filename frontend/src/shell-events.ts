@@ -83,6 +83,10 @@ interface CreateShellEventControllerOptions {
     action: import("./contracts-ui").OperatorActionCardUndoAction,
     button: HTMLButtonElement,
   ) => Promise<void>;
+  executeRerunAction: (
+    action: import("./contracts-ui").OperatorActionCardRerunAction,
+    button: HTMLButtonElement,
+  ) => Promise<void>;
   addLoopIdsToActiveWorkingSet: (loopIds: readonly number[]) => Promise<void>;
   openGroundedChatWithPrompt: (query: string) => Promise<void>;
   openMemorySearchWithQuery: (query: string) => Promise<void>;
@@ -103,6 +107,7 @@ export function createShellEventController(
       applyLocation: options.applyLocation,
       pinLocationToWorkingSet: options.pinLocationToWorkingSet,
       executeUndoAction: options.executeUndoAction,
+      executeRerunAction: options.executeRerunAction,
     })) {
       return;
     }

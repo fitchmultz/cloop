@@ -240,6 +240,21 @@ def test_review_session_move_cli(
         main(
             [
                 "review",
+                "relationship-session",
+                "refresh",
+                "--session",
+                str(relationship_session["session"]["id"]),
+            ]
+        )
+        == 0
+    )
+    refreshed_relationship = _last_json(capsys)
+    assert refreshed_relationship["session"]["id"] == relationship_session["session"]["id"]
+
+    assert (
+        main(
+            [
+                "review",
                 "enrichment-session",
                 "create",
                 "--name",
@@ -277,6 +292,21 @@ def test_review_session_move_cli(
     )
     moved_enrichment = _last_json(capsys)
     assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
+
+    assert (
+        main(
+            [
+                "review",
+                "enrichment-session",
+                "refresh",
+                "--session",
+                str(enrichment_session["session"]["id"]),
+            ]
+        )
+        == 0
+    )
+    refreshed_enrichment = _last_json(capsys)
+    assert refreshed_enrichment["session"]["id"] == enrichment_session["session"]["id"]
 
 
 def test_enrichment_review_workflow_cli(

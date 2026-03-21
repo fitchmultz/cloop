@@ -276,6 +276,37 @@ def review_relationship_session_move(
 
 
 @with_mcp_error_handling
+def review_relationship_session_refresh(
+    session_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Refresh one relationship-review session from live queue state.
+
+    Args:
+        session_id: Saved relationship-review session ID.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Refreshed relationship-review session snapshot with the same durable session
+        identity and the best preserved cursor available after queue regeneration.
+
+    Raises:
+        ToolError: If the session is missing.
+    """
+    payload = {"session_id": session_id}
+    return run_idempotent_tool_mutation(
+        tool_name="review.relationship_session.refresh",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: review_workflows.refresh_relationship_review_session(
+            session_id=session_id,
+            conn=conn,
+            settings=settings,
+        ),
+    )
+
+
+@with_mcp_error_handling
 def review_relationship_session_update(
     session_id: int,
     name: str | None = None,
@@ -432,6 +463,9 @@ def register_relationship_review_workflow_tools(mcp: "FastMCP") -> None:
     mcp.tool(name="review.relationship_session.move")(
         with_db_init(review_relationship_session_move)
     )
+    mcp.tool(name="review.relationship_session.refresh")(
+        with_db_init(review_relationship_session_refresh)
+    )
     mcp.tool(name="review.relationship_session.update")(
         with_db_init(review_relationship_session_update)
     )
@@ -453,6 +487,7 @@ __all__ = [
     "review_relationship_session_list",
     "review_relationship_session_get",
     "review_relationship_session_move",
+    "review_relationship_session_refresh",
     "review_relationship_session_update",
     "review_relationship_session_delete",
     "review_relationship_session_apply_action",

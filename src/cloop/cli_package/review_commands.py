@@ -188,6 +188,19 @@ def relationship_review_session_move_command(args: Namespace, settings: Settings
     )
 
 
+def relationship_review_session_refresh_command(args: Namespace, settings: Settings) -> int:
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: review_workflows.refresh_relationship_review_session(
+            session_id=args.session,
+            conn=conn,
+            settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=_common_error_handlers(),
+    )
+
+
 def relationship_review_session_update_command(args: Namespace, settings: Settings) -> int:
     if not any(
         [
@@ -369,6 +382,18 @@ def enrichment_review_session_move_command(args: Namespace, settings: Settings) 
         action=lambda conn: review_workflows.move_enrichment_review_session(
             session_id=args.session,
             direction=args.direction,
+            conn=conn,
+        ),
+        output_format=args.format,
+        error_handlers=_common_error_handlers(),
+    )
+
+
+def enrichment_review_session_refresh_command(args: Namespace, settings: Settings) -> int:
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: review_workflows.refresh_enrichment_review_session(
+            session_id=args.session,
             conn=conn,
         ),
         output_format=args.format,

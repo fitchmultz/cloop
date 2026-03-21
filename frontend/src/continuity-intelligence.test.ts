@@ -29,6 +29,7 @@ import type {
 } from "./domain";
 import {
   buildContinuityBaseline,
+  markRerunActionUnavailable,
   readRecentShellActions,
   readRecentShellReceiptEntries,
   readResumeAnchors,
@@ -352,6 +353,78 @@ describe("continuity-intelligence", () => {
     });
 
     expect(readRecentShellActions()).toHaveLength(2);
+  });
+
+  it("marks stored rerun actions unavailable by handle identity", () => {
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Refreshed weekly reset",
+      description: "The planning session was refreshed.",
+      location: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+      outcome: {
+        card: {
+          id: "receipt-plan-rerun",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Refreshed weekly reset",
+          summary: "The planning session was refreshed.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Opening the plan is still safe.",
+          },
+          handoff: null,
+          actions: [
+            {
+              type: "rerun",
+              label: "Refresh plan",
+              variant: "secondary",
+              description: "Land back in the saved planning session.",
+              rerun: {
+                kind: "planning_session",
+                sessionId: 41,
+                sessionName: "weekly-reset",
+              },
+              contract: {
+                mode: "refresh",
+                provenanceLabel: "Planning session: weekly-reset",
+                freshnessLabel: "1 target changed",
+                strategySummary: "Reuse the saved planning session and refresh it against current loop state.",
+                strictInvariants: ["Same planning session identity"],
+                mayVary: ["Checkpoint wording"],
+                postRun: {
+                  summary: "Land back in the saved planning session.",
+                  location: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+                },
+              },
+            },
+          ],
+        },
+        resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+        rollbackLabel: "Opening the plan is still safe.",
+        undoAction: null,
+      },
+    });
+
+    markRerunActionUnavailable(
+      {
+        kind: "planning_session",
+        sessionId: 41,
+        sessionName: "weekly-reset",
+      },
+      "This rerun target is no longer available.",
+    );
+
+    const stored = readRecentShellActions();
+    expect(stored[0]?.outcome?.card.actions[0]).toMatchObject({
+      type: "rerun",
+      disabledReason: "This rerun target is no longer available.",
+    });
   });
 
   it("captures richer planning-session continuity baseline fields", () => {

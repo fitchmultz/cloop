@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to relax brittle AI-runtime constraints so stochastic planning, chat, and enrichment flows can succeed through more than one valid model/tool path before more UX-level workflow affordances land.
+The current priority is to carry landed outcomes and shared follow-through beyond one browser session so continuity remains trustworthy across time, device changes, and denser workflow activity.
 
 ## Direction
 
@@ -13,11 +13,11 @@ Current product goals:
 - Replace subsystem-first navigation with state-driven workflows.
 - Make the default experience answer: what should I do now, what needs a decision, and what changed.
 - Keep planning, review, chat, and enrichment outputs grounded in explicit action surfaces with previews, rationale, and rollback cues.
-- Preserve deterministic local control while letting AI accelerate preparation, synthesis, and handoff.
+- Preserve deterministic local control while letting AI accelerate preparation, synthesis, handoff, and rerun.
 - Reuse shared service and execution contracts across HTTP, web, CLI, and MCP instead of inventing per-surface workflow logic.
 - Keep the product calm by default and deep on demand through progressive disclosure.
 - Make high-frequency operator flows keyboard-fast.
-- Surface provenance, assumptions, and reversibility anywhere the system proposes or executes meaningful work.
+- Surface provenance, assumptions, reversibility, and rerun semantics anywhere the system proposes or re-executes meaningful work.
 
 ## UX Vision and Spec Set
 
@@ -37,63 +37,31 @@ The next roadmap slice starts from work that is already live:
 - browser-local continuity baseline snapshots, outcome-anchored resume anchors, and landed-outcome recent shell-action history
 - global command palette with deterministic ranking, quick actions, and outcome-first recents
 - canonical ranked landed-outcome follow-through feed across operator home, the receipt rail, and command-palette recents
+- bounded read-only alternate generation strategies with surfaced provenance metadata
+- shared rerun and refresh affordances across planning, saved review sessions, recall result cards, continuity, CLI, HTTP, and MCP
 
 ## Execution order
 
-### Next — Relax brittle AI-runtime constraints
-
-**Primary specs:**
-- [`docs/ai_runtime.md`](ai_runtime.md)
-- [`README.md`](../README.md)
-- [`docs/verification_checklist.md`](verification_checklist.md)
-
-Goal: keep strict contracts at deterministic edges while widening the stochastic middle so chat, planning, enrichment, and MCP/operator flows do not fail just because one preferred model/tool path is unavailable.
-
-Why this comes first:
-- runtime brittleness currently creates avoidable failures before the user even reaches the higher-level rerun/refresh UX
-- the current single-path assumptions leak into HTTP, CLI, MCP, docs, tests, and the frontend contract, so fixing them first reduces follow-on churn
-- later handoff UX work should build on more flexible execution contracts instead of immediately depending on contracts we already know are too narrow
-
-#### Slice 1 — De-brittle prompts, tests, and operator guidance around stochastic behavior
-
-Objective: stop baking exact wording and exact preferred process into the surrounding harness when task-level invariants are what actually matter.
-
-Planned work:
-1. remove tests that require exact prompt prose where semantic intent is enough
-2. prefer assertions about:
-   - structured contract validity
-   - grounding actually being applied
-   - correct invariants at deterministic boundaries
-   - task completion / safety outcomes
-3. trim docs that imply one mandatory reasoning path or one mandatory tool path unless that constraint is truly required
-4. update examples so they present preferred paths as defaults, not the only valid path
-5. keep strict JSON/schema/output requirements only where deterministic downstream code depends on them
-
-Acceptance bar:
-- prompt iteration does not break tests unless behavior or contracts change
-- docs distinguish preferred path from required invariant
-- structured boundaries remain strict while stochastic internals become less scripted
-
-### After that — Shared rerun and refresh affordances
+### Next — Durable continuity and grouped workflow threads
 
 **Primary specs:**
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
+- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
-- [`docs/ux/ai-action-cards.md`](ux/ai-action-cards.md)
 
-Goal: make landed outcomes as repeatable as they are resumable by standardizing rerun, refresh, and regenerate affordances for planning, review, and recall flows.
+Goal: move high-signal landed outcomes and resume anchors beyond browser-local storage while grouping multi-step workflow threads so continuity stays trustworthy even as reruns, receipts, and handoffs become more frequent.
 
-Why it follows the runtime slice:
-- rerun/refresh UX should sit on top of flexible execution contracts, not re-encode today’s brittle runtime assumptions
-- shared action cards need better provenance from selector resolution, alternate strategies, and richer multi-tool outcomes
-- refresh affordances are easier to standardize once runtime fallback and result-shaping behavior are stable across transports
+Why this comes next:
+- continuity is still browser-local, capped, and easy to lose after the new rerun/refresh affordances make landed outcomes more valuable
+- multi-step planning, review, and recall flows now emit richer receipts, but operator history still reads as flat events instead of workflow threads
+- durable continuity storage should land before any heavier personalization or proactive operator guidance so those later features build on trustworthy history
 
 Planned sequence:
 
-1. inventory where landed outcomes already imply a rerun or refresh path but still describe it with bespoke copy or one-off buttons
-2. define one shared action-card contract for rerun and refresh semantics, including provenance, freshness, strategy summary, and post-run landing behavior
-3. reuse that contract across planning refresh, review-session regeneration, and recall follow-through so the unified outcome feed stays actionable without per-surface forks
-4. ensure rerun/refresh affordances describe what remains strict versus what may vary across AI attempts
+1. define a durable continuity storage contract for landed outcomes, resume anchors, degraded-target state, and grouped workflow threads
+2. preserve the current landed-outcome precedence rules while adding backend-backed history and cross-device fallback behavior
+3. group related receipts, reruns, and downstream handoffs into workflow threads so operator home and palette recents stay high-signal
+4. keep stale or deleted targets explicit, with safe fallbacks that explain what changed instead of silently dropping continuity
 
 ## Delivery model
 

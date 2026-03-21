@@ -26,6 +26,7 @@
 
 import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
 import {
+  markRerunActionUnavailable,
   markUndoActionUnavailable,
   readContinuityBaseline,
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
@@ -53,6 +54,10 @@ import {
   persistLocation,
   STATE_DESCRIPTORS,
 } from "./shell-routing";
+import {
+  executeRerunAction as runExecutableRerunAction,
+  staleRerunReason,
+} from "./executable-rerun";
 import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
 import { confirmDialog } from "./modals";
 import { createShellEventController } from "./shell-events";
@@ -631,6 +636,18 @@ async function openDocumentAskWithQuery(query: string): Promise<void> {
   await applyLocation(createLocation({ state: "recall", recallTool: "rag", query }));
 }
 
+async function rerunRecallQuery(handle: import("./contracts-ui").RecallQueryRerunHandle): Promise<void> {
+  await applyLocation(
+    createLocation({
+      state: "recall",
+      recallTool: handle.recallTool,
+      workingSetId: handle.workingSetId,
+      query: handle.query,
+    }),
+    { recordHistory: false },
+  );
+}
+
 function ensureControllers(): void {
   if (workingSetController && workspaceController && operatorCards) {
     return;
@@ -752,6 +769,31 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
         button.setAttribute("aria-disabled", "true");
         button.title = reason;
         markUndoActionUnavailable(action.undo, reason);
+      }
+    },
+    executeRerunAction: async (action, button) => {
+      try {
+        const result = await runExecutableRerunAction(action, {
+          rerunRecallQuery,
+        });
+        recordRecentShellAction(result.entry);
+        renderShellReceiptRail();
+        if (currentLocation.state === "operator") {
+          await workspaceController?.renderOperatorWorkspace();
+        }
+        if (result.resumeLocation && action.rerun.kind !== "recall_query") {
+          await applyLocation(result.resumeLocation, { recordHistory: false });
+        }
+      } catch (error: unknown) {
+        const reason = staleRerunReason(error) ?? "Rerun is no longer available.";
+        if (staleRerunReason(error)) {
+          button.disabled = true;
+          button.setAttribute("aria-disabled", "true");
+          button.title = reason;
+          markRerunActionUnavailable(action.rerun, reason);
+          return;
+        }
+        throw error;
       }
     },
     addLoopIdsToActiveWorkingSet: async (loopIds) => workingSetController!.addLoopIdsToActiveWorkingSet(loopIds),

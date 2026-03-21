@@ -21,9 +21,12 @@
  */
 
 import type {
+  ExecutableRerunHandle,
+  OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
   PlanningRunUndoHandle,
   RecallTool,
+  RerunAttemptContract,
   WorkingSetEventUndoHandle,
   ReviewFocus,
   ShellState,
@@ -47,6 +50,10 @@ export interface OperatorActionCardDispatchOptions {
     action: OperatorActionCardUndoAction,
     button: HTMLButtonElement,
   ) => Promise<void>;
+  executeRerunAction: (
+    action: OperatorActionCardRerunAction,
+    button: HTMLButtonElement,
+  ) => Promise<void>;
 }
 
 type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer" | "undoSuccess";
@@ -63,6 +70,17 @@ function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): Sh
     workingSetId: parseOptionalInteger(button.dataset[`${prefix}WorkingSetId`]),
     query: button.dataset[`${prefix}Query`]?.trim() || null,
   });
+}
+
+function parseDatasetJson<T>(raw: string | undefined): T | null {
+  if (!raw?.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
 }
 
 function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndoAction | null {
@@ -156,6 +174,23 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
   return null;
 }
 
+function rerunActionFromButton(button: HTMLButtonElement): OperatorActionCardRerunAction | null {
+  const rerun = parseDatasetJson<ExecutableRerunHandle>(button.dataset["rerunHandle"]);
+  const contract = parseDatasetJson<RerunAttemptContract>(button.dataset["rerunContract"]);
+  if (!rerun || !contract) {
+    return null;
+  }
+  return {
+    type: "rerun",
+    label: button.textContent?.trim() || (contract.mode === "refresh" ? "Refresh" : "Rerun"),
+    variant: button.classList.contains("secondary") ? "secondary" : "primary",
+    description: contract.postRun.summary,
+    rerun,
+    contract,
+    disabledReason: button.disabled ? button.title || "Rerun is unavailable." : null,
+  };
+}
+
 export async function handleOperatorActionCardClick(
   event: Event,
   options: OperatorActionCardDispatchOptions,
@@ -234,6 +269,14 @@ export async function handleOperatorActionCardClick(
         return true;
       }
       await options.executeUndoAction(action, actionButton);
+      return true;
+    }
+    case "rerun": {
+      const action = rerunActionFromButton(actionButton);
+      if (!action) {
+        return true;
+      }
+      await options.executeRerunAction(action, actionButton);
       return true;
     }
     default:

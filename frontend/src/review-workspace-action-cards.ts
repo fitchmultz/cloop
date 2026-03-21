@@ -52,6 +52,10 @@ import {
   resolveWorkingSetSessionMetadata,
   type ReviewWorkspaceHandoffContext,
 } from "./review-workspace-handoffs";
+import {
+  buildPlanningRefreshAction,
+  buildReviewSessionRefreshAction,
+} from "./executable-rerun";
 import { buildLoopUndoAction, buildPlanningRollbackAction } from "./executable-undo";
 import { createLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
@@ -182,7 +186,7 @@ function relationshipDecisionLabel(
       : (item.related_candidates[0] ?? item.duplicate_candidates[0] ?? null)
     : null;
   if (!candidate) {
-    return "Refresh, broaden the query, or move to the next loop.";
+    return "Refresh the saved queue, edit the session query, or move to the next loop.";
   }
   return candidate.relationship_type === "duplicate"
     ? "Confirm duplicate, merge the loops, or dismiss this candidate."
@@ -191,7 +195,7 @@ function relationshipDecisionLabel(
 
 function enrichmentDecisionLabel(item: EnrichmentReviewQueueItemResponse | null): string {
   if (!item) {
-    return "Refresh, broaden the query, or move to the next queue.";
+    return "Refresh the saved queue, edit the session query, or move to the next queue.";
   }
   if (item.pending_clarification_count > 0) {
     return "Answer clarifications before trusting or applying older suggestions.";
@@ -249,6 +253,9 @@ export function buildPlanningExecutionSummaryCard(
     },
     actions: [
       openAction(primarySurface ? "Open next surface" : "Resume plan", primaryLocation, latestExecution.checkpoint_title),
+      buildPlanningRefreshAction(snapshot, {
+        workingSetId: context.fallbackWorkingSetId,
+      }),
       pinAction("Pin handoff", primaryLocation, latestExecution.checkpoint_title, `${snapshot.session.name} · ${latestExecution.checkpoint_title}`),
     ],
   };
@@ -407,6 +414,11 @@ export function buildRelationshipImpactCard(options: {
       ? "Duplicate confirmation or merge is not reversible in-place. Verify both loops represent the same work before committing."
       : "Confirm as duplicate is not reversible in-place. Use that path only if both loops should collapse together.",
     actions: [
+      buildReviewSessionRefreshAction({
+        reviewFocus: "relationship",
+        snapshot,
+        workingSetId: context.fallbackWorkingSetId,
+      }),
       ...(selectedAction && canUseSelectedPreset
         ? [eventActionWithIntegerAttributes(
             `Use “${selectedAction.name}”`,
@@ -512,6 +524,11 @@ export function buildEnrichmentImpactCard(options: {
       ? "Clarification answers rerun enrichment and may supersede older suggestions in this queue."
       : "Applying a suggestion mutates loop fields immediately and may supersede current loop context.",
     actions: [
+      buildReviewSessionRefreshAction({
+        reviewFocus: "enrichment",
+        snapshot,
+        workingSetId: context.fallbackWorkingSetId,
+      }),
       ...(selectedAction && suggestion
         ? [eventActionWithIntegerAttributes(
             `Use “${selectedAction.name}”`,
@@ -697,6 +714,11 @@ export function buildRelationshipDecisionReceiptCard(options: {
     resumeDescription: summary,
     pinLabel: `Relationship review · ${options.sessionName}`,
     actions: [
+      buildReviewSessionRefreshAction({
+        reviewFocus: "relationship",
+        snapshot: options.snapshot,
+        workingSetId: options.workingSetId,
+      }),
       openAction("Open affected loop in Do", doLocation, `Inspect ${candidateLabel} in Do`, "secondary"),
     ],
   });
@@ -772,6 +794,11 @@ export function buildEnrichmentDecisionReceiptCard(options: {
     resumeDescription: summary,
     pinLabel: `Enrichment review · ${options.sessionName}`,
     actions: [
+      buildReviewSessionRefreshAction({
+        reviewFocus: "enrichment",
+        snapshot: options.snapshot,
+        workingSetId: options.workingSetId,
+      }),
       ...(loop
         ? [openAction("Open affected loop in Do", doLocation, `Inspect ${loopTitle(loop)} in Do`, "secondary")]
         : []),
@@ -861,6 +888,9 @@ export function buildPlanningExecutionReceiptCard(options: {
     resumeDescription: summary,
     pinLabel: `${options.snapshot.session.name} · ${options.latestExecution.checkpoint_title}`,
     actions: [
+      buildPlanningRefreshAction(options.snapshot, {
+        workingSetId: options.context.fallbackWorkingSetId,
+      }),
       ...[
         buildPlanningRollbackAction(options.snapshot.session.id, options.latestExecution),
       ].filter(isUndoAction),

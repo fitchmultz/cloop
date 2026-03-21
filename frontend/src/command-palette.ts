@@ -60,6 +60,7 @@ import type {
   TrustTone,
 } from "./contracts-ui";
 import {
+  markRerunActionUnavailable,
   markUndoActionUnavailable,
   recordRecentShellAction,
 } from "./continuity-intelligence";
@@ -76,6 +77,10 @@ import {
   type PaletteRankItem,
   type PaletteRankingContext,
 } from "./command-palette-ranking";
+import {
+  executeRerunAction as runExecutableRerunAction,
+  staleRerunReason,
+} from "./executable-rerun";
 import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
 import * as modals from "./modals";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
@@ -1970,7 +1975,66 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
 
     return outcomes.slice(0, 8).flatMap((item) => {
       const commands: CommandPaletteCommand[] = [];
+      const rerunAction = item.rerunAction;
       const undoAction = item.undoAction;
+
+      if (rerunAction && !rerunAction.disabledReason) {
+        commands.push({
+          id: `recent-rerun-${item.id}`,
+          group: "recent",
+          title: `${rerunAction.label}: ${item.displayTitle}`,
+          subtitle: rerunAction.description,
+          keywords: [
+            rerunAction.label,
+            "rerun",
+            "refresh",
+            item.displayTitle,
+            item.displaySummary,
+            item.workingSetName ?? "",
+            activeWorkingSetName ?? "",
+          ],
+          badge: rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun",
+          location: item.resumeLocation,
+          continuityRank: item.rank + 28,
+          detail: {
+            eyebrow: rerunAction.contract.mode === "refresh" ? "Recent refresh" : "Recent rerun",
+            description: rerunAction.description,
+            meta: [
+              `Strict: ${rerunAction.contract.strictInvariants.join(" · ")}`,
+              `May vary: ${rerunAction.contract.mayVary.join(" · ")}`,
+              rerunAction.contract.freshnessLabel,
+              item.degradedLabel,
+            ].filter((value): value is string => Boolean(value)),
+          },
+          skipAutomaticReceipt: true,
+          execute: async () => {
+            try {
+              const result = await runExecutableRerunAction(rerunAction, {
+                rerunRecallQuery: async (handle) => {
+                  const location = createLocation({
+                    state: "recall",
+                    recallTool: handle.recallTool,
+                    workingSetId: handle.workingSetId,
+                    query: handle.query,
+                  });
+                  await bindings.openLocation(location);
+                },
+              });
+              recordRecentShellAction(result.entry);
+              await bindings.refreshWorkspace();
+              if (result.resumeLocation && rerunAction.rerun.kind !== "recall_query") {
+                await bindings.openLocation(result.resumeLocation);
+              }
+            } catch (error: unknown) {
+              const reason = staleRerunReason(error);
+              if (reason) {
+                markRerunActionUnavailable(rerunAction.rerun, reason);
+              }
+              throw error;
+            }
+          },
+        } satisfies CommandPaletteCommand);
+      }
 
       if (undoAction && !undoAction.disabledReason) {
         commands.push({
@@ -2051,7 +2115,11 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           meta: [
             item.workingSetName ? `Working set: ${item.workingSetName}` : null,
             `Recorded ${formatRelativeTime(item.occurredAt)}`,
-            item.undoAction && !item.undoAction.disabledReason ? "Undo available" : "Resume only",
+            item.rerunAction && !item.rerunAction.disabledReason
+              ? `${item.rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun"} available`
+              : item.undoAction && !item.undoAction.disabledReason
+                ? "Undo available"
+                : "Resume only",
           ].filter((value): value is string => Boolean(value)),
         },
         execute: async () => {

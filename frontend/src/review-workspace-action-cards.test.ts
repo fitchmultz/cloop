@@ -92,6 +92,7 @@ describe("review-workspace-action-cards", () => {
       },
     });
 
+    expect(card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(card.actions.some((action) => action.type === "event" && action.attributes["data-review-action"] === "relationship-confirm")).toBe(true);
     expect(card.actions.some((action) => action.type === "event" && action.attributes["data-review-action"] === "relationship-dismiss")).toBe(true);
     expect(card.actionContextLabel).toBe("Decision required");
@@ -170,6 +171,7 @@ describe("review-workspace-action-cards", () => {
 
     expect(card.kind).toBe("receipt");
     expect(card.actions.some((action) => action.type === "open" && action.label === "Resume queue")).toBe(true);
+    expect(card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(card.actions.some((action) => action.type === "open" && action.label === "Open affected loop in Do")).toBe(true);
     expect(card.handoff?.workingSet?.workingSetName).toBe("Hiring loop");
   });
@@ -210,6 +212,7 @@ describe("review-workspace-action-cards", () => {
     expect(card.kind).toBe("receipt");
     expect(card.summary).toContain("Applied suggestion #41");
     expect(card.actions.some((action) => action.type === "open" && action.label === "Resume queue")).toBe(true);
+    expect(card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(card.actions.some((action) => action.type === "undo")).toBe(true);
   });
 
@@ -267,6 +270,7 @@ describe("review-workspace-action-cards", () => {
     expect(card.kind).toBe("receipt");
     expect(card.trust.rollbackLabel).toBe("1 operation is directly undoable.");
     expect(card.actions.some((action) => action.type === "open")).toBe(true);
+    expect(card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(card.actions.some((action) => action.type === "undo")).toBe(true);
   });
 });

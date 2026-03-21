@@ -35,6 +35,7 @@ import type {
 } from "./domain";
 import type {
   ContinuityBaselineSnapshot,
+  ExecutableRerunHandle,
   ExecutableUndoHandle,
   RecentShellActionEntry,
   ResumeAnchorState,
@@ -42,6 +43,7 @@ import type {
   ReviewFocus,
   ShellLocationContract,
 } from "./contracts-ui";
+import { rerunHandleIdentity } from "./executable-rerun";
 import { undoHandleIdentity } from "./executable-undo";
 import { recentShellActionDedupKey } from "./continuity-outcomes";
 
@@ -418,6 +420,45 @@ export function markUndoActionUnavailable(handle: ExecutableUndoHandle, reason: 
         undoAction: outcome.undoAction && undoHandleIdentity(outcome.undoAction.undo) === targetIdentity
           ? { ...outcome.undoAction, disabledReason: reason }
           : outcome.undoAction,
+      },
+    } satisfies RecentShellActionEntry;
+  });
+  window.localStorage.setItem(RECENT_ACTIONS_STORAGE_KEY, JSON.stringify(updated));
+  emitRecentShellActionsUpdated();
+}
+
+export function markRerunActionUnavailable(handle: ExecutableRerunHandle, reason: string): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  const targetIdentity = rerunHandleIdentity(handle);
+  const updated = readRecentShellActions().map((entry) => {
+    const outcome = entry.outcome;
+    if (!outcome?.card?.actions?.length) {
+      return entry;
+    }
+    let mutated = false;
+    const nextActions = outcome.card.actions.map((action) => {
+      if (action.type !== "rerun" || rerunHandleIdentity(action.rerun) !== targetIdentity) {
+        return action;
+      }
+      mutated = true;
+      return {
+        ...action,
+        disabledReason: reason,
+      };
+    });
+    if (!mutated) {
+      return entry;
+    }
+    return {
+      ...entry,
+      outcome: {
+        ...outcome,
+        card: {
+          ...outcome.card,
+          actions: nextActions,
+        },
       },
     } satisfies RecentShellActionEntry;
   });

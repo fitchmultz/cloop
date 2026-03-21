@@ -273,6 +273,36 @@ def review_enrichment_session_move(
 
 
 @with_mcp_error_handling
+def review_enrichment_session_refresh(
+    session_id: int,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Refresh one enrichment-review session from live queue state.
+
+    Args:
+        session_id: Saved enrichment-review session ID.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Refreshed enrichment-review session snapshot with the same durable session
+        identity and the best preserved cursor available after queue regeneration.
+
+    Raises:
+        ToolError: If the session is missing.
+    """
+    payload = {"session_id": session_id}
+    return run_idempotent_tool_mutation(
+        tool_name="review.enrichment_session.refresh",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: review_workflows.refresh_enrichment_review_session(
+            session_id=session_id,
+            conn=conn,
+        ),
+    )
+
+
+@with_mcp_error_handling
 def review_enrichment_session_update(
     session_id: int,
     name: str | None = None,
@@ -467,6 +497,9 @@ def register_enrichment_review_workflow_tools(mcp: "FastMCP") -> None:
     mcp.tool(name="review.enrichment_session.list")(with_db_init(review_enrichment_session_list))
     mcp.tool(name="review.enrichment_session.get")(with_db_init(review_enrichment_session_get))
     mcp.tool(name="review.enrichment_session.move")(with_db_init(review_enrichment_session_move))
+    mcp.tool(name="review.enrichment_session.refresh")(
+        with_db_init(review_enrichment_session_refresh)
+    )
     mcp.tool(name="review.enrichment_session.update")(
         with_db_init(review_enrichment_session_update)
     )
@@ -491,6 +524,7 @@ __all__ = [
     "review_enrichment_session_list",
     "review_enrichment_session_get",
     "review_enrichment_session_move",
+    "review_enrichment_session_refresh",
     "review_enrichment_session_update",
     "review_enrichment_session_delete",
     "review_enrichment_session_apply_action",

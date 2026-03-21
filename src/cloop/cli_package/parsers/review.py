@@ -116,6 +116,12 @@ Examples:
     move.add_argument("--direction", choices=["next", "previous"], required=True)
     add_format_option(move)
 
+    refresh = sub.add_parser(
+        "refresh", help="Refresh a relationship-review session from live queue state"
+    )
+    refresh.add_argument("--session", type=int, required=True)
+    add_format_option(refresh)
+
     update = sub.add_parser("update", help="Update a relationship-review session")
     update.add_argument("id", type=int)
     update.add_argument("--name")
@@ -229,6 +235,12 @@ Examples:
     move.add_argument("--session", type=int, required=True)
     move.add_argument("--direction", choices=["next", "previous"], required=True)
     add_format_option(move)
+
+    refresh = sub.add_parser(
+        "refresh", help="Refresh an enrichment-review session from live queue state"
+    )
+    refresh.add_argument("--session", type=int, required=True)
+    add_format_option(refresh)
 
     update = sub.add_parser("update", help="Update an enrichment-review session")
     update.add_argument("id", type=int)

@@ -164,6 +164,49 @@ export interface WorkingSetEventUndoHandle {
 
 export type ExecutableUndoHandle = LoopEventUndoHandle | PlanningRunUndoHandle | WorkingSetEventUndoHandle;
 
+export interface RerunPostRunBehavior {
+  summary: string;
+  location: ShellLocationContract | null;
+}
+
+export interface RerunAttemptContract {
+  mode: "refresh" | "rerun";
+  provenanceLabel: string;
+  freshnessLabel: string | null;
+  strategySummary: string;
+  strictInvariants: string[];
+  mayVary: string[];
+  postRun: RerunPostRunBehavior;
+}
+
+export interface PlanningSessionRerunHandle {
+  kind: "planning_session";
+  sessionId: number;
+  sessionName: string;
+}
+
+export interface ReviewSessionRerunHandle {
+  kind: "review_session";
+  reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">;
+  sessionId: number;
+  sessionName: string;
+}
+
+export interface RecallQueryRerunHandle {
+  kind: "recall_query";
+  recallTool: Extract<RecallTool, "chat" | "rag">;
+  query: string;
+  workingSetId: number | null;
+  includeLoopContext?: boolean | undefined;
+  includeMemoryContext?: boolean | undefined;
+  includeRagContext?: boolean | undefined;
+}
+
+export type ExecutableRerunHandle =
+  | PlanningSessionRerunHandle
+  | ReviewSessionRerunHandle
+  | RecallQueryRerunHandle;
+
 export interface RecentShellActionOutcome {
   card: OperatorActionCard;
   resumeLocation: ShellLocationContract | null;
@@ -183,7 +226,7 @@ export interface RecentShellActionEntry {
 
 export type OperatorActionCardKind = "mutation" | "decision" | "handoff" | "refresh" | "context" | "receipt";
 export type OperatorActionCardTone = "neutral" | "attention" | "progress" | "caution";
-export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer" | "undo";
+export type OperatorActionCardActionType = "open" | "pin" | "event" | "stage" | "edit" | "defer" | "undo" | "rerun";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
 export type TrustTone = "neutral" | "attention" | "progress" | "caution";
 
@@ -278,6 +321,12 @@ export interface OperatorActionCardUndoAction extends OperatorActionCardActionBa
   successLocation?: ShellLocationContract | null;
 }
 
+export interface OperatorActionCardRerunAction extends OperatorActionCardActionBase {
+  type: "rerun";
+  rerun: ExecutableRerunHandle;
+  contract: RerunAttemptContract;
+}
+
 export type OperatorActionCardAction =
   | OperatorActionCardOpenAction
   | OperatorActionCardPinAction
@@ -285,7 +334,8 @@ export type OperatorActionCardAction =
   | OperatorActionCardStageAction
   | OperatorActionCardEditAction
   | OperatorActionCardDeferAction
-  | OperatorActionCardUndoAction;
+  | OperatorActionCardUndoAction
+  | OperatorActionCardRerunAction;
 
 export interface OperatorActionCard {
   id: string;

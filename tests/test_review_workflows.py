@@ -240,6 +240,107 @@ def test_review_session_move_helpers_step_through_saved_cursors(
     assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
 
 
+def test_review_session_refresh_helpers_rebuild_saved_queues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+    _mock_relationship_embeddings(monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        rel_first = _capture_loop(
+            "Buy milk and eggs before the weekend",
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        _capture_loop(
+            "Pick up groceries like milk and eggs",
+            status=LoopStatus.ACTIONABLE,
+            conn=conn,
+        )
+        enrich_first = _capture_loop("Clarify launch date", status=LoopStatus.INBOX, conn=conn)
+        repo.insert_loop_suggestion(
+            loop_id=enrich_first["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=enrich_first["id"],
+            question="When should this happen?",
+            conn=conn,
+        )
+        conn.commit()
+
+        relationship_session = review_workflows.create_relationship_review_session(
+            name="refresh-rel",
+            query="status:open",
+            relationship_kind="duplicate",
+            candidate_limit=3,
+            item_limit=25,
+            current_loop_id=rel_first["id"],
+            conn=conn,
+            settings=settings,
+        )
+        enrichment_session = review_workflows.create_enrichment_review_session(
+            name="refresh-enrich",
+            query="status:open",
+            pending_kind="clarifications",
+            suggestion_limit=3,
+            clarification_limit=3,
+            item_limit=25,
+            current_loop_id=enrich_first["id"],
+            conn=conn,
+        )
+
+        _capture_loop(
+            "Draft launch email for beta users",
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        _capture_loop(
+            "Write beta launch email draft",
+            status=LoopStatus.ACTIONABLE,
+            conn=conn,
+        )
+        enrich_second = _capture_loop(
+            "Clarify owner for launch", status=LoopStatus.INBOX, conn=conn
+        )
+        repo.insert_loop_suggestion(
+            loop_id=enrich_second["id"],
+            suggestion_json={"needs_clarification": ["Who owns this?"]},
+            model="test-model",
+            conn=conn,
+        )
+        repo.insert_loop_clarification(
+            loop_id=enrich_second["id"],
+            question="Who owns this?",
+            conn=conn,
+        )
+        conn.commit()
+
+        refreshed_relationship = review_workflows.refresh_relationship_review_session(
+            session_id=relationship_session["session"]["id"],
+            conn=conn,
+            settings=settings,
+        )
+        refreshed_enrichment = review_workflows.refresh_enrichment_review_session(
+            session_id=enrichment_session["session"]["id"],
+            conn=conn,
+        )
+
+    assert refreshed_relationship["session"]["id"] == relationship_session["session"]["id"]
+    assert refreshed_relationship["loop_count"] >= relationship_session["loop_count"]
+    assert refreshed_relationship["session"]["current_loop_id"] in {
+        item["loop"]["id"] for item in refreshed_relationship["items"]
+    }
+    assert refreshed_enrichment["session"]["id"] == enrichment_session["session"]["id"]
+    assert refreshed_enrichment["loop_count"] == 2
+    assert refreshed_enrichment["session"]["current_loop_id"] in {
+        item["loop"]["id"] for item in refreshed_enrichment["items"]
+    }
+
+
 def test_enrichment_review_session_can_attach_to_and_cleanup_from_working_set(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

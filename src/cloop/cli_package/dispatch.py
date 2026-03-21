@@ -140,6 +140,7 @@ from .review_commands import (
     enrichment_review_session_get_command,
     enrichment_review_session_list_command,
     enrichment_review_session_move_command,
+    enrichment_review_session_refresh_command,
     enrichment_review_session_update_command,
     relationship_review_action_create_command,
     relationship_review_action_delete_command,
@@ -152,6 +153,7 @@ from .review_commands import (
     relationship_review_session_get_command,
     relationship_review_session_list_command,
     relationship_review_session_move_command,
+    relationship_review_session_refresh_command,
     relationship_review_session_update_command,
 )
 from .template_commands import (
@@ -271,6 +273,7 @@ REVIEW_TARGET = _branch(
                 "list": relationship_review_session_list_command,
                 "get": relationship_review_session_get_command,
                 "move": relationship_review_session_move_command,
+                "refresh": relationship_review_session_refresh_command,
                 "update": relationship_review_session_update_command,
                 "delete": relationship_review_session_delete_command,
                 "apply-action": relationship_review_session_apply_action_command,
@@ -295,6 +298,7 @@ REVIEW_TARGET = _branch(
                 "list": enrichment_review_session_list_command,
                 "get": enrichment_review_session_get_command,
                 "move": enrichment_review_session_move_command,
+                "refresh": enrichment_review_session_refresh_command,
                 "update": enrichment_review_session_update_command,
                 "delete": enrichment_review_session_delete_command,
                 "apply-action": enrichment_review_session_apply_action_command,

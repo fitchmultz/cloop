@@ -42,6 +42,7 @@ from ._review_workflows.enrichment import (
     review_enrichment_session_get,
     review_enrichment_session_list,
     review_enrichment_session_move,
+    review_enrichment_session_refresh,
     review_enrichment_session_update,
 )
 from ._review_workflows.relationship import (
@@ -57,6 +58,7 @@ from ._review_workflows.relationship import (
     review_relationship_session_get,
     review_relationship_session_list,
     review_relationship_session_move,
+    review_relationship_session_refresh,
     review_relationship_session_update,
 )
 
@@ -81,6 +83,7 @@ __all__ = [
     "review_relationship_session_list",
     "review_relationship_session_get",
     "review_relationship_session_move",
+    "review_relationship_session_refresh",
     "review_relationship_session_update",
     "review_relationship_session_delete",
     "review_relationship_session_apply_action",
@@ -93,6 +96,7 @@ __all__ = [
     "review_enrichment_session_list",
     "review_enrichment_session_get",
     "review_enrichment_session_move",
+    "review_enrichment_session_refresh",
     "review_enrichment_session_update",
     "review_enrichment_session_delete",
     "review_enrichment_session_apply_action",

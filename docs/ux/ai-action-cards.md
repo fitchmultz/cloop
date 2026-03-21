@@ -109,10 +109,11 @@ Every action card should have:
 
 - Planning follow-up resources, launch surfaces, operator action cards, review impact cards, enrichment suggestion cards, recall support decks, and in-thread recall result cards now share the same structured card renderer.
 - Grounded chat answers and document-answer results now surface trust-framed, executable handoff cards inline instead of leaving recall outputs prose-only.
-- Shared action cards now support first-class stage, edit, and defer follow-through alongside open, pin, and review-local event actions.
-- Recall result cards now use those richer follow-through actions to save durable briefs, reopen editable source questions, and defer evidence or execution handoffs without losing working-set scope.
-- Card-triggered working-set changes, review decisions, planning execution, and command-palette actions now emit shared receipt cards with rollback cues and resume-from-landed-outcome affordances instead of disappearing into one-line status text.
-- The next roadmap work that builds on shared receipts is now specified in [`outcome-continuity.md`](outcome-continuity.md) and [`undo-actions.md`](undo-actions.md).
+- Shared action cards now support first-class stage, edit, defer, undo, and rerun/refresh follow-through alongside open, pin, and review-local event actions.
+- Recall result cards now use those richer follow-through actions to save durable briefs, reopen editable source questions, rerun grounded answers, and defer evidence or execution handoffs without losing working-set scope.
+- Planning and saved review-session cards now expose one shared rerun contract that makes provenance, freshness, strategy summary, strict invariants, variable attempt behavior, and landing semantics explicit before the operator refreshes a workflow.
+- Card-triggered working-set changes, review decisions, planning execution, reruns, and command-palette actions now emit shared receipt cards with rollback cues and resume-from-landed-outcome affordances instead of disappearing into one-line status text.
+- The next roadmap work that builds on shared receipts is now specified in [`outcome-continuity.md`](outcome-continuity.md), [`continuity-intelligence.md`](continuity-intelligence.md), and [`undo-actions.md`](undo-actions.md).
 
 ## Dependencies
 
