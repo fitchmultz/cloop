@@ -285,7 +285,10 @@ def _build_prompt(
     loop: Mapping[str, Any],
     context: EnrichmentContext | None = None,
 ) -> list[dict[str, str]]:
-    """Build the LLM prompt with optional context.
+    """Build the enrichment prompt with optional context.
+
+    The organizer guidance prose is intentionally editable. The deterministic
+    boundary is the schema block below plus `LoopSuggestion` validation.
 
     Args:
         loop: The loop data to enrich
@@ -322,6 +325,8 @@ def _build_prompt(
             context_section["user_clarifications"] = context.answered_clarifications
         user_content["context"] = context_section
 
+    # Editable guidance for stochastic enrichment generation.
+    # Keep the schema block below aligned with downstream validation.
     return [
         {
             "role": "system",

@@ -119,6 +119,8 @@ uv run uvicorn cloop.main:app --reload
 ```
 
 Review-tab smoke checklist:
+- Verify workflow invariants and surfaced metadata, not exact AI wording.
+- Use any valid selector/tool path that reaches the same deterministic boundary.
 - Create a planning session from the Review tab and confirm the workspace shows:
   - plan-generated timestamp / freshness cue
   - current checkpoint success criteria

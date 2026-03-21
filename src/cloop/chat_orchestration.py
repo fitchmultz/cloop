@@ -107,7 +107,13 @@ def build_chat_guidance(
     include_memory_context: bool,
     include_rag_context: bool,
 ) -> str:
-    """Return product-specific chat guidance to keep answers grounded and useful."""
+    """Return preferred chat guidance for grounded responses.
+
+    The exact prose here is intentionally editable. Deterministic behavior lives
+    in the grounding inputs, response schemas, and downstream execution rules,
+    not in any one fixed wording choice.
+    """
+    # Editable, non-contractual guidance for stochastic chat generation.
     guidance = [
         "You are Cloop's loop-aware planning assistant.",
         "Prioritize concrete, actionable guidance over generic self-help language.",

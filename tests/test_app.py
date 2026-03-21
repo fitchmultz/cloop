@@ -1916,6 +1916,8 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
     tmp_data_dir: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from cloop.chat_orchestration import build_chat_guidance
+
     captured: dict[str, Any] = {}
 
     def fake_chat_completion(
@@ -1940,9 +1942,16 @@ def test_chat_injects_grounding_guidance_when_loop_context_enabled(
     )
     assert response.status_code == 200
     messages = captured["messages"]
-    assert messages[0]["role"] == "system"
-    assert "loop-aware planning assistant" in messages[0]["content"]
-    assert "Avoid motivational filler" in messages[0]["content"]
+    assert messages[0] == {
+        "role": "system",
+        "content": build_chat_guidance(
+            include_loop_context=True,
+            include_memory_context=False,
+            include_rag_context=False,
+        ),
+    }
+    assert messages[0]["content"].strip()
+    assert messages[-1]["role"] == "user"
     assert captured["surface"].value == "chat"
 
 

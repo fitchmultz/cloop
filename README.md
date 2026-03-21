@@ -397,9 +397,14 @@ cloop import [--file FILE] [--format json|table]
 
 ### Planning and Review Playbooks
 
-These shared workflows are meant to compose with each other instead of living in one transport only. They all inherit the same pi selector defaults from `CLOOP_PI_MODEL` / `CLOOP_PI_ORGANIZER_MODEL`, so planning, review, and grounded chat stay on one configured generative runtime unless you intentionally change the selectors.
+These shared workflows are defaults, not mandatory scripts. They are meant to compose with each other instead of living in one transport only. They all inherit the same pi selector defaults from `CLOOP_PI_MODEL` / `CLOOP_PI_ORGANIZER_MODEL`, so planning, review, and grounded chat stay on one configured generative runtime unless you intentionally change the selectors.
 
-**Checkpointed planning via CLI:**
+Required invariants:
+- deterministic checkpoints only run after their prerequisites exist
+- saved review sessions remain explicit operator handoff points
+- transports preserve execution summaries, follow-up resources, launch surfaces, and rollback cues even if prompt phrasing or selector choice changes
+
+**Checkpointed planning via CLI (common default):**
 ```bash
 # Create a durable plan grounded in current launch work
 cloop plan session create \
@@ -422,7 +427,7 @@ shared services already own them: query-bulk loop updates/close/snooze steps,
 saved review-session creation, saved-view creation/update, and template capture
 from existing loops.
 
-**Saved review queues via CLI:**
+**Saved review queues via CLI (common default):**
 ```bash
 # Preserve duplicate review work across sessions
 cloop review relationship-session create \
@@ -441,7 +446,7 @@ cloop review enrichment-session answer-clarifications \
   --item 31="Need budget by Friday"
 ```
 
-**HTTP workflow sketch:**
+**HTTP workflow sketch (one valid path):**
 ```bash
 # Create a planning session
 curl -X POST http://127.0.0.1:8000/loops/planning/sessions \
@@ -458,14 +463,14 @@ curl -X POST http://127.0.0.1:8000/loops/planning/sessions \
 curl -X POST http://127.0.0.1:8000/loops/planning/sessions/1/execute
 ```
 
-**MCP operator pattern:**
+**MCP operator pattern (good default, not the only valid sequence):**
 - `plan.session.create` → generate the durable checkpointed plan.
 - `plan.session.get` / `plan.session.move` → inspect and navigate checkpoints before execution.
 - `plan.session.execute` → run exactly one deterministic checkpoint and inspect `execution.results`, `execution.summary`, and per-operation `rollback_actions` / `resource_refs`.
 - `review.relationship_session.*` and `review.enrichment_session.*` → continue any saved follow-up sessions that a checkpoint created.
 - `chat.complete` → ask for advice against the live loop/memory/RAG state after deterministic work lands.
 
-The MCP tool descriptions are intentionally rich: clients should surface the `Args`, `Returns`, and `Examples` sections so operators can discover the shared workflow model without separate transport-specific docs.
+Clients can enter at any compatible step. The MCP tool descriptions are intentionally rich: clients should surface the `Args`, `Returns`, and `Examples` sections so operators can discover the shared workflow model without separate transport-specific docs.
 
 ### Review Commands
 

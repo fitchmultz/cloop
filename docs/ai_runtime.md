@@ -248,6 +248,11 @@ Execution contract:
 - streaming retries only happen before the first visible event (`text_delta`,
   `tool_call`, or `tool_result`)
 
+What stays strict here is the bounded retry envelope, selector/tool-budget
+policy, and recorded provenance metadata. Exact prompt wording, internal
+reasoning text, and which preferred selector happened to succeed are not
+contractual as long as the deterministic boundary stays valid.
+
 ## 9) Tool-loop budgets, exhaustion, and abort behavior
 
 Cloop keeps Python in control of tool execution and loop policy.

@@ -258,6 +258,9 @@ def _build_planner_messages(
         "rag_context": rag_context,
     }
 
+    # The first system message is preferred planner guidance and may evolve.
+    # The strict contract boundary is the schema payload below plus
+    # GeneratedPlanningWorkflowModel validation.
     return [
         {
             "role": "system",
