@@ -36,7 +36,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, cast
 
 from .. import db
@@ -67,6 +67,8 @@ from ..schemas._loops.continuity import (
 from ..settings import Settings, get_settings
 
 _DEDUPE_WINDOW_SECONDS = 15.0
+_PUSH_UNSEEN_RESEND_COOLDOWN = timedelta(hours=6)
+_PUSH_SEEN_RESEND_COOLDOWN = timedelta(hours=24)
 _HOME_LOCATION = ContinuityLocationResponse(state="operator", recall_tool="chat")
 
 
@@ -1586,14 +1588,29 @@ def _notification_state_is_suppressed(
     return _parse_timestamp(state.suppressed_until_utc) > now
 
 
-def _push_deliverable(record: ContinuityNotificationRecordResponse) -> bool:
+def _push_resend_ready_at(
+    state: ContinuityNotificationStateResponse,
+) -> datetime | None:
+    if state.seen_at_utc is not None:
+        return _parse_timestamp(state.seen_at_utc) + _PUSH_SEEN_RESEND_COOLDOWN
+    if state.inboxed_at_utc is not None:
+        return _parse_timestamp(state.inboxed_at_utc) + _PUSH_UNSEEN_RESEND_COOLDOWN
+    return None
+
+
+def _push_deliverable(
+    record: ContinuityNotificationRecordResponse,
+    *,
+    now: datetime | None = None,
+) -> bool:
     state = record.state
-    return (
-        state.acknowledged_at_utc is None
-        and state.seen_at_utc is None
-        and state.inboxed_at_utc is None
-        and not _notification_state_is_suppressed(state)
-    )
+    now = now or datetime.now(UTC)
+    if state.acknowledged_at_utc is not None:
+        return False
+    if _notification_state_is_suppressed(state, now=now):
+        return False
+    resend_ready_at = _push_resend_ready_at(state)
+    return resend_ready_at is None or resend_ready_at <= now
 
 
 def read_continuity_notification_records(

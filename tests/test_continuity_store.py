@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from conftest import insert_planning_session
@@ -204,14 +205,65 @@ def test_notification_state_round_trips_on_snapshot(tmp_data_dir: Path) -> None:
     assert snapshot.notification_records[0].state.suppressed_until_utc == "2026-03-21T13:00:00Z"
 
 
-def test_push_notification_reads_skip_inboxed_or_seen_records(tmp_data_dir: Path) -> None:
+def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) -> None:
     record_continuity_outcome(_outcome_request())
-    assert read_continuity_notification_records(channel="push")[0].id == "planning:41:checkpoint:0"
+    notification_id = "planning:41:checkpoint:0"
+    now = datetime.now(UTC).replace(microsecond=0)
+
+    assert read_continuity_notification_records(channel="push")[0].id == notification_id
 
     upsert_continuity_notification_state(
-        "planning:41:checkpoint:0",
+        notification_id,
         ContinuityNotificationStateUpsertRequest(
-            inboxed_at_utc="2026-03-21T12:01:00Z",
+            inboxed_at_utc=(now - timedelta(hours=2)).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    assert read_continuity_notification_records(channel="push") == []
+
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            inboxed_at_utc=(now - timedelta(hours=7)).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    assert read_continuity_notification_records(channel="push")[0].id == notification_id
+
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            seen_at_utc=(now - timedelta(hours=12)).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    assert read_continuity_notification_records(channel="push") == []
+
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            seen_at_utc=(now - timedelta(hours=25)).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    assert read_continuity_notification_records(channel="push")[0].id == notification_id
+
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            suppressed_until_utc=(now + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    assert read_continuity_notification_records(channel="push") == []
+
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            suppressed_until_utc=(now - timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
+        ),
+    )
+    assert read_continuity_notification_records(channel="push")[0].id == notification_id
+
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            acknowledged_at_utc=now.isoformat().replace("+00:00", "Z"),
         ),
     )
     assert read_continuity_notification_records(channel="push") == []

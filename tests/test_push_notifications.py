@@ -14,6 +14,7 @@ Non-scope:
 """
 
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterator
@@ -22,8 +23,18 @@ import pytest
 
 from cloop import db
 from cloop.push_sender import PushPayload, send_scheduler_push
-from cloop.schemas._loops.continuity import ContinuityNotificationStateUpsertRequest
+from cloop.schemas._loops.continuity import (
+    ContinuityLocationResponse,
+    ContinuityNotificationStateUpsertRequest,
+    ContinuityOutcomeWriteRequest,
+    WorkflowThreadRefResponse,
+)
 from cloop.settings import get_settings
+from cloop.storage.continuity_store import (
+    read_continuity_snapshot,
+    record_continuity_outcome,
+    upsert_continuity_notification_state,
+)
 
 
 @pytest.fixture
@@ -40,6 +51,62 @@ def push_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[sqlite3
         yield conn
     finally:
         conn.close()
+
+
+def _record_notification() -> None:
+    record_continuity_outcome(
+        ContinuityOutcomeWriteRequest(
+            kind="planning",
+            label="Created review queue",
+            description="The downstream queue is ready.",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(
+                state="decide",
+                review_focus="enrichment",
+                session_id=52,
+            ),
+            outcome_card={
+                "id": "receipt-created-review-queue",
+                "kind": "receipt",
+                "tone": "progress",
+                "eyebrow": "Planning receipt",
+                "title": "Created review queue",
+                "summary": "The downstream queue is ready.",
+                "rationale": "Receipt",
+                "preview": [],
+                "trust": {
+                    "contextSources": ["Planning session"],
+                    "assumptions": [],
+                    "confidenceLabel": "Recorded",
+                    "freshnessLabel": "Saved just now",
+                    "rollbackLabel": "Undo remains available.",
+                },
+                "handoff": None,
+                "actions": [],
+            },
+            workflow_thread=WorkflowThreadRefResponse(
+                id="planning:41:checkpoint:0",
+                kind="planning_checkpoint",
+                title="Weekly reset",
+                summary="Planning checkpoint thread",
+                parent_outcome_id=None,
+            ),
+            dedupe_key="planning::queue",
+            source_surface="review-workspace",
+            signal_level="high",
+            metadata={"sessionId": 41, "checkpointIndex": 0},
+        )
+    )
+
+
+def _add_push_subscription(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """INSERT INTO push_subscriptions (endpoint, p256dh, auth)
+           VALUES (?, ?, ?)""",
+        ("https://fcm.googleapis.com/test", "key", "auth"),
+    )
+    conn.commit()
 
 
 class TestPushSubscriptions:
@@ -105,13 +172,8 @@ class TestPushSender:
         """Test push for due-soon nudge returns 0 gracefully without pywebpush."""
         settings = get_settings()
 
-        # Add subscription
-        push_db.execute(
-            """INSERT INTO push_subscriptions (endpoint, p256dh, auth)
-               VALUES (?, ?, ?)""",
-            ("https://fcm.googleapis.com/test", "key", "auth"),
-        )
-        push_db.commit()
+        _record_notification()
+        _add_push_subscription(push_db)
 
         # Without pywebpush installed, should return 0 gracefully
         payload = {
@@ -137,13 +199,8 @@ class TestPushSender:
         """Test push for review generated."""
         settings = get_settings()
 
-        # Add subscription
-        push_db.execute(
-            """INSERT INTO push_subscriptions (endpoint, p256dh, auth)
-               VALUES (?, ?, ?)""",
-            ("https://fcm.googleapis.com/test", "key", "auth"),
-        )
-        push_db.commit()
+        _record_notification()
+        _add_push_subscription(push_db)
 
         payload = {
             "review_type": "daily",
@@ -230,6 +287,70 @@ class TestPushSender:
         state_payload = captured["state_payload"]
         assert isinstance(state_payload, ContinuityNotificationStateUpsertRequest)
         assert state_payload.inboxed_at_utc is not None
+
+    def test_send_scheduler_push_skips_recently_inboxed_notifications(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test recent push deliveries stay in cooldown until the resend window passes."""
+        settings = get_settings()
+        _record_notification()
+        _add_push_subscription(push_db)
+        recent_inboxed_at = (datetime.now(UTC) - timedelta(hours=2)).replace(microsecond=0)
+        upsert_continuity_notification_state(
+            "planning:41:checkpoint:0",
+            ContinuityNotificationStateUpsertRequest(
+                inboxed_at_utc=recent_inboxed_at.isoformat().replace("+00:00", "Z"),
+            ),
+            settings=settings,
+        )
+
+        def _should_not_send(payload: PushPayload, settings_arg, conn_arg) -> int:
+            raise AssertionError("push transport should not run while notification is cooling down")
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _should_not_send)
+
+        result = send_scheduler_push(
+            "review_generated",
+            {"review_type": "daily", "total_items": 5, "cohorts": []},
+            settings,
+            push_db,
+        )
+
+        assert result == 0
+
+    def test_send_scheduler_push_refreshes_inboxed_timestamp_after_resend(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test resend-eligible notifications refresh inboxed timing after a successful push."""
+        settings = get_settings()
+        _record_notification()
+        _add_push_subscription(push_db)
+        prior_inboxed_at = (datetime.now(UTC) - timedelta(hours=7)).replace(microsecond=0)
+        upsert_continuity_notification_state(
+            "planning:41:checkpoint:0",
+            ContinuityNotificationStateUpsertRequest(
+                inboxed_at_utc=prior_inboxed_at.isoformat().replace("+00:00", "Z"),
+            ),
+            settings=settings,
+        )
+
+        monkeypatch.setattr(
+            "cloop.push_sender.send_push_notification", lambda payload, settings_arg, conn_arg: 1
+        )
+
+        result = send_scheduler_push(
+            "review_generated",
+            {"review_type": "daily", "total_items": 5, "cohorts": []},
+            settings,
+            push_db,
+        )
+
+        assert result == 1
+        snapshot = read_continuity_snapshot(settings=settings)
+        refreshed = snapshot.notification_records[0].state.inboxed_at_utc
+        assert refreshed is not None
+        assert refreshed != prior_inboxed_at.isoformat().replace("+00:00", "Z")
+        assert datetime.fromisoformat(refreshed.replace("Z", "+00:00")) > prior_inboxed_at
 
 
 class TestPushPayload:

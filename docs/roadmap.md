@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish scheduler-owned delivery timing and resend policy now that operator surfaces share the same durable continuity notification controls.
+The current priority is to finish notification-state lifecycle hygiene now that scheduler delivery timing and resend policy are settled.
 
 ## Direction
 
@@ -46,39 +46,39 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Scheduler delivery timing and resend policy
+### Next — Notification-state lifecycle hygiene
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: make scheduler-owned delivery respect timing windows and resend policy while continuing to consume continuity-owned deliverable notifications.
+Goal: compact durable notification state once delivery policy settles so expired suppressions, long-lived terminal states, and retired workflow ids do not accumulate indefinitely.
 
 Why this comes next:
-- operator-side interaction semantics have settled across home, banners, and the command palette
-- remaining churn is now scheduler cadence and resend policy, not notification-consumer behavior
+- resend policy needs stable state semantics before cleanup rules can be made deterministic
+- cleanup should happen before exposing delivery diagnostics so debug views reflect the final lifecycle rules
 
 Planned sequence:
 
-1. separate delivery cadence from notification ranking so scheduler reads continuity-owned deliverable records without re-ranking them
-2. define resend and cooldown windows for inboxed, seen, acknowledged, and suppressed notifications
-3. keep scheduler delivery as a transport over continuity-owned notification records instead of task-specific reminder copy
+1. define which notification-state rows are active, terminal, expired, retired, or orphaned
+2. add deterministic compaction for expired suppressions, stale terminal rows, and unresolved workflow ids
+3. keep cleanup invisible to active notification delivery and operator inbox behavior
 
-### Later — Notification-state hygiene for retired workflow ids
+### Later — Scheduler delivery history and explainability
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: prune or compact notification-state rows whose canonical workflow ids no longer resolve so continuity state stays small and explainable.
+Goal: expose why a continuity notification was sent, skipped, cooled down, or deduped by reusing scheduler delivery records and durable notification state.
 
 Why this comes later:
-- delivery behavior and operator controls matter first
-- cleanup policy is easier once state writes and scheduler reads have settled
+- delivery rules and cleanup behavior should settle first so explanations describe stable behavior
+- the write-side scheduler delivery record already exists, so the follow-up is mainly a read/diagnostic contract
 
 Planned sequence:
 
-1. define when a notification-state row becomes retired or orphaned
-2. add a deterministic prune or compact pass tied to continuity-owned identity rules
-3. keep cleanup invisible to active notification delivery and operator inbox state
+1. define canonical delivery-status reasons across sent, skipped, cooled-down, suppressed, and deduped outcomes
+2. add a read path that joins scheduler delivery records with continuity notification state for inspection and tests
+3. keep diagnostics debug-first and separate from notification ranking or operator recommendation logic
 
 ## Delivery model
 
