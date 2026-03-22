@@ -28,6 +28,7 @@ import type { ShellLocationContract } from "./contracts-ui";
 
 export type PaletteGroup =
   | "recommended"
+  | "notifications"
   | "recent"
   | "navigate"
   | "capture"
@@ -81,6 +82,7 @@ export interface RankedPaletteItem<T extends PaletteRankItem = PaletteRankItem> 
 
 const GROUP_BASE_SCORES = {
   recommended: 320,
+  notifications: 290,
   recent: 240,
   navigate: 210,
   act: 225,

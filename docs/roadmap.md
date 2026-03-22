@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish scheduler-owned delivery timing and lifecycle cleanup so durable continuity notifications age cleanly across push, in-app, and hydration surfaces.
+The current priority is to finish scheduler-owned delivery timing and resend policy now that operator surfaces share the same durable continuity notification controls.
 
 ## Direction
 
@@ -51,16 +51,16 @@ The next roadmap slice starts from work that is already live:
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: make scheduler-owned delivery respect timing windows, resend policy, and channel-specific cadence while continuing to consume continuity-owned deliverable notifications.
+Goal: make scheduler-owned delivery respect timing windows and resend policy while continuing to consume continuity-owned deliverable notifications.
 
 Why this comes next:
-- deliverable selection and operator write paths are already in place
-- remaining work is now timing policy, resend behavior, and cross-channel cadence rather than state-model churn
+- operator-side interaction semantics have settled across home, banners, and the command palette
+- remaining churn is now scheduler cadence and resend policy, not notification-consumer behavior
 
 Planned sequence:
 
 1. separate delivery cadence from notification ranking so scheduler reads continuity-owned deliverable records without re-ranking them
-2. define resend and digest timing windows for inboxed, seen, acknowledged, and suppressed notifications
+2. define resend and cooldown windows for inboxed, seen, acknowledged, and suppressed notifications
 3. keep scheduler delivery as a transport over continuity-owned notification records instead of task-specific reminder copy
 
 ### Later — Notification-state hygiene for retired workflow ids

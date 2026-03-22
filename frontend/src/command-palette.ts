@@ -61,10 +61,13 @@ import type {
   TrustTone,
 } from "./contracts-ui";
 import {
+  acknowledgeContinuityNotification,
   markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
   markUndoActionUnavailable,
+  readActiveContinuityNotificationRecords,
   recordRecentShellAction,
+  suppressContinuityNotification,
 } from "./continuity-intelligence";
 import {
   readRankedWorkflowSummaries,
@@ -213,6 +216,7 @@ const RECENT_COMMANDS_STORAGE_KEY = "cloop.command-palette.recent.v1";
 const VIEW_CACHE_TTL_MS = 60 * 1000;
 const GROUP_LABELS = {
   recommended: "Recommended",
+  notifications: "Notifications",
   recent: "Recent",
   navigate: "Navigate",
   capture: "Capture",
@@ -439,6 +443,9 @@ function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {
   if (command.group === "recommended") {
     return "Deterministic continuity recommendation";
   }
+  if (command.group === "notifications") {
+    return "Durable continuity notification";
+  }
   if (command.group === "review") {
     return "Saved-session or review handoff";
   }
@@ -483,6 +490,9 @@ function defaultCommandContextSources(command: CommandPaletteCommand, selectedCo
   if (command.group === "recommended") {
     sources.push("Durable continuity outcomes and last-seen evidence");
   }
+  if (command.group === "notifications") {
+    sources.push("Durable continuity notification state and resolved workflow target");
+  }
   if (command.group === "recent") {
     sources.push("Browser-local recent usage history");
   }
@@ -504,6 +514,9 @@ function defaultCommandAssumptions(command: CommandPaletteCommand, selectedCount
   }
   if (command.group === "recommended") {
     return ["Recommendation ranking uses only visible continuity evidence, drift, readiness, and working-set relevance."];
+  }
+  if (command.group === "notifications") {
+    return ["Notification commands only surface records that remain active under the shared durable notification-state rules."];
   }
   if (command.group === "recent") {
     return ["Recent commands are stored locally in this browser and may not reflect work done elsewhere."];
@@ -527,6 +540,9 @@ function defaultCommandConfidence(command: CommandPaletteCommand): { label: stri
   if (command.group === "recommended") {
     return { label: "Deterministic next move", tone: "attention" };
   }
+  if (command.group === "notifications") {
+    return { label: "Durable notification target", tone: "attention" };
+  }
   if (command.group === "recent") {
     return { label: "Recent repeat candidate", tone: "progress" };
   }
@@ -547,6 +563,9 @@ function defaultCommandFreshness(command: CommandPaletteCommand): { label: strin
   if (command.group === "recommended") {
     return { label: "Resolved from durable continuity and live shell state", tone: "neutral" };
   }
+  if (command.group === "notifications") {
+    return { label: "Resolved from durable notification state and live shell state", tone: "neutral" };
+  }
   if (command.group === "act") {
     return { label: "Uses current shell selection and focus context", tone: command.disabled ? "caution" : "neutral" };
   }
@@ -559,6 +578,7 @@ function defaultCommandFreshness(command: CommandPaletteCommand): { label: strin
 function defaultCommandRollback(command: CommandPaletteCommand): { label: string | null; tone: TrustTone } {
   if (
     command.group === "recommended"
+    || command.group === "notifications"
     || command.group === "navigate"
     || command.group === "review"
     || command.group === "recall"
@@ -2029,6 +2049,149 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     }
   }
 
+  function notificationCommands(
+    summaries: readonly RankedWorkflowSummary[],
+  ): CommandPaletteCommand[] {
+    const summaryById = new Map(summaries.map((summary) => [summary.id, summary]));
+    const notifications = readActiveContinuityNotificationRecords().slice(0, 2);
+
+    return notifications.flatMap((notification, index) => {
+      const summary = summaryById.get(notification.id) ?? null;
+      const continuitySignals = summary?.rankingSignals ?? {
+        driftScore: Math.max(24, 52 - index * 8),
+        workingSetRelevant: false,
+        downstreamReady: true,
+        degraded: false,
+        recencyTieBreaker: 24 - index * 4,
+      };
+      const continuityRank = summary?.rank ?? Math.max(24, 96 - index * 8);
+      const workflowTitle = summary?.workflowThread.title ?? notification.workflowThread.title;
+      const stateLabel = notification.state.seenAtUtc == null ? "Unseen" : "In inbox";
+      const destination = continuityLocationLabel(notification.resolvedLocation);
+      const controlContextSources = ["Durable continuity notification state", `Workflow thread: ${workflowTitle}`];
+      const commands: CommandPaletteCommand[] = [{
+        id: `notification-open-${notification.id}`,
+        group: "notifications",
+        title: `Open notification · ${notification.title}`,
+        subtitle: notification.body,
+        keywords: [
+          "notification",
+          "open",
+          notification.title,
+          notification.body,
+          workflowTitle,
+          destination,
+          notification.severity,
+          stateLabel,
+        ],
+        badge: notification.state.seenAtUtc == null ? "New" : "Inbox",
+        location: notification.resolvedLocation,
+        continuityRank: continuityRank + 72,
+        continuitySignals,
+        detail: {
+          eyebrow: notification.state.seenAtUtc == null ? "New continuity notification" : "Continuity notification",
+          description: "Open the exact workflow target carried by this durable continuity notification.",
+          meta: [
+            `Workflow: ${workflowTitle}`,
+            `Destination: ${destination}`,
+            `State: ${stateLabel}`,
+            `Severity: ${notification.severity}`,
+          ],
+        },
+        recentAction: { kind: "open-location", location: notification.resolvedLocation },
+        execute: async () => {
+          await bindings.openLocation(notification.resolvedLocation);
+        },
+      } satisfies CommandPaletteCommand];
+
+      commands.push(
+        {
+          id: `notification-acknowledge-${notification.id}`,
+          group: "act",
+          title: `Acknowledge notification · ${notification.title}`,
+          subtitle: "Remove this continuity notification from operator surfaces.",
+          keywords: [
+            "notification",
+            "acknowledge",
+            "dismiss",
+            workflowTitle,
+            notification.title,
+            notification.body,
+          ],
+          badge: "Acknowledge",
+          location: notification.resolvedLocation,
+          continuityRank: continuityRank + 64,
+          continuitySignals,
+          detail: {
+            eyebrow: "Continuity notification control",
+            description: "Persist acknowledgement so this notification stops driving operator surfaces.",
+            meta: [
+              `Workflow: ${workflowTitle}`,
+              `Destination: ${destination}`,
+              "Effect: removes this notification from operator home, recommendations, and banners.",
+            ],
+            trust: {
+              generationLabel: "Durable continuity notification-state write",
+              contextSources: controlContextSources,
+              assumptions: ["Acknowledgement only affects this canonical notification record and leaves the underlying workflow untouched."],
+              rollbackLabel: "Use a future continuity event to resurface the workflow; acknowledgement itself is not auto-reversed.",
+              rollbackTone: "caution",
+              impactSummary: "Acknowledges the active notification and removes it from shared operator surfaces.",
+            },
+          },
+          skipAutomaticReceipt: true,
+          execute: async () => {
+            acknowledgeContinuityNotification(notification.id);
+            await bindings.refreshWorkspace();
+          },
+        } satisfies CommandPaletteCommand,
+        {
+          id: `notification-suppress-${notification.id}`,
+          group: "act",
+          title: `Hide notification for 1 day · ${notification.title}`,
+          subtitle: "Suppress this continuity notification across operator surfaces for one day.",
+          keywords: [
+            "notification",
+            "hide",
+            "suppress",
+            "mute",
+            workflowTitle,
+            notification.title,
+            notification.body,
+          ],
+          badge: "Hide 1d",
+          location: notification.resolvedLocation,
+          continuityRank: continuityRank + 56,
+          continuitySignals,
+          detail: {
+            eyebrow: "Continuity notification control",
+            description: "Persist a one-day suppression window without acknowledging the notification permanently.",
+            meta: [
+              `Workflow: ${workflowTitle}`,
+              `Destination: ${destination}`,
+              "Effect: hides this notification for 24 hours across operator home, recommendations, and banners.",
+            ],
+            trust: {
+              generationLabel: "Durable continuity notification-state write",
+              contextSources: controlContextSources,
+              assumptions: ["Suppression only affects this canonical notification record and expires after the configured window."],
+              rollbackLabel: "Suppression expires automatically after one day unless a later write extends it.",
+              rollbackTone: "progress",
+              impactSummary: "Suppresses the active notification across shared operator surfaces for 24 hours.",
+            },
+          },
+          skipAutomaticReceipt: true,
+          execute: async () => {
+            suppressContinuityNotification(notification.id, 24);
+            await bindings.refreshWorkspace();
+          },
+        } satisfies CommandPaletteCommand,
+      );
+
+      return commands;
+    });
+  }
+
   function buildRecoveryPaletteCommand(input: {
     id: string;
     group: "recommended" | "recent";
@@ -2380,6 +2543,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const recommendation = primaryRecommendationForContext(context, summaries);
     const commands: CommandPaletteCommand[] = [
       ...recommendedCommands(context, summaries, recommendation),
+      ...notificationCommands(summaries),
       ...recentCommands(context, summaries, recommendation?.summary.id ?? null),
       ...baseNavigationCommands(context),
       ...baseCaptureCommands(),
