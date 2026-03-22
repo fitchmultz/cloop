@@ -33,6 +33,7 @@ import {
   isContinuityRecoveryAcknowledged,
   markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
+  readContinuityNotificationRecords,
   readContinuityWorkflowSummaries,
   readRecentShellActions,
   readRecentShellReceiptEntries,
@@ -93,7 +94,7 @@ describe("continuity-intelligence", () => {
       writable: true,
     });
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], anchors: { planning: null, review: null }, workflow_summaries: [] }), {
+      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], anchors: { planning: null, review: null }, workflow_summaries: [], notification_records: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
@@ -363,6 +364,32 @@ describe("continuity-intelligence", () => {
             prior_state: null,
           },
         ],
+        notification_records: [
+          {
+            id: "planning:41:checkpoint:0",
+            title: "Created launch review queue is ready in your working set",
+            body: "This workflow has fresh unseen movement. · This workflow has never been seen from durable continuity.",
+            severity: "info",
+            workflow_thread: {
+              id: "planning:41:checkpoint:0",
+              kind: "planning_checkpoint",
+              title: "Weekly reset",
+              summary: "Planning checkpoint thread",
+              parent_outcome_id: null,
+            },
+            resolved_location: {
+              state: "decide",
+              recall_tool: "chat",
+              review_focus: "enrichment",
+              session_id: 52,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: 7,
+              query: null,
+            },
+          },
+        ],
       }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -375,6 +402,7 @@ describe("continuity-intelligence", () => {
     expect(readRecentShellActions()[0]?.outcome?.workflowThread?.id).toBe("planning:41:checkpoint:0");
     expect(readResumeAnchors().planning?.workflowThreadId).toBe("planning:41");
     expect(readContinuityWorkflowSummaries()[0]?.id).toBe("planning:41:checkpoint:0");
+    expect(readContinuityNotificationRecords()[0]?.title).toBe("Created launch review queue is ready in your working set");
   });
 
   it("keeps recent shell actions newest-first", () => {

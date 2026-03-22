@@ -1,11 +1,11 @@
 /**
- * notifications.ts - Scheduler notification UI.
+ * notifications.ts - Continuity notification UI.
  *
  * Purpose:
- *   Display scheduler-generated notifications as a single in-app banner system.
+ *   Display backend-authored continuity notifications as a single in-app banner system.
  *
  * Responsibilities:
- *   - Show notification cards for scheduler-owned continuity nudges and review readiness.
+ *   - Show notification cards for continuity-owned nudges and review readiness.
  *   - Auto-dismiss notifications after timeout.
  *   - Handle user interactions (dismiss, navigate).
  *
@@ -20,20 +20,11 @@
  *   - Notifications render into a browser-global container appended to body.
  */
 
+import { locationToHash } from "../shell-routing";
 import type { SchedulerNotificationLoopDetail, SchedulerNotificationPayload } from "./contracts";
 
 let notificationContainer: HTMLDivElement | null = null;
 const NOTIFICATION_TIMEOUT = 30_000;
-
-const TAB_HASH: Record<string, string> = {
-  operator: "#operator",
-  review: "#review",
-  capture: "#capture",
-  do: "#do",
-  chat: "#recall/chat",
-  memory: "#recall/memory",
-  rag: "#recall/rag",
-};
 
 function initNotificationContainer(): HTMLDivElement {
   if (notificationContainer) {
@@ -63,8 +54,7 @@ function renderDetails(details: SchedulerNotificationLoopDetail[]): string {
   )).join("")}</ul>`;
 }
 
-function switchToTab(tabName: string): void {
-  const hash = TAB_HASH[tabName];
+function openNotificationLocation(hash: string): void {
   if (hash) {
     window.location.hash = hash;
   }
@@ -101,7 +91,7 @@ export function showSchedulerNotification({
         return;
       }
       if (action?.type === "navigate") {
-        switchToTab(action.tab);
+        openNotificationLocation(locationToHash(action.location));
       }
     });
   }

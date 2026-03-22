@@ -359,6 +359,7 @@ function createMemoryStorage(): Storage {
 
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v1";
+const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
 
 function seedResumeAnchors(anchors: ResumeAnchorState): void {
   window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(anchors));
@@ -366,6 +367,59 @@ function seedResumeAnchors(anchors: ResumeAnchorState): void {
 
 function seedWorkflowSummaries(summaries: unknown[]): void {
   window.localStorage.setItem(WORKFLOW_SUMMARIES_CACHE_KEY, JSON.stringify(summaries));
+  window.localStorage.setItem(
+    NOTIFICATION_RECORDS_CACHE_KEY,
+    JSON.stringify(
+      summaries.flatMap((summary) => {
+        if (
+          typeof summary !== "object"
+          || summary === null
+          || typeof (summary as { id?: unknown }).id !== "string"
+          || typeof (summary as { displayTitle?: unknown }).displayTitle !== "string"
+          || typeof (summary as { displaySummary?: unknown }).displaySummary !== "string"
+          || typeof (summary as { workflowThread?: { id?: unknown; kind?: unknown; title?: unknown; summary?: unknown; parentOutcomeId?: unknown } }).workflowThread?.id !== "string"
+          || typeof (summary as { resolvedResume?: { resolvedLocation?: unknown } }).resolvedResume?.resolvedLocation !== "object"
+          || (summary as { resolvedResume?: { resolvedLocation?: unknown } }).resolvedResume?.resolvedLocation === null
+        ) {
+          return [];
+        }
+        const typed = summary as {
+          id: string;
+          displayTitle: string;
+          displaySummary: string;
+          rankingSignals?: { driftSeverity?: unknown; workingSetRelevant?: unknown; downstreamReady?: unknown };
+          workflowThread: {
+            id: string;
+            kind: string;
+            title: string;
+            summary: string | null;
+            parentOutcomeId: number | null;
+          };
+          resolvedResume: { resolvedLocation: unknown };
+          whyNow?: unknown;
+          changedSinceLastSeen?: unknown;
+        };
+        return [{
+          id: typed.id,
+          title: typed.rankingSignals?.driftSeverity === "gone"
+            ? `${typed.displayTitle} needs a recovery decision`
+            : typed.rankingSignals?.workingSetRelevant === true
+              ? `${typed.displayTitle} is ready in your working set`
+              : typed.rankingSignals?.downstreamReady === true
+                ? `${typed.displayTitle} is ready to resume`
+                : typed.displayTitle,
+          body: [
+            ...(Array.isArray(typed.whyNow) ? typed.whyNow : []),
+            ...(Array.isArray(typed.changedSinceLastSeen) ? typed.changedSinceLastSeen : []),
+            typed.displaySummary,
+          ].filter((value): value is string => typeof value === "string").slice(0, 2).join(" · "),
+          severity: typed.rankingSignals?.driftSeverity === "gone" ? "alert" : "info",
+          workflowThread: typed.workflowThread,
+          resolvedLocation: typed.resolvedResume.resolvedLocation,
+        }];
+      }),
+    ),
+  );
 }
 
 function summaryRecord(input: {

@@ -46,6 +46,7 @@ from ..schemas._loops.continuity import (
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityLastSeenMarkerResponse,
     ContinuityLocationResponse,
+    ContinuityNotificationRecordResponse,
     ContinuityOutcomeRecordResponse,
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementResponse,
@@ -373,18 +374,6 @@ class _WorkflowSummaryCandidate:
     degraded: bool
     degraded_label: str | None
     workflow_thread: WorkflowThreadRefResponse
-
-
-@dataclass(frozen=True, slots=True)
-class ContinuityNotificationRecord:
-    """Calm notification or digest record derived from one workflow summary."""
-
-    id: str
-    title: str
-    body: str
-    severity: Literal["info", "warning", "alert"]
-    workflow_thread: WorkflowThreadRefResponse
-    resolved_location: ContinuityLocationResponse
 
 
 def _location_identity(location: ContinuityLocationResponse | None) -> str:
@@ -1424,6 +1413,7 @@ def read_continuity_snapshot(
             anchors=anchors,
             markers=last_seen_markers,
         )
+        notification_records = [_notification_record(summary) for summary in workflow_summaries]
         recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
 
         return ContinuitySnapshotResponse(
@@ -1431,6 +1421,7 @@ def read_continuity_snapshot(
             outcomes=outcomes,
             anchors=anchors,
             workflow_summaries=workflow_summaries,
+            notification_records=notification_records,
             last_seen_markers=last_seen_markers,
             recovery_acknowledgements=recovery_acknowledgements,
         )
@@ -1476,28 +1467,31 @@ def _notification_body(summary: ContinuityWorkflowSummaryResponse) -> str:
     return " · ".join(unique_lines[:2]) or summary.display_summary
 
 
+def _notification_record(
+    summary: ContinuityWorkflowSummaryResponse,
+) -> ContinuityNotificationRecordResponse:
+    return ContinuityNotificationRecordResponse(
+        id=summary.id,
+        title=_notification_title(summary),
+        body=_notification_body(summary),
+        severity=_notification_severity(summary),
+        workflow_thread=summary.workflow_thread,
+        resolved_location=summary.resolved_resume.resolved_location,
+    )
+
+
 def read_continuity_notification_records(
     *,
     limit: int = 3,
     settings: Settings | None = None,
-) -> list[ContinuityNotificationRecord]:
+) -> list[ContinuityNotificationRecordResponse]:
     """Read calm notification records derived from ranked workflow summaries."""
     snapshot = read_continuity_snapshot(limit=max(24, limit * 4), settings=settings)
-    return [
-        ContinuityNotificationRecord(
-            id=summary.id,
-            title=_notification_title(summary),
-            body=_notification_body(summary),
-            severity=_notification_severity(summary),
-            workflow_thread=summary.workflow_thread,
-            resolved_location=summary.resolved_resume.resolved_location,
-        )
-        for summary in snapshot.workflow_summaries[:limit]
-    ]
+    return snapshot.notification_records[:limit]
 
 
 __all__ = [
-    "ContinuityNotificationRecord",
+    "ContinuityNotificationRecordResponse",
     "read_continuity_notification_records",
     "read_continuity_snapshot",
     "record_continuity_outcome",

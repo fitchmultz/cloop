@@ -6,9 +6,9 @@
  *   operator recommendation and one supporting digest card.
  *
  * Responsibilities:
- *   - Select the top backend-authored workflow summary.
+ *   - Select the top backend-authored notification-backed workflow summary.
  *   - Package the backend explanation lines for shell and command-palette consumers.
- *   - Build a calm digest card without re-ranking or rewriting the summary logic.
+ *   - Build a calm digest card without re-ranking or rewriting the notification logic.
  *
  * Scope:
  *   - Frontend packaging of backend-authored continuity summaries only.
@@ -18,24 +18,23 @@
  *
  * Invariants/Assumptions:
  *   - Backend workflow summaries are already ranked.
+ *   - Backend notification records are the canonical title/body/severity source.
  *   - Backend `whyNow`, `changedSinceLastSeen`, and `priorState` fields are canonical.
  */
 
 import type {
+  ContinuityNotificationRecord,
   ContinuityRecoveryPlan,
   OperatorActionCard,
 } from "./contracts-ui";
+import { readContinuityNotificationRecords } from "./continuity-intelligence";
 import type { RankedWorkflowSummary } from "./continuity-follow-through";
 
-export interface ContinuityNotificationDigest {
-  title: string;
-  body: string;
-  severity: "info" | "warning" | "alert";
-  tab: "operator";
-}
+export type ContinuityNotificationDigest = ContinuityNotificationRecord;
 
 export interface PrimaryRecommendation {
   summary: RankedWorkflowSummary;
+  notification: ContinuityNotificationRecord;
   card: OperatorActionCard;
   whyNow: string[];
   changedSinceLastSeen: string[];
@@ -47,50 +46,22 @@ function uniqueLines(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
-function notificationSeverity(recommendation: PrimaryRecommendation): "info" | "warning" | "alert" {
-  const severity = recommendation.summary.rankingSignals.driftSeverity;
-  if (severity === "gone") {
-    return "alert";
-  }
-  if (recommendation.summary.degraded || severity === "replaced" || severity === "major") {
-    return "warning";
-  }
-  return "info";
-}
-
 export function buildPrimaryRecommendationNotification(
   recommendation: PrimaryRecommendation,
 ): ContinuityNotificationDigest {
-  const severity = notificationSeverity(recommendation);
-  const summary = recommendation.summary;
-  const title = summary.rankingSignals.driftSeverity === "gone"
-    ? `${summary.displayTitle} needs a recovery decision`
-    : summary.rankingSignals.driftSeverity === "replaced"
-      ? `${summary.displayTitle} has a newer path`
-      : summary.rankingSignals.workingSetRelevant
-        ? `${summary.displayTitle} is ready in your working set`
-        : summary.rankingSignals.downstreamReady
-          ? `${summary.displayTitle} is ready to resume`
-          : summary.displayTitle;
-  const body = uniqueLines([
-    ...recommendation.whyNow.slice(0, 2),
-    ...recommendation.changedSinceLastSeen.slice(0, 2),
-    recommendation.priorState?.summary,
-    summary.displaySummary,
-  ]).slice(0, 2).join(" · ") || summary.displaySummary;
-
-  return {
-    title,
-    body,
-    severity,
-    tab: "operator",
-  };
+  return recommendation.notification;
 }
 
 export function derivePrimaryRecommendation(
   summaries: readonly RankedWorkflowSummary[],
+  notifications: readonly ContinuityNotificationRecord[] = readContinuityNotificationRecords(),
 ): PrimaryRecommendation | null {
-  const summary = summaries[0] ?? null;
+  const notification = notifications[0] ?? null;
+  if (!notification) {
+    return null;
+  }
+
+  const summary = summaries.find((item) => item.id === notification.id) ?? null;
   if (!summary) {
     return null;
   }
@@ -146,6 +117,7 @@ export function derivePrimaryRecommendation(
 
   return {
     summary,
+    notification,
     card,
     whyNow: summary.whyNow,
     changedSinceLastSeen: summary.changedSinceLastSeen,
@@ -186,7 +158,7 @@ export function buildPrimaryRecommendationDigestCard(
     trust: {
       generationLabel: "Backend continuity summary",
       generationTone: "neutral",
-      contextSources: ["Durable workflow-summary feed"],
+      contextSources: ["Durable continuity notification record"],
       assumptions: [],
       confidenceLabel: "Deterministic recommendation explanation",
       confidenceTone: "progress",

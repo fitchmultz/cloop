@@ -383,6 +383,56 @@ function continuitySnapshot() {
         },
       },
     ],
+    notification_records: [
+      {
+        id: "planning:41:checkpoint:0",
+        title: "Created launch review queue is ready in your working set",
+        body: "This workflow has fresh unseen movement. · This workflow has never been seen from durable continuity.",
+        severity: "info",
+        workflow_thread: {
+          id: "planning:41:checkpoint:0",
+          kind: "planning_checkpoint",
+          title: "Weekly reset",
+          summary: "Planning checkpoint thread",
+          parent_outcome_id: null,
+        },
+        resolved_location: {
+          state: "decide",
+          recall_tool: "chat",
+          review_focus: "enrichment",
+          session_id: 52,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: 7,
+          query: null,
+        },
+      },
+      {
+        id: "planning:99",
+        title: "Replacement plan needs a recovery decision",
+        body: "The prior landing target disappeared, so this is the safest surviving path. · This workflow has never been seen from durable continuity.",
+        severity: "alert",
+        workflow_thread: {
+          id: "planning:99",
+          kind: "planning_checkpoint",
+          title: "Replacement plan",
+          summary: "Replacement planning thread",
+          parent_outcome_id: null,
+        },
+        resolved_location: {
+          state: "operator",
+          recall_tool: "chat",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: null,
+        },
+      },
+    ],
     last_seen_markers: [],
     recovery_acknowledgements: [],
   };
@@ -462,7 +512,7 @@ describe("readRankedWorkflowSummaries", () => {
     expect(recommendation).not.toBeNull();
 
     const notification = buildPrimaryRecommendationNotification(recommendation!);
-    expect(notification.tab).toBe("operator");
+    expect(notification.resolvedLocation.state).toBe("decide");
     expect(notification.title).toBe("Created launch review queue is ready in your working set");
     expect(notification.body).toContain("This workflow has fresh unseen movement.");
 

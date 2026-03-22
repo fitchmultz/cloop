@@ -236,6 +236,15 @@ export interface ContinuityWorkflowSummary {
   priorState: ContinuityWorkflowSummaryPriorState | null;
 }
 
+export interface ContinuityNotificationRecord {
+  id: string;
+  title: string;
+  body: string;
+  severity: "info" | "warning" | "alert";
+  workflowThread: WorkflowThreadRef;
+  resolvedLocation: ShellLocationContract;
+}
+
 export interface ContinuityDriftSignal {
   entityKind: ContinuityEntityKind;
   entityKey: string;

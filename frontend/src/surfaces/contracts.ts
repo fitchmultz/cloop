@@ -22,7 +22,13 @@
  *   - SurfaceLoop extends LoopResponse with browser-only timer/search fields.
  */
 
-import type { ChatMessage, ChatPreferences, ChatToolMode, ReviewMode } from "../contracts-ui";
+import type {
+  ChatMessage,
+  ChatPreferences,
+  ChatToolMode,
+  ReviewMode,
+  ShellLocationContract,
+} from "../contracts-ui";
 import type {
   ApplySuggestionResponse,
   BulkCloseResponse,
@@ -146,7 +152,7 @@ export interface SchedulerNotificationLoopDetail {
 
 export interface SchedulerNavigateAction {
   type: "navigate";
-  tab: "operator" | "review" | "capture" | "do" | "chat" | "memory" | "rag";
+  location: ShellLocationContract;
 }
 
 export interface SchedulerNotificationPayload {

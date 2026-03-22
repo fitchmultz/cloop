@@ -15,6 +15,7 @@ Non-scope:
 
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Iterator
 
 import pytest
@@ -161,6 +162,60 @@ class TestPushSender:
         payload = {"review_type": "daily", "total_items": 0, "cohorts": []}
         result = send_scheduler_push("review_generated", payload, settings, push_db)
         assert result == 0
+
+    def test_send_scheduler_push_uses_canonical_continuity_record(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test push delivery uses the backend-authored continuity notification record."""
+        settings = get_settings()
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_notification_records",
+            lambda *, limit, settings=None: [
+                SimpleNamespace(
+                    id="planning:41:checkpoint:0",
+                    title="Created launch review queue is ready in your working set",
+                    body="This workflow has fresh unseen movement.",
+                    workflow_thread=SimpleNamespace(id="planning:41:checkpoint:0"),
+                    resolved_location=SimpleNamespace(
+                        state="decide",
+                        review_focus="enrichment",
+                        session_id=52,
+                        loop_id=None,
+                        working_set_id=7,
+                        recall_tool="chat",
+                    ),
+                )
+            ],
+        )
+
+        def _capture(payload: PushPayload, settings_arg, conn_arg) -> int:
+            captured["payload"] = payload
+            captured["settings"] = settings_arg
+            captured["conn"] = conn_arg
+            return 1
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture)
+
+        result = send_scheduler_push(
+            "review_generated",
+            {"review_type": "daily", "total_items": 5, "cohorts": []},
+            settings,
+            push_db,
+        )
+
+        assert result == 1
+        payload = captured["payload"]
+        assert isinstance(payload, PushPayload)
+        assert payload.title == "Created launch review queue is ready in your working set"
+        assert payload.body == "This workflow has fresh unseen movement."
+        assert payload.url == "/#decide/enrichment/52"
+        assert payload.data == {
+            "workflow_summary_id": "planning:41:checkpoint:0",
+            "workflow_thread_id": "planning:41:checkpoint:0",
+            "event_type": "review_generated",
+        }
 
 
 class TestPushPayload:

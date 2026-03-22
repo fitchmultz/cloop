@@ -8,7 +8,7 @@
  *
  * Responsibilities:
  *   - Read and write browser-local continuity baseline snapshots.
- *   - Hydrate durable recent outcomes and resume anchors from the backend.
+ *   - Hydrate durable recent outcomes, notification records, and resume anchors from the backend.
  *   - Queue high-signal landed outcomes and anchors for backend persistence.
  *   - Keep local cache state deterministic for receipts, reruns, undo state,
  *     and recovery acknowledgements.
@@ -32,6 +32,7 @@ import type {
   ContinuityLastSeenBatchUpsertRequest,
   ContinuityLastSeenMarkerResponse,
   ContinuityLocationResponse,
+  ContinuityNotificationRecordResponse,
   ContinuityOutcomeRecordResponse,
   ContinuityOutcomeWriteRequest,
   ContinuityRecoveryAcknowledgementResponse,
@@ -55,6 +56,7 @@ import type {
   ContinuityBaselineSnapshot,
   ContinuityEntityKind,
   ContinuityLastSeenMarker,
+  ContinuityNotificationRecord,
   ContinuityPersistenceState,
   ContinuityResolvedStatus,
   ContinuitySuccessorTarget,
@@ -93,6 +95,7 @@ const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
 const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v1";
+const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
 const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
 const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
 const CONTINUITY_RECOVERY_ACKS_KEY = "cloop.continuity.recovery-acks.cache.v2";
@@ -440,6 +443,28 @@ function parseContinuityWorkflowSummary(value: unknown): ContinuityWorkflowSumma
   };
 }
 
+function parseContinuityNotificationRecord(value: unknown): ContinuityNotificationRecord | null {
+  if (!isRecord(value) || typeof value["id"] !== "string" || typeof value["title"] !== "string" || typeof value["body"] !== "string" || typeof value["severity"] !== "string") {
+    return null;
+  }
+  const workflowThread = normalizeWorkflowThread(value["workflowThread"]);
+  const resolvedLocation = normalizeLocation(value["resolvedLocation"]);
+  if (!workflowThread || !resolvedLocation) {
+    return null;
+  }
+  if (value["severity"] !== "info" && value["severity"] !== "warning" && value["severity"] !== "alert") {
+    return null;
+  }
+  return {
+    id: value["id"],
+    title: value["title"],
+    body: value["body"],
+    severity: value["severity"],
+    workflowThread,
+    resolvedLocation,
+  };
+}
+
 function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {
   return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
 }
@@ -672,6 +697,26 @@ function writeContinuityWorkflowSummaries(summaries: readonly ContinuityWorkflow
     return;
   }
   window.localStorage.setItem(WORKFLOW_SUMMARIES_CACHE_KEY, JSON.stringify(summaries));
+}
+
+export function readContinuityNotificationRecords(): ContinuityNotificationRecord[] {
+  if (!canUseLocalStorage()) {
+    return [];
+  }
+  const parsed = safeJsonParse<unknown[]>(window.localStorage.getItem(NOTIFICATION_RECORDS_CACHE_KEY), []);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed
+    .map((item) => parseContinuityNotificationRecord(item))
+    .filter((item): item is ContinuityNotificationRecord => item !== null);
+}
+
+function writeContinuityNotificationRecords(records: readonly ContinuityNotificationRecord[]): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  window.localStorage.setItem(NOTIFICATION_RECORDS_CACHE_KEY, JSON.stringify(records));
 }
 
 function readResumeAnchorsCache(): ResumeAnchorState {
@@ -1104,6 +1149,25 @@ function mapWorkflowSummaryResponse(
   };
 }
 
+function mapNotificationRecordResponse(
+  response: ContinuityNotificationRecordResponse,
+): ContinuityNotificationRecord {
+  return {
+    id: response.id,
+    title: response.title,
+    body: response.body,
+    severity: response.severity,
+    workflowThread: {
+      id: response.workflow_thread.id,
+      kind: response.workflow_thread.kind,
+      title: response.workflow_thread.title,
+      summary: response.workflow_thread.summary ?? null,
+      parentOutcomeId: response.workflow_thread.parent_outcome_id ?? null,
+    },
+    resolvedLocation: mapLocationFromApi(response.resolved_location)!,
+  };
+}
+
 function mergePendingEntries(snapshotEntries: readonly RecentShellActionEntry[]): RecentShellActionEntry[] {
   const pendingEntries = readPendingContinuityWrites()
     .flatMap((write) => write.kind === "outcome" ? [write.entry] : [])
@@ -1144,6 +1208,9 @@ function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   const workflowSummaries = (snapshot.workflow_summaries ?? []).map((item) =>
     mapWorkflowSummaryResponse(item),
   );
+  const notificationRecords = (snapshot.notification_records ?? []).map((item) =>
+    mapNotificationRecordResponse(item),
+  );
   const lastSeenMarkers = (snapshot.last_seen_markers ?? []).map((item) => mapLastSeenMarkerResponse(item));
   const recoveryAcks = (snapshot.recovery_acknowledgements ?? []).map((item) =>
     mapRecoveryAcknowledgementResponse(item),
@@ -1151,6 +1218,7 @@ function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   writeRecentActionsCache(mergePendingEntries(snapshotEntries));
   writeResumeAnchorsCache(mergePendingAnchors(mapPersistedAnchors(anchors)));
   writeContinuityWorkflowSummaries(workflowSummaries);
+  writeContinuityNotificationRecords(notificationRecords);
   writeContinuityLastSeenMarkers(mergePendingLastSeenMarkers(lastSeenMarkers));
   writeContinuityRecoveryAcks(mergePendingRecoveryAcks(recoveryAcks));
   emitRecentShellActionsUpdated();

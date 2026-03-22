@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to add durable delivery controls on top of the canonical summary-derived notification and digest feed, so acknowledgement, suppression, inboxing, and scheduled delivery stay tied to the same backend-authored workflow-summary identities.
+The current priority is to add durable inbox, seen, acknowledgement, and suppression state to the shipped canonical continuity notification records so calm delivery stays stable across refreshes and devices.
 
 ## Direction
 
@@ -45,26 +45,40 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Durable delivery controls for continuity notifications
+### Next — Durable delivery state for continuity notifications
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
-- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 
-Goal: add durable acknowledgement, suppression, inboxing, and scheduled-delivery controls on top of the shipped summary-derived notification/digest feed so calm continuity delivery stays stable across refreshes, devices, and future automation surfaces.
+Goal: add durable inbox, seen, acknowledgement, and suppression state keyed to workflow-summary identity so calm delivery stays stable across refreshes and devices.
 
 Why this comes next:
-- workflow-summary identities now drive operator digests, in-app notifications, and push delivery from one canonical ranking feed
-- the remaining gap is delivery control, not notification copy or ranking logic
-- future nudges and digest scheduling should now extend the shared identity model instead of inventing per-surface preference state
+- canonical notification records now ship through continuity reads, push delivery, in-app banners, and operator digests
+- durable inbox and suppression semantics can now attach to the stable notification identity instead of a transitional per-runtime shape
 
 Planned sequence:
 
-1. define durable suppression and inbox state keyed to workflow-summary identity
-2. expose notification inbox and delivery-control reads/writes through continuity surfaces
-3. extend scheduler delivery to respect those controls for push and digest timing
-4. keep acknowledgement and last-seen semantics aligned with the same stable workflow-summary identities
+1. define durable inbox, seen, acknowledgement, and suppression state keyed to notification identity
+2. expose notification inbox and delivery-state reads/writes through continuity surfaces
+3. keep last-seen and acknowledgement semantics aligned with the same stable workflow-summary identities
+
+### Then — Scheduler-controlled digest and push timing
+
+**Primary specs:**
+- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
+
+Goal: make scheduler delivery respect durable notification state, suppression, and timing windows without re-ranking workflows outside continuity.
+
+Why this comes later:
+- timing policy depends on stable notification records and durable delivery state first
+- scheduling before identity and state settle would create avoidable churn in both storage and transport code
+
+Planned sequence:
+
+1. add scheduler-facing reads that select deliverable notifications from durable continuity state
+2. respect suppression, inbox, acknowledgement, and timing windows during push or digest sends
+3. keep scheduler delivery as a transport over continuity-owned notification records instead of task-specific reminder copy
 
 ## Delivery model
 

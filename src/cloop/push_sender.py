@@ -4,7 +4,7 @@ Purpose:
     Send Web Push notifications to subscribed browsers.
 
 Responsibilities:
-    - Map scheduler events to push notification payloads
+    - Map continuity-owned delivery records to push notification payloads
     - Deliver notifications to all subscribed clients
     - Handle push failures and remove invalid subscriptions
 
@@ -148,58 +148,24 @@ def send_scheduler_push(
 ) -> int:
     """Send push notification for a scheduler event.
 
-    Scheduler-owned pushes now prefer the canonical continuity notification feed
-    so browser delivery matches the same ranked workflow-summary identity model
-    used elsewhere in the product.
+    Scheduler-owned pushes now read the canonical continuity notification feed
+    directly so browser delivery matches the same backend-authored notification
+    record used by in-app banners and operator digests.
     """
-    if event_type in {"nudge_due_soon", "nudge_stale", "review_generated"}:
-        continuity_payload = _continuity_push_payload(settings)
-        if continuity_payload is not None:
-            continuity_payload.data = {
-                **(continuity_payload.data or {}),
-                "event_type": event_type,
-            }
-            return send_push_notification(continuity_payload, settings, conn)
+    if event_type not in {"nudge_due_soon", "nudge_stale", "review_generated"}:
+        return 0
 
-    if event_type == "review_generated":
-        review_type = event_payload.get("review_type", "daily")
-        total = event_payload.get("total_items", 0)
-        if total == 0:
-            return 0
-        return send_push_notification(
-            PushPayload(
-                title=f"{review_type.title()} review ready",
-                body=f"{total} items to review",
-                url="/#review",
-                data={"event_type": event_type, "review_type": review_type},
-            ),
-            settings,
-            conn,
-        )
+    if event_type == "review_generated" and event_payload.get("total_items", 0) == 0:
+        return 0
+    if event_type in {"nudge_due_soon", "nudge_stale"} and not event_payload.get("details"):
+        return 0
 
-    details = event_payload.get("details", [])
-    if event_type == "nudge_due_soon":
-        return send_push_notification(
-            PushPayload(
-                title=f"{len(details)} loops due soon",
-                body="Plan ahead for upcoming deadlines",
-                url="/#review",
-                data={"event_type": event_type, "count": len(details)},
-            ),
-            settings,
-            conn,
-        )
+    continuity_payload = _continuity_push_payload(settings)
+    if continuity_payload is None:
+        return 0
 
-    if event_type == "nudge_stale":
-        return send_push_notification(
-            PushPayload(
-                title=f"{len(details)} stale loops",
-                body="Some loops haven't been updated recently",
-                url="/#review",
-                data={"event_type": event_type, "count": len(details)},
-            ),
-            settings,
-            conn,
-        )
-
-    return 0
+    continuity_payload.data = {
+        **(continuity_payload.data or {}),
+        "event_type": event_type,
+    }
+    return send_push_notification(continuity_payload, settings, conn)

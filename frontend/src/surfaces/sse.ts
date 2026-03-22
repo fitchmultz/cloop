@@ -20,11 +20,10 @@
  *   - Notification UI is loaded lazily to avoid eager scheduler code.
  */
 
-import { readRankedWorkflowSummaries } from "../continuity-follow-through";
 import {
-  buildPrimaryRecommendationNotification,
-  derivePrimaryRecommendation,
-} from "../continuity-recommendations";
+  hydrateDurableContinuityState,
+  readContinuityNotificationRecords,
+} from "../continuity-intelligence";
 import { handleLoopClosed, refreshLoop } from "./loop";
 
 interface SchedulerDetail {
@@ -46,9 +45,9 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY = 1000;
 
-function primaryRecommendationNotification() {
-  const recommendation = derivePrimaryRecommendation(readRankedWorkflowSummaries());
-  return recommendation ? buildPrimaryRecommendationNotification(recommendation) : null;
+async function currentContinuityNotification() {
+  await hydrateDurableContinuityState();
+  return readContinuityNotificationRecords()[0] ?? null;
 }
 
 async function handleDueSoonNudge(payload: Record<string, unknown>): Promise<void> {
@@ -58,15 +57,18 @@ async function handleDueSoonNudge(payload: Record<string, unknown>): Promise<voi
   }
 
   const { showSchedulerNotification } = await import("./notifications");
-  const recommendation = primaryRecommendationNotification();
+  const notification = await currentContinuityNotification();
+  if (!notification) {
+    return;
+  }
 
   showSchedulerNotification({
     type: "due_soon",
-    title: recommendation?.title ?? `${details.length} loops due soon`,
-    body: recommendation?.body ?? details.slice(0, 3).map((detail) => detail.title).join(", "),
-    severity: recommendation?.severity ?? (details.some((detail) => detail.is_overdue) ? "warning" : "info"),
+    title: notification.title,
+    body: notification.body,
+    severity: notification.severity,
     details,
-    action: { type: "navigate", tab: recommendation?.tab ?? "review" },
+    action: { type: "navigate", location: notification.resolvedLocation },
   });
 }
 
@@ -77,14 +79,17 @@ async function handleStaleNudge(payload: Record<string, unknown>): Promise<void>
   }
 
   const { showSchedulerNotification } = await import("./notifications");
-  const recommendation = primaryRecommendationNotification();
+  const notification = await currentContinuityNotification();
+  if (!notification) {
+    return;
+  }
   showSchedulerNotification({
     type: "stale",
-    title: recommendation?.title ?? `${details.length} stale loops need attention`,
-    body: recommendation?.body ?? details.slice(0, 3).map((detail) => detail.title).join(", "),
-    severity: recommendation?.severity ?? "warning",
+    title: notification.title,
+    body: notification.body,
+    severity: notification.severity,
     details,
-    action: { type: "navigate", tab: recommendation?.tab ?? "review" },
+    action: { type: "navigate", location: notification.resolvedLocation },
   });
 }
 
@@ -95,14 +100,16 @@ async function handleReviewGenerated(payload: Record<string, unknown>): Promise<
   }
 
   const { showSchedulerNotification } = await import("./notifications");
-  const recommendation = primaryRecommendationNotification();
-  const reviewType = typeof payload["review_type"] === "string" ? payload["review_type"] : "daily";
+  const notification = await currentContinuityNotification();
+  if (!notification) {
+    return;
+  }
   showSchedulerNotification({
     type: "review",
-    title: recommendation?.title ?? `${reviewType} review ready`,
-    body: recommendation?.body ?? `${totalItems} items are ready for review.`,
-    severity: recommendation?.severity ?? "info",
-    action: { type: "navigate", tab: recommendation?.tab ?? "review" },
+    title: notification.title,
+    body: notification.body,
+    severity: notification.severity,
+    action: { type: "navigate", location: notification.resolvedLocation },
   });
 }
 

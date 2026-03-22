@@ -172,6 +172,7 @@ def test_read_continuity_snapshot_builds_workflow_summaries(tmp_data_dir: Path) 
     assert snapshot.workflow_summaries[0].workflow_thread.id == "planning:41:checkpoint:0"
     assert snapshot.workflow_summaries[0].outcome_count == 2
     assert snapshot.workflow_summaries[0].outcome_preview_titles[0] == "Refreshed planning thread"
+    assert snapshot.notification_records[0].id == "planning:41:checkpoint:0"
 
 
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:
@@ -345,6 +346,7 @@ def test_snapshot_emits_backend_successor_for_superseded_planning_outcome(
     assert snapshot.workflow_summaries[0].workflow_thread.id == "planning:99"
     assert snapshot.workflow_summaries[0].why_now
     assert snapshot.workflow_summaries[0].changed_since_last_seen
+    assert snapshot.notification_records[0].id == "planning:99"
 
 
 def test_anchor_carries_backend_successor_provenance(tmp_data_dir: Path) -> None:

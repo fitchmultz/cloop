@@ -71,6 +71,7 @@ export type ContinuityLastSeenBatchUpsertRequest = ApiSchema<"ContinuityLastSeen
 export type ContinuityLastSeenMarkerResponse = ApiSchema<"ContinuityLastSeenMarkerResponse">;
 export type ContinuityLastSeenMarkerUpsertRequest = ApiSchema<"ContinuityLastSeenMarkerUpsertRequest">;
 export type ContinuityLocationResponse = ApiSchema<"ContinuityLocationResponse">;
+export type ContinuityNotificationRecordResponse = ApiSchema<"ContinuityNotificationRecordResponse">;
 export type ContinuityOutcomeRecordResponse = ApiSchema<"ContinuityOutcomeRecordResponse">;
 export type ContinuityOutcomeWriteRequest = ApiSchema<"ContinuityOutcomeWriteRequest">;
 export type ContinuityRecoveryAcknowledgementResponse = ApiSchema<"ContinuityRecoveryAcknowledgementResponse">;

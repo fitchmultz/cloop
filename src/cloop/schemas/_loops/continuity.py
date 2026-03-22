@@ -291,6 +291,17 @@ class ContinuityWorkflowSummaryResponse(BaseModel):
     prior_state: ContinuityWorkflowSummaryPriorStateResponse | None = None
 
 
+class ContinuityNotificationRecordResponse(BaseModel):
+    """Backend-authored continuity notification record for transport delivery."""
+
+    id: str
+    title: str
+    body: str
+    severity: Literal["info", "warning", "alert"]
+    workflow_thread: WorkflowThreadRefResponse
+    resolved_location: ContinuityLocationResponse
+
+
 class ContinuitySnapshotResponse(BaseModel):
     """Durable continuity snapshot used to hydrate frontend cache state."""
 
@@ -298,6 +309,7 @@ class ContinuitySnapshotResponse(BaseModel):
     outcomes: list[ContinuityOutcomeRecordResponse] = Field(default_factory=list)
     anchors: ContinuityAnchorsResponse = Field(default_factory=ContinuityAnchorsResponse)
     workflow_summaries: list[ContinuityWorkflowSummaryResponse] = Field(default_factory=list)
+    notification_records: list[ContinuityNotificationRecordResponse] = Field(default_factory=list)
     last_seen_markers: list[ContinuityLastSeenMarkerResponse] = Field(default_factory=list)
     recovery_acknowledgements: list[ContinuityRecoveryAcknowledgementResponse] = Field(
         default_factory=list
@@ -312,6 +324,7 @@ __all__ = [
     "ContinuityLastSeenMarkerResponse",
     "ContinuityLastSeenMarkerUpsertRequest",
     "ContinuityLocationResponse",
+    "ContinuityNotificationRecordResponse",
     "ContinuityOutcomeRecordResponse",
     "ContinuityOutcomeWriteRequest",
     "ContinuityRecoveryAcknowledgementResponse",

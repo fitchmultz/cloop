@@ -112,6 +112,7 @@ def test_get_continuity_snapshot_returns_empty_payload(
     assert payload["outcomes"] == []
     assert payload["anchors"] == {"planning": None, "review": None}
     assert payload["workflow_summaries"] == []
+    assert payload["notification_records"] == []
     assert payload["recovery_acknowledgements"] == []
 
 
@@ -149,6 +150,7 @@ def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
         outcome_payload["workflow_summaries"][0]["workflow_thread"]["id"]
         == "planning:41:checkpoint:0"
     )
+    assert outcome_payload["notification_records"][0]["id"] == "planning:41:checkpoint:0"
 
     anchor_response = test_client.put(
         "/loops/continuity/anchors/planning",
@@ -255,6 +257,7 @@ def test_snapshot_includes_successor_and_recovery_acknowledgements(
     assert top_summary["workflow_thread"]["id"] == "planning:99"
     assert top_summary["why_now"]
     assert top_summary["changed_since_last_seen"]
+    assert payload["notification_records"][0]["id"] == "planning:99"
 
     recovery_key = "replacement::planning:41::location:null::plan|chat|planning|99|-|-|-|-|-"
     ack_response = test_client.put(
