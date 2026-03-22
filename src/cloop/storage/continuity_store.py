@@ -375,6 +375,18 @@ class _WorkflowSummaryCandidate:
     workflow_thread: WorkflowThreadRefResponse
 
 
+@dataclass(frozen=True, slots=True)
+class ContinuityNotificationRecord:
+    """Calm notification or digest record derived from one workflow summary."""
+
+    id: str
+    title: str
+    body: str
+    severity: Literal["info", "warning", "alert"]
+    workflow_thread: WorkflowThreadRefResponse
+    resolved_location: ContinuityLocationResponse
+
+
 def _location_identity(location: ContinuityLocationResponse | None) -> str:
     if location is None:
         return "location:null"
@@ -1424,7 +1436,69 @@ def read_continuity_snapshot(
         )
 
 
+def _notification_severity(
+    summary: ContinuityWorkflowSummaryResponse,
+) -> Literal["info", "warning", "alert"]:
+    severity = summary.ranking_signals.drift_severity
+    if severity == "gone":
+        return "alert"
+    if summary.degraded or severity in {"replaced", "major"}:
+        return "warning"
+    return "info"
+
+
+def _notification_title(summary: ContinuityWorkflowSummaryResponse) -> str:
+    severity = summary.ranking_signals.drift_severity
+    if severity == "gone":
+        return f"{summary.display_title} needs a recovery decision"
+    if severity == "replaced":
+        return f"{summary.display_title} has a newer path"
+    if summary.ranking_signals.working_set_relevant:
+        return f"{summary.display_title} is ready in your working set"
+    if summary.ranking_signals.downstream_ready:
+        return f"{summary.display_title} is ready to resume"
+    return summary.display_title
+
+
+def _notification_body(summary: ContinuityWorkflowSummaryResponse) -> str:
+    unique_lines = list(
+        dict.fromkeys(
+            line.strip()
+            for line in [
+                *summary.why_now[:2],
+                *summary.changed_since_last_seen[:2],
+                summary.display_summary,
+                summary.prior_state.summary if summary.prior_state is not None else None,
+            ]
+            if isinstance(line, str) and line.strip()
+        )
+    )
+    return " · ".join(unique_lines[:2]) or summary.display_summary
+
+
+def read_continuity_notification_records(
+    *,
+    limit: int = 3,
+    settings: Settings | None = None,
+) -> list[ContinuityNotificationRecord]:
+    """Read calm notification records derived from ranked workflow summaries."""
+    snapshot = read_continuity_snapshot(limit=max(24, limit * 4), settings=settings)
+    return [
+        ContinuityNotificationRecord(
+            id=summary.id,
+            title=_notification_title(summary),
+            body=_notification_body(summary),
+            severity=_notification_severity(summary),
+            workflow_thread=summary.workflow_thread,
+            resolved_location=summary.resolved_resume.resolved_location,
+        )
+        for summary in snapshot.workflow_summaries[:limit]
+    ]
+
+
 __all__ = [
+    "ContinuityNotificationRecord",
+    "read_continuity_notification_records",
     "read_continuity_snapshot",
     "record_continuity_outcome",
     "upsert_continuity_anchor",

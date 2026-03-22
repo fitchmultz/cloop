@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to promote the canonical continuity summary feed into calm notifications and automation-ready operator digests, so the same backend-authored workflow-summary identities can drive future nudges, scheduler surfaces, and summary delivery without per-surface drift.
+The current priority is to add durable delivery controls on top of the canonical summary-derived notification and digest feed, so acknowledgement, suppression, inboxing, and scheduled delivery stay tied to the same backend-authored workflow-summary identities.
 
 ## Direction
 
@@ -36,7 +36,7 @@ The next roadmap slice starts from work that is already live:
 - review workspace redesign across relationship, enrichment, and hygiene review
 - durable backend-backed continuity outcomes and resume anchors with browser-local visit baselines still preserved for local drift comparison
 - durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
-- backend-authored workflow-summary continuity across operator home, the receipt rail, and command-palette recents
+- backend-authored workflow-summary continuity across operator home, the receipt rail, command-palette recents, and calm notification/push delivery
 - drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
 - proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
 - explicit continuity recovery flows for superseded or unavailable workflows across operator cards, the receipt rail, and command-palette recommendations
@@ -45,26 +45,26 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Continuity notifications and automation-ready summary digests
+### Next — Durable delivery controls for continuity notifications
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 - [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 
-Goal: reuse the shipped backend-authored workflow-summary feed to drive calm operator notifications, digest delivery, and future automation hooks from one canonical continuity identity model instead of per-surface heuristics.
+Goal: add durable acknowledgement, suppression, inboxing, and scheduled-delivery controls on top of the shipped summary-derived notification/digest feed so calm continuity delivery stays stable across refreshes, devices, and future automation surfaces.
 
 Why this comes next:
-- ranked workflow summaries, recommendation explanations, recovery acknowledgements, and summary last-seen markers now live in the shared backend continuity snapshot
-- broader notification or automation work was intentionally blocked on having one canonical continuity feed first
-- future nudges, scheduler hints, and digest delivery should now start from workflow-summary identities instead of rebuilding ranking logic again in new surfaces
+- workflow-summary identities now drive operator digests, in-app notifications, and push delivery from one canonical ranking feed
+- the remaining gap is delivery control, not notification copy or ranking logic
+- future nudges and digest scheduling should now extend the shared identity model instead of inventing per-surface preference state
 
 Planned sequence:
 
-1. define backend-authored notification/digest records sourced from ranked workflow summaries and their stable identities
-2. expose those records through the continuity/scheduler surfaces that need calm operator-facing delivery
-3. cut operator-facing digest or notification consumers over to the canonical summary-derived records instead of synthesizing bespoke reminder copy client-side
-4. preserve acknowledgement, suppression, and last-seen semantics against the same workflow-summary identities so future nudges stay stable across refreshes and devices
+1. define durable suppression and inbox state keyed to workflow-summary identity
+2. expose notification inbox and delivery-control reads/writes through continuity surfaces
+3. extend scheduler delivery to respect those controls for push and digest timing
+4. keep acknowledgement and last-seen semantics aligned with the same stable workflow-summary identities
 
 ## Delivery model
 

@@ -22,6 +22,9 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from .schemas._loops.continuity import ContinuityLocationResponse
+from .storage.continuity_store import read_continuity_notification_records
+
 logger = logging.getLogger(__name__)
 
 # Optional: VAPID configuration for authenticated push
@@ -40,6 +43,40 @@ class PushPayload:
     badge: str = "/static/icons/icon-192.png"
     url: str = "/"
     data: dict[str, Any] | None = None
+
+
+def _continuity_location_url(location: ContinuityLocationResponse) -> str:
+    if location.state == "plan" and location.session_id is not None:
+        return f"/#plan/session/{location.session_id}"
+    if (
+        location.state == "decide"
+        and location.review_focus in {"relationship", "enrichment"}
+        and location.session_id is not None
+    ):
+        return f"/#decide/{location.review_focus}/{location.session_id}"
+    if location.state == "do" and location.loop_id is not None:
+        return f"/#do/loop/{location.loop_id}"
+    if location.state == "working_set" and location.working_set_id is not None:
+        return f"/#working-set/{location.working_set_id}"
+    if location.state == "recall":
+        return f"/#recall/{location.recall_tool}"
+    return "/#operator"
+
+
+def _continuity_push_payload(settings: Any) -> PushPayload | None:
+    notifications = read_continuity_notification_records(limit=1, settings=settings)
+    notification = notifications[0] if notifications else None
+    if notification is None:
+        return None
+    return PushPayload(
+        title=notification.title,
+        body=notification.body,
+        url=_continuity_location_url(notification.resolved_location),
+        data={
+            "workflow_summary_id": notification.id,
+            "workflow_thread_id": notification.workflow_thread.id,
+        },
+    )
 
 
 def send_push_notification(
@@ -111,60 +148,55 @@ def send_scheduler_push(
 ) -> int:
     """Send push notification for a scheduler event.
 
-    Maps scheduler event types to appropriate push payloads.
+    Scheduler-owned pushes now prefer the canonical continuity notification feed
+    so browser delivery matches the same ranked workflow-summary identity model
+    used elsewhere in the product.
     """
-    if event_type == "nudge_due_soon":
-        details = event_payload.get("details", [])
-        urgent = sum(1 for d in details if d.get("escalation_level", 0) >= 2)
-        overdue = sum(1 for d in details if d.get("is_overdue"))
+    if event_type in {"nudge_due_soon", "nudge_stale", "review_generated"}:
+        continuity_payload = _continuity_push_payload(settings)
+        if continuity_payload is not None:
+            continuity_payload.data = {
+                **(continuity_payload.data or {}),
+                "event_type": event_type,
+            }
+            return send_push_notification(continuity_payload, settings, conn)
 
-        if overdue > 0:
-            title = f"{overdue} overdue loops"
-            body = "You have overdue items that need attention"
-        elif urgent > 0:
-            title = f"{urgent} urgent loops"
-            body = "Some loops require immediate attention"
-        else:
-            title = f"{len(details)} loops due soon"
-            body = "Plan ahead for upcoming deadlines"
-
-        return send_push_notification(
-            PushPayload(
-                title=title,
-                body=body,
-                url="/?tab=review",
-                data={"event_type": event_type, "count": len(details)},
-            ),
-            settings,
-            conn,
-        )
-
-    elif event_type == "nudge_stale":
-        details = event_payload.get("details", [])
-        return send_push_notification(
-            PushPayload(
-                title=f"{len(details)} stale loops",
-                body="Some loops haven't been updated recently",
-                url="/?tab=review",
-                data={"event_type": event_type, "count": len(details)},
-            ),
-            settings,
-            conn,
-        )
-
-    elif event_type == "review_generated":
+    if event_type == "review_generated":
         review_type = event_payload.get("review_type", "daily")
         total = event_payload.get("total_items", 0)
-
         if total == 0:
             return 0
-
         return send_push_notification(
             PushPayload(
                 title=f"{review_type.title()} review ready",
                 body=f"{total} items to review",
-                url="/?tab=review",
+                url="/#review",
                 data={"event_type": event_type, "review_type": review_type},
+            ),
+            settings,
+            conn,
+        )
+
+    details = event_payload.get("details", [])
+    if event_type == "nudge_due_soon":
+        return send_push_notification(
+            PushPayload(
+                title=f"{len(details)} loops due soon",
+                body="Plan ahead for upcoming deadlines",
+                url="/#review",
+                data={"event_type": event_type, "count": len(details)},
+            ),
+            settings,
+            conn,
+        )
+
+    if event_type == "nudge_stale":
+        return send_push_notification(
+            PushPayload(
+                title=f"{len(details)} stale loops",
+                body="Some loops haven't been updated recently",
+                url="/#review",
+                data={"event_type": event_type, "count": len(details)},
             ),
             settings,
             conn,

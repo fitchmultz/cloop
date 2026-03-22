@@ -7,7 +7,7 @@
  * Responsibilities:
  *   - Establish and reconnect the SSE stream.
  *   - Refresh loops after mutations/events.
- *   - Route scheduler events to notification/banner helpers.
+ *   - Route scheduler events to the shared notification helper.
  *
  * Scope:
  *   - Surface runtime real-time event handling only.
@@ -20,6 +20,11 @@
  *   - Notification UI is loaded lazily to avoid eager scheduler code.
  */
 
+import { readRankedWorkflowSummaries } from "../continuity-follow-through";
+import {
+  buildPrimaryRecommendationNotification,
+  derivePrimaryRecommendation,
+} from "../continuity-recommendations";
 import { handleLoopClosed, refreshLoop } from "./loop";
 
 interface SchedulerDetail {
@@ -41,6 +46,11 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const BASE_RECONNECT_DELAY = 1000;
 
+function primaryRecommendationNotification() {
+  const recommendation = derivePrimaryRecommendation(readRankedWorkflowSummaries());
+  return recommendation ? buildPrimaryRecommendationNotification(recommendation) : null;
+}
+
 async function handleDueSoonNudge(payload: Record<string, unknown>): Promise<void> {
   const details = Array.isArray(payload["details"]) ? payload["details"] as SchedulerDetail[] : [];
   if (details.length === 0) {
@@ -48,17 +58,15 @@ async function handleDueSoonNudge(payload: Record<string, unknown>): Promise<voi
   }
 
   const { showSchedulerNotification } = await import("./notifications");
-  const escalationSummary = Array.isArray(payload["escalation_summary"]) ? payload["escalation_summary"] : [];
-  const urgentCount = typeof escalationSummary[3] === "number" ? escalationSummary[3] : 0;
-  const overdueCount = details.filter((detail) => detail.is_overdue).length;
+  const recommendation = primaryRecommendationNotification();
 
   showSchedulerNotification({
     type: "due_soon",
-    title: overdueCount > 0 ? `${overdueCount} overdue loops` : `${details.length} loops due soon`,
-    body: details.slice(0, 3).map((detail) => detail.title).join(", "),
-    severity: urgentCount > 0 ? "alert" : overdueCount > 0 ? "warning" : "info",
+    title: recommendation?.title ?? `${details.length} loops due soon`,
+    body: recommendation?.body ?? details.slice(0, 3).map((detail) => detail.title).join(", "),
+    severity: recommendation?.severity ?? (details.some((detail) => detail.is_overdue) ? "warning" : "info"),
     details,
-    action: { type: "navigate", tab: "review" },
+    action: { type: "navigate", tab: recommendation?.tab ?? "review" },
   });
 }
 
@@ -69,13 +77,14 @@ async function handleStaleNudge(payload: Record<string, unknown>): Promise<void>
   }
 
   const { showSchedulerNotification } = await import("./notifications");
+  const recommendation = primaryRecommendationNotification();
   showSchedulerNotification({
     type: "stale",
-    title: `${details.length} stale loops need attention`,
-    body: details.slice(0, 3).map((detail) => detail.title).join(", "),
-    severity: "warning",
+    title: recommendation?.title ?? `${details.length} stale loops need attention`,
+    body: recommendation?.body ?? details.slice(0, 3).map((detail) => detail.title).join(", "),
+    severity: recommendation?.severity ?? "warning",
     details,
-    action: { type: "navigate", tab: "review" },
+    action: { type: "navigate", tab: recommendation?.tab ?? "review" },
   });
 }
 
@@ -85,11 +94,15 @@ async function handleReviewGenerated(payload: Record<string, unknown>): Promise<
     return;
   }
 
-  const { showReviewBanner } = await import("./notifications");
-  showReviewBanner({
-    type: typeof payload["review_type"] === "string" ? payload["review_type"] : "daily",
-    itemCount: totalItems,
-    cohorts: Array.isArray(payload["cohorts"]) ? payload["cohorts"] : [],
+  const { showSchedulerNotification } = await import("./notifications");
+  const recommendation = primaryRecommendationNotification();
+  const reviewType = typeof payload["review_type"] === "string" ? payload["review_type"] : "daily";
+  showSchedulerNotification({
+    type: "review",
+    title: recommendation?.title ?? `${reviewType} review ready`,
+    body: recommendation?.body ?? `${totalItems} items are ready for review.`,
+    severity: recommendation?.severity ?? "info",
+    action: { type: "navigate", tab: recommendation?.tab ?? "review" },
   });
 }
 

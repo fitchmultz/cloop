@@ -27,6 +27,13 @@ import type {
 } from "./contracts-ui";
 import type { RankedWorkflowSummary } from "./continuity-follow-through";
 
+export interface ContinuityNotificationDigest {
+  title: string;
+  body: string;
+  severity: "info" | "warning" | "alert";
+  tab: "operator";
+}
+
 export interface PrimaryRecommendation {
   summary: RankedWorkflowSummary;
   card: OperatorActionCard;
@@ -38,6 +45,46 @@ export interface PrimaryRecommendation {
 
 function uniqueLines(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
+function notificationSeverity(recommendation: PrimaryRecommendation): "info" | "warning" | "alert" {
+  const severity = recommendation.summary.rankingSignals.driftSeverity;
+  if (severity === "gone") {
+    return "alert";
+  }
+  if (recommendation.summary.degraded || severity === "replaced" || severity === "major") {
+    return "warning";
+  }
+  return "info";
+}
+
+export function buildPrimaryRecommendationNotification(
+  recommendation: PrimaryRecommendation,
+): ContinuityNotificationDigest {
+  const severity = notificationSeverity(recommendation);
+  const summary = recommendation.summary;
+  const title = summary.rankingSignals.driftSeverity === "gone"
+    ? `${summary.displayTitle} needs a recovery decision`
+    : summary.rankingSignals.driftSeverity === "replaced"
+      ? `${summary.displayTitle} has a newer path`
+      : summary.rankingSignals.workingSetRelevant
+        ? `${summary.displayTitle} is ready in your working set`
+        : summary.rankingSignals.downstreamReady
+          ? `${summary.displayTitle} is ready to resume`
+          : summary.displayTitle;
+  const body = uniqueLines([
+    ...recommendation.whyNow.slice(0, 2),
+    ...recommendation.changedSinceLastSeen.slice(0, 2),
+    recommendation.priorState?.summary,
+    summary.displaySummary,
+  ]).slice(0, 2).join(" · ") || summary.displaySummary;
+
+  return {
+    title,
+    body,
+    severity,
+    tab: "operator",
+  };
 }
 
 export function derivePrimaryRecommendation(
@@ -110,13 +157,14 @@ export function derivePrimaryRecommendation(
 export function buildPrimaryRecommendationDigestCard(
   recommendation: PrimaryRecommendation,
 ): OperatorActionCard {
+  const notification = buildPrimaryRecommendationNotification(recommendation);
   return {
     id: `primary-next-move-digest-${recommendation.summary.id}`,
     kind: "context",
-    tone: recommendation.priorState?.kind === "gone" ? "attention" : "neutral",
+    tone: notification.severity === "alert" ? "attention" : "neutral",
     eyebrow: "Why this won",
     title: "Why this workflow became the top recommendation",
-    summary: recommendation.whyNow.join(" · "),
+    summary: notification.body,
     rationale:
       "The operator should not need to infer the ranking from parallel cards. This digest reuses the backend-authored continuity explanation directly.",
     preview: [

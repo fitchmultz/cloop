@@ -436,43 +436,6 @@ select:focus {
   padding-left: var(--space-5);
 }
 
-/* Review Banner */
-.review-banner {
-  background: linear-gradient(135deg, var(--color-brand), var(--color-brand-light));
-  color: var(--color-inverse);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  animation: slide-in 0.3s ease;
-}
-
-.banner-content {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.banner-text {
-  flex: 1;
-}
-
-.banner-action {
-  background: rgba(255,255,255,0.2);
-  border: 1px solid rgba(255,255,255,0.3);
-  color: var(--color-inverse);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-
-.banner-dismiss {
-  background: none;
-  border: none;
-  color: var(--color-inverse);
-  font-size: var(--text-lg);
-  cursor: pointer;
-  opacity: 0.7;
-}
-
 @keyframes slide-in {
   from { transform: translateX(100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }

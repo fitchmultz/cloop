@@ -146,22 +146,16 @@ export interface SchedulerNotificationLoopDetail {
 
 export interface SchedulerNavigateAction {
   type: "navigate";
-  tab: "review" | "capture" | "do" | "chat" | "memory" | "rag";
+  tab: "operator" | "review" | "capture" | "do" | "chat" | "memory" | "rag";
 }
 
 export interface SchedulerNotificationPayload {
-  type: "due_soon" | "stale" | "blocked";
+  type: "due_soon" | "stale" | "blocked" | "review";
   title: string;
   body: string;
   severity: "info" | "warning" | "alert";
   details?: SchedulerNotificationLoopDetail[];
   action?: SchedulerNavigateAction | null;
-}
-
-export interface ReviewBannerPayload {
-  type: "daily" | "weekly" | string;
-  itemCount: number;
-  cohorts?: unknown[] | null;
 }
 
 export interface SurfaceChatEventPayload {

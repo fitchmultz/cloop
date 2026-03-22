@@ -2,11 +2,10 @@
  * notifications.ts - Scheduler notification UI.
  *
  * Purpose:
- *   Display scheduler-generated notifications as UI banners and review prompts.
+ *   Display scheduler-generated notifications as a single in-app banner system.
  *
  * Responsibilities:
- *   - Show notification cards for nudge_due_soon and nudge_stale events.
- *   - Display review banners for review_generated events.
+ *   - Show notification cards for scheduler-owned continuity nudges and review readiness.
  *   - Auto-dismiss notifications after timeout.
  *   - Handle user interactions (dismiss, navigate).
  *
@@ -21,13 +20,13 @@
  *   - Notifications render into a browser-global container appended to body.
  */
 
-import type { ReviewBannerPayload, SchedulerNotificationLoopDetail, SchedulerNotificationPayload } from "./contracts";
+import type { SchedulerNotificationLoopDetail, SchedulerNotificationPayload } from "./contracts";
 
 let notificationContainer: HTMLDivElement | null = null;
 const NOTIFICATION_TIMEOUT = 30_000;
-const REVIEW_BANNER_TIMEOUT = 60_000;
 
 const TAB_HASH: Record<string, string> = {
+  operator: "#operator",
   review: "#review",
   capture: "#capture",
   do: "#do",
@@ -53,6 +52,7 @@ function iconForType(type: string): string {
     due_soon: "⏰",
     stale: "🦥",
     blocked: "🚧",
+    review: "📋",
   };
   return icons[type] ?? "🔔";
 }
@@ -121,42 +121,4 @@ export function showSchedulerNotification({
   }, NOTIFICATION_TIMEOUT);
 
   return notification;
-}
-
-export function showReviewBanner({ type, itemCount, cohorts }: ReviewBannerPayload): HTMLDivElement {
-  const container = initNotificationContainer();
-
-  const banner = document.createElement("div");
-  banner.className = "review-banner";
-  banner.innerHTML = `
-    <div class="banner-content">
-      <span class="banner-icon">${type === "daily" ? "📋" : "📅"}</span>
-      <span class="banner-text">
-        <strong>${type === "daily" ? "Daily" : "Weekly"} review ready:</strong>
-        ${itemCount} items across ${cohorts?.length ?? 0} cohorts
-      </span>
-      <button class="banner-action">Review Now</button>
-      <button class="banner-dismiss" aria-label="Dismiss">×</button>
-    </div>
-  `;
-
-  const actionButton = banner.querySelector(".banner-action");
-  if (actionButton instanceof HTMLButtonElement) {
-    actionButton.addEventListener("click", () => {
-      switchToTab("review");
-      banner.remove();
-    });
-  }
-
-  const dismissButton = banner.querySelector(".banner-dismiss");
-  if (dismissButton instanceof HTMLButtonElement) {
-    dismissButton.addEventListener("click", () => {
-      banner.remove();
-    });
-  }
-
-  container.appendChild(banner);
-  window.setTimeout(() => banner.remove(), REVIEW_BANNER_TIMEOUT);
-
-  return banner;
 }

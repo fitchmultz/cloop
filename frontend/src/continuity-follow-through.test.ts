@@ -30,6 +30,11 @@ import {
   findRecoveryPlanForLocation,
   readRankedWorkflowSummaries,
 } from "./continuity-follow-through";
+import {
+  buildPrimaryRecommendationDigestCard,
+  buildPrimaryRecommendationNotification,
+  derivePrimaryRecommendation,
+} from "./continuity-recommendations";
 
 function location(overrides: Partial<ShellLocationContract> = {}): ShellLocationContract {
   return {
@@ -448,5 +453,21 @@ describe("readRankedWorkflowSummaries", () => {
       workflowThreadId: "planning:99",
     });
     expect(recovery?.acknowledged).toBe(true);
+  });
+
+  it("builds one canonical notification and digest from the primary recommendation", async () => {
+    await hydrateDurableContinuityState();
+
+    const recommendation = derivePrimaryRecommendation(readRankedWorkflowSummaries());
+    expect(recommendation).not.toBeNull();
+
+    const notification = buildPrimaryRecommendationNotification(recommendation!);
+    expect(notification.tab).toBe("operator");
+    expect(notification.title).toBe("Created launch review queue is ready in your working set");
+    expect(notification.body).toContain("This workflow has fresh unseen movement.");
+
+    const digest = buildPrimaryRecommendationDigestCard(recommendation!);
+    expect(digest.title).toBe("Why this workflow became the top recommendation");
+    expect(digest.summary).toBe(notification.body);
   });
 });
