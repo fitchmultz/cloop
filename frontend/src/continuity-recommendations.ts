@@ -27,7 +27,7 @@ import type {
   ContinuityRecoveryPlan,
   OperatorActionCard,
 } from "./contracts-ui";
-import { readContinuityNotificationRecords } from "./continuity-intelligence";
+import { readActiveContinuityNotificationRecords } from "./continuity-intelligence";
 import type { RankedWorkflowSummary } from "./continuity-follow-through";
 
 export type ContinuityNotificationDigest = ContinuityNotificationRecord;
@@ -54,7 +54,7 @@ export function buildPrimaryRecommendationNotification(
 
 export function derivePrimaryRecommendation(
   summaries: readonly RankedWorkflowSummary[],
-  notifications: readonly ContinuityNotificationRecord[] = readContinuityNotificationRecords(),
+  notifications: readonly ContinuityNotificationRecord[] = readActiveContinuityNotificationRecords(),
 ): PrimaryRecommendation | null {
   const notification = notifications[0] ?? null;
   if (!notification) {

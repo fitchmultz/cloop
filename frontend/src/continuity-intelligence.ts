@@ -1439,6 +1439,22 @@ export function isContinuityNotificationSuppressed(state: ContinuityNotification
   return Boolean(state.suppressedUntilUtc) && Date.parse(state.suppressedUntilUtc!) > Date.now();
 }
 
+export function isActiveContinuityNotification(record: ContinuityNotificationRecord): boolean {
+  return record.state.acknowledgedAtUtc == null && !isContinuityNotificationSuppressed(record.state);
+}
+
+export function isBannerEligibleContinuityNotification(record: ContinuityNotificationRecord): boolean {
+  return isActiveContinuityNotification(record) && record.state.seenAtUtc == null;
+}
+
+export function readActiveContinuityNotificationRecords(): ContinuityNotificationRecord[] {
+  return readContinuityNotificationRecords().filter((record) => isActiveContinuityNotification(record));
+}
+
+export function readBannerContinuityNotificationRecords(): ContinuityNotificationRecord[] {
+  return readContinuityNotificationRecords().filter((record) => isBannerEligibleContinuityNotification(record));
+}
+
 export function markContinuityNotificationSeen(notificationId: string): void {
   const now = new Date().toISOString();
   updateContinuityNotificationState(notificationId, (current) => ({
@@ -1456,6 +1472,21 @@ export function acknowledgeContinuityNotification(notificationId: string): void 
     seenAtUtc: current.seenAtUtc ?? now,
     acknowledgedAtUtc: current.acknowledgedAtUtc ?? now,
   }));
+}
+
+export function suppressContinuityNotification(notificationId: string, hours = 24): void {
+  const now = new Date();
+  updateContinuityNotificationState(notificationId, (current) => {
+    const currentSuppression = current.suppressedUntilUtc ? Date.parse(current.suppressedUntilUtc) : 0;
+    const nextSuppression = Math.max(now.getTime() + Math.max(hours, 1) * 60 * 60 * 1000, currentSuppression);
+    const nowIso = now.toISOString();
+    return {
+      ...current,
+      inboxedAtUtc: current.inboxedAtUtc ?? nowIso,
+      seenAtUtc: current.seenAtUtc ?? nowIso,
+      suppressedUntilUtc: new Date(nextSuppression).toISOString(),
+    };
+  });
 }
 
 function markOutcomePersistenceStatus(

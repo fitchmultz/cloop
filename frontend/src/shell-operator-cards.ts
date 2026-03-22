@@ -59,6 +59,7 @@ import {
   buildPlanningLastSeenMarker,
   buildReviewLastSeenMarker,
   buildWorkflowSummaryLastSeenMarker,
+  readActiveContinuityNotificationRecords,
   readContinuityLastSeenMarkers,
   readRecentShellActions,
   rememberContinuityObservation,
@@ -1981,6 +1982,87 @@ function buildRecoveryCards(
     }));
 }
 
+function buildNotificationInboxCards(
+  summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+): PrioritizedCard[] {
+  const summaryById = new Map(summaries.map((summary) => [summary.id, summary]));
+  return readActiveContinuityNotificationRecords()
+    .flatMap((notification, index) => {
+      const summary = summaryById.get(notification.id);
+      if (!summary) {
+        return [];
+      }
+      const unseen = notification.state.seenAtUtc == null;
+      const actions: OperatorActionCardAction[] = [
+        {
+          type: "open",
+          label: unseen ? "Open workflow" : "Open again",
+          variant: "primary",
+          description: notification.body,
+          location: notification.resolvedLocation,
+        },
+        {
+          type: "acknowledge",
+          label: "Acknowledge",
+          variant: "secondary",
+          description: "Remove this notification from operator surfaces.",
+          acknowledgementKey: `notification:${notification.id}`,
+        },
+        {
+          type: "event",
+          label: "Hide for 1 day",
+          variant: "secondary",
+          description: "Suppress this notification across operator surfaces for one day.",
+          attributes: {
+            "data-notification-suppress-id": notification.id,
+            "data-notification-suppress-hours": "24",
+          },
+        },
+      ];
+      return [{
+        priority: 127 - index * 2,
+        card: {
+          ...summary.card,
+          id: `notification-${notification.id}`,
+          kind: "context",
+          tone: notification.severity === "alert"
+            ? "attention"
+            : notification.severity === "warning"
+              ? "caution"
+              : "neutral",
+          eyebrow: unseen ? "New notification" : "Notification inbox",
+          title: notification.title,
+          summary: notification.body,
+          rationale:
+            "This card exposes the durable continuity notification in operator home instead of relying on banner-only delivery.",
+          preview: [
+            { label: "Workflow", value: summary.workflowThread.title },
+            { label: "Why now", value: summary.whyNow[0] ?? summary.displaySummary },
+            { label: "State", value: unseen ? "Unseen" : "In inbox" },
+          ],
+          trust: {
+            ...summary.card.trust,
+            generationLabel: "Backend continuity notification",
+            contextSources: [...new Set([...summary.card.trust.contextSources, "Durable continuity notification record"])],
+            impactSummary: notification.body,
+          },
+          handoff: summary.card.handoff ?? {
+            changeSummary: summary.changedSinceLastSeen.join(" · ") || summary.displaySummary,
+            createdResources: summary.outcomePreviewTitles.slice(0, 3),
+            nextStep: "Open the prepared workflow and continue from the landed state.",
+            breadcrumbs: ["Home", "Notifications", summary.workflowThread.title],
+            workingSet: null,
+          },
+          actionContextLabel: "Inbox controls",
+          actionWarning: summary.priorState?.summary ?? null,
+          recovery: null,
+          actions,
+        },
+      } satisfies PrioritizedCard];
+    })
+    .slice(0, 3);
+}
+
 function buildWorkflowThreadRollupCards(
   summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
   excludedSummaryId: string | null,
@@ -2018,6 +2100,7 @@ function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
       ? [{ priority: 132, card: buildPrimaryRecommendationDigestCard(model.recommendation) }]
       : []),
     ...buildRecoveryCards(model.summaries, excludedSummaryId),
+    ...buildNotificationInboxCards(model.summaries),
     ...buildWorkflowThreadRollupCards(model.summaries, excludedSummaryId),
     ...buildFollowThroughCards(model.summaries, excludedSummaryId),
   ];

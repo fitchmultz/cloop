@@ -881,6 +881,35 @@ describe("shell-operator-cards", () => {
     expect(findCard(elements.operatorSinceLast, "Why this workflow became the top recommendation")).not.toBeNull();
   });
 
+  it("renders notification inbox controls from durable continuity state", () => {
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "planning:41",
+        rank: 5400,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Weekly reset",
+        workflowThreadSummary: "Planning checkpoint thread",
+        resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 2 }),
+        displayTitle: "Created launch review queue",
+        displaySummary: "Open the prepared queue.",
+        workingSetName: "Review Prep",
+        workingSetRelevant: true,
+      }),
+    ]);
+
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+      workingSets: [makeWorkingSet(2, "Review Prep")],
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    expect(elements.operatorSinceLast.querySelector('button[data-acknowledgement-key="notification:planning:41"]')).not.toBeNull();
+    expect(elements.operatorSinceLast.querySelector('button[data-notification-suppress-id="planning:41"]')).not.toBeNull();
+    expect(elements.operatorSinceLast.textContent).toContain("Hide for 1 day");
+  });
+
   it("renders the next-ranked follow-through card with propagated working-set context after the top outcome is reserved for the rail", () => {
     const propagatedSet = makeWorkingSet(2, "Review Prep");
     rememberPlanningAnchor({

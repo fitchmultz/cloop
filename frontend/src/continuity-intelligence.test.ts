@@ -35,6 +35,8 @@ import {
   markContinuityNotificationSeen,
   markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
+  readActiveContinuityNotificationRecords,
+  readBannerContinuityNotificationRecords,
   readContinuityNotificationRecords,
   readContinuityWorkflowSummaries,
   readRecentShellActions,
@@ -43,6 +45,7 @@ import {
   recordRecentShellAction,
   rememberPlanningAnchor,
   rememberReviewAnchor,
+  suppressContinuityNotification,
 } from "./continuity-intelligence";
 
 function location(overrides: Partial<ShellLocationContract> = {}): ShellLocationContract {
@@ -466,6 +469,88 @@ describe("continuity-intelligence", () => {
     expect(state?.inboxedAtUtc).not.toBeNull();
     expect(state?.seenAtUtc).not.toBeNull();
     expect(state?.acknowledgedAtUtc).not.toBeNull();
+  });
+
+  it("filters active and banner notification records from durable state", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        recorded_at_utc: "2026-03-17T12:00:00Z",
+        outcomes: [],
+        anchors: { planning: null, review: null },
+        workflow_summaries: [],
+        notification_records: [
+          {
+            id: "planning:41:checkpoint:0",
+            title: "Created launch review queue is ready in your working set",
+            body: "This workflow has fresh unseen movement.",
+            severity: "info",
+            workflow_thread: {
+              id: "planning:41:checkpoint:0",
+              kind: "planning_checkpoint",
+              title: "Weekly reset",
+              summary: "Planning checkpoint thread",
+              parent_outcome_id: null,
+            },
+            resolved_location: {
+              state: "decide",
+              recall_tool: "chat",
+              review_focus: "enrichment",
+              session_id: 52,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: 7,
+              query: null,
+            },
+            state: {
+              inboxed_at_utc: "2026-03-17T12:00:00Z",
+              seen_at_utc: "2026-03-17T12:01:00Z",
+              acknowledged_at_utc: null,
+              suppressed_until_utc: null,
+            },
+          },
+          {
+            id: "planning:42:checkpoint:0",
+            title: "Review queue needs attention",
+            body: "Fresh follow-up exists.",
+            severity: "warning",
+            workflow_thread: {
+              id: "planning:42:checkpoint:0",
+              kind: "planning_checkpoint",
+              title: "Launch prep",
+              summary: "Planning checkpoint thread",
+              parent_outcome_id: null,
+            },
+            resolved_location: {
+              state: "decide",
+              recall_tool: "chat",
+              review_focus: "relationship",
+              session_id: 7,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: null,
+              query: null,
+            },
+            state: {
+              inboxed_at_utc: null,
+              seen_at_utc: null,
+              acknowledged_at_utc: null,
+              suppressed_until_utc: null,
+            },
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await hydrateDurableContinuityState();
+    suppressContinuityNotification("planning:41:checkpoint:0", 24);
+
+    expect(readActiveContinuityNotificationRecords().map((item) => item.id)).toEqual(["planning:42:checkpoint:0"]);
+    expect(readBannerContinuityNotificationRecords().map((item) => item.id)).toEqual(["planning:42:checkpoint:0"]);
   });
 
   it("keeps recent shell actions newest-first", () => {

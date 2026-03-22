@@ -58,6 +58,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(handled).toBe(false);
@@ -70,6 +72,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -120,6 +124,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -163,6 +169,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -217,6 +225,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -276,6 +286,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(result).toBe(true);
@@ -318,6 +330,8 @@ describe("handleOperatorActionCardClick", () => {
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
     const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const acknowledgeContinuityRecovery = vi.fn();
+    const acknowledgeContinuityNotification = vi.fn();
+    const suppressContinuityNotification = vi.fn();
     const button = document.getElementById("recover");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing recover button");
@@ -331,6 +345,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery,
+      acknowledgeContinuityNotification,
+      suppressContinuityNotification,
     });
 
     expect(result).toBe(true);
@@ -357,6 +373,8 @@ describe("handleOperatorActionCardClick", () => {
     const executeUndoAction = vi.fn().mockResolvedValue(undefined);
     const executeRerunAction = vi.fn().mockResolvedValue(undefined);
     const acknowledgeContinuityRecovery = vi.fn();
+    const acknowledgeContinuityNotification = vi.fn();
+    const suppressContinuityNotification = vi.fn();
     const button = document.getElementById("acknowledge");
     if (!(button instanceof HTMLButtonElement)) {
       throw new Error("Missing acknowledge button");
@@ -370,11 +388,92 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery,
+      acknowledgeContinuityNotification,
+      suppressContinuityNotification,
     });
 
     expect(result).toBe(true);
     expect(acknowledgeContinuityRecovery).toHaveBeenCalledWith("replacement::planning:41");
     expect(applyLocation).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges notifications without routing through recovery state", async () => {
+    document.body.innerHTML = `
+      <button
+        id="notification-acknowledge"
+        type="button"
+        data-card-action="acknowledge"
+        data-acknowledgement-key="notification:planning:41"
+      >Acknowledge notification</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const acknowledgeContinuityRecovery = vi.fn();
+    const acknowledgeContinuityNotification = vi.fn();
+    const suppressContinuityNotification = vi.fn();
+    const button = document.getElementById("notification-acknowledge");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing notification acknowledge button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery,
+      acknowledgeContinuityNotification,
+      suppressContinuityNotification,
+    });
+
+    expect(result).toBe(true);
+    expect(acknowledgeContinuityNotification).toHaveBeenCalledWith("planning:41");
+    expect(acknowledgeContinuityRecovery).not.toHaveBeenCalled();
+  });
+
+  it("suppresses notifications from shared event actions", async () => {
+    document.body.innerHTML = `
+      <button
+        id="notification-suppress"
+        type="button"
+        data-card-action="event"
+        data-notification-suppress-id="planning:41"
+        data-notification-suppress-hours="24"
+      >Hide for 1 day</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const acknowledgeContinuityRecovery = vi.fn();
+    const acknowledgeContinuityNotification = vi.fn();
+    const suppressContinuityNotification = vi.fn();
+    const button = document.getElementById("notification-suppress");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing notification suppress button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery,
+      acknowledgeContinuityNotification,
+      suppressContinuityNotification,
+    });
+
+    expect(result).toBe(true);
+    expect(suppressContinuityNotification).toHaveBeenCalledWith("planning:41", 24);
+    expect(acknowledgeContinuityNotification).not.toHaveBeenCalled();
   });
 
   it("dispatches shared rerun actions", async () => {
@@ -405,6 +504,8 @@ describe("handleOperatorActionCardClick", () => {
       executeUndoAction,
       executeRerunAction,
       acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
     });
 
     expect(result).toBe(true);

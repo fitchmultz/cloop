@@ -5,9 +5,9 @@
  *   Execute shared operator action-card semantics outside review-local event handlers.
  *
  * Responsibilities:
- *   - Decode open, pin, stage, edit, defer, undo, and recovery button datasets.
+ *   - Decode open, pin, stage, edit, defer, undo, recovery, and notification button datasets.
  *   - Reuse shell navigation and working-set pinning callbacks.
- *   - Keep shared follow-through and recovery actions deterministic across shell-owned surfaces.
+ *   - Keep shared follow-through, recovery, and notification actions deterministic across shell-owned surfaces.
  *
  * Scope:
  *   - Shared shell-side action-card dispatch only.
@@ -55,9 +55,13 @@ export interface OperatorActionCardDispatchOptions {
     button: HTMLButtonElement,
   ) => Promise<void>;
   acknowledgeContinuityRecovery: (key: string) => void;
+  acknowledgeContinuityNotification: (notificationId: string) => void;
+  suppressContinuityNotification: (notificationId: string, hours: number) => void;
 }
 
 type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer" | "undoSuccess" | "recover";
+
+const NOTIFICATION_ACKNOWLEDGEMENT_PREFIX = "notification:";
 
 function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): ShellLocation {
   return createLocation({
@@ -290,9 +294,25 @@ export async function handleOperatorActionCardClick(
     }
     case "acknowledge": {
       const key = actionButton.dataset["acknowledgementKey"]?.trim();
-      if (key) {
-        options.acknowledgeContinuityRecovery(key);
+      if (!key) {
+        return true;
       }
+      if (key.startsWith(NOTIFICATION_ACKNOWLEDGEMENT_PREFIX)) {
+        options.acknowledgeContinuityNotification(key.slice(NOTIFICATION_ACKNOWLEDGEMENT_PREFIX.length));
+        return true;
+      }
+      options.acknowledgeContinuityRecovery(key);
+      return true;
+    }
+    case "event": {
+      const notificationId = actionButton.dataset["notificationSuppressId"]?.trim();
+      if (!notificationId) {
+        return false;
+      }
+      options.suppressContinuityNotification(
+        notificationId,
+        parseOptionalInteger(actionButton.dataset["notificationSuppressHours"]) ?? 24,
+      );
       return true;
     }
     default:

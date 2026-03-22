@@ -23,9 +23,8 @@
 import {
   acknowledgeContinuityNotification,
   hydrateDurableContinuityState,
-  isContinuityNotificationSuppressed,
   markContinuityNotificationSeen,
-  readContinuityNotificationRecords,
+  readBannerContinuityNotificationRecords,
 } from "../continuity-intelligence";
 import { handleLoopClosed, refreshLoop } from "./loop";
 
@@ -50,13 +49,7 @@ const BASE_RECONNECT_DELAY = 1000;
 
 async function currentContinuityNotification() {
   await hydrateDurableContinuityState();
-  return readContinuityNotificationRecords().find((notification) => {
-    return (
-      notification.state.acknowledgedAtUtc == null
-      && notification.state.seenAtUtc == null
-      && !isContinuityNotificationSuppressed(notification.state)
-    );
-  }) ?? null;
+  return readBannerContinuityNotificationRecords()[0] ?? null;
 }
 
 function wireNotificationState(notificationId: string, banner: HTMLDivElement): void {

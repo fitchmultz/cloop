@@ -27,8 +27,10 @@
 import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
 import {
   hydrateDurableContinuityState,
+  markContinuityNotificationSeen,
   markRerunActionUnavailable,
   markUndoActionUnavailable,
+  readActiveContinuityNotificationRecords,
   readContinuityBaseline,
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
   recordRecentShellAction,
@@ -48,6 +50,7 @@ import {
   createLocation,
   DEFAULT_LOCATION,
   locationToHash,
+  locationsMatch,
   normalizeLocation,
   persistLocation,
   STATE_DESCRIPTORS,
@@ -485,11 +488,21 @@ function renderShellReceiptRail(): void {
     : "";
 }
 
+function markCurrentNotificationSeen(location: ShellLocation): void {
+  const notification = readActiveContinuityNotificationRecords().find((candidate) => {
+    return locationsMatch(candidate.resolvedLocation, location);
+  });
+  if (notification) {
+    markContinuityNotificationSeen(notification.id);
+  }
+}
+
 async function applyLocation(
   input: Partial<ShellLocation>,
   options: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean } = {},
 ): Promise<void> {
   currentLocation = normalizeLocation(input);
+  markCurrentNotificationSeen(currentLocation);
 
   if (currentLocation.state === "working_set" && currentLocation.workingSetId != null && workingSetController) {
     const activeId = getWorkingSetContext()?.active_working_set_id ?? null;

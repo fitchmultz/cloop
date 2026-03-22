@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to cut operator surfaces over to the durable continuity notification state so inbox controls, seen state, acknowledgement, and suppression no longer depend on browser-only behavior.
+The current priority is to finish scheduler-owned delivery timing and lifecycle cleanup so durable continuity notifications age cleanly across push, in-app, and hydration surfaces.
 
 ## Direction
 
@@ -46,39 +46,21 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Operator inbox and delivery-control UX
-
-**Primary specs:**
-- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-- [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
-
-Goal: cut operator surfaces over to durable notification state so the shell can show inboxed items, mark notifications seen, and apply suppression without local-only behavior.
-
-Why this comes after durable state:
-- the shell should read and write the final state model, not a temporary browser contract
-- UI churn stays lower once the backend identity and mutation rules are fixed
-
-Planned sequence:
-
-1. add operator-home or command-surface reads for inboxed notifications and delivery controls
-2. wire open, seen, acknowledge, and suppress actions to continuity-owned writes
-3. remove remaining browser-only notification state and transport-specific dismissal behavior
-
-### Then — Scheduler delivery selection and timing
+### Next — Scheduler delivery timing and resend policy
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: make scheduler delivery select only deliverable notifications and respect durable state, suppression, and timing windows without re-ranking workflows outside continuity.
+Goal: make scheduler-owned delivery respect timing windows, resend policy, and channel-specific cadence while continuing to consume continuity-owned deliverable notifications.
 
-Why this comes later:
-- timing policy depends on stable delivery state and UI write paths first
-- scheduling before state and surface semantics settle would create avoidable churn in storage, transport, and UX
+Why this comes next:
+- deliverable selection and operator write paths are already in place
+- remaining work is now timing policy, resend behavior, and cross-channel cadence rather than state-model churn
 
 Planned sequence:
 
-1. add scheduler-facing reads that select deliverable notifications from durable continuity state
-2. respect suppression, inbox, seen, acknowledgement, and timing windows during push or digest sends
+1. separate delivery cadence from notification ranking so scheduler reads continuity-owned deliverable records without re-ranking them
+2. define resend and digest timing windows for inboxed, seen, acknowledged, and suppressed notifications
 3. keep scheduler delivery as a transport over continuity-owned notification records instead of task-specific reminder copy
 
 ### Later — Notification-state hygiene for retired workflow ids

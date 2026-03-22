@@ -24,7 +24,11 @@
  */
 
 import { bootstrapCommandPalette } from "./command-palette";
-import { markContinuityRecoveryAcknowledged } from "./continuity-intelligence";
+import {
+  acknowledgeContinuityNotification,
+  markContinuityRecoveryAcknowledged,
+  suppressContinuityNotification,
+} from "./continuity-intelligence";
 import type { RecallTool, ReviewFocus, ShellState } from "./contracts-ui";
 import type { WorkingSetContextResponse, WorkingSetResponse } from "./domain";
 import { handleOperatorActionCardClick } from "./operator-action-card-events";
@@ -110,6 +114,8 @@ export function createShellEventController(
       executeUndoAction: options.executeUndoAction,
       executeRerunAction: options.executeRerunAction,
       acknowledgeContinuityRecovery: markContinuityRecoveryAcknowledged,
+      acknowledgeContinuityNotification,
+      suppressContinuityNotification,
     })) {
       return;
     }
