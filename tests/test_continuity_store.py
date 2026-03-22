@@ -36,16 +36,19 @@ from cloop.schemas._loops.continuity import (
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityLastSeenMarkerUpsertRequest,
     ContinuityLocationResponse,
+    ContinuityNotificationStateUpsertRequest,
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementUpsertRequest,
     WorkflowThreadRefResponse,
 )
 from cloop.settings import get_settings
 from cloop.storage.continuity_store import (
+    read_continuity_notification_records,
     read_continuity_snapshot,
     record_continuity_outcome,
     upsert_continuity_anchor,
     upsert_continuity_last_seen_markers,
+    upsert_continuity_notification_state,
     upsert_continuity_recovery_acknowledgement,
 )
 
@@ -123,10 +126,11 @@ def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
         table_names = {
             row[0]
             for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?, ?)",
                 (
                     "continuity_outcomes",
                     "continuity_resume_anchors",
+                    "continuity_notification_states",
                     "continuity_recovery_acknowledgements",
                 ),
             ).fetchall()
@@ -134,6 +138,7 @@ def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
     assert table_names == {
         "continuity_outcomes",
         "continuity_resume_anchors",
+        "continuity_notification_states",
         "continuity_recovery_acknowledgements",
     }
 
@@ -173,6 +178,43 @@ def test_read_continuity_snapshot_builds_workflow_summaries(tmp_data_dir: Path) 
     assert snapshot.workflow_summaries[0].outcome_count == 2
     assert snapshot.workflow_summaries[0].outcome_preview_titles[0] == "Refreshed planning thread"
     assert snapshot.notification_records[0].id == "planning:41:checkpoint:0"
+
+
+def test_notification_state_round_trips_on_snapshot(tmp_data_dir: Path) -> None:
+    record_continuity_outcome(_outcome_request())
+    upsert_continuity_notification_state(
+        "planning:41:checkpoint:0",
+        ContinuityNotificationStateUpsertRequest(
+            inboxed_at_utc="2026-03-21T12:01:00Z",
+            seen_at_utc="2026-03-21T12:02:00Z",
+            suppressed_until_utc="2026-03-21T13:00:00Z",
+        ),
+    )
+    upsert_continuity_notification_state(
+        "planning:41:checkpoint:0",
+        ContinuityNotificationStateUpsertRequest(
+            acknowledged_at_utc="2026-03-21T12:03:00Z",
+        ),
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.notification_records[0].state.inboxed_at_utc == "2026-03-21T12:01:00Z"
+    assert snapshot.notification_records[0].state.seen_at_utc == "2026-03-21T12:02:00Z"
+    assert snapshot.notification_records[0].state.acknowledged_at_utc == "2026-03-21T12:03:00Z"
+    assert snapshot.notification_records[0].state.suppressed_until_utc == "2026-03-21T13:00:00Z"
+
+
+def test_push_notification_reads_skip_inboxed_or_seen_records(tmp_data_dir: Path) -> None:
+    record_continuity_outcome(_outcome_request())
+    assert read_continuity_notification_records(channel="push")[0].id == "planning:41:checkpoint:0"
+
+    upsert_continuity_notification_state(
+        "planning:41:checkpoint:0",
+        ContinuityNotificationStateUpsertRequest(
+            inboxed_at_utc="2026-03-21T12:01:00Z",
+        ),
+    )
+    assert read_continuity_notification_records(channel="push") == []
 
 
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:

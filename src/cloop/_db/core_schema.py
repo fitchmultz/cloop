@@ -676,6 +676,24 @@ CREATE TABLE continuity_recovery_acknowledgements (
 CREATE INDEX idx_continuity_recovery_acknowledgements_acknowledged_at
     ON continuity_recovery_acknowledgements(acknowledged_at_utc DESC, recovery_key);
 
+CREATE TABLE continuity_notification_states (
+    notification_id TEXT PRIMARY KEY,
+    inboxed_at_utc TEXT,
+    seen_at_utc TEXT,
+    acknowledged_at_utc TEXT,
+    suppressed_until_utc TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_continuity_notification_states_inboxed_at
+    ON continuity_notification_states(inboxed_at_utc DESC, notification_id);
+CREATE INDEX idx_continuity_notification_states_seen_at
+    ON continuity_notification_states(seen_at_utc DESC, notification_id);
+CREATE INDEX idx_continuity_notification_states_acknowledged_at
+    ON continuity_notification_states(acknowledged_at_utc DESC, notification_id);
+CREATE INDEX idx_continuity_notification_states_suppressed_until
+    ON continuity_notification_states(suppressed_until_utc DESC, notification_id);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),

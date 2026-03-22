@@ -21,7 +21,10 @@
  */
 
 import {
+  acknowledgeContinuityNotification,
   hydrateDurableContinuityState,
+  isContinuityNotificationSuppressed,
+  markContinuityNotificationSeen,
   readContinuityNotificationRecords,
 } from "../continuity-intelligence";
 import { handleLoopClosed, refreshLoop } from "./loop";
@@ -47,7 +50,42 @@ const BASE_RECONNECT_DELAY = 1000;
 
 async function currentContinuityNotification() {
   await hydrateDurableContinuityState();
-  return readContinuityNotificationRecords()[0] ?? null;
+  return readContinuityNotificationRecords().find((notification) => {
+    return (
+      notification.state.acknowledgedAtUtc == null
+      && notification.state.seenAtUtc == null
+      && !isContinuityNotificationSuppressed(notification.state)
+    );
+  }) ?? null;
+}
+
+function wireNotificationState(notificationId: string, banner: HTMLDivElement): void {
+  markContinuityNotificationSeen(notificationId);
+  const dismissButton = banner.querySelector<HTMLButtonElement>(".notification-dismiss");
+  dismissButton?.addEventListener("click", () => {
+    acknowledgeContinuityNotification(notificationId);
+  });
+}
+
+async function showCurrentContinuityNotification(input: {
+  type: "due_soon" | "stale" | "review";
+  details?: SchedulerDetail[];
+}): Promise<void> {
+  const { showSchedulerNotification } = await import("./notifications");
+  const notification = await currentContinuityNotification();
+  if (!notification) {
+    return;
+  }
+
+  const banner = showSchedulerNotification({
+    type: input.type,
+    title: notification.title,
+    body: notification.body,
+    severity: notification.severity,
+    ...(input.details ? { details: input.details } : {}),
+    action: { type: "navigate", location: notification.resolvedLocation },
+  });
+  wireNotificationState(notification.id, banner);
 }
 
 async function handleDueSoonNudge(payload: Record<string, unknown>): Promise<void> {
@@ -55,21 +93,7 @@ async function handleDueSoonNudge(payload: Record<string, unknown>): Promise<voi
   if (details.length === 0) {
     return;
   }
-
-  const { showSchedulerNotification } = await import("./notifications");
-  const notification = await currentContinuityNotification();
-  if (!notification) {
-    return;
-  }
-
-  showSchedulerNotification({
-    type: "due_soon",
-    title: notification.title,
-    body: notification.body,
-    severity: notification.severity,
-    details,
-    action: { type: "navigate", location: notification.resolvedLocation },
-  });
+  await showCurrentContinuityNotification({ type: "due_soon", details });
 }
 
 async function handleStaleNudge(payload: Record<string, unknown>): Promise<void> {
@@ -77,20 +101,7 @@ async function handleStaleNudge(payload: Record<string, unknown>): Promise<void>
   if (details.length === 0) {
     return;
   }
-
-  const { showSchedulerNotification } = await import("./notifications");
-  const notification = await currentContinuityNotification();
-  if (!notification) {
-    return;
-  }
-  showSchedulerNotification({
-    type: "stale",
-    title: notification.title,
-    body: notification.body,
-    severity: notification.severity,
-    details,
-    action: { type: "navigate", location: notification.resolvedLocation },
-  });
+  await showCurrentContinuityNotification({ type: "stale", details });
 }
 
 async function handleReviewGenerated(payload: Record<string, unknown>): Promise<void> {
@@ -98,19 +109,7 @@ async function handleReviewGenerated(payload: Record<string, unknown>): Promise<
   if (totalItems === 0) {
     return;
   }
-
-  const { showSchedulerNotification } = await import("./notifications");
-  const notification = await currentContinuityNotification();
-  if (!notification) {
-    return;
-  }
-  showSchedulerNotification({
-    type: "review",
-    title: notification.title,
-    body: notification.body,
-    severity: notification.severity,
-    action: { type: "navigate", location: notification.resolvedLocation },
-  });
+  await showCurrentContinuityNotification({ type: "review" });
 }
 
 export function connectSSE(): void {

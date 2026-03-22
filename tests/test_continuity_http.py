@@ -151,6 +151,30 @@ def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
         == "planning:41:checkpoint:0"
     )
     assert outcome_payload["notification_records"][0]["id"] == "planning:41:checkpoint:0"
+    assert outcome_payload["notification_records"][0]["state"] == {
+        "inboxed_at_utc": None,
+        "seen_at_utc": None,
+        "acknowledged_at_utc": None,
+        "suppressed_until_utc": None,
+    }
+
+    notification_state_response = test_client.put(
+        "/loops/continuity/notifications/planning%3A41%3Acheckpoint%3A0/state",
+        json={
+            "inboxed_at_utc": "2026-03-21T12:01:00Z",
+            "seen_at_utc": "2026-03-21T12:02:00Z",
+        },
+    )
+    assert notification_state_response.status_code == 200
+    notification_payload = notification_state_response.json()
+    assert (
+        notification_payload["notification_records"][0]["state"]["inboxed_at_utc"]
+        == "2026-03-21T12:01:00Z"
+    )
+    assert (
+        notification_payload["notification_records"][0]["state"]["seen_at_utc"]
+        == "2026-03-21T12:02:00Z"
+    )
 
     anchor_response = test_client.put(
         "/loops/continuity/anchors/planning",

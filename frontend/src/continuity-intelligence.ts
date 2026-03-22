@@ -9,9 +9,9 @@
  * Responsibilities:
  *   - Read and write browser-local continuity baseline snapshots.
  *   - Hydrate durable recent outcomes, notification records, and resume anchors from the backend.
- *   - Queue high-signal landed outcomes and anchors for backend persistence.
+ *   - Queue high-signal landed outcomes, notification-state writes, and anchors for backend persistence.
  *   - Keep local cache state deterministic for receipts, reruns, undo state,
- *     and recovery acknowledgements.
+ *     notification delivery state, and recovery acknowledgements.
  *
  * Scope:
  *   - Frontend continuity persistence helpers and backend sync only.
@@ -33,6 +33,8 @@ import type {
   ContinuityLastSeenMarkerResponse,
   ContinuityLocationResponse,
   ContinuityNotificationRecordResponse,
+  ContinuityNotificationStateResponse,
+  ContinuityNotificationStateUpsertRequest,
   ContinuityOutcomeRecordResponse,
   ContinuityOutcomeWriteRequest,
   ContinuityRecoveryAcknowledgementResponse,
@@ -57,6 +59,7 @@ import type {
   ContinuityEntityKind,
   ContinuityLastSeenMarker,
   ContinuityNotificationRecord,
+  ContinuityNotificationState,
   ContinuityPersistenceState,
   ContinuityResolvedStatus,
   ContinuitySuccessorTarget,
@@ -81,6 +84,7 @@ import {
   persistContinuityOutcome,
   upsertContinuityAnchor,
   upsertContinuityLastSeen,
+  upsertContinuityNotificationState,
   upsertContinuityRecoveryAcknowledgement,
 } from "./continuity-api";
 import { rerunHandleIdentity } from "./executable-rerun";
@@ -125,6 +129,12 @@ interface PendingLastSeenWrite {
   markers: ContinuityLastSeenMarker[];
 }
 
+interface PendingNotificationStateWrite {
+  kind: "notification_state";
+  notificationId: string;
+  state: ContinuityNotificationState;
+}
+
 interface PendingRecoveryAckWrite {
   kind: "recovery_ack";
   acknowledgement: DurableRecoveryAcknowledgement;
@@ -134,6 +144,7 @@ type PendingContinuityWrite =
   | PendingOutcomeWrite
   | PendingAnchorWrite
   | PendingLastSeenWrite
+  | PendingNotificationStateWrite
   | PendingRecoveryAckWrite;
 
 export interface ContinuitySnapshotInput {
@@ -443,6 +454,27 @@ function parseContinuityWorkflowSummary(value: unknown): ContinuityWorkflowSumma
   };
 }
 
+function emptyNotificationState(): ContinuityNotificationState {
+  return {
+    inboxedAtUtc: null,
+    seenAtUtc: null,
+    acknowledgedAtUtc: null,
+    suppressedUntilUtc: null,
+  };
+}
+
+function parseContinuityNotificationState(value: unknown): ContinuityNotificationState {
+  if (!isRecord(value)) {
+    return emptyNotificationState();
+  }
+  return {
+    inboxedAtUtc: stringValue(value["inboxedAtUtc"]),
+    seenAtUtc: stringValue(value["seenAtUtc"]),
+    acknowledgedAtUtc: stringValue(value["acknowledgedAtUtc"]),
+    suppressedUntilUtc: stringValue(value["suppressedUntilUtc"]),
+  };
+}
+
 function parseContinuityNotificationRecord(value: unknown): ContinuityNotificationRecord | null {
   if (!isRecord(value) || typeof value["id"] !== "string" || typeof value["title"] !== "string" || typeof value["body"] !== "string" || typeof value["severity"] !== "string") {
     return null;
@@ -462,6 +494,7 @@ function parseContinuityNotificationRecord(value: unknown): ContinuityNotificati
     severity: value["severity"],
     workflowThread,
     resolvedLocation,
+    state: parseContinuityNotificationState(value["state"]),
   };
 }
 
@@ -630,6 +663,14 @@ function readPendingContinuityWrites(): PendingContinuityWrite[] {
             metadata: isRecord(marker["metadata"]) ? marker["metadata"] : {},
           } satisfies ContinuityLastSeenMarker];
         }),
+      });
+      return;
+    }
+    if (item["kind"] === "notification_state" && typeof item["notificationId"] === "string") {
+      writes.push({
+        kind: "notification_state",
+        notificationId: item["notificationId"],
+        state: parseContinuityNotificationState(item["state"]),
       });
       return;
     }
@@ -1089,6 +1130,17 @@ function mapRecoveryAcknowledgementResponse(
   };
 }
 
+function mapNotificationStateResponse(
+  response: ContinuityNotificationStateResponse | null | undefined,
+): ContinuityNotificationState {
+  return {
+    inboxedAtUtc: response?.inboxed_at_utc ?? null,
+    seenAtUtc: response?.seen_at_utc ?? null,
+    acknowledgedAtUtc: response?.acknowledged_at_utc ?? null,
+    suppressedUntilUtc: response?.suppressed_until_utc ?? null,
+  };
+}
+
 function mapWorkflowSummarySignalsResponse(
   response: ContinuityWorkflowSummarySignalsResponse,
 ): ContinuityWorkflowSummary["rankingSignals"] {
@@ -1165,6 +1217,7 @@ function mapNotificationRecordResponse(
       parentOutcomeId: response.workflow_thread.parent_outcome_id ?? null,
     },
     resolvedLocation: mapLocationFromApi(response.resolved_location)!,
+    state: mapNotificationStateResponse(response.state),
   };
 }
 
@@ -1202,6 +1255,26 @@ function mergePendingLastSeenMarkers(
   return [...merged.values()].sort((left, right) => Date.parse(right.observedAtUtc) - Date.parse(left.observedAtUtc));
 }
 
+function mergePendingNotificationRecords(
+  snapshotRecords: readonly ContinuityNotificationRecord[],
+): ContinuityNotificationRecord[] {
+  const merged = new Map(snapshotRecords.map((record) => [record.id, record]));
+  readPendingContinuityWrites().forEach((write) => {
+    if (write.kind !== "notification_state") {
+      return;
+    }
+    const existing = merged.get(write.notificationId);
+    if (!existing) {
+      return;
+    }
+    merged.set(write.notificationId, {
+      ...existing,
+      state: write.state,
+    });
+  });
+  return [...merged.values()];
+}
+
 function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   const snapshotEntries = (snapshot.outcomes ?? []).map((item) => mapPersistedOutcomeToRecentEntry(item));
   const anchors = snapshot.anchors ?? { planning: null, review: null };
@@ -1218,7 +1291,7 @@ function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   writeRecentActionsCache(mergePendingEntries(snapshotEntries));
   writeResumeAnchorsCache(mergePendingAnchors(mapPersistedAnchors(anchors)));
   writeContinuityWorkflowSummaries(workflowSummaries);
-  writeContinuityNotificationRecords(notificationRecords);
+  writeContinuityNotificationRecords(mergePendingNotificationRecords(notificationRecords));
   writeContinuityLastSeenMarkers(mergePendingLastSeenMarkers(lastSeenMarkers));
   writeContinuityRecoveryAcks(mergePendingRecoveryAcks(recoveryAcks));
   emitRecentShellActionsUpdated();
@@ -1292,6 +1365,17 @@ function buildRecoveryAckWriteRequest(
   };
 }
 
+function buildNotificationStateWriteRequest(
+  state: ContinuityNotificationState,
+): ContinuityNotificationStateUpsertRequest {
+  return {
+    inboxed_at_utc: state.inboxedAtUtc,
+    seen_at_utc: state.seenAtUtc,
+    acknowledged_at_utc: state.acknowledgedAtUtc,
+    suppressed_until_utc: state.suppressedUntilUtc,
+  };
+}
+
 function writePendingOutcome(entry: RecentShellActionEntry): void {
   const candidate = enrichRecentActionEntry(entry);
   const candidateKey = cacheKeyForOutcome(candidate);
@@ -1315,9 +1399,63 @@ function writePendingAnchor(anchorKind: "planning" | "review", anchor: ResumeAnc
 
 function writePendingLastSeen(markers: readonly ContinuityLastSeenMarker[]): void {
   const writes = readPendingContinuityWrites().filter(
-    (write): write is PendingOutcomeWrite | PendingAnchorWrite => write.kind !== "last_seen",
+    (write): write is PendingOutcomeWrite | PendingAnchorWrite | PendingNotificationStateWrite | PendingRecoveryAckWrite => write.kind !== "last_seen",
   );
   writePendingContinuityWrites([{ kind: "last_seen", markers: [...markers] }, ...writes]);
+}
+
+function writePendingNotificationState(notificationId: string, state: ContinuityNotificationState): void {
+  const writes = readPendingContinuityWrites().filter((write) => {
+    return write.kind !== "notification_state" || write.notificationId !== notificationId;
+  });
+  writes.unshift({ kind: "notification_state", notificationId, state });
+  writePendingContinuityWrites(writes);
+}
+
+function writeOneNotificationRecord(record: ContinuityNotificationRecord): void {
+  const records = readContinuityNotificationRecords();
+  const next = records.map((item) => item.id === record.id ? record : item);
+  writeContinuityNotificationRecords(next);
+}
+
+function updateContinuityNotificationState(
+  notificationId: string,
+  mutate: (current: ContinuityNotificationState) => ContinuityNotificationState,
+): void {
+  const record = readContinuityNotificationRecords().find((item) => item.id === notificationId);
+  if (!record) {
+    return;
+  }
+  const state = mutate(record.state);
+  writeOneNotificationRecord({
+    ...record,
+    state,
+  });
+  writePendingNotificationState(notificationId, state);
+  void flushPendingContinuityWrites();
+}
+
+export function isContinuityNotificationSuppressed(state: ContinuityNotificationState): boolean {
+  return Boolean(state.suppressedUntilUtc) && Date.parse(state.suppressedUntilUtc!) > Date.now();
+}
+
+export function markContinuityNotificationSeen(notificationId: string): void {
+  const now = new Date().toISOString();
+  updateContinuityNotificationState(notificationId, (current) => ({
+    ...current,
+    inboxedAtUtc: current.inboxedAtUtc ?? now,
+    seenAtUtc: current.seenAtUtc ?? now,
+  }));
+}
+
+export function acknowledgeContinuityNotification(notificationId: string): void {
+  const now = new Date().toISOString();
+  updateContinuityNotificationState(notificationId, (current) => ({
+    ...current,
+    inboxedAtUtc: current.inboxedAtUtc ?? now,
+    seenAtUtc: current.seenAtUtc ?? now,
+    acknowledgedAtUtc: current.acknowledgedAtUtc ?? now,
+  }));
 }
 
 function markOutcomePersistenceStatus(
@@ -1347,6 +1485,12 @@ async function persistOneWrite(write: PendingContinuityWrite): Promise<Continuit
   }
   if (write.kind === "last_seen") {
     return upsertContinuityLastSeen(buildLastSeenBatchWriteRequest(write.markers));
+  }
+  if (write.kind === "notification_state") {
+    return upsertContinuityNotificationState(
+      write.notificationId,
+      buildNotificationStateWriteRequest(write.state),
+    );
   }
   return upsertContinuityRecoveryAcknowledgement(buildRecoveryAckWriteRequest(write.acknowledgement));
 }

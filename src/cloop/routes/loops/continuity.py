@@ -8,6 +8,7 @@ Responsibilities:
     - Return the current durable continuity snapshot.
     - Persist high-signal landed outcomes.
     - Upsert durable planning and review resume anchors.
+    - Upsert durable notification delivery state and recovery acknowledgements.
 
 Non-scope:
     - Frontend-only ranking or card rendering logic.
@@ -28,6 +29,7 @@ from fastapi import APIRouter, Query
 from ...schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
     ContinuityLastSeenBatchUpsertRequest,
+    ContinuityNotificationStateUpsertRequest,
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementUpsertRequest,
     ContinuitySnapshotResponse,
@@ -37,6 +39,7 @@ from ...storage import (
     record_continuity_outcome,
     upsert_continuity_anchor,
     upsert_continuity_last_seen_markers,
+    upsert_continuity_notification_state,
     upsert_continuity_recovery_acknowledgement,
 )
 from ._common import SettingsDep
@@ -88,6 +91,19 @@ def upsert_continuity_last_seen_endpoint(
     """Upsert durable last-seen markers and return the refreshed continuity snapshot."""
     if request.markers:
         upsert_continuity_last_seen_markers(request, settings=settings)
+    return read_continuity_snapshot(settings=settings)
+
+
+@router.put(
+    "/continuity/notifications/{notification_id}/state", response_model=ContinuitySnapshotResponse
+)
+def upsert_continuity_notification_state_endpoint(
+    notification_id: str,
+    request: ContinuityNotificationStateUpsertRequest,
+    settings: SettingsDep,
+) -> ContinuitySnapshotResponse:
+    """Upsert durable notification delivery state and return the refreshed snapshot."""
+    upsert_continuity_notification_state(notification_id, request, settings=settings)
     return read_continuity_snapshot(settings=settings)
 
 

@@ -2,8 +2,9 @@
 
 Purpose:
     Persist and read backend-backed landed continuity outcomes, resume anchors,
-    backend-authored workflow summaries, recovery provenance, and durable
-    recovery acknowledgements for cross-device operator continuity.
+    backend-authored workflow summaries, durable notification delivery
+    state, recovery provenance, and durable recovery acknowledgements for
+    cross-device operator continuity.
 
 Responsibilities:
     - Record high-signal landed outcomes with deduplication.
@@ -11,7 +12,7 @@ Responsibilities:
     - Resolve persisted resume targets against current durable resources.
     - Build backend-authored workflow summaries for frontend hydration.
     - Attach explicit successor provenance for stale or superseded resumable paths.
-    - Persist durable continuity recovery acknowledgements.
+    - Persist durable notification delivery state and recovery acknowledgements.
 
 Non-scope:
     - Frontend ranking or rendering behavior.
@@ -47,6 +48,8 @@ from ..schemas._loops.continuity import (
     ContinuityLastSeenMarkerResponse,
     ContinuityLocationResponse,
     ContinuityNotificationRecordResponse,
+    ContinuityNotificationStateResponse,
+    ContinuityNotificationStateUpsertRequest,
     ContinuityOutcomeRecordResponse,
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementResponse,
@@ -303,6 +306,19 @@ def _recovery_ack_from_row(row: Mapping[str, Any]) -> ContinuityRecoveryAcknowle
         recovery_key=str(row["recovery_key"]),
         acknowledged_at_utc=str(row["acknowledged_at_utc"]),
         metadata=_load_json_map(row["metadata_json"]),
+    )
+
+
+def _notification_state_from_row(row: Mapping[str, Any]) -> ContinuityNotificationStateResponse:
+    return ContinuityNotificationStateResponse(
+        inboxed_at_utc=str(row["inboxed_at_utc"]) if row["inboxed_at_utc"] is not None else None,
+        seen_at_utc=str(row["seen_at_utc"]) if row["seen_at_utc"] is not None else None,
+        acknowledged_at_utc=str(row["acknowledged_at_utc"])
+        if row["acknowledged_at_utc"] is not None
+        else None,
+        suppressed_until_utc=str(row["suppressed_until_utc"])
+        if row["suppressed_until_utc"] is not None
+        else None,
     )
 
 
@@ -1356,6 +1372,69 @@ def upsert_continuity_recovery_acknowledgement(
         conn.commit()
 
 
+def upsert_continuity_notification_state(
+    notification_id: str,
+    payload: ContinuityNotificationStateUpsertRequest,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    """Upsert durable delivery state for one canonical notification record."""
+    settings = settings or get_settings()
+    with db.core_connection(settings) as conn:
+        existing_row = conn.execute(
+            "SELECT * FROM continuity_notification_states WHERE notification_id = ?",
+            (notification_id,),
+        ).fetchone()
+        existing = (
+            _notification_state_from_row(existing_row)
+            if existing_row is not None
+            else ContinuityNotificationStateResponse()
+        )
+        fields = payload.model_fields_set
+        merged = ContinuityNotificationStateResponse(
+            inboxed_at_utc=(
+                payload.inboxed_at_utc if "inboxed_at_utc" in fields else existing.inboxed_at_utc
+            ),
+            seen_at_utc=payload.seen_at_utc if "seen_at_utc" in fields else existing.seen_at_utc,
+            acknowledged_at_utc=(
+                payload.acknowledged_at_utc
+                if "acknowledged_at_utc" in fields
+                else existing.acknowledged_at_utc
+            ),
+            suppressed_until_utc=(
+                payload.suppressed_until_utc
+                if "suppressed_until_utc" in fields
+                else existing.suppressed_until_utc
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO continuity_notification_states (
+                notification_id,
+                inboxed_at_utc,
+                seen_at_utc,
+                acknowledged_at_utc,
+                suppressed_until_utc,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(notification_id) DO UPDATE SET
+                inboxed_at_utc = excluded.inboxed_at_utc,
+                seen_at_utc = excluded.seen_at_utc,
+                acknowledged_at_utc = excluded.acknowledged_at_utc,
+                suppressed_until_utc = excluded.suppressed_until_utc,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                notification_id,
+                merged.inboxed_at_utc,
+                merged.seen_at_utc,
+                merged.acknowledged_at_utc,
+                merged.suppressed_until_utc,
+            ),
+        )
+        conn.commit()
+
+
 def read_continuity_snapshot(
     *,
     limit: int = 48,
@@ -1393,6 +1472,13 @@ def read_continuity_snapshot(
             ORDER BY acknowledged_at_utc DESC, recovery_key ASC
             """
         ).fetchall()
+        notification_state_rows = conn.execute(
+            """
+            SELECT *
+            FROM continuity_notification_states
+            ORDER BY updated_at DESC, notification_id ASC
+            """
+        ).fetchall()
 
         all_outcomes = _attach_successors([_outcome_from_row(conn, row) for row in outcome_rows])
         outcomes = all_outcomes[:limit]
@@ -1413,7 +1499,14 @@ def read_continuity_snapshot(
             anchors=anchors,
             markers=last_seen_markers,
         )
-        notification_records = [_notification_record(summary) for summary in workflow_summaries]
+        notification_states = {
+            str(row["notification_id"]): _notification_state_from_row(row)
+            for row in notification_state_rows
+        }
+        notification_records = [
+            _notification_record(summary, notification_states.get(summary.id))
+            for summary in workflow_summaries
+        ]
         recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
 
         return ContinuitySnapshotResponse(
@@ -1469,6 +1562,7 @@ def _notification_body(summary: ContinuityWorkflowSummaryResponse) -> str:
 
 def _notification_record(
     summary: ContinuityWorkflowSummaryResponse,
+    state: ContinuityNotificationStateResponse | None,
 ) -> ContinuityNotificationRecordResponse:
     return ContinuityNotificationRecordResponse(
         id=summary.id,
@@ -1477,6 +1571,28 @@ def _notification_record(
         severity=_notification_severity(summary),
         workflow_thread=summary.workflow_thread,
         resolved_location=summary.resolved_resume.resolved_location,
+        state=state or ContinuityNotificationStateResponse(),
+    )
+
+
+def _notification_state_is_suppressed(
+    state: ContinuityNotificationStateResponse,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    if not state.suppressed_until_utc:
+        return False
+    now = now or datetime.now(UTC)
+    return _parse_timestamp(state.suppressed_until_utc) > now
+
+
+def _push_deliverable(record: ContinuityNotificationRecordResponse) -> bool:
+    state = record.state
+    return (
+        state.acknowledged_at_utc is None
+        and state.seen_at_utc is None
+        and state.inboxed_at_utc is None
+        and not _notification_state_is_suppressed(state)
     )
 
 
@@ -1484,10 +1600,14 @@ def read_continuity_notification_records(
     *,
     limit: int = 3,
     settings: Settings | None = None,
+    channel: Literal["all", "push"] = "all",
 ) -> list[ContinuityNotificationRecordResponse]:
     """Read calm notification records derived from ranked workflow summaries."""
     snapshot = read_continuity_snapshot(limit=max(24, limit * 4), settings=settings)
-    return snapshot.notification_records[:limit]
+    records = snapshot.notification_records
+    if channel == "push":
+        records = [record for record in records if _push_deliverable(record)]
+    return records[:limit]
 
 
 __all__ = [
@@ -1497,5 +1617,6 @@ __all__ = [
     "record_continuity_outcome",
     "upsert_continuity_anchor",
     "upsert_continuity_last_seen_markers",
+    "upsert_continuity_notification_state",
     "upsert_continuity_recovery_acknowledgement",
 ]

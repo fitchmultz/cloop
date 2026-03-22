@@ -8,7 +8,7 @@
  * Responsibilities:
  *   - Fetch the durable continuity snapshot used for hydration.
  *   - Persist high-signal landed outcomes.
- *   - Upsert durable planning and review resume anchors.
+ *   - Upsert durable planning/review anchors and notification delivery state.
  *
  * Scope:
  *   - Frontend HTTP helpers for continuity routes only.
@@ -24,6 +24,7 @@
 import type {
   ContinuityAnchorUpsertRequest,
   ContinuityLastSeenBatchUpsertRequest,
+  ContinuityNotificationStateUpsertRequest,
   ContinuityRecoveryAcknowledgementUpsertRequest,
   ContinuitySnapshotResponse,
   ContinuityOutcomeWriteRequest,
@@ -75,6 +76,20 @@ export function upsertContinuityLastSeen(
       body: payload,
     },
     "Failed to persist durable last-seen continuity markers",
+  );
+}
+
+export function upsertContinuityNotificationState(
+  notificationId: string,
+  payload: ContinuityNotificationStateUpsertRequest,
+): Promise<ContinuitySnapshotResponse> {
+  return requestJson<ContinuitySnapshotResponse, ContinuityNotificationStateUpsertRequest>(
+    `/loops/continuity/notifications/${encodeURIComponent(notificationId)}/state`,
+    {
+      method: "PUT",
+      body: payload,
+    },
+    "Failed to persist durable continuity notification state",
   );
 }
 

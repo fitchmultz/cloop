@@ -22,6 +22,7 @@ import pytest
 
 from cloop import db
 from cloop.push_sender import PushPayload, send_scheduler_push
+from cloop.schemas._loops.continuity import ContinuityNotificationStateUpsertRequest
 from cloop.settings import get_settings
 
 
@@ -172,7 +173,7 @@ class TestPushSender:
 
         monkeypatch.setattr(
             "cloop.push_sender.read_continuity_notification_records",
-            lambda *, limit, settings=None: [
+            lambda *, limit, settings=None, channel="all": [
                 SimpleNamespace(
                     id="planning:41:checkpoint:0",
                     title="Created launch review queue is ready in your working set",
@@ -197,6 +198,15 @@ class TestPushSender:
             return 1
 
         monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture)
+        monkeypatch.setattr(
+            "cloop.push_sender.upsert_continuity_notification_state",
+            lambda notification_id, payload, *, settings=None: captured.update(
+                {
+                    "notification_id": notification_id,
+                    "state_payload": payload,
+                }
+            ),
+        )
 
         result = send_scheduler_push(
             "review_generated",
@@ -216,6 +226,10 @@ class TestPushSender:
             "workflow_thread_id": "planning:41:checkpoint:0",
             "event_type": "review_generated",
         }
+        assert captured["notification_id"] == "planning:41:checkpoint:0"
+        state_payload = captured["state_payload"]
+        assert isinstance(state_payload, ContinuityNotificationStateUpsertRequest)
+        assert state_payload.inboxed_at_utc is not None
 
 
 class TestPushPayload:

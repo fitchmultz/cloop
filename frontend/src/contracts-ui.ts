@@ -236,6 +236,13 @@ export interface ContinuityWorkflowSummary {
   priorState: ContinuityWorkflowSummaryPriorState | null;
 }
 
+export interface ContinuityNotificationState {
+  inboxedAtUtc: string | null;
+  seenAtUtc: string | null;
+  acknowledgedAtUtc: string | null;
+  suppressedUntilUtc: string | null;
+}
+
 export interface ContinuityNotificationRecord {
   id: string;
   title: string;
@@ -243,6 +250,7 @@ export interface ContinuityNotificationRecord {
   severity: "info" | "warning" | "alert";
   workflowThread: WorkflowThreadRef;
   resolvedLocation: ShellLocationContract;
+  state: ContinuityNotificationState;
 }
 
 export interface ContinuityDriftSignal {

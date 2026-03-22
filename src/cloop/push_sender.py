@@ -6,6 +6,7 @@ Purpose:
 Responsibilities:
     - Map continuity-owned delivery records to push notification payloads
     - Deliver notifications to all subscribed clients
+    - Persist durable notification inbox state after successful sends
     - Handle push failures and remove invalid subscriptions
 
 Non-scope:
@@ -20,10 +21,17 @@ import json
 import logging
 import sqlite3
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
-from .schemas._loops.continuity import ContinuityLocationResponse
-from .storage.continuity_store import read_continuity_notification_records
+from .schemas._loops.continuity import (
+    ContinuityLocationResponse,
+    ContinuityNotificationStateUpsertRequest,
+)
+from .storage.continuity_store import (
+    read_continuity_notification_records,
+    upsert_continuity_notification_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,19 +71,22 @@ def _continuity_location_url(location: ContinuityLocationResponse) -> str:
     return "/#operator"
 
 
-def _continuity_push_payload(settings: Any) -> PushPayload | None:
-    notifications = read_continuity_notification_records(limit=1, settings=settings)
+def _continuity_push_payload(settings: Any) -> tuple[str, PushPayload] | None:
+    notifications = read_continuity_notification_records(limit=1, settings=settings, channel="push")
     notification = notifications[0] if notifications else None
     if notification is None:
         return None
-    return PushPayload(
-        title=notification.title,
-        body=notification.body,
-        url=_continuity_location_url(notification.resolved_location),
-        data={
-            "workflow_summary_id": notification.id,
-            "workflow_thread_id": notification.workflow_thread.id,
-        },
+    return (
+        notification.id,
+        PushPayload(
+            title=notification.title,
+            body=notification.body,
+            url=_continuity_location_url(notification.resolved_location),
+            data={
+                "workflow_summary_id": notification.id,
+                "workflow_thread_id": notification.workflow_thread.id,
+            },
+        ),
     )
 
 
@@ -160,12 +171,25 @@ def send_scheduler_push(
     if event_type in {"nudge_due_soon", "nudge_stale"} and not event_payload.get("details"):
         return 0
 
-    continuity_payload = _continuity_push_payload(settings)
-    if continuity_payload is None:
+    continuity_notification = _continuity_push_payload(settings)
+    if continuity_notification is None:
         return 0
 
+    notification_id, continuity_payload = continuity_notification
     continuity_payload.data = {
         **(continuity_payload.data or {}),
         "event_type": event_type,
     }
-    return send_push_notification(continuity_payload, settings, conn)
+    sent = send_push_notification(continuity_payload, settings, conn)
+    if sent > 0:
+        upsert_continuity_notification_state(
+            notification_id,
+            ContinuityNotificationStateUpsertRequest(
+                inboxed_at_utc=datetime.now(UTC)
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
+            ),
+            settings=settings,
+        )
+    return sent

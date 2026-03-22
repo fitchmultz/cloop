@@ -3,10 +3,10 @@
 Purpose:
     Define request and response models for backend-backed continuity outcomes,
     durable resume anchors, backend-authored workflow summaries, recovery
-    provenance, and durable recovery acknowledgements.
+    provenance, durable notification delivery state, and durable recovery acknowledgements.
 
 Responsibilities:
-    - Validate continuity outcome, anchor, last-seen, and recovery-ack writes.
+    - Validate continuity outcome, anchor, last-seen, notification-state, and recovery-ack writes.
     - Shape continuity snapshot responses for cross-device hydration.
     - Model explicit fallback and replacement states when persisted targets drift
       or disappear.
@@ -211,6 +211,24 @@ class ContinuityLastSeenBatchUpsertRequest(BaseModel):
     markers: list[ContinuityLastSeenMarkerUpsertRequest] = Field(default_factory=list)
 
 
+class ContinuityNotificationStateUpsertRequest(BaseModel):
+    """Request to persist durable delivery state for one notification record."""
+
+    inboxed_at_utc: str | None = None
+    seen_at_utc: str | None = None
+    acknowledged_at_utc: str | None = None
+    suppressed_until_utc: str | None = None
+
+
+class ContinuityNotificationStateResponse(BaseModel):
+    """Durable delivery state returned alongside one notification record."""
+
+    inboxed_at_utc: str | None = None
+    seen_at_utc: str | None = None
+    acknowledged_at_utc: str | None = None
+    suppressed_until_utc: str | None = None
+
+
 class ContinuityRecoveryAcknowledgementUpsertRequest(BaseModel):
     """Request to persist one durable continuity recovery acknowledgement."""
 
@@ -300,6 +318,9 @@ class ContinuityNotificationRecordResponse(BaseModel):
     severity: Literal["info", "warning", "alert"]
     workflow_thread: WorkflowThreadRefResponse
     resolved_location: ContinuityLocationResponse
+    state: ContinuityNotificationStateResponse = Field(
+        default_factory=ContinuityNotificationStateResponse
+    )
 
 
 class ContinuitySnapshotResponse(BaseModel):
@@ -325,6 +346,8 @@ __all__ = [
     "ContinuityLastSeenMarkerUpsertRequest",
     "ContinuityLocationResponse",
     "ContinuityNotificationRecordResponse",
+    "ContinuityNotificationStateResponse",
+    "ContinuityNotificationStateUpsertRequest",
     "ContinuityOutcomeRecordResponse",
     "ContinuityOutcomeWriteRequest",
     "ContinuityRecoveryAcknowledgementResponse",
