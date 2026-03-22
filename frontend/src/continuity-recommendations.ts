@@ -1,59 +1,38 @@
 /**
- * continuity-recommendations.ts - Deterministic primary-next-move synthesis.
+ * continuity-recommendations.ts - Backend-authored primary continuity recommendation helpers.
  *
  * Purpose:
- *   Turn ranked continuity outcomes into one explicit operator recommendation
- *   with calm supporting evidence and superseded-path state.
+ *   Turn the canonical backend continuity summary feed into one explicit primary
+ *   operator recommendation and one supporting digest card.
  *
  * Responsibilities:
- *   - Derive one primary next move from ranked workflow threads.
- *   - Explain why it won and what changed since the operator last saw it.
- *   - Surface replaced or gone prior-path state using durable anchors.
- *   - Build operator-card-ready recommendation artifacts for shell surfaces.
+ *   - Select the top backend-authored workflow summary.
+ *   - Package the backend explanation lines for shell and command-palette consumers.
+ *   - Build a calm digest card without re-ranking or rewriting the summary logic.
  *
  * Scope:
- *   - Frontend-only recommendation synthesis on top of continuity ranking.
+ *   - Frontend packaging of backend-authored continuity summaries only.
  *
  * Usage:
  *   - Imported by shell-operator-cards.ts and command-palette.ts.
  *
  * Invariants/Assumptions:
- *   - Ranking remains deterministic and feed-driven.
- *   - Durable anchors and last-seen markers remain the evidence substrate.
- *   - This module explains and packages the ranked result; it does not replace ranking.
+ *   - Backend workflow summaries are already ranked.
+ *   - Backend `whyNow`, `changedSinceLastSeen`, and `priorState` fields are canonical.
  */
 
 import type {
-  ContinuityLastSeenMarker,
   ContinuityRecoveryPlan,
   OperatorActionCard,
-  ResumeAnchorState,
-  ResumeAnchorTarget,
 } from "./contracts-ui";
-import type {
-  RankedLandedOutcome,
-  RankedWorkflowThread,
-} from "./continuity-follow-through";
-import { groupRankedWorkflowThreads } from "./continuity-follow-through";
-import {
-  applyContinuityRecovery,
-  buildContinuityRecoveryPlan,
-} from "./continuity-recovery";
-import { continuityLocationIdentity } from "./continuity-outcomes";
-
-export interface PrimaryRecommendationPriorState {
-  kind: "replaced" | "gone";
-  title: string;
-  summary: string;
-}
+import type { RankedWorkflowSummary } from "./continuity-follow-through";
 
 export interface PrimaryRecommendation {
-  workflow: RankedWorkflowThread;
-  representative: RankedLandedOutcome;
+  summary: RankedWorkflowSummary;
   card: OperatorActionCard;
   whyNow: string[];
   changedSinceLastSeen: string[];
-  priorState: PrimaryRecommendationPriorState | null;
+  priorState: RankedWorkflowSummary["priorState"];
   recovery: ContinuityRecoveryPlan | null;
 }
 
@@ -61,238 +40,70 @@ function uniqueLines(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
-function workflowMarker(
-  markers: readonly ContinuityLastSeenMarker[],
-  workflowThreadId: string | null,
-): ContinuityLastSeenMarker | null {
-  if (!workflowThreadId) {
-    return null;
-  }
-  return markers.find((marker) => marker.entityKind === "workflow_thread" && marker.entityKey === workflowThreadId) ?? null;
-}
-
-function familyForOutcome(outcome: RankedLandedOutcome): "planning" | "review" | null {
-  if (outcome.workflowThread?.kind === "planning_checkpoint" || outcome.resumeLocation.state === "plan") {
-    return "planning";
-  }
-  if (
-    outcome.workflowThread?.kind === "review_session"
-    || (outcome.resumeLocation.state === "decide"
-      && (outcome.resumeLocation.reviewFocus === "relationship" || outcome.resumeLocation.reviewFocus === "enrichment"))
-  ) {
-    return "review";
-  }
-  return null;
-}
-
-function priorAnchorForOutcome(
-  outcome: RankedLandedOutcome,
-  anchors: ResumeAnchorState,
-): ResumeAnchorTarget | null {
-  const family = familyForOutcome(outcome);
-  return family === "planning"
-    ? anchors.planning
-    : family === "review"
-      ? anchors.review
-      : null;
-}
-
-function buildWhyNow(
-  workflow: RankedWorkflowThread,
-  representative: RankedLandedOutcome,
-): string[] {
-  const lines: string[] = [];
-
-  switch (representative.rankingSignals.driftSeverity) {
-    case "replaced":
-      lines.push("A newer workflow superseded the prior path you last saved.");
-      break;
-    case "gone":
-      lines.push("The prior landing target disappeared, so this is the safest surviving path.");
-      break;
-    case "major":
-      lines.push("This workflow changed materially since you last saw it.");
-      break;
-    case "moderate":
-      lines.push("This workflow has fresh unseen movement.");
-      break;
-    case "minor":
-      lines.push("This workflow drifted slightly and is still ready to resume.");
-      break;
-    default:
-      lines.push("This is the highest deterministic ready-to-resume workflow.");
-      break;
-  }
-
-  if (representative.rankingSignals.workingSetRelevant) {
-    lines.push("It stays inside the active working set.");
-  }
-  if (representative.rankingSignals.downstreamReady) {
-    lines.push("A downstream surface is ready to open immediately.");
-  }
-  if (workflow.outcomeCount > 1) {
-    lines.push(`${workflow.outcomeCount} related landed outcomes were grouped into one thread.`);
-  }
-
-  return lines;
-}
-
-function buildChangedSinceLastSeen(
-  workflow: RankedWorkflowThread,
-  representative: RankedLandedOutcome,
-  markers: readonly ContinuityLastSeenMarker[],
-): string[] {
-  const lines: string[] = [];
-  const marker = workflowMarker(markers, representative.workflowThread?.id ?? workflow.id);
-
-  if (!marker) {
-    lines.push("This workflow has never been seen from durable continuity.");
-  }
-
-  const previousOutcomeId = Number(
-    (marker?.observedState as { latestOutcomeId?: number } | undefined)?.latestOutcomeId ?? 0,
-  );
-
-  if (representative.persistedOutcomeId != null && representative.persistedOutcomeId > previousOutcomeId) {
-    const delta = representative.persistedOutcomeId - previousOutcomeId;
-    lines.push(`${delta} newer landed outcome${delta === 1 ? "" : "s"} appeared since you last saw it.`);
-  }
-
-  if (workflow.outcomeCount > 1) {
-    lines.push(`${workflow.outcomeCount} outcomes are grouped under this workflow thread.`);
-  }
-
-  if (representative.degradedLabel) {
-    lines.push(representative.degradedLabel);
-  }
-
-  if (!lines.length) {
-    lines.push("No opaque heuristic changed this ranking; it still wins on deterministic readiness.");
-  }
-
-  return lines;
-}
-
-function buildPriorState(
-  representative: RankedLandedOutcome,
-  anchors: ResumeAnchorState,
-): PrimaryRecommendationPriorState | null {
-  const anchor = priorAnchorForOutcome(representative, anchors);
-  if (!anchor) {
+export function derivePrimaryRecommendation(
+  summaries: readonly RankedWorkflowSummary[],
+): PrimaryRecommendation | null {
+  const summary = summaries[0] ?? null;
+  if (!summary) {
     return null;
   }
 
-  const anchorIdentity = continuityLocationIdentity(anchor.resumeLocation ?? anchor.launchLocation);
-  const currentIdentity = continuityLocationIdentity(representative.resumeLocation);
-  const sameThread = anchor.workflowThreadId != null
-    && representative.workflowThread?.id != null
-    && anchor.workflowThreadId === representative.workflowThread.id;
-  if (sameThread || anchorIdentity === currentIdentity) {
-    return null;
-  }
-
-  if (anchor.resolvedResume?.successor) {
-    return {
-      kind: anchor.degraded ? "gone" : "replaced",
-      title: anchor.outcomeTitle ?? "Prior path",
-      summary: anchor.resolvedResume.successor.message
-        ?? `${anchor.outcomeTitle ?? "Prior path"} was superseded by ${anchor.resolvedResume.successor.title}.`,
-    };
-  }
-
-  if (anchor.degraded) {
-    return {
-      kind: "gone",
-      title: anchor.outcomeTitle ?? "Prior path",
-      summary: anchor.degradedLabel ?? "The prior primary path is no longer available.",
-    };
-  }
-
-  return null;
-}
-
-export function derivePrimaryRecommendation(input: {
-  outcomes: readonly RankedLandedOutcome[];
-  resumeAnchors: ResumeAnchorState;
-  lastSeenMarkers: readonly ContinuityLastSeenMarker[];
-}): PrimaryRecommendation | null {
-  const workflows = groupRankedWorkflowThreads(input.outcomes);
-  const workflow = workflows.find((item) => !item.representative.degraded) ?? workflows[0] ?? null;
-  if (!workflow) {
-    return null;
-  }
-
-  const representative = workflow.representative;
-  const whyNow = buildWhyNow(workflow, representative);
-  const changedSinceLastSeen = buildChangedSinceLastSeen(workflow, representative, input.lastSeenMarkers);
-  const priorState = buildPriorState(representative, input.resumeAnchors);
   const impactSummary = uniqueLines([
-    ...whyNow.slice(1),
-    ...changedSinceLastSeen,
-    priorState?.summary,
+    ...summary.whyNow.slice(1),
+    ...summary.changedSinceLastSeen,
+    summary.priorState?.summary,
   ]).join(" · ");
 
-  const anchor = priorAnchorForOutcome(representative, input.resumeAnchors);
-  const recovery = representative.recovery ?? buildContinuityRecoveryPlan({
-    displayTitle: anchor?.outcomeTitle ?? representative.displayTitle,
-    resolvedTarget: anchor?.resolvedResume ?? null,
-    workflowThread: representative.workflowThread,
-  });
-
-  const baseCard: OperatorActionCard = {
-    ...representative.card,
-    id: `primary-next-move-${representative.id}`,
+  const card: OperatorActionCard = {
+    ...summary.card,
+    id: `primary-next-move-${summary.id}`,
     emphasis: "primary",
     eyebrow: "Primary next move",
-    summary: representative.card.summary,
     rationale:
-      "This is the deterministic top recommendation. It combines visible drift, working-set relevance, downstream readiness, and durable continuity evidence to show one obvious next move.",
+      "This card renders the top backend-authored continuity summary instead of re-ranking candidate workflows in the browser.",
     preview: [
-      { label: "Workflow", value: workflow.thread.title },
-      { label: "Why now", value: whyNow[0] ?? "Highest deterministic rank" },
-      { label: "Changed", value: changedSinceLastSeen[0] ?? "No unseen drift" },
-      ...(priorState
+      { label: "Workflow", value: summary.workflowThread.title },
+      { label: "Why now", value: summary.whyNow[0] ?? "Highest deterministic rank" },
+      { label: "Changed", value: summary.changedSinceLastSeen[0] ?? "No unseen drift" },
+      ...(summary.priorState
         ? [{
-            label: priorState.kind === "gone" ? "Prior path gone" : "Prior path replaced",
-            value: priorState.summary,
+            label: summary.priorState.kind === "gone" ? "Prior path gone" : "Prior path replaced",
+            value: summary.priorState.summary,
           }]
         : []),
     ],
     trust: {
-      ...representative.card.trust,
+      ...summary.card.trust,
       confidenceLabel: "Deterministic next move",
-      impactSummary: impactSummary || representative.card.trust.impactSummary || representative.displaySummary,
+      impactSummary: impactSummary || summary.card.trust.impactSummary || summary.displaySummary,
     },
-    handoff: representative.card.handoff
+    handoff: summary.card.handoff
       ? {
-          ...representative.card.handoff,
-          changeSummary: changedSinceLastSeen.join(" · "),
+          ...summary.card.handoff,
+          changeSummary: summary.changedSinceLastSeen.join(" · "),
           createdResources: uniqueLines([
-            ...representative.card.handoff.createdResources,
-            priorState?.summary,
+            ...summary.card.handoff.createdResources,
+            summary.priorState?.summary,
           ]).slice(0, 4),
         }
       : {
-          changeSummary: changedSinceLastSeen.join(" · "),
-          createdResources: uniqueLines([priorState?.summary]).slice(0, 4),
+          changeSummary: summary.changedSinceLastSeen.join(" · "),
+          createdResources: uniqueLines([summary.priorState?.summary]).slice(0, 4),
           nextStep: "Open the prepared workflow and continue from the landed state.",
-          breadcrumbs: ["Home", "Now", workflow.thread.title],
+          breadcrumbs: ["Home", "Now", summary.workflowThread.title],
         },
     actionContextLabel: "Do this next",
-    actionWarning: priorState?.kind === "gone" ? priorState.summary : (representative.card.actionWarning ?? null),
-    recovery: null,
+    actionWarning: summary.priorState?.kind === "gone" ? summary.priorState.summary : (summary.card.actionWarning ?? null),
+    recovery: summary.recovery,
   };
 
-  const card = applyContinuityRecovery(baseCard, recovery);
-
   return {
-    workflow,
-    representative,
+    summary,
     card,
-    whyNow,
-    changedSinceLastSeen,
-    priorState,
-    recovery,
+    whyNow: summary.whyNow,
+    changedSinceLastSeen: summary.changedSinceLastSeen,
+    priorState: summary.priorState,
+    recovery: summary.recovery,
   };
 }
 
@@ -300,14 +111,14 @@ export function buildPrimaryRecommendationDigestCard(
   recommendation: PrimaryRecommendation,
 ): OperatorActionCard {
   return {
-    id: `primary-next-move-digest-${recommendation.representative.id}`,
+    id: `primary-next-move-digest-${recommendation.summary.id}`,
     kind: "context",
     tone: recommendation.priorState?.kind === "gone" ? "attention" : "neutral",
     eyebrow: "Why this won",
     title: "Why this workflow became the top recommendation",
     summary: recommendation.whyNow.join(" · "),
     rationale:
-      "The operator should not need to infer the ranking from parallel cards. This digest calmly explains why the workflow moved to the top and what changed since it was last seen.",
+      "The operator should not need to infer the ranking from parallel cards. This digest reuses the backend-authored continuity explanation directly.",
     preview: [
       ...recommendation.whyNow.slice(0, 2).map((value, index) => ({
         label: `Why ${index + 1}`,
@@ -325,19 +136,32 @@ export function buildPrimaryRecommendationDigestCard(
         : []),
     ],
     trust: {
-      contextSources: [
-        "Ranked landed outcomes",
-        "Durable resume anchors",
-        "Durable workflow-thread last-seen markers",
-      ],
-      assumptions: ["Recommendation ranking remains deterministic and feed-driven."],
-      confidenceLabel: "Visible evidence only",
-      freshnessLabel: recommendation.representative.card.trust.freshnessLabel ?? null,
-      rollbackLabel: "This digest does not mutate state; it explains the next move.",
+      generationLabel: "Backend continuity summary",
+      generationTone: "neutral",
+      contextSources: ["Durable workflow-summary feed"],
+      assumptions: [],
+      confidenceLabel: "Deterministic recommendation explanation",
+      confidenceTone: "progress",
+      freshnessLabel: recommendation.summary.card.trust.freshnessLabel,
+      freshnessTone: recommendation.summary.card.trust.freshnessTone ?? null,
+      rollbackLabel: null,
+      rollbackTone: "neutral",
       impactSummary: recommendation.changedSinceLastSeen.join(" · "),
+      impactTone: "neutral",
     },
-    handoff: recommendation.card.handoff,
-    actionContextLabel: "Open the same next move",
-    actions: recommendation.card.actions.slice(0, 2),
+    handoff: {
+      changeSummary: recommendation.changedSinceLastSeen.join(" · "),
+      createdResources: uniqueLines([
+        recommendation.summary.workflowThread.title,
+        recommendation.priorState?.summary,
+      ]).slice(0, 3),
+      nextStep: "Open the ranked workflow and continue from the canonical landed state.",
+      breadcrumbs: ["Home", "Since last visit", "Why this won"],
+      workingSet: recommendation.summary.card.handoff?.workingSet ?? null,
+    },
+    actionContextLabel: null,
+    actionWarning: null,
+    recovery: recommendation.recovery,
+    actions: [],
   };
 }

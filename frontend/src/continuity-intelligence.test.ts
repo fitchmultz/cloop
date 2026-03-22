@@ -33,6 +33,7 @@ import {
   isContinuityRecoveryAcknowledged,
   markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
+  readContinuityWorkflowSummaries,
   readRecentShellActions,
   readRecentShellReceiptEntries,
   readResumeAnchors,
@@ -92,7 +93,7 @@ describe("continuity-intelligence", () => {
       writable: true,
     });
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], anchors: { planning: null, review: null }, threads: [] }), {
+      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], anchors: { planning: null, review: null }, workflow_summaries: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
@@ -289,7 +290,79 @@ describe("continuity-intelligence", () => {
           },
           review: null,
         },
-        threads: [],
+        workflow_summaries: [
+          {
+            id: "planning:41:checkpoint:0",
+            source: "receipt",
+            rank: 5418,
+            ranking_signals: {
+              drift_severity: "moderate",
+              drift_score: 52,
+              working_set_relevant: true,
+              downstream_ready: true,
+              degraded: false,
+              recency_tie_breaker: 18,
+            },
+            workflow_thread: {
+              id: "planning:41:checkpoint:0",
+              kind: "planning_checkpoint",
+              title: "Weekly reset",
+              summary: "Planning checkpoint thread",
+              parent_outcome_id: null,
+            },
+            representative_outcome_id: 7,
+            latest_outcome_id: 7,
+            occurred_at_utc: "2026-03-17T11:55:00Z",
+            outcome_count: 1,
+            outcome_preview_titles: ["Created launch review queue"],
+            requested_resume_location: {
+              state: "decide",
+              recall_tool: "chat",
+              review_focus: "enrichment",
+              session_id: 52,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: 7,
+              query: null,
+            },
+            resolved_resume: {
+              requested_location: {
+                state: "decide",
+                recall_tool: "chat",
+                review_focus: "enrichment",
+                session_id: 52,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: null,
+              },
+              resolved_location: {
+                state: "decide",
+                recall_tool: "chat",
+                review_focus: "enrichment",
+                session_id: 52,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: null,
+              },
+              status: "ok",
+              message: null,
+              successor: null,
+            },
+            display_title: "Created launch review queue",
+            display_summary: "The enrichment queue is ready to resume.",
+            working_set_id: 7,
+            degraded: false,
+            degraded_label: null,
+            why_now: ["This workflow has fresh unseen movement."],
+            changed_since_last_seen: ["This workflow has never been seen from durable continuity."],
+            prior_state: null,
+          },
+        ],
       }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -301,6 +374,7 @@ describe("continuity-intelligence", () => {
     expect(readRecentShellActions()).toHaveLength(1);
     expect(readRecentShellActions()[0]?.outcome?.workflowThread?.id).toBe("planning:41:checkpoint:0");
     expect(readResumeAnchors().planning?.workflowThreadId).toBe("planning:41");
+    expect(readContinuityWorkflowSummaries()[0]?.id).toBe("planning:41:checkpoint:0");
   });
 
   it("keeps recent shell actions newest-first", () => {

@@ -1,15 +1,15 @@
 """Durable continuity storage.
 
 Purpose:
-    Persist and read backend-backed landed continuity outcomes, grouped workflow
-    threads, resume anchors, backend-authored recovery provenance, and durable
+    Persist and read backend-backed landed continuity outcomes, resume anchors,
+    backend-authored workflow summaries, recovery provenance, and durable
     recovery acknowledgements for cross-device operator continuity.
 
 Responsibilities:
     - Record high-signal landed outcomes with deduplication.
     - Upsert durable planning and review resume anchors.
     - Resolve persisted resume targets against current durable resources.
-    - Build grouped workflow-thread summaries for frontend hydration.
+    - Build backend-authored workflow summaries for frontend hydration.
     - Attach explicit successor provenance for stale or superseded resumable paths.
     - Persist durable continuity recovery acknowledgements.
 
@@ -34,8 +34,9 @@ import json
 import sqlite3
 from collections import defaultdict
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from .. import db
 from ..schemas._loops.continuity import (
@@ -52,7 +53,9 @@ from ..schemas._loops.continuity import (
     ContinuitySnapshotResponse,
     ContinuitySuccessorTargetResponse,
     ContinuityTargetStatus,
-    ContinuityThreadSummaryResponse,
+    ContinuityWorkflowSummaryPriorStateResponse,
+    ContinuityWorkflowSummaryResponse,
+    ContinuityWorkflowSummarySignalsResponse,
     ContinuityWorkflowThreadKind,
     ResolvedContinuityTargetResponse,
     WorkflowThreadRefResponse,
@@ -336,6 +339,576 @@ def _display_title(record: ContinuityOutcomeRecordResponse) -> str:
     return record.label
 
 
+def _display_summary(record: ContinuityOutcomeRecordResponse) -> str:
+    if isinstance(record.outcome_card, dict):
+        summary = record.outcome_card.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            return summary
+    return record.description
+
+
+_DRIFT_SCORE: dict[str, int] = {
+    "none": 0,
+    "minor": 24,
+    "moderate": 52,
+    "major": 78,
+    "replaced": 92,
+    "gone": 100,
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkflowSummaryCandidate:
+    source: Literal["receipt", "recent", "anchor"]
+    rank: int
+    ranking_signals: ContinuityWorkflowSummarySignalsResponse
+    representative_outcome_id: int | None
+    latest_outcome_id: int | None
+    occurred_at_utc: str
+    requested_resume_location: ContinuityLocationResponse | None
+    resolved_resume: ResolvedContinuityTargetResponse
+    display_title: str
+    display_summary: str
+    working_set_id: int | None
+    degraded: bool
+    degraded_label: str | None
+    workflow_thread: WorkflowThreadRefResponse
+
+
+def _location_identity(location: ContinuityLocationResponse | None) -> str:
+    if location is None:
+        return "location:null"
+    return "|".join(
+        [
+            location.state,
+            location.recall_tool,
+            location.review_focus or "-",
+            str(location.session_id) if location.session_id is not None else "-",
+            str(location.loop_id) if location.loop_id is not None else "-",
+            str(location.view_id) if location.view_id is not None else "-",
+            str(location.memory_id) if location.memory_id is not None else "-",
+            str(location.working_set_id) if location.working_set_id is not None else "-",
+            location.query or "-",
+        ]
+    )
+
+
+def _workflow_thread_or_ad_hoc(
+    workflow_thread: WorkflowThreadRefResponse | None,
+    resolved_resume: ResolvedContinuityTargetResponse,
+    *,
+    title: str,
+    summary: str | None,
+) -> WorkflowThreadRefResponse:
+    if workflow_thread is not None:
+        return workflow_thread
+    return WorkflowThreadRefResponse(
+        id=_location_identity(resolved_resume.resolved_location),
+        kind="ad_hoc",
+        title=title,
+        summary=summary,
+        parent_outcome_id=None,
+    )
+
+
+def _anchor_label(anchor: ContinuityAnchorResponse) -> str:
+    if anchor.kind == "planning":
+        return f"Planning session #{anchor.session_id}"
+    return f"{anchor.review_focus} queue #{anchor.session_id}"
+
+
+def _anchor_display_title(anchor: ContinuityAnchorResponse) -> str:
+    return anchor.outcome_title or _anchor_label(anchor)
+
+
+def _anchor_display_summary(anchor: ContinuityAnchorResponse) -> str:
+    return anchor.outcome_summary or "Resume the last saved landed workflow state."
+
+
+def _active_working_set_id(conn: sqlite3.Connection) -> int | None:
+    row = conn.execute(
+        "SELECT active_working_set_id FROM working_set_context WHERE singleton_id = 1"
+    ).fetchone()
+    if row is None or row["active_working_set_id"] is None:
+        return None
+    return int(row["active_working_set_id"])
+
+
+def _working_set_names(conn: sqlite3.Connection) -> dict[int, str]:
+    return {
+        int(row["id"]): str(row["name"])
+        for row in conn.execute("SELECT id, name FROM working_sets").fetchall()
+    }
+
+
+def _workflow_marker(
+    markers: list[ContinuityLastSeenMarkerResponse],
+    workflow_thread_id: str,
+) -> ContinuityLastSeenMarkerResponse | None:
+    return next(
+        (
+            marker
+            for marker in markers
+            if marker.entity_kind == "workflow_thread" and marker.entity_key == workflow_thread_id
+        ),
+        None,
+    )
+
+
+def _outcome_family(
+    workflow_thread: WorkflowThreadRefResponse | None,
+    resolved_location: ContinuityLocationResponse,
+) -> Literal["planning", "review"] | None:
+    if workflow_thread and workflow_thread.kind == "planning_checkpoint":
+        return "planning"
+    if workflow_thread and workflow_thread.kind == "review_session":
+        return "review"
+    if resolved_location.state == "plan":
+        return "planning"
+    if resolved_location.state == "decide" and resolved_location.review_focus in {
+        "relationship",
+        "enrichment",
+    }:
+        return "review"
+    return None
+
+
+def _prior_anchor_for_candidate(
+    candidate: _WorkflowSummaryCandidate,
+    anchors: ContinuityAnchorsResponse,
+) -> ContinuityAnchorResponse | None:
+    family = _outcome_family(candidate.workflow_thread, candidate.resolved_resume.resolved_location)
+    if family == "planning":
+        return anchors.planning
+    if family == "review":
+        return anchors.review
+    return None
+
+
+def _supersedes_durable_anchor(
+    candidate: _WorkflowSummaryCandidate,
+    anchors: ContinuityAnchorsResponse,
+) -> bool:
+    anchor = _prior_anchor_for_candidate(candidate, anchors)
+    if anchor is None:
+        return False
+    if _parse_timestamp(candidate.occurred_at_utc) < _parse_timestamp(anchor.visited_at_utc):
+        return False
+    if anchor.workflow_thread_id and candidate.workflow_thread.id:
+        return anchor.workflow_thread_id != candidate.workflow_thread.id
+    return _location_identity(
+        anchor.resume_location or anchor.launch_location
+    ) != _location_identity(candidate.resolved_resume.resolved_location)
+
+
+def _score_ranking_signals(
+    *,
+    severity: str,
+    working_set_relevant: bool,
+    downstream_ready: bool,
+    degraded: bool,
+    age_minutes: float,
+) -> ContinuityWorkflowSummarySignalsResponse:
+    recency_tie_breaker = max(0, 18 - int(age_minutes // 90))
+    return ContinuityWorkflowSummarySignalsResponse(
+        drift_severity=cast(Any, severity),
+        drift_score=_DRIFT_SCORE[severity],
+        working_set_relevant=working_set_relevant,
+        downstream_ready=downstream_ready and not degraded,
+        degraded=degraded,
+        recency_tie_breaker=recency_tie_breaker,
+    )
+
+
+def _total_ranking_score(
+    signals: ContinuityWorkflowSummarySignalsResponse,
+    source: Literal["receipt", "recent", "anchor"],
+) -> int:
+    source_score = 18 if source == "receipt" else 10 if source == "recent" else 4
+    return (
+        signals.drift_score * 100
+        + (240 if signals.working_set_relevant else 0)
+        + (180 if signals.downstream_ready else -220)
+        - (120 if signals.degraded else 0)
+        + source_score
+        + signals.recency_tie_breaker
+    )
+
+
+def _candidate_from_outcome(
+    record: ContinuityOutcomeRecordResponse,
+    *,
+    active_working_set_id: int | None,
+    anchors: ContinuityAnchorsResponse,
+    markers: list[ContinuityLastSeenMarkerResponse],
+    now: datetime,
+) -> _WorkflowSummaryCandidate:
+    thread = _workflow_thread_or_ad_hoc(
+        record.workflow_thread,
+        record.resolved_resume,
+        title=_display_title(record),
+        summary=_display_summary(record),
+    )
+    marker = _workflow_marker(markers, thread.id)
+    last_seen_outcome_id = int(marker.observed_state.get("latestOutcomeId", 0)) if marker else 0
+    source: Literal["receipt", "recent", "anchor"] = (
+        "receipt"
+        if isinstance(record.outcome_card, dict) and record.outcome_card.get("kind") == "receipt"
+        else "recent"
+    )
+    if record.degraded:
+        severity = "gone"
+    elif _supersedes_durable_anchor(
+        _WorkflowSummaryCandidate(
+            source=source,
+            rank=0,
+            ranking_signals=_score_ranking_signals(
+                severity="none",
+                working_set_relevant=False,
+                downstream_ready=True,
+                degraded=False,
+                age_minutes=0,
+            ),
+            representative_outcome_id=record.id,
+            latest_outcome_id=record.id,
+            occurred_at_utc=record.occurred_at_utc,
+            requested_resume_location=record.resolved_resume.requested_location,
+            resolved_resume=record.resolved_resume,
+            display_title=_display_title(record),
+            display_summary=_display_summary(record),
+            working_set_id=record.working_set_id,
+            degraded=record.degraded,
+            degraded_label=record.degraded_label,
+            workflow_thread=thread,
+        ),
+        anchors,
+    ):
+        severity = "replaced"
+    elif marker is None:
+        severity = "moderate"
+    elif record.id > last_seen_outcome_id:
+        severity = "major" if record.id - last_seen_outcome_id >= 3 else "moderate"
+    else:
+        severity = "none"
+    age_minutes = max(0.0, (now - _parse_timestamp(record.occurred_at_utc)).total_seconds() / 60.0)
+    ranking_signals = _score_ranking_signals(
+        severity=severity,
+        working_set_relevant=(
+            active_working_set_id is not None and record.working_set_id == active_working_set_id
+        ),
+        downstream_ready=not record.degraded,
+        degraded=record.degraded,
+        age_minutes=age_minutes,
+    )
+    return _WorkflowSummaryCandidate(
+        source=source,
+        rank=_total_ranking_score(ranking_signals, source),
+        ranking_signals=ranking_signals,
+        representative_outcome_id=record.id,
+        latest_outcome_id=record.id,
+        occurred_at_utc=record.occurred_at_utc,
+        requested_resume_location=record.resolved_resume.requested_location,
+        resolved_resume=record.resolved_resume,
+        display_title=_display_title(record),
+        display_summary=_display_summary(record),
+        working_set_id=record.working_set_id,
+        degraded=record.degraded,
+        degraded_label=record.degraded_label,
+        workflow_thread=thread,
+    )
+
+
+def _candidate_from_anchor(
+    anchor: ContinuityAnchorResponse,
+    *,
+    active_working_set_id: int | None,
+    anchors: ContinuityAnchorsResponse,
+    markers: list[ContinuityLastSeenMarkerResponse],
+    now: datetime,
+) -> _WorkflowSummaryCandidate:
+    if anchor.resolved_resume is None:
+        raise RuntimeError("Resolved continuity anchors are required before building summaries.")
+    thread = _workflow_thread_or_ad_hoc(
+        _anchor_thread_ref(anchor),
+        anchor.resolved_resume,
+        title=_anchor_display_title(anchor),
+        summary=_anchor_display_summary(anchor),
+    )
+    marker = _workflow_marker(markers, thread.id)
+    if anchor.degraded:
+        severity = "gone"
+    elif _supersedes_durable_anchor(
+        _WorkflowSummaryCandidate(
+            source="anchor",
+            rank=0,
+            ranking_signals=_score_ranking_signals(
+                severity="none",
+                working_set_relevant=False,
+                downstream_ready=True,
+                degraded=False,
+                age_minutes=0,
+            ),
+            representative_outcome_id=None,
+            latest_outcome_id=None,
+            occurred_at_utc=anchor.visited_at_utc,
+            requested_resume_location=anchor.resolved_resume.requested_location,
+            resolved_resume=anchor.resolved_resume,
+            display_title=_anchor_display_title(anchor),
+            display_summary=_anchor_display_summary(anchor),
+            working_set_id=anchor.working_set_id,
+            degraded=anchor.degraded,
+            degraded_label=anchor.degraded_label,
+            workflow_thread=thread,
+        ),
+        anchors,
+    ):
+        severity = "replaced"
+    elif marker is None:
+        severity = "minor"
+    else:
+        severity = "none"
+    age_minutes = max(0.0, (now - _parse_timestamp(anchor.visited_at_utc)).total_seconds() / 60.0)
+    ranking_signals = _score_ranking_signals(
+        severity=severity,
+        working_set_relevant=(
+            active_working_set_id is not None and anchor.working_set_id == active_working_set_id
+        ),
+        downstream_ready=not anchor.degraded,
+        degraded=anchor.degraded,
+        age_minutes=age_minutes,
+    )
+    return _WorkflowSummaryCandidate(
+        source="anchor",
+        rank=_total_ranking_score(ranking_signals, "anchor"),
+        ranking_signals=ranking_signals,
+        representative_outcome_id=None,
+        latest_outcome_id=None,
+        occurred_at_utc=anchor.visited_at_utc,
+        requested_resume_location=anchor.resolved_resume.requested_location,
+        resolved_resume=anchor.resolved_resume,
+        display_title=_anchor_display_title(anchor),
+        display_summary=_anchor_display_summary(anchor),
+        working_set_id=anchor.working_set_id,
+        degraded=anchor.degraded,
+        degraded_label=anchor.degraded_label,
+        workflow_thread=thread,
+    )
+
+
+def _dedupe_candidates(
+    candidates: list[_WorkflowSummaryCandidate],
+) -> list[_WorkflowSummaryCandidate]:
+    deduped: dict[str, _WorkflowSummaryCandidate] = {}
+    for candidate in candidates:
+        key = "::".join(
+            [
+                _location_identity(candidate.resolved_resume.resolved_location),
+                candidate.display_title.strip().lower(),
+                candidate.display_summary.strip().lower(),
+            ]
+        )
+        existing = deduped.get(key)
+        if (
+            existing is None
+            or candidate.rank > existing.rank
+            or _parse_timestamp(candidate.occurred_at_utc)
+            > _parse_timestamp(existing.occurred_at_utc)
+        ):
+            deduped[key] = candidate
+    return list(deduped.values())
+
+
+def _build_prior_state(
+    candidate: _WorkflowSummaryCandidate,
+    anchors: ContinuityAnchorsResponse,
+) -> ContinuityWorkflowSummaryPriorStateResponse | None:
+    anchor = _prior_anchor_for_candidate(candidate, anchors)
+    if anchor is None:
+        return None
+    anchor_thread_id = anchor.workflow_thread_id
+    same_thread = anchor_thread_id is not None and anchor_thread_id == candidate.workflow_thread.id
+    same_location = _location_identity(
+        anchor.resume_location or anchor.launch_location
+    ) == _location_identity(candidate.resolved_resume.resolved_location)
+    if same_thread or same_location:
+        return None
+    if anchor.resolved_resume and anchor.resolved_resume.successor is not None:
+        return ContinuityWorkflowSummaryPriorStateResponse(
+            kind="gone" if anchor.degraded else "replaced",
+            title=anchor.outcome_title or "Prior path",
+            summary=anchor.resolved_resume.successor.message
+            or (
+                f"{anchor.outcome_title or 'Prior path'} was superseded by "
+                f"{anchor.resolved_resume.successor.title}."
+            ),
+        )
+    if anchor.degraded:
+        return ContinuityWorkflowSummaryPriorStateResponse(
+            kind="gone",
+            title=anchor.outcome_title or "Prior path",
+            summary=anchor.degraded_label or "The prior primary path is no longer available.",
+        )
+    return None
+
+
+def _build_why_now(
+    candidate: _WorkflowSummaryCandidate,
+    *,
+    outcome_count: int,
+) -> list[str]:
+    lines: list[str] = []
+    severity = candidate.ranking_signals.drift_severity
+    if severity == "replaced":
+        lines.append("A newer workflow superseded the prior path you last saved.")
+    elif severity == "gone":
+        lines.append("The prior landing target disappeared, so this is the safest surviving path.")
+    elif severity == "major":
+        lines.append("This workflow changed materially since you last saw it.")
+    elif severity == "moderate":
+        lines.append("This workflow has fresh unseen movement.")
+    elif severity == "minor":
+        lines.append("This workflow drifted slightly and is still ready to resume.")
+    else:
+        lines.append("This is the highest deterministic ready-to-resume workflow.")
+    if candidate.ranking_signals.working_set_relevant:
+        lines.append("It stays inside the active working set.")
+    if candidate.ranking_signals.downstream_ready:
+        lines.append("A downstream surface is ready to open immediately.")
+    if outcome_count > 1:
+        lines.append(f"{outcome_count} related landed outcomes were grouped into one thread.")
+    return lines
+
+
+def _build_changed_since_last_seen(
+    candidate: _WorkflowSummaryCandidate,
+    *,
+    outcome_count: int,
+    marker: ContinuityLastSeenMarkerResponse | None,
+    latest_outcome_id: int | None,
+) -> list[str]:
+    lines: list[str] = []
+    if marker is None:
+        lines.append("This workflow has never been seen from durable continuity.")
+    previous_outcome_id = int(marker.observed_state.get("latestOutcomeId", 0)) if marker else 0
+    if latest_outcome_id is not None and latest_outcome_id > previous_outcome_id:
+        delta = latest_outcome_id - previous_outcome_id
+        suffix = "s" if delta != 1 else ""
+        lines.append(f"{delta} newer landed outcome{suffix} appeared since you last saw it.")
+    if outcome_count > 1:
+        lines.append(f"{outcome_count} outcomes are grouped under this workflow thread.")
+    if candidate.degraded_label:
+        lines.append(candidate.degraded_label)
+    if not lines:
+        lines.append(
+            "No opaque heuristic changed this ranking; it still wins on deterministic readiness."
+        )
+    return lines
+
+
+def _build_workflow_summaries(
+    *,
+    conn: sqlite3.Connection,
+    outcomes: list[ContinuityOutcomeRecordResponse],
+    anchors: ContinuityAnchorsResponse,
+    markers: list[ContinuityLastSeenMarkerResponse],
+) -> list[ContinuityWorkflowSummaryResponse]:
+    now = datetime.now(UTC)
+    active_working_set_id = _active_working_set_id(conn)
+    working_set_names = _working_set_names(conn)
+    recent_candidates = _dedupe_candidates(
+        [
+            _candidate_from_outcome(
+                outcome,
+                active_working_set_id=active_working_set_id,
+                anchors=anchors,
+                markers=markers,
+                now=now,
+            )
+            for outcome in outcomes
+        ]
+    )
+    recent_location_keys = {
+        _location_identity(candidate.resolved_resume.resolved_location)
+        for candidate in recent_candidates
+    }
+    anchor_candidates = [
+        _candidate_from_anchor(
+            anchor,
+            active_working_set_id=active_working_set_id,
+            anchors=anchors,
+            markers=markers,
+            now=now,
+        )
+        for anchor in (anchors.planning, anchors.review)
+        if anchor is not None and anchor.resolved_resume is not None
+    ]
+    combined = recent_candidates + [
+        candidate
+        for candidate in anchor_candidates
+        if _location_identity(candidate.resolved_resume.resolved_location)
+        not in recent_location_keys
+    ]
+    buckets: dict[str, list[_WorkflowSummaryCandidate]] = defaultdict(list)
+    for candidate in combined:
+        buckets[candidate.workflow_thread.id].append(candidate)
+    summaries: list[ContinuityWorkflowSummaryResponse] = []
+    for items in buckets.values():
+        sorted_items = sorted(
+            items,
+            key=lambda item: (item.rank, _parse_timestamp(item.occurred_at_utc)),
+            reverse=True,
+        )
+        representative = sorted_items[0]
+        latest_by_time = max(
+            items,
+            key=lambda item: (_parse_timestamp(item.occurred_at_utc), item.latest_outcome_id or 0),
+        )
+        marker = _workflow_marker(markers, representative.workflow_thread.id)
+        prior_state = _build_prior_state(representative, anchors)
+        outcome_count = len(items)
+        summary_rank = representative.rank + min(outcome_count, 4) * 8
+        summaries.append(
+            ContinuityWorkflowSummaryResponse(
+                id=representative.workflow_thread.id,
+                source=cast(Any, representative.source),
+                rank=summary_rank,
+                ranking_signals=representative.ranking_signals,
+                workflow_thread=representative.workflow_thread,
+                representative_outcome_id=representative.representative_outcome_id,
+                latest_outcome_id=latest_by_time.latest_outcome_id,
+                occurred_at_utc=representative.occurred_at_utc,
+                outcome_count=outcome_count,
+                outcome_preview_titles=[item.display_title for item in sorted_items[:3]],
+                requested_resume_location=representative.requested_resume_location,
+                resolved_resume=representative.resolved_resume,
+                display_title=representative.display_title,
+                display_summary=representative.display_summary,
+                working_set_id=representative.working_set_id,
+                working_set_name=working_set_names.get(representative.working_set_id)
+                if representative.working_set_id is not None
+                else None,
+                degraded=representative.degraded,
+                degraded_label=representative.degraded_label,
+                why_now=_build_why_now(representative, outcome_count=outcome_count),
+                changed_since_last_seen=_build_changed_since_last_seen(
+                    representative,
+                    outcome_count=outcome_count,
+                    marker=marker,
+                    latest_outcome_id=latest_by_time.latest_outcome_id,
+                ),
+                prior_state=prior_state,
+            )
+        )
+    return sorted(
+        summaries,
+        key=lambda item: (
+            item.degraded,
+            -item.rank,
+            -_parse_timestamp(item.occurred_at_utc).timestamp(),
+        ),
+    )
+
+
 def _replacement_family(
     workflow_thread: WorkflowThreadRefResponse | None,
     requested_location: ContinuityLocationResponse | None,
@@ -421,7 +994,7 @@ def _build_successor(
         kind="replacement",
         outcome_id=record.id,
         title=successor_title,
-        summary=record.description,
+        summary=_display_summary(record),
         workflow_thread=record.workflow_thread,
         requested_location=record.resolved_resume.requested_location,
         resolved_location=record.resolved_resume.resolved_location,
@@ -823,35 +1396,6 @@ def read_continuity_snapshot(
         all_outcomes = _attach_successors([_outcome_from_row(conn, row) for row in outcome_rows])
         outcomes = all_outcomes[:limit]
 
-        thread_buckets: dict[str, list[ContinuityOutcomeRecordResponse]] = defaultdict(list)
-        for outcome in outcomes:
-            thread_buckets[outcome.workflow_thread.id].append(outcome)
-
-        threads = [
-            ContinuityThreadSummaryResponse(
-                workflow_thread=items[0].workflow_thread,
-                outcome_count=len(items),
-                latest_outcome_id=items[0].id,
-                latest_occurred_at_utc=items[0].occurred_at_utc,
-                representative_title=_display_title(items[0]),
-                representative_summary=items[0].outcome_card.get("summary", items[0].description)
-                if isinstance(items[0].outcome_card, dict)
-                else items[0].description,
-            )
-            for items in sorted(
-                (
-                    sorted(
-                        bucket,
-                        key=lambda item: (_parse_timestamp(item.occurred_at_utc), item.id),
-                        reverse=True,
-                    )
-                    for bucket in thread_buckets.values()
-                ),
-                key=lambda bucket: (_parse_timestamp(bucket[0].occurred_at_utc), bucket[0].id),
-                reverse=True,
-            )
-        ]
-
         anchors = ContinuityAnchorsResponse()
         for row in anchor_rows:
             unresolved = _anchor_from_row(row)
@@ -862,13 +1406,19 @@ def read_continuity_snapshot(
                 anchors.review = resolved
 
         last_seen_markers = [_last_seen_marker_from_row(row) for row in marker_rows]
+        workflow_summaries = _build_workflow_summaries(
+            conn=conn,
+            outcomes=outcomes,
+            anchors=anchors,
+            markers=last_seen_markers,
+        )
         recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
 
         return ContinuitySnapshotResponse(
             recorded_at_utc=_utc_now_iso(),
             outcomes=outcomes,
             anchors=anchors,
-            threads=threads,
+            workflow_summaries=workflow_summaries,
             last_seen_markers=last_seen_markers,
             recovery_acknowledgements=recovery_acknowledgements,
         )

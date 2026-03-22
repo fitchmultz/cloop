@@ -692,6 +692,8 @@ body.shell-focus-mode .operator-grid {
   border: 1px solid transparent;
   border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.76);
+  color: var(--color-text);
+  font: inherit;
   text-align: left;
 }
 

@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to move continuity ranking and recommendation explanation from frontend-only synthesis to backend-authored workflow summaries, so every surface opens with the same canonical next-move reasoning, drift evidence, and workflow-thread state.
+The current priority is to promote the canonical continuity summary feed into calm notifications and automation-ready operator digests, so the same backend-authored workflow-summary identities can drive future nudges, scheduler surfaces, and summary delivery without per-surface drift.
 
 ## Direction
 
@@ -36,7 +36,7 @@ The next roadmap slice starts from work that is already live:
 - review workspace redesign across relationship, enrichment, and hygiene review
 - durable backend-backed continuity outcomes and resume anchors with browser-local visit baselines still preserved for local drift comparison
 - durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
-- grouped workflow-thread continuity across operator home, the receipt rail, and command-palette recents
+- backend-authored workflow-summary continuity across operator home, the receipt rail, and command-palette recents
 - drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
 - proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
 - explicit continuity recovery flows for superseded or unavailable workflows across operator cards, the receipt rail, and command-palette recommendations
@@ -45,26 +45,26 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Backend-authored ranked continuity summaries and recommendation digests
+### Next — Continuity notifications and automation-ready summary digests
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 - [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 
-Goal: promote continuity from backend-backed raw outcomes to backend-authored ranked workflow summaries, so operator home, the receipt rail, command palette, and downstream action-card surfaces all render the same canonical next-move explanation without frontend-only ranking heuristics.
+Goal: reuse the shipped backend-authored workflow-summary feed to drive calm operator notifications, digest delivery, and future automation hooks from one canonical continuity identity model instead of per-surface heuristics.
 
 Why this comes next:
-- recovery provenance is now durable and shared, so the next churn-reducing cutover is to centralize the remaining ranking and explanation logic that still lives mostly in frontend helpers
-- recommendation digests, since-last ordering, and command-palette guidance currently reuse the same inputs but still synthesize copy and priority client-side
-- backend-authored workflow summaries should land before broader notification or automation work so every future consumer starts from one canonical continuity feed
+- ranked workflow summaries, recommendation explanations, recovery acknowledgements, and summary last-seen markers now live in the shared backend continuity snapshot
+- broader notification or automation work was intentionally blocked on having one canonical continuity feed first
+- future nudges, scheduler hints, and digest delivery should now start from workflow-summary identities instead of rebuilding ranking logic again in new surfaces
 
 Planned sequence:
 
-1. add backend-owned ranked workflow-thread summaries with explicit why-now, changed-since-last-seen, and prior-state evidence
-2. expose those summaries through continuity snapshot hydration and OpenAPI-generated frontend contracts
-3. cut operator home, receipt rail, command palette, and downstream action-card surfaces over to the canonical summary feed instead of recomputing recommendation digests locally
-4. persist acknowledgement and last-seen side effects against backend workflow-summary identities so ranking explanations stay stable across devices and refreshes
+1. define backend-authored notification/digest records sourced from ranked workflow summaries and their stable identities
+2. expose those records through the continuity/scheduler surfaces that need calm operator-facing delivery
+3. cut operator-facing digest or notification consumers over to the canonical summary-derived records instead of synthesizing bespoke reminder copy client-side
+4. preserve acknowledgement, suppression, and last-seen semantics against the same workflow-summary identities so future nudges stay stable across refreshes and devices
 
 ## Delivery model
 

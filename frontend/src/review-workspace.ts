@@ -69,7 +69,6 @@ import type {
   OperatorActionCard,
   ReviewFocus,
   TrustSurfaceMetadata,
-  WorkingSetSessionMetadata,
 } from "./contracts-ui";
 import { applyContinuityRecovery } from "./continuity-recovery";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
@@ -342,38 +341,6 @@ function currentWorkingSetId(): number | null {
   return parseHash(window.location.hash)?.workingSetId ?? null;
 }
 
-function continuityWorkingSetMetadata(): WorkingSetSessionMetadata[] {
-  return state.workingSets.map((workingSet) => ({
-    workingSetId: workingSet.id,
-    workingSetName: workingSet.name,
-    itemCount: workingSet.item_count,
-    missingItemCount: workingSet.missing_item_count,
-  }));
-}
-
-function continuityAvailabilityInput() {
-  const planningSessionIds = new Set<number>(state.planningSessions.map((session) => session.id));
-  const relationshipSessionIds = new Set<number>(state.relationshipSessions.map((session) => session.id));
-  const enrichmentSessionIds = new Set<number>(state.enrichmentSessions.map((session) => session.id));
-
-  if (state.planningSnapshot?.session.id != null) {
-    planningSessionIds.add(state.planningSnapshot.session.id);
-  }
-  if (state.relationshipSnapshot?.session.id != null) {
-    relationshipSessionIds.add(state.relationshipSnapshot.session.id);
-  }
-  if (state.enrichmentSnapshot?.session.id != null) {
-    enrichmentSessionIds.add(state.enrichmentSnapshot.session.id);
-  }
-
-  return {
-    planningSessionIds: [...planningSessionIds],
-    relationshipSessionIds: [...relationshipSessionIds],
-    enrichmentSessionIds: [...enrichmentSessionIds],
-    workingSets: continuityWorkingSetMetadata(),
-  };
-}
-
 function surfaceRecoveryForLocation(
   location: ReturnType<typeof createLocation> | null,
   workflowThreadId: string | null = null,
@@ -381,7 +348,6 @@ function surfaceRecoveryForLocation(
   return continuityRecoveryForLocation({
     location,
     workflowThreadId,
-    availability: continuityAvailabilityInput(),
   });
 }
 

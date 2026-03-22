@@ -358,9 +358,84 @@ function createMemoryStorage(): Storage {
 }
 
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
+const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v1";
 
 function seedResumeAnchors(anchors: ResumeAnchorState): void {
   window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(anchors));
+}
+
+function seedWorkflowSummaries(summaries: unknown[]): void {
+  window.localStorage.setItem(WORKFLOW_SUMMARIES_CACHE_KEY, JSON.stringify(summaries));
+}
+
+function summaryRecord(input: {
+  id: string;
+  rank: number;
+  occurredAt: string;
+  workflowThreadId: string;
+  workflowThreadTitle: string;
+  workflowThreadSummary: string | null;
+  representativeOutcomeId?: number | null;
+  resolvedLocation: ShellLocation;
+  requestedLocation?: ShellLocation | null;
+  displayTitle: string;
+  displaySummary: string;
+  workingSetName?: string | null;
+  source?: "receipt" | "recent" | "anchor";
+  outcomeCount?: number;
+  outcomePreviewTitles?: string[];
+  driftSeverity?: "none" | "minor" | "moderate" | "major" | "replaced" | "gone";
+  driftScore?: number;
+  workingSetRelevant?: boolean;
+  downstreamReady?: boolean;
+  degraded?: boolean;
+  degradedLabel?: string | null;
+  whyNow?: string[];
+  changedSinceLastSeen?: string[];
+  priorState?: { kind: "replaced" | "gone"; title: string; summary: string } | null;
+}) {
+  return {
+    id: input.id,
+    source: input.source ?? "receipt",
+    rank: input.rank,
+    rankingSignals: {
+      driftSeverity: input.driftSeverity ?? "moderate",
+      driftScore: input.driftScore ?? 52,
+      workingSetRelevant: input.workingSetRelevant ?? false,
+      downstreamReady: input.downstreamReady ?? true,
+      degraded: input.degraded ?? false,
+      recencyTieBreaker: 18,
+    },
+    workflowThread: {
+      id: input.workflowThreadId,
+      kind: "planning_checkpoint",
+      title: input.workflowThreadTitle,
+      summary: input.workflowThreadSummary,
+      parentOutcomeId: null,
+    },
+    representativeOutcomeId: input.representativeOutcomeId ?? null,
+    latestOutcomeId: input.representativeOutcomeId ?? null,
+    occurredAt: input.occurredAt,
+    outcomeCount: input.outcomeCount ?? 1,
+    outcomePreviewTitles: input.outcomePreviewTitles ?? [input.displayTitle],
+    requestedResumeLocation: input.requestedLocation ?? input.resolvedLocation,
+    resolvedResume: {
+      requestedLocation: input.requestedLocation ?? input.resolvedLocation,
+      resolvedLocation: input.resolvedLocation,
+      status: input.degraded ? "home_fallback" : "ok",
+      message: input.degradedLabel ?? null,
+      successor: null,
+    },
+    displayTitle: input.displayTitle,
+    displaySummary: input.displaySummary,
+    workingSetId: input.resolvedLocation.workingSetId ?? null,
+    workingSetName: input.workingSetName ?? null,
+    degraded: input.degraded ?? false,
+    degradedLabel: input.degradedLabel ?? null,
+    whyNow: input.whyNow ?? ["This workflow has fresh unseen movement."],
+    changedSinceLastSeen: input.changedSinceLastSeen ?? ["This workflow has never been seen from durable continuity."],
+    priorState: input.priorState ?? null,
+  };
 }
 
 let originalLocalStorage: Storage;
@@ -485,6 +560,20 @@ describe("shell-operator-cards", () => {
       },
       persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
     });
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "planning:41",
+        rank: 5400,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Weekly reset",
+        workflowThreadSummary: "Planning checkpoint thread",
+        representativeOutcomeId: 12,
+        resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+        displayTitle: "Launch review queue is ready",
+        displaySummary: "Open the prepared queue.",
+      }),
+    ]);
 
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
@@ -587,6 +676,69 @@ describe("shell-operator-cards", () => {
       },
       persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
     });
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "planning:99",
+        rank: 5400,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "planning:99",
+        workflowThreadTitle: "Replacement plan",
+        workflowThreadSummary: "New planning thread",
+        representativeOutcomeId: 12,
+        resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+        displayTitle: "Launch review queue is ready",
+        displaySummary: "Open the prepared queue.",
+        whyNow: ["A newer workflow superseded the prior path you last saved."],
+        changedSinceLastSeen: ["This workflow has never been seen from durable continuity."],
+        priorState: {
+          kind: "replaced",
+          title: "Old launch plan",
+          summary: "Old launch plan was superseded by Launch review queue is ready.",
+        },
+      }),
+      {
+        ...summaryRecord({
+          id: "planning:41",
+          rank: 3200,
+          occurredAt: "2026-03-18T18:09:00Z",
+          workflowThreadId: "planning:41",
+          workflowThreadTitle: "Old launch plan",
+          workflowThreadSummary: "Prior planning path",
+          source: "anchor",
+          resolvedLocation: createLocation({ state: "operator" }),
+          requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          displayTitle: "Old launch plan",
+          displaySummary: "Prior planning path",
+          degraded: true,
+          degradedLabel: "Original landed target is unavailable, so continuity falls back to home.",
+          whyNow: ["The prior landing target disappeared, so this is the safest surviving path."],
+          changedSinceLastSeen: ["This workflow has never been seen from durable continuity."],
+        }),
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          resolvedLocation: createLocation({ state: "operator" }),
+          status: "home_fallback",
+          message: "Original landed target is unavailable, so continuity falls back to home.",
+          successor: {
+            kind: "replacement",
+            outcomeId: 12,
+            title: "Launch review queue is ready",
+            summary: "Open the prepared queue.",
+            workflowThread: {
+              id: "planning:99",
+              kind: "planning_checkpoint",
+              title: "Replacement plan",
+              summary: "New planning thread",
+              parentOutcomeId: null,
+            },
+            requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+            resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+            status: "ok",
+            message: "Old launch plan was superseded by Launch review queue is ready.",
+          },
+        },
+      },
+    ]);
 
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
@@ -651,6 +803,20 @@ describe("shell-operator-cards", () => {
       },
       persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
     });
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "planning:41",
+        rank: 5400,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Weekly reset",
+        workflowThreadSummary: "Planning checkpoint thread",
+        representativeOutcomeId: 12,
+        resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
+        displayTitle: "Launch review queue is ready",
+        displaySummary: "Open the prepared queue.",
+      }),
+    ]);
 
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
@@ -681,6 +847,36 @@ describe("shell-operator-cards", () => {
       outcomeSummary: "Return to the saved enrichment queue.",
       workingSetId: 2,
     });
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "review:enrichment:27",
+        rank: 5100,
+        occurredAt: "2026-03-18T18:11:00Z",
+        workflowThreadId: "review:enrichment:27",
+        workflowThreadTitle: "Resume enrichment queue · Review Prep",
+        workflowThreadSummary: "Return to the saved enrichment queue.",
+        source: "anchor",
+        resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
+        displayTitle: "Resume enrichment queue · Review Prep",
+        displaySummary: "Return to the saved enrichment queue.",
+        workingSetName: "Review Prep",
+        workingSetRelevant: true,
+      }),
+      summaryRecord({
+        id: "planning:41",
+        rank: 4800,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Resume plan · Weekly reset",
+        workflowThreadSummary: "Return to the saved planning session.",
+        source: "anchor",
+        resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+        displayTitle: "Resume plan · Weekly reset",
+        displaySummary: "Return to the saved planning session.",
+        workingSetName: "Review Prep",
+        workingSetRelevant: true,
+      }),
+    ]);
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
       workingSets: [propagatedSet],
@@ -737,6 +933,35 @@ describe("shell-operator-cards", () => {
       outcomeSummary: "Return to the saved planning session.",
       workingSetId: 2,
     });
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "review:enrichment:27",
+        rank: 5400,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "review:enrichment:27",
+        workflowThreadTitle: "Applied enrichment suggestion",
+        workflowThreadSummary: "Applied suggestion #41 and refreshed the queue.",
+        representativeOutcomeId: 1,
+        resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
+        displayTitle: "Applied enrichment suggestion",
+        displaySummary: "Applied suggestion #41 and refreshed the queue.",
+        workingSetRelevant: true,
+      }),
+      summaryRecord({
+        id: "planning:41",
+        rank: 4800,
+        occurredAt: "2026-03-18T18:09:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Resume plan · Weekly reset",
+        workflowThreadSummary: "Return to the saved planning session.",
+        source: "anchor",
+        resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
+        displayTitle: "Resume plan · Weekly reset",
+        displaySummary: "Return to the saved planning session.",
+        workingSetName: "Review Prep",
+        workingSetRelevant: true,
+      }),
+    ]);
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
       workingSets: [makeWorkingSet(2, "Review Prep")],
@@ -811,6 +1036,19 @@ describe("shell-operator-cards", () => {
         },
       },
     });
+    seedWorkflowSummaries([
+      summaryRecord({
+        id: "planning:41",
+        rank: 5200,
+        occurredAt: "2026-03-18T18:10:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Weekly reset",
+        workflowThreadSummary: "Planning checkpoint thread",
+        resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+        displayTitle: "Refreshed weekly reset",
+        displaySummary: "The planning session was refreshed.",
+      }),
+    ]);
 
     const { elements, renderer } = createHarness({
       visitBaseline: null,

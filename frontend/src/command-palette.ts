@@ -64,15 +64,11 @@ import {
   markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
   markUndoActionUnavailable,
-  readContinuityLastSeenMarkers,
-  readResumeAnchors,
   recordRecentShellAction,
 } from "./continuity-intelligence";
 import {
-  buildContinuityAvailability,
-  groupRankedWorkflowThreads,
-  readRankedLandedOutcomes,
-  type RankedLandedOutcome,
+  readRankedWorkflowSummaries,
+  type RankedWorkflowSummary,
 } from "./continuity-follow-through";
 import { derivePrimaryRecommendation } from "./continuity-recommendations";
 import { continuityLocationIdentity } from "./continuity-outcomes";
@@ -956,40 +952,15 @@ function rankingContext(
   };
 }
 
-function continuityAvailabilityFromContext(context: CommandPaletteContext) {
-  return buildContinuityAvailability({
-    planningSessionIds: context.planningSessions.map((session) => session.id),
-    relationshipSessionIds: context.relationshipSessions.map((session) => session.id),
-    enrichmentSessionIds: context.enrichmentSessions.map((session) => session.id),
-    workingSets: context.workingSets.map((workingSet) => ({
-      workingSetId: workingSet.id,
-      workingSetName: workingSet.name,
-      itemCount: workingSet.item_count,
-      missingItemCount: workingSet.missing_item_count,
-    })),
-  });
-}
-
-function rankedFollowThrough(context: CommandPaletteContext): RankedLandedOutcome[] {
-  const resumeAnchors = readResumeAnchors();
-  const lastSeenMarkers = readContinuityLastSeenMarkers();
-  return readRankedLandedOutcomes({
-    availability: continuityAvailabilityFromContext(context),
-    activeWorkingSetId: context.workingSetContext?.active_working_set_id ?? null,
-    resumeAnchors,
-    lastSeenMarkers,
-  });
+function rankedFollowThrough(_context: CommandPaletteContext): RankedWorkflowSummary[] {
+  return readRankedWorkflowSummaries();
 }
 
 function primaryRecommendationForContext(
-  context: CommandPaletteContext,
-  outcomes: readonly RankedLandedOutcome[],
+  _context: CommandPaletteContext,
+  summaries: readonly RankedWorkflowSummary[],
 ) {
-  return derivePrimaryRecommendation({
-    outcomes,
-    resumeAnchors: readResumeAnchors(),
-    lastSeenMarkers: readContinuityLastSeenMarkers(),
-  });
+  return derivePrimaryRecommendation(summaries);
 }
 
 function commandItemHtml(command: CommandPaletteCommand, active: boolean): string {
@@ -1731,14 +1702,14 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
 
   function sessionCommands(
     context: CommandPaletteContext,
-    outcomes: readonly RankedLandedOutcome[],
+    summaries: readonly RankedWorkflowSummary[],
   ): CommandPaletteCommand[] {
     const commands: CommandPaletteCommand[] = [];
     const activeWorkingSet = context.workingSetContext?.active_working_set ?? null;
     const activeWorkingSetId = context.workingSetContext?.active_working_set_id ?? null;
     const activeWorkingSetName = activeWorkingSet?.name ?? null;
     const followThroughLocations = new Set(
-      outcomes.map((item) => continuityLocationIdentity(item.resumeLocation)),
+      summaries.map((item) => continuityLocationIdentity(item.resolvedResume.resolvedLocation)),
     );
     const scopedSubtitle = (base: string): string => {
       return activeWorkingSetName ? `${base} · ${activeWorkingSetName}` : base;
@@ -2065,7 +2036,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     recovery: ContinuityRecoveryPlan;
     keywords: string[];
     continuityRank: number;
-    continuitySignals: RankedLandedOutcome["rankingSignals"];
+    continuitySignals: RankedWorkflowSummary["rankingSignals"];
   }): CommandPaletteCommand {
     return {
       id: input.id,
@@ -2111,55 +2082,55 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
 
   function recommendedCommands(
     context: CommandPaletteContext,
-    outcomes: readonly RankedLandedOutcome[],
-    recommendation = primaryRecommendationForContext(context, outcomes),
+    summaries: readonly RankedWorkflowSummary[],
+    recommendation = primaryRecommendationForContext(context, summaries),
   ): CommandPaletteCommand[] {
     if (!recommendation) {
       return [];
     }
 
-    const item = recommendation.representative;
+    const summary = recommendation.summary;
     if (recommendation.recovery && !recommendation.recovery.acknowledged) {
       return [buildRecoveryPaletteCommand({
-        id: `recommended-recovery-${item.id}`,
+        id: `recommended-recovery-${summary.id}`,
         group: "recommended",
-        title: recommendation.workflow.thread.title,
+        title: summary.workflowThread.title,
         recovery: recommendation.recovery,
         keywords: [
-          recommendation.workflow.thread.title,
+          summary.workflowThread.title,
           recommendation.card.summary,
-          item.displayTitle,
-          item.displaySummary,
+          summary.displayTitle,
+          summary.displaySummary,
           ...recommendation.whyNow,
           ...recommendation.changedSinceLastSeen,
         ],
-        continuityRank: item.rank + 400,
-        continuitySignals: item.rankingSignals,
+        continuityRank: summary.rank + 400,
+        continuitySignals: summary.rankingSignals,
       })];
     }
 
     return [{
-      id: `recommended-${item.id}`,
+      id: `recommended-${summary.id}`,
       group: "recommended",
-      title: `Next move · ${recommendation.workflow.thread.title}`,
+      title: `Next move · ${summary.workflowThread.title}`,
       subtitle: recommendation.card.summary,
       keywords: [
-        recommendation.workflow.thread.title,
+        summary.workflowThread.title,
         recommendation.card.summary,
-        item.displayTitle,
-        item.displaySummary,
+        summary.displayTitle,
+        summary.displaySummary,
         ...recommendation.whyNow,
         ...recommendation.changedSinceLastSeen,
       ],
       badge: "Next move",
-      location: item.resumeLocation,
-      continuityRank: item.rank + 400,
+      location: summary.resolvedResume.resolvedLocation,
+      continuityRank: summary.rank + 400,
       continuitySignals: {
-        driftScore: item.rankingSignals.driftScore,
-        workingSetRelevant: item.rankingSignals.workingSetRelevant,
-        downstreamReady: item.rankingSignals.downstreamReady,
-        degraded: item.rankingSignals.degraded,
-        recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
+        driftScore: summary.rankingSignals.driftScore,
+        workingSetRelevant: summary.rankingSignals.workingSetRelevant,
+        downstreamReady: summary.rankingSignals.downstreamReady,
+        degraded: summary.rankingSignals.degraded,
+        recencyTieBreaker: summary.rankingSignals.recencyTieBreaker,
       },
       detail: {
         eyebrow: "Recommended next move",
@@ -2174,41 +2145,41 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         trust: recommendation.card.trust,
         recovery: recommendation.recovery ?? undefined,
       },
-      recentAction: { kind: "open-location", location: item.resumeLocation },
+      recentAction: { kind: "open-location", location: summary.resolvedResume.resolvedLocation },
       execute: async () => {
-        await bindings.openLocation(item.resumeLocation);
+        await bindings.openLocation(summary.resolvedResume.resolvedLocation);
       },
     } satisfies CommandPaletteCommand];
   }
 
   function recentCommands(
     context: CommandPaletteContext,
-    outcomes: readonly RankedLandedOutcome[],
-    excludedThreadId: string | null,
+    summaries: readonly RankedWorkflowSummary[],
+    excludedSummaryId: string | null,
   ): CommandPaletteCommand[] {
     const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
-    const grouped = groupRankedWorkflowThreads(outcomes)
-      .filter((thread) => thread.id !== excludedThreadId)
+    const visible = summaries
+      .filter((summary) => summary.id !== excludedSummaryId)
       .slice(0, 8);
 
-    return grouped.flatMap((thread) => {
-      const item = thread.representative;
+    return visible.flatMap((item) => {
       const commands: CommandPaletteCommand[] = [];
       const rerunAction = item.rerunAction;
       const undoAction = item.undoAction;
+      const workingSetName = item.workingSetName ?? item.card.handoff?.workingSet?.workingSetName ?? activeWorkingSetName ?? "";
 
       if (item.recovery && !item.recovery.acknowledged) {
         commands.push(buildRecoveryPaletteCommand({
           id: `recent-recovery-${item.id}`,
           group: "recent",
-          title: thread.thread.title,
+          title: item.workflowThread.title,
           recovery: item.recovery,
           keywords: [
             item.displayTitle,
             item.displaySummary,
-            thread.thread.title,
-            thread.thread.summary ?? "",
-            item.workingSetName ?? "",
+            item.workflowThread.title,
+            item.workflowThread.summary ?? "",
+            workingSetName,
             activeWorkingSetName ?? "",
           ],
           continuityRank: item.rank + 32,
@@ -2221,7 +2192,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         commands.push({
           id: `recent-rerun-${item.id}`,
           group: "recent",
-          title: `${rerunAction.label}: ${thread.thread.title}`,
+          title: `${rerunAction.label}: ${item.workflowThread.title}`,
           subtitle: rerunAction.description,
           keywords: [
             rerunAction.label,
@@ -2229,13 +2200,13 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             "refresh",
             item.displayTitle,
             item.displaySummary,
-            thread.thread.title,
-            thread.thread.summary ?? "",
-            item.workingSetName ?? "",
+            item.workflowThread.title,
+            item.workflowThread.summary ?? "",
+            workingSetName,
             activeWorkingSetName ?? "",
           ],
           badge: rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun",
-          location: item.resumeLocation,
+          location: item.resolvedResume.resolvedLocation,
           continuityRank: item.rank + 28,
           continuitySignals: {
             driftScore: item.rankingSignals.driftScore,
@@ -2248,7 +2219,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             eyebrow: rerunAction.contract.mode === "refresh" ? "Recent refresh" : "Recent rerun",
             description: rerunAction.description,
             meta: [
-              `Thread: ${thread.thread.title}`,
+              `Thread: ${item.workflowThread.title}`,
               `Strict: ${rerunAction.contract.strictInvariants.join(" · ")}`,
               `May vary: ${rerunAction.contract.mayVary.join(" · ")}`,
               rerunAction.contract.freshnessLabel,
@@ -2289,20 +2260,20 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         commands.push({
           id: `recent-undo-${item.id}`,
           group: "recent",
-          title: `${undoAction.label}: ${thread.thread.title}`,
+          title: `${undoAction.label}: ${item.workflowThread.title}`,
           subtitle: undoAction.description,
           keywords: [
             "undo",
             "rollback",
             item.displayTitle,
             item.displaySummary,
-            thread.thread.title,
-            thread.thread.summary ?? "",
-            item.workingSetName ?? "",
+            item.workflowThread.title,
+            item.workflowThread.summary ?? "",
+            workingSetName,
             activeWorkingSetName ?? "",
           ],
           badge: "Undo",
-          location: item.resumeLocation,
+          location: item.resolvedResume.resolvedLocation,
           continuityRank: item.rank + 24,
           continuitySignals: {
             driftScore: item.rankingSignals.driftScore,
@@ -2315,8 +2286,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
             description: undoAction.description,
             meta: [
-              `Thread: ${thread.thread.title}`,
-              item.workingSetName ? `Working set: ${item.workingSetName}` : null,
+              `Thread: ${item.workflowThread.title}`,
+              workingSetName ? `Working set: ${workingSetName}` : null,
               `Recorded ${formatRelativeTime(item.occurredAt)}`,
               item.degradedLabel,
             ].filter((value): value is string => Boolean(value)),
@@ -2354,19 +2325,19 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       commands.push({
         id: `recent-${item.id}`,
         group: "recent",
-        title: thread.thread.title,
-        subtitle: thread.thread.summary ?? item.displaySummary,
+        title: item.workflowThread.title,
+        subtitle: item.workflowThread.summary ?? item.displaySummary,
         keywords: [
           item.displayTitle,
           item.displaySummary,
-          thread.thread.title,
-          thread.thread.summary ?? "",
-          item.resumeLocation.state,
-          item.workingSetName ?? "",
+          item.workflowThread.title,
+          item.workflowThread.summary ?? "",
+          item.resolvedResume.resolvedLocation.state,
+          workingSetName,
           activeWorkingSetName ?? "",
         ],
-        badge: item.workflowThread ? "Thread" : (item.source === "anchor" ? "Resume" : "Outcome"),
-        location: item.resumeLocation,
+        badge: item.source === "anchor" ? "Resume" : "Thread",
+        location: item.resolvedResume.resolvedLocation,
         continuityRank: item.rank,
         continuitySignals: {
           driftScore: item.rankingSignals.driftScore,
@@ -2376,24 +2347,24 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
         },
         detail: {
-          eyebrow: item.workflowThread ? "Workflow thread" : (item.source === "anchor" ? "Resume anchor" : "Recent outcome"),
+          eyebrow: item.source === "anchor" ? "Resume anchor" : "Workflow thread",
           description: item.degradedLabel
             ? item.degradedLabel
-            : "Reopen the landed outcome using the same receipt and handoff contract shown in operator follow-through surfaces.",
+            : "Reopen the ranked workflow using the canonical backend continuity summary.",
           meta: [
-            item.workflowThread ? `Thread: ${item.workflowThread.title}` : null,
-            item.workingSetName ? `Working set: ${item.workingSetName}` : null,
+            `Thread: ${item.workflowThread.title}`,
+            workingSetName ? `Working set: ${workingSetName}` : null,
             `Recorded ${formatRelativeTime(item.occurredAt)}`,
-            item.rerunAction && !item.rerunAction.disabledReason
-              ? `${item.rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun"} available`
-              : item.undoAction && !item.undoAction.disabledReason
+            rerunAction && !rerunAction.disabledReason
+              ? `${rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun"} available`
+              : undoAction && !undoAction.disabledReason
                 ? "Undo available"
                 : "Resume only",
           ].filter((value): value is string => Boolean(value)),
           recovery: item.recovery ?? undefined,
         },
         execute: async () => {
-          await bindings.openLocation(item.resumeLocation);
+          await bindings.openLocation(item.resolvedResume.resolvedLocation);
         },
       } satisfies CommandPaletteCommand);
 
@@ -2405,15 +2376,15 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const context = bindings.getContext();
     const normalizedQuery = query.trim();
     const views = await ensureViewsLoaded().catch(() => [] as LoopViewResponse[]);
-    const outcomes = rankedFollowThrough(context);
-    const recommendation = primaryRecommendationForContext(context, outcomes);
+    const summaries = rankedFollowThrough(context);
+    const recommendation = primaryRecommendationForContext(context, summaries);
     const commands: CommandPaletteCommand[] = [
-      ...recommendedCommands(context, outcomes, recommendation),
-      ...recentCommands(context, outcomes, recommendation?.workflow.id ?? null),
+      ...recommendedCommands(context, summaries, recommendation),
+      ...recentCommands(context, summaries, recommendation?.summary.id ?? null),
       ...baseNavigationCommands(context),
       ...baseCaptureCommands(),
       ...baseActCommands(context),
-      ...sessionCommands(context, outcomes),
+      ...sessionCommands(context, summaries),
       ...savedViewCommands(views),
       ...recallQueryCommands(normalizedQuery),
       ...loopResultCommands(normalizedQuery, localLoopMatches(normalizedQuery, context.loops)),

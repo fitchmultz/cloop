@@ -1,12 +1,12 @@
 """Durable continuity storage regression tests.
 
 Purpose:
-    Verify backend-backed continuity outcomes, anchors, grouping, and fallback
-    resolution stay stable as cross-device continuity evolves.
+    Verify backend-backed continuity outcomes, anchors, workflow summaries, and
+    fallback resolution stay stable as cross-device continuity evolves.
 
 Responsibilities:
     - Assert durable continuity tables exist through the public DB bootstrap.
-    - Guard outcome deduplication and workflow-thread rollups.
+    - Guard outcome deduplication and backend-authored workflow summaries.
     - Verify explicit degraded fallback behavior for missing working-set scope and targets.
     - Confirm planning/review anchors persist through the snapshot surface.
 
@@ -27,6 +27,8 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+
+from conftest import insert_planning_session
 
 from cloop import db
 from cloop.schemas._loops.continuity import (
@@ -61,33 +63,6 @@ def _insert_loop(tmp_data_dir: Path, loop_id: int = 11) -> None:
             ) VALUES (?, ?, ?, ?, ?)
             """,
             (loop_id, f"Loop {loop_id}", "actionable", "2026-03-21T12:00:00Z", 0),
-        )
-        conn.commit()
-
-
-def _insert_planning_session(session_id: int, *, name: str | None = None) -> None:
-    with db.core_connection(get_settings()) as conn:
-        conn.execute(
-            """
-            INSERT INTO planning_sessions (
-                id,
-                name,
-                prompt,
-                query,
-                options_json,
-                plan_json,
-                current_checkpoint_index
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                name or f"Planning session {session_id}",
-                "Test planning prompt",
-                None,
-                "{}",
-                '{"workflow": {"checkpoints": []}}',
-                0,
-            ),
         )
         conn.commit()
 
@@ -178,10 +153,10 @@ def test_record_continuity_outcome_dedupes_within_window(tmp_data_dir: Path) -> 
     snapshot = read_continuity_snapshot()
     assert count == 1
     assert snapshot.outcomes[0].label == "Created review queue again"
-    assert snapshot.threads[0].outcome_count == 1
+    assert snapshot.workflow_summaries[0].representative_outcome_id == snapshot.outcomes[0].id
 
 
-def test_read_continuity_snapshot_groups_workflow_threads(tmp_data_dir: Path) -> None:
+def test_read_continuity_snapshot_builds_workflow_summaries(tmp_data_dir: Path) -> None:
     record_continuity_outcome(_outcome_request())
     record_continuity_outcome(
         _outcome_request(
@@ -194,9 +169,9 @@ def test_read_continuity_snapshot_groups_workflow_threads(tmp_data_dir: Path) ->
 
     snapshot = read_continuity_snapshot()
     assert len(snapshot.outcomes) == 2
-    assert snapshot.threads[0].workflow_thread.id == "planning:41:checkpoint:0"
-    assert snapshot.threads[0].outcome_count == 2
-    assert snapshot.threads[0].representative_title == "Refreshed planning thread"
+    assert snapshot.workflow_summaries[0].workflow_thread.id == "planning:41:checkpoint:0"
+    assert snapshot.workflow_summaries[0].outcome_count == 2
+    assert snapshot.workflow_summaries[0].outcome_preview_titles[0] == "Refreshed planning thread"
 
 
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:
@@ -328,7 +303,7 @@ def test_upsert_last_seen_markers_round_trips(tmp_data_dir: Path) -> None:
 def test_snapshot_emits_backend_successor_for_superseded_planning_outcome(
     tmp_data_dir: Path,
 ) -> None:
-    _insert_planning_session(99, name="Replacement plan")
+    insert_planning_session(99, name="Replacement plan")
 
     record_continuity_outcome(
         _outcome_request(
@@ -367,10 +342,13 @@ def test_snapshot_emits_backend_successor_for_superseded_planning_outcome(
     assert successor.kind == "replacement"
     assert successor.title == "Replacement plan"
     assert successor.resolved_location.session_id == 99
+    assert snapshot.workflow_summaries[0].workflow_thread.id == "planning:99"
+    assert snapshot.workflow_summaries[0].why_now
+    assert snapshot.workflow_summaries[0].changed_since_last_seen
 
 
 def test_anchor_carries_backend_successor_provenance(tmp_data_dir: Path) -> None:
-    _insert_planning_session(99, name="Replacement plan")
+    insert_planning_session(99, name="Replacement plan")
 
     upsert_continuity_anchor(
         ContinuityAnchorUpsertRequest(
@@ -410,6 +388,7 @@ def test_anchor_carries_backend_successor_provenance(tmp_data_dir: Path) -> None
     assert snapshot.anchors.planning.resolved_resume is not None
     assert snapshot.anchors.planning.resolved_resume.successor is not None
     assert snapshot.anchors.planning.resolved_resume.successor.resolved_location.session_id == 99
+    assert snapshot.workflow_summaries[0].prior_state is not None
 
 
 def test_recovery_acknowledgement_round_trips(tmp_data_dir: Path) -> None:

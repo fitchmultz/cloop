@@ -23,37 +23,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from conftest import insert_planning_session
 from fastapi.testclient import TestClient
-
-from cloop import db
-from cloop.settings import get_settings
-
-
-def _insert_planning_session(session_id: int, *, name: str | None = None) -> None:
-    with db.core_connection(get_settings()) as conn:
-        conn.execute(
-            """
-            INSERT INTO planning_sessions (
-                id,
-                name,
-                prompt,
-                query,
-                options_json,
-                plan_json,
-                current_checkpoint_index
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                name or f"Planning session {session_id}",
-                "Test planning prompt",
-                None,
-                "{}",
-                '{"workflow": {"checkpoints": []}}',
-                0,
-            ),
-        )
-        conn.commit()
 
 
 def _location_payload(
@@ -140,7 +111,7 @@ def test_get_continuity_snapshot_returns_empty_payload(
     payload = response.json()
     assert payload["outcomes"] == []
     assert payload["anchors"] == {"planning": None, "review": None}
-    assert payload["threads"] == []
+    assert payload["workflow_summaries"] == []
     assert payload["recovery_acknowledgements"] == []
 
 
@@ -174,7 +145,10 @@ def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
     assert outcome_response.status_code == 200
     outcome_payload = outcome_response.json()
     assert outcome_payload["outcomes"][0]["label"] == "Created launch queue"
-    assert outcome_payload["threads"][0]["workflow_thread"]["id"] == "planning:41:checkpoint:0"
+    assert (
+        outcome_payload["workflow_summaries"][0]["workflow_thread"]["id"]
+        == "planning:41:checkpoint:0"
+    )
 
     anchor_response = test_client.put(
         "/loops/continuity/anchors/planning",
@@ -243,7 +217,7 @@ def test_snapshot_includes_successor_and_recovery_acknowledgements(
     test_client: TestClient,
     tmp_data_dir: Path,
 ) -> None:
-    _insert_planning_session(99, name="Replacement plan")
+    insert_planning_session(99, name="Replacement plan")
 
     old_plan = test_client.post(
         "/loops/continuity/outcomes",
@@ -277,6 +251,10 @@ def test_snapshot_includes_successor_and_recovery_acknowledgements(
     old_plan_payload = next(item for item in payload["outcomes"] if item["label"] == "Old plan")
     assert old_plan_payload["resolved_resume"]["successor"]["kind"] == "replacement"
     assert old_plan_payload["resolved_resume"]["successor"]["resolved_location"]["session_id"] == 99
+    top_summary = payload["workflow_summaries"][0]
+    assert top_summary["workflow_thread"]["id"] == "planning:99"
+    assert top_summary["why_now"]
+    assert top_summary["changed_since_last_seen"]
 
     recovery_key = "replacement::planning:41::location:null::plan|chat|planning|99|-|-|-|-|-"
     ack_response = test_client.put(

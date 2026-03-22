@@ -38,6 +38,9 @@ import type {
   ContinuityRecoveryAcknowledgementUpsertRequest,
   ContinuitySnapshotResponse,
   ContinuitySuccessorTargetResponse,
+  ContinuityWorkflowSummaryPriorStateResponse,
+  ContinuityWorkflowSummaryResponse,
+  ContinuityWorkflowSummarySignalsResponse,
   EnrichmentReviewSessionSnapshotResponse,
   LoopMetricsResponse,
   LoopResponse,
@@ -45,6 +48,7 @@ import type {
   LoopReviewResponse,
   PlanningSessionSnapshotResponse,
   RelationshipReviewSessionSnapshotResponse,
+  ResolvedContinuityTargetResponse,
   WorkingSetContextResponse,
 } from "./domain";
 import type {
@@ -54,6 +58,8 @@ import type {
   ContinuityPersistenceState,
   ContinuityResolvedStatus,
   ContinuitySuccessorTarget,
+  ContinuityWorkflowSummary,
+  ContinuityWorkflowSummaryPriorState,
   DurableRecoveryAcknowledgement,
   ExecutableRerunHandle,
   ExecutableUndoHandle,
@@ -86,6 +92,7 @@ import {
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
+const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v1";
 const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
 const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
 const CONTINUITY_RECOVERY_ACKS_KEY = "cloop.continuity.recovery-acks.cache.v2";
@@ -362,6 +369,77 @@ function normalizeResolvedTarget(value: unknown): ResolvedContinuityTarget | nul
   };
 }
 
+function parseContinuityRankingSignals(value: unknown) {
+  if (!isRecord(value) || typeof value["driftSeverity"] !== "string") {
+    return null;
+  }
+  return {
+    driftSeverity: value["driftSeverity"] as ContinuityWorkflowSummary["rankingSignals"]["driftSeverity"],
+    driftScore: integerValue(value["driftScore"]) ?? 0,
+    workingSetRelevant: value["workingSetRelevant"] === true,
+    downstreamReady: value["downstreamReady"] === true,
+    degraded: value["degraded"] === true,
+    recencyTieBreaker: integerValue(value["recencyTieBreaker"]) ?? 0,
+  } satisfies ContinuityWorkflowSummary["rankingSignals"];
+}
+
+function parseContinuityWorkflowSummaryPriorState(
+  value: unknown,
+): ContinuityWorkflowSummaryPriorState | null {
+  if (!isRecord(value) || typeof value["kind"] !== "string" || typeof value["title"] !== "string" || typeof value["summary"] !== "string") {
+    return null;
+  }
+  if (value["kind"] !== "replaced" && value["kind"] !== "gone") {
+    return null;
+  }
+  return {
+    kind: value["kind"],
+    title: value["title"],
+    summary: value["summary"],
+  };
+}
+
+function parseContinuityWorkflowSummary(value: unknown): ContinuityWorkflowSummary | null {
+  if (!isRecord(value) || typeof value["id"] !== "string" || typeof value["source"] !== "string" || typeof value["rank"] !== "number" || typeof value["occurredAt"] !== "string") {
+    return null;
+  }
+  const workflowThread = normalizeWorkflowThread(value["workflowThread"]);
+  const resolvedResume = normalizeResolvedTarget(value["resolvedResume"]);
+  const rankingSignals = parseContinuityRankingSignals(value["rankingSignals"]);
+  if (!workflowThread || !resolvedResume || !rankingSignals) {
+    return null;
+  }
+  return {
+    id: value["id"],
+    source: value["source"] as ContinuityWorkflowSummary["source"],
+    rank: value["rank"],
+    rankingSignals,
+    workflowThread,
+    representativeOutcomeId: integerValue(value["representativeOutcomeId"]),
+    latestOutcomeId: integerValue(value["latestOutcomeId"]),
+    occurredAt: value["occurredAt"],
+    outcomeCount: integerValue(value["outcomeCount"]) ?? 0,
+    outcomePreviewTitles: Array.isArray(value["outcomePreviewTitles"])
+      ? value["outcomePreviewTitles"].filter((item): item is string => typeof item === "string")
+      : [],
+    requestedResumeLocation: normalizeLocation(value["requestedResumeLocation"]),
+    resolvedResume,
+    displayTitle: typeof value["displayTitle"] === "string" ? value["displayTitle"] : workflowThread.title,
+    displaySummary: typeof value["displaySummary"] === "string" ? value["displaySummary"] : workflowThread.summary ?? "",
+    workingSetId: integerValue(value["workingSetId"]),
+    workingSetName: stringValue(value["workingSetName"]),
+    degraded: value["degraded"] === true,
+    degradedLabel: stringValue(value["degradedLabel"]),
+    whyNow: Array.isArray(value["whyNow"])
+      ? value["whyNow"].filter((item): item is string => typeof item === "string")
+      : [],
+    changedSinceLastSeen: Array.isArray(value["changedSinceLastSeen"])
+      ? value["changedSinceLastSeen"].filter((item): item is string => typeof item === "string")
+      : [],
+    priorState: parseContinuityWorkflowSummaryPriorState(value["priorState"]),
+  };
+}
+
 function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {
   return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
 }
@@ -574,6 +652,26 @@ function writeRecentActionsCache(entries: readonly RecentShellActionEntry[]): vo
     return;
   }
   window.localStorage.setItem(RECENT_ACTIONS_CACHE_KEY, JSON.stringify(entries));
+}
+
+export function readContinuityWorkflowSummaries(): ContinuityWorkflowSummary[] {
+  if (!canUseLocalStorage()) {
+    return [];
+  }
+  const parsed = safeJsonParse<unknown[]>(window.localStorage.getItem(WORKFLOW_SUMMARIES_CACHE_KEY), []);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+  return parsed
+    .map((item) => parseContinuityWorkflowSummary(item))
+    .filter((item): item is ContinuityWorkflowSummary => item !== null);
+}
+
+function writeContinuityWorkflowSummaries(summaries: readonly ContinuityWorkflowSummary[]): void {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+  window.localStorage.setItem(WORKFLOW_SUMMARIES_CACHE_KEY, JSON.stringify(summaries));
 }
 
 function readResumeAnchorsCache(): ResumeAnchorState {
@@ -859,7 +957,7 @@ function mapSuccessorFromApi(
 }
 
 function mapResolvedTargetFromApi(
-  resolved: ContinuityOutcomeRecordResponse["resolved_resume"],
+  resolved: ResolvedContinuityTargetResponse,
 ): ResolvedContinuityTarget {
   return {
     requestedLocation: mapLocationFromApi(resolved.requested_location),
@@ -946,6 +1044,66 @@ function mapRecoveryAcknowledgementResponse(
   };
 }
 
+function mapWorkflowSummarySignalsResponse(
+  response: ContinuityWorkflowSummarySignalsResponse,
+): ContinuityWorkflowSummary["rankingSignals"] {
+  return {
+    driftSeverity: response.drift_severity,
+    driftScore: response.drift_score,
+    workingSetRelevant: response.working_set_relevant,
+    downstreamReady: response.downstream_ready,
+    degraded: response.degraded,
+    recencyTieBreaker: response.recency_tie_breaker,
+  };
+}
+
+function mapWorkflowSummaryPriorStateResponse(
+  response: ContinuityWorkflowSummaryPriorStateResponse | null | undefined,
+): ContinuityWorkflowSummaryPriorState | null {
+  if (!response) {
+    return null;
+  }
+  return {
+    kind: response.kind,
+    title: response.title,
+    summary: response.summary,
+  };
+}
+
+function mapWorkflowSummaryResponse(
+  response: ContinuityWorkflowSummaryResponse,
+): ContinuityWorkflowSummary {
+  return {
+    id: response.id,
+    source: response.source,
+    rank: response.rank,
+    rankingSignals: mapWorkflowSummarySignalsResponse(response.ranking_signals),
+    workflowThread: {
+      id: response.workflow_thread.id,
+      kind: response.workflow_thread.kind,
+      title: response.workflow_thread.title,
+      summary: response.workflow_thread.summary ?? null,
+      parentOutcomeId: response.workflow_thread.parent_outcome_id ?? null,
+    },
+    representativeOutcomeId: response.representative_outcome_id ?? null,
+    latestOutcomeId: response.latest_outcome_id ?? null,
+    occurredAt: response.occurred_at_utc,
+    outcomeCount: response.outcome_count,
+    outcomePreviewTitles: response.outcome_preview_titles ?? [],
+    requestedResumeLocation: mapLocationFromApi(response.requested_resume_location),
+    resolvedResume: mapResolvedTargetFromApi(response.resolved_resume),
+    displayTitle: response.display_title,
+    displaySummary: response.display_summary,
+    workingSetId: response.working_set_id ?? null,
+    workingSetName: response.working_set_name ?? null,
+    degraded: Boolean(response.degraded),
+    degradedLabel: response.degraded_label ?? null,
+    whyNow: response.why_now ?? [],
+    changedSinceLastSeen: response.changed_since_last_seen ?? [],
+    priorState: mapWorkflowSummaryPriorStateResponse(response.prior_state),
+  };
+}
+
 function mergePendingEntries(snapshotEntries: readonly RecentShellActionEntry[]): RecentShellActionEntry[] {
   const pendingEntries = readPendingContinuityWrites()
     .flatMap((write) => write.kind === "outcome" ? [write.entry] : [])
@@ -983,12 +1141,16 @@ function mergePendingLastSeenMarkers(
 function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   const snapshotEntries = (snapshot.outcomes ?? []).map((item) => mapPersistedOutcomeToRecentEntry(item));
   const anchors = snapshot.anchors ?? { planning: null, review: null };
+  const workflowSummaries = (snapshot.workflow_summaries ?? []).map((item) =>
+    mapWorkflowSummaryResponse(item),
+  );
   const lastSeenMarkers = (snapshot.last_seen_markers ?? []).map((item) => mapLastSeenMarkerResponse(item));
   const recoveryAcks = (snapshot.recovery_acknowledgements ?? []).map((item) =>
     mapRecoveryAcknowledgementResponse(item),
   );
   writeRecentActionsCache(mergePendingEntries(snapshotEntries));
   writeResumeAnchorsCache(mergePendingAnchors(mapPersistedAnchors(anchors)));
+  writeContinuityWorkflowSummaries(workflowSummaries);
   writeContinuityLastSeenMarkers(mergePendingLastSeenMarkers(lastSeenMarkers));
   writeContinuityRecoveryAcks(mergePendingRecoveryAcks(recoveryAcks));
   emitRecentShellActionsUpdated();
@@ -1225,8 +1387,9 @@ export function buildCohortLastSeenMarker(input: {
   };
 }
 
-export function buildWorkflowThreadLastSeenMarker(input: {
-  workflowThreadId: string;
+export function buildWorkflowSummaryLastSeenMarker(input: {
+  summaryId: string;
+  workflowThreadId: string | null;
   workingSetId: number | null;
   latestOutcomeId: number | null;
   title: string;
@@ -1239,7 +1402,7 @@ export function buildWorkflowThreadLastSeenMarker(input: {
   } satisfies Record<string, unknown>;
   return {
     entityKind: "workflow_thread",
-    entityKey: input.workflowThreadId,
+    entityKey: input.summaryId,
     observedAtUtc: new Date().toISOString(),
     observedFingerprint: buildFingerprint(observedState),
     workingSetId: input.workingSetId,

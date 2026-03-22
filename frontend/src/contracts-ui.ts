@@ -204,6 +204,38 @@ export interface ContinuityRankingSignals {
   recencyTieBreaker: number;
 }
 
+export type ContinuityWorkflowSummarySource = "receipt" | "recent" | "anchor";
+
+export interface ContinuityWorkflowSummaryPriorState {
+  kind: "replaced" | "gone";
+  title: string;
+  summary: string;
+}
+
+export interface ContinuityWorkflowSummary {
+  id: string;
+  source: ContinuityWorkflowSummarySource;
+  rank: number;
+  rankingSignals: ContinuityRankingSignals;
+  workflowThread: WorkflowThreadRef;
+  representativeOutcomeId: number | null;
+  latestOutcomeId: number | null;
+  occurredAt: string;
+  outcomeCount: number;
+  outcomePreviewTitles: string[];
+  requestedResumeLocation: ShellLocationContract | null;
+  resolvedResume: ResolvedContinuityTarget;
+  displayTitle: string;
+  displaySummary: string;
+  workingSetId: number | null;
+  workingSetName: string | null;
+  degraded: boolean;
+  degradedLabel: string | null;
+  whyNow: string[];
+  changedSinceLastSeen: string[];
+  priorState: ContinuityWorkflowSummaryPriorState | null;
+}
+
 export interface ContinuityDriftSignal {
   entityKind: ContinuityEntityKind;
   entityKey: string;

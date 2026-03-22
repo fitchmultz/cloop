@@ -2,8 +2,8 @@
 
 Purpose:
     Define request and response models for backend-backed continuity outcomes,
-    grouped workflow threads, durable resume anchors, recovery provenance, and
-    durable recovery acknowledgements.
+    durable resume anchors, backend-authored workflow summaries, recovery
+    provenance, and durable recovery acknowledgements.
 
 Responsibilities:
     - Validate continuity outcome, anchor, last-seen, and recovery-ack writes.
@@ -60,6 +60,8 @@ ContinuityTargetStatus = Literal[
     "home_fallback",
 ]
 ContinuitySuccessorKind = Literal["replacement"]
+ContinuityWorkflowSummarySource = Literal["receipt", "recent", "anchor"]
+ContinuityWorkflowSummaryPriorStateKind = Literal["replaced", "gone"]
 ContinuityObservedEntityKind = Literal[
     "planning_session",
     "review_session",
@@ -244,15 +246,49 @@ class ContinuityOutcomeRecordResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ContinuityThreadSummaryResponse(BaseModel):
-    """Grouped workflow-thread rollup for continuity readers."""
+class ContinuityWorkflowSummarySignalsResponse(BaseModel):
+    """Deterministic ranking signals for one backend-authored workflow summary."""
 
+    drift_severity: Literal["none", "minor", "moderate", "major", "replaced", "gone"]
+    drift_score: int
+    working_set_relevant: bool
+    downstream_ready: bool
+    degraded: bool
+    recency_tie_breaker: int
+
+
+class ContinuityWorkflowSummaryPriorStateResponse(BaseModel):
+    """Prior-path state explanation attached to one workflow summary."""
+
+    kind: ContinuityWorkflowSummaryPriorStateKind
+    title: str
+    summary: str
+
+
+class ContinuityWorkflowSummaryResponse(BaseModel):
+    """Backend-authored ranked continuity summary for one resumable workflow."""
+
+    id: str
+    source: ContinuityWorkflowSummarySource
+    rank: int
+    ranking_signals: ContinuityWorkflowSummarySignalsResponse
     workflow_thread: WorkflowThreadRefResponse
+    representative_outcome_id: int | None = None
+    latest_outcome_id: int | None = None
+    occurred_at_utc: str
     outcome_count: int
-    latest_outcome_id: int
-    latest_occurred_at_utc: str
-    representative_title: str
-    representative_summary: str
+    outcome_preview_titles: list[str] = Field(default_factory=list)
+    requested_resume_location: ContinuityLocationResponse | None = None
+    resolved_resume: ResolvedContinuityTargetResponse
+    display_title: str
+    display_summary: str
+    working_set_id: int | None = None
+    working_set_name: str | None = None
+    degraded: bool = False
+    degraded_label: str | None = None
+    why_now: list[str] = Field(default_factory=list)
+    changed_since_last_seen: list[str] = Field(default_factory=list)
+    prior_state: ContinuityWorkflowSummaryPriorStateResponse | None = None
 
 
 class ContinuitySnapshotResponse(BaseModel):
@@ -261,7 +297,7 @@ class ContinuitySnapshotResponse(BaseModel):
     recorded_at_utc: str
     outcomes: list[ContinuityOutcomeRecordResponse] = Field(default_factory=list)
     anchors: ContinuityAnchorsResponse = Field(default_factory=ContinuityAnchorsResponse)
-    threads: list[ContinuityThreadSummaryResponse] = Field(default_factory=list)
+    workflow_summaries: list[ContinuityWorkflowSummaryResponse] = Field(default_factory=list)
     last_seen_markers: list[ContinuityLastSeenMarkerResponse] = Field(default_factory=list)
     recovery_acknowledgements: list[ContinuityRecoveryAcknowledgementResponse] = Field(
         default_factory=list
@@ -282,7 +318,9 @@ __all__ = [
     "ContinuityRecoveryAcknowledgementUpsertRequest",
     "ContinuitySnapshotResponse",
     "ContinuitySuccessorTargetResponse",
-    "ContinuityThreadSummaryResponse",
+    "ContinuityWorkflowSummaryPriorStateResponse",
+    "ContinuityWorkflowSummaryResponse",
+    "ContinuityWorkflowSummarySignalsResponse",
     "ResolvedContinuityTargetResponse",
     "WorkflowThreadRefResponse",
 ]

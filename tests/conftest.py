@@ -1,8 +1,22 @@
 """Shared pytest fixtures and test utilities for Cloop tests.
 
-This module provides:
-- Centralized mock factories for LLM and embedding responses
-- Datetime helpers (_now_iso) for consistent timestamp generation
+Purpose:
+    Provide reusable pytest fixtures and test helpers for isolated Cloop test runs.
+
+Responsibilities:
+    - Build isolated settings and FastAPI clients for tests.
+    - Provide common mock factories for LLM and embedding responses.
+    - Provide shared timestamp and durable-record seed helpers.
+
+Non-scope:
+    - Feature-specific assertions or test-only business logic.
+
+Usage:
+    Imported automatically by pytest and directly by tests that need shared helpers.
+
+Invariants/Assumptions:
+    - Helpers target the public Cloop DB/bootstrap surfaces.
+    - Temporary data directories stay isolated per test.
 """
 
 from datetime import datetime, timezone
@@ -145,6 +159,34 @@ def _now_iso() -> str:
     Used by test_db_failures.py, test_mcp_server.py, test_loops_query.py, test_loop_*.py.
     """
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def insert_planning_session(session_id: int, *, name: str | None = None) -> None:
+    """Insert a minimal planning session row for continuity/planning tests."""
+    with db.core_connection(get_settings()) as conn:
+        conn.execute(
+            """
+            INSERT INTO planning_sessions (
+                id,
+                name,
+                prompt,
+                query,
+                options_json,
+                plan_json,
+                current_checkpoint_index
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                name or f"Planning session {session_id}",
+                "Test planning prompt",
+                None,
+                "{}",
+                '{"workflow": {"checkpoints": []}}',
+                0,
+            ),
+        )
+        conn.commit()
 
 
 @pytest.fixture

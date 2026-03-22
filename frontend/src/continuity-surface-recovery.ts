@@ -3,11 +3,10 @@
  *
  * Purpose:
  *   Resolve the active continuity recovery plan for planning, review, and recall
- *   surfaces without duplicating ranked-outcome lookup logic.
+ *   surfaces from the canonical backend-authored workflow summary feed.
  *
  * Responsibilities:
- *   - Build continuity availability snapshots for downstream surfaces.
- *   - Read ranked landed outcomes from durable continuity state.
+ *   - Read ranked workflow summaries from durable continuity hydration.
  *   - Find the recovery plan that matches a surface location or workflow thread.
  *
  * Scope:
@@ -17,42 +16,25 @@
  *   - Imported by review-workspace.ts and recall surface modules.
  *
  * Invariants/Assumptions:
- *   - Backend-authored successor provenance is the canonical replacement source.
- *   - Surfaces may omit availability details; persisted resolved targets still win.
- *   - Working-set metadata stays shallow and transport-safe.
+ *   - Backend-authored workflow summaries are the canonical continuity feed.
+ *   - Recovery provenance remains backend-authored and stable across surfaces.
  */
 
 import type {
   ContinuityRecoveryPlan,
   ShellLocationContract,
-  WorkingSetSessionMetadata,
 } from "./contracts-ui";
 import {
-  buildContinuityAvailability,
   findRecoveryPlanForLocation,
-  readRankedLandedOutcomes,
+  readRankedWorkflowSummaries,
 } from "./continuity-follow-through";
-
-export interface SurfaceRecoveryAvailabilityInput {
-  planningSessionIds?: readonly number[];
-  relationshipSessionIds?: readonly number[];
-  enrichmentSessionIds?: readonly number[];
-  workingSets?: readonly WorkingSetSessionMetadata[];
-}
 
 export function continuityRecoveryForLocation(input: {
   location: ShellLocationContract | null;
   workflowThreadId?: string | null;
-  availability?: SurfaceRecoveryAvailabilityInput;
 }): ContinuityRecoveryPlan | null {
-  const availability = buildContinuityAvailability({
-    planningSessionIds: input.availability?.planningSessionIds ?? [],
-    relationshipSessionIds: input.availability?.relationshipSessionIds ?? [],
-    enrichmentSessionIds: input.availability?.enrichmentSessionIds ?? [],
-    workingSets: input.availability?.workingSets ?? [],
-  });
-  const outcomes = readRankedLandedOutcomes({ availability });
-  return findRecoveryPlanForLocation(outcomes, {
+  const summaries = readRankedWorkflowSummaries();
+  return findRecoveryPlanForLocation(summaries, {
     location: input.location,
     workflowThreadId: input.workflowThreadId ?? null,
   });

@@ -58,19 +58,14 @@ import {
   buildCohortLastSeenMarker,
   buildPlanningLastSeenMarker,
   buildReviewLastSeenMarker,
-  buildWorkflowThreadLastSeenMarker,
+  buildWorkflowSummaryLastSeenMarker,
   readContinuityLastSeenMarkers,
   readRecentShellActions,
-  readResumeAnchors,
   rememberContinuityObservation,
   rememberPlanningAnchor,
   rememberReviewAnchor,
 } from "./continuity-intelligence";
-import {
-  buildContinuityAvailability,
-  groupRankedWorkflowThreads,
-  readRankedLandedOutcomes,
-} from "./continuity-follow-through";
+import { readRankedWorkflowSummaries } from "./continuity-follow-through";
 import {
   buildPrimaryRecommendationDigestCard,
   derivePrimaryRecommendation,
@@ -80,7 +75,6 @@ import {
   buildReviewSessionRefreshAction,
 } from "./executable-rerun";
 import { buildPlanningRollbackAction } from "./executable-undo";
-import { continuityLocationIdentity } from "./continuity-outcomes";
 import {
   buildChangedCountPreviewItems,
   buildGroupedChangePreviewItems,
@@ -1937,74 +1931,31 @@ function withWorkingSetHandoff(cards: OperatorActionCard[]): OperatorActionCard[
   });
 }
 
-function continuityWorkingSets(): WorkingSetSessionMetadata[] {
-  return latestWorkingSets.map((workingSet) => ({
-    workingSetId: workingSet.id,
-    workingSetName: workingSet.name,
-    itemCount: workingSet.item_count,
-    missingItemCount: workingSet.missing_item_count,
-  }));
-}
-
-function followThroughAvailability(data: WorkspaceData) {
-  return buildContinuityAvailability({
-    planningSessionIds: [
-      ...data.planningSessions.map((session) => session.id),
-      ...(data.planningSnapshot?.session ? [data.planningSnapshot.session.id] : []),
-    ],
-    relationshipSessionIds: [
-      ...data.relationshipSessions.map((session) => session.id),
-      ...(data.relationshipSnapshot?.session ? [data.relationshipSnapshot.session.id] : []),
-    ],
-    enrichmentSessionIds: [
-      ...data.enrichmentSessions.map((session) => session.id),
-      ...(data.enrichmentSnapshot?.session ? [data.enrichmentSnapshot.session.id] : []),
-    ],
-    workingSets: continuityWorkingSets(),
-  });
-}
-
 interface FollowThroughModel {
-  outcomes: ReturnType<typeof readRankedLandedOutcomes>;
+  summaries: ReturnType<typeof readRankedWorkflowSummaries>;
   recommendation: ReturnType<typeof derivePrimaryRecommendation>;
 }
 
-function followThroughModel(data: WorkspaceData): FollowThroughModel {
-  const availability = followThroughAvailability(data);
-  const activeWorkingSetId = workingSetContext?.active_working_set_id ?? continuityBaseline?.activeWorkingSetId ?? null;
-  const resumeAnchors = readResumeAnchors();
-  const lastSeenMarkers = readContinuityLastSeenMarkers();
-  const outcomes = readRankedLandedOutcomes({
-    availability,
-    activeWorkingSetId,
-    resumeAnchors,
-    lastSeenMarkers,
-  });
-  const recommendation = derivePrimaryRecommendation({
-    outcomes,
-    resumeAnchors,
-    lastSeenMarkers,
-  });
+function followThroughModel(_data: WorkspaceData): FollowThroughModel {
+  const summaries = readRankedWorkflowSummaries();
+  const recommendation = derivePrimaryRecommendation(summaries);
 
   return {
-    outcomes,
+    summaries,
     recommendation,
   };
 }
 
 function followThroughFeed(data: WorkspaceData) {
-  return followThroughModel(data).outcomes;
+  return followThroughModel(data).summaries;
 }
 
 function buildFollowThroughCards(
-  outcomes: readonly ReturnType<typeof readRankedLandedOutcomes>[number][],
-  excludedThreadId: string | null,
+  summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+  excludedSummaryId: string | null,
 ): PrioritizedCard[] {
-  return outcomes
-    .filter((item) => {
-      const identity = item.workflowThread?.id ?? continuityLocationIdentity(item.resumeLocation);
-      return identity !== excludedThreadId && (item.recovery == null || item.recovery.acknowledged);
-    })
+  return summaries
+    .filter((item) => item.id !== excludedSummaryId && (item.recovery == null || item.recovery.acknowledged))
     .slice(0, 3)
     .map((item, index) => ({
       priority: 120 - index * 5,
@@ -2013,14 +1964,11 @@ function buildFollowThroughCards(
 }
 
 function buildRecoveryCards(
-  outcomes: readonly ReturnType<typeof readRankedLandedOutcomes>[number][],
-  excludedThreadId: string | null,
+  summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+  excludedSummaryId: string | null,
 ): PrioritizedCard[] {
-  return outcomes
-    .filter((item) => {
-      const identity = item.workflowThread?.id ?? continuityLocationIdentity(item.resumeLocation);
-      return identity !== excludedThreadId && item.recovery != null && !item.recovery.acknowledged;
-    })
+  return summaries
+    .filter((item) => item.id !== excludedSummaryId && item.recovery != null && !item.recovery.acknowledged)
     .slice(0, 2)
     .map((item, index) => ({
       priority: 129 - index * 3,
@@ -2034,28 +1982,28 @@ function buildRecoveryCards(
 }
 
 function buildWorkflowThreadRollupCards(
-  outcomes: readonly ReturnType<typeof readRankedLandedOutcomes>[number][],
-  excludedThreadId: string | null,
+  summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+  excludedSummaryId: string | null,
 ): PrioritizedCard[] {
-  return groupRankedWorkflowThreads(outcomes)
-    .filter((thread) => thread.id !== excludedThreadId && thread.outcomeCount > 1)
+  return summaries
+    .filter((summary) => summary.id !== excludedSummaryId && summary.outcomeCount > 1)
     .slice(0, 3)
-    .map((thread, index) => ({
+    .map((summary, index) => ({
       priority: 118 - index * 4,
       card: {
-        ...thread.representative.card,
-        id: `workflow-thread-${thread.id}`,
+        ...summary.card,
+        id: `workflow-thread-${summary.id}`,
         eyebrow: "Workflow thread",
-        title: thread.thread.title,
-        summary: thread.thread.summary ?? `${thread.outcomeCount} related outcomes landed in this workflow thread.`,
+        title: summary.workflowThread.title,
+        summary: summary.workflowThread.summary ?? `${summary.outcomeCount} related outcomes landed in this workflow thread.`,
         rationale:
           "Related receipts, reruns, and downstream handoffs should read as one workflow thread instead of disconnected event fragments.",
         preview: [
-          { label: "Latest", value: thread.representative.displayTitle },
-          { label: "Outcomes", value: `${thread.outcomeCount}` },
-          ...thread.outcomes.slice(0, 2).map((item, itemIndex) => ({
+          { label: "Latest", value: summary.displayTitle },
+          { label: "Outcomes", value: `${summary.outcomeCount}` },
+          ...summary.outcomePreviewTitles.slice(0, 2).map((value, itemIndex) => ({
             label: `Step ${itemIndex + 1}`,
-            value: item.displayTitle,
+            value,
           })),
         ],
       },
@@ -2064,14 +2012,14 @@ function buildWorkflowThreadRollupCards(
 
 function buildSinceLastCards(data: WorkspaceData): OperatorActionCard[] {
   const model = followThroughModel(data);
-  const excludedThreadId = model.recommendation?.workflow.id ?? null;
+  const excludedSummaryId = model.recommendation?.summary.id ?? null;
   const prioritized: PrioritizedCard[] = [
     ...(model.recommendation
       ? [{ priority: 132, card: buildPrimaryRecommendationDigestCard(model.recommendation) }]
       : []),
-    ...buildRecoveryCards(model.outcomes, excludedThreadId),
-    ...buildWorkflowThreadRollupCards(model.outcomes, excludedThreadId),
-    ...buildFollowThroughCards(model.outcomes, excludedThreadId),
+    ...buildRecoveryCards(model.summaries, excludedSummaryId),
+    ...buildWorkflowThreadRollupCards(model.summaries, excludedSummaryId),
+    ...buildFollowThroughCards(model.summaries, excludedSummaryId),
   ];
   const maybeCards = [
     buildPlanningDriftCard(data),
@@ -2230,14 +2178,14 @@ function renderSinceLastVisit(data: WorkspaceData): void {
       buildCohortLastSeenMarker({ cohort: "due_soon_unplanned", reviewData: data.reviewData, workingSetId }),
       buildCohortLastSeenMarker({ cohort: "no_next_action", reviewData: data.reviewData, workingSetId }),
       ...followThroughFeed(data)
-        .filter((item) => item.workflowThread)
         .slice(0, 4)
-        .map((item) => buildWorkflowThreadLastSeenMarker({
-          workflowThreadId: item.workflowThread!.id,
+        .map((item) => buildWorkflowSummaryLastSeenMarker({
+          summaryId: item.id,
+          workflowThreadId: item.workflowThread.id,
           workingSetId: item.workingSetId,
-          latestOutcomeId: item.persistedOutcomeId,
-          title: item.workflowThread!.title,
-          summary: item.workflowThread!.summary,
+          latestOutcomeId: item.latestOutcomeId,
+          title: item.workflowThread.title,
+          summary: item.workflowThread.summary,
         })),
     ].filter((value): value is NonNullable<typeof value> => value != null);
 

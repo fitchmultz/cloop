@@ -33,10 +33,7 @@ import {
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
   recordRecentShellAction,
 } from "./continuity-intelligence";
-import {
-  buildContinuityAvailability,
-  readRankedLandedOutcomes,
-} from "./continuity-follow-through";
+import { readRankedWorkflowSummaries } from "./continuity-follow-through";
 import { isLowSignalNavigationEntry } from "./continuity-outcomes";
 import { contractFromLocation } from "./surface-runtime";
 import {
@@ -478,29 +475,7 @@ function renderShellReceiptRail(): void {
     return;
   }
 
-  const cards: OperatorActionCard[] = readRankedLandedOutcomes({
-    availability: buildContinuityAvailability({
-      planningSessionIds: [
-        ...workspaceData.planningSessions.map((session) => session.id),
-        ...(workspaceData.planningSnapshot?.session ? [workspaceData.planningSnapshot.session.id] : []),
-      ],
-      relationshipSessionIds: [
-        ...workspaceData.relationshipSessions.map((session) => session.id),
-        ...(workspaceData.relationshipSnapshot?.session ? [workspaceData.relationshipSnapshot.session.id] : []),
-      ],
-      enrichmentSessionIds: [
-        ...workspaceData.enrichmentSessions.map((session) => session.id),
-        ...(workspaceData.enrichmentSnapshot?.session ? [workspaceData.enrichmentSnapshot.session.id] : []),
-      ],
-      workingSets: getLatestWorkingSets().map((workingSet) => ({
-        workingSetId: workingSet.id,
-        workingSetName: workingSet.name,
-        itemCount: workingSet.item_count,
-        missingItemCount: workingSet.missing_item_count,
-      })),
-    }),
-    activeWorkingSetId: getWorkingSetContext()?.active_working_set_id ?? null,
-  })
+  const cards: OperatorActionCard[] = readRankedWorkflowSummaries()
     .slice(0, 1)
     .map((item) => item.card);
 
