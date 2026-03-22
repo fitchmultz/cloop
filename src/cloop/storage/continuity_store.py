@@ -2,13 +2,16 @@
 
 Purpose:
     Persist and read backend-backed landed continuity outcomes, grouped workflow
-    threads, and resume anchors for cross-device operator continuity.
+    threads, resume anchors, backend-authored recovery provenance, and durable
+    recovery acknowledgements for cross-device operator continuity.
 
 Responsibilities:
     - Record high-signal landed outcomes with deduplication.
     - Upsert durable planning and review resume anchors.
     - Resolve persisted resume targets against current durable resources.
     - Build grouped workflow-thread summaries for frontend hydration.
+    - Attach explicit successor provenance for stale or superseded resumable paths.
+    - Persist durable continuity recovery acknowledgements.
 
 Non-scope:
     - Frontend ranking or rendering behavior.
@@ -21,6 +24,8 @@ Invariants/Assumptions:
     - Stored JSON payloads remain transport-safe and serializable.
     - Durable continuity prefers landed outcomes over launch points.
     - Missing working-set scope should degrade to the durable target before home.
+    - Replacement provenance is computed on the backend and consumed as the
+      canonical continuity recovery contract.
 """
 
 from __future__ import annotations
@@ -42,7 +47,11 @@ from ..schemas._loops.continuity import (
     ContinuityLocationResponse,
     ContinuityOutcomeRecordResponse,
     ContinuityOutcomeWriteRequest,
+    ContinuityRecoveryAcknowledgementResponse,
+    ContinuityRecoveryAcknowledgementUpsertRequest,
     ContinuitySnapshotResponse,
+    ContinuitySuccessorTargetResponse,
+    ContinuityTargetStatus,
     ContinuityThreadSummaryResponse,
     ContinuityWorkflowThreadKind,
     ResolvedContinuityTargetResponse,
@@ -160,13 +169,29 @@ def _location_exists(conn: sqlite3.Connection, location: ContinuityLocationRespo
     return True
 
 
+def _resolved_target(
+    *,
+    requested_location: ContinuityLocationResponse | None,
+    resolved_location: ContinuityLocationResponse,
+    status: ContinuityTargetStatus,
+    message: str | None,
+) -> ResolvedContinuityTargetResponse:
+    return ResolvedContinuityTargetResponse(
+        requested_location=requested_location,
+        resolved_location=resolved_location,
+        status=status,
+        message=message,
+        successor=None,
+    )
+
+
 def _resolve_location(
     conn: sqlite3.Connection,
     requested: ContinuityLocationResponse | None,
     launch: ContinuityLocationResponse | None,
 ) -> ResolvedContinuityTargetResponse:
     if requested is None:
-        return ResolvedContinuityTargetResponse(
+        return _resolved_target(
             requested_location=None,
             resolved_location=_HOME_LOCATION,
             status="home_fallback",
@@ -178,7 +203,7 @@ def _resolve_location(
     ):
         unscoped = requested.model_copy(update={"working_set_id": None})
         if _location_exists(conn, unscoped):
-            return ResolvedContinuityTargetResponse(
+            return _resolved_target(
                 requested_location=requested,
                 resolved_location=unscoped,
                 status="working_set_scope_removed",
@@ -188,7 +213,7 @@ def _resolve_location(
                 ),
             )
         if launch is not None and _location_exists(conn, launch):
-            return ResolvedContinuityTargetResponse(
+            return _resolved_target(
                 requested_location=requested,
                 resolved_location=launch,
                 status="launch_fallback",
@@ -197,7 +222,7 @@ def _resolve_location(
                     "falls back to the launch workflow."
                 ),
             )
-        return ResolvedContinuityTargetResponse(
+        return _resolved_target(
             requested_location=requested,
             resolved_location=_HOME_LOCATION,
             status="home_fallback",
@@ -207,7 +232,7 @@ def _resolve_location(
         )
 
     if _location_exists(conn, requested):
-        return ResolvedContinuityTargetResponse(
+        return _resolved_target(
             requested_location=requested,
             resolved_location=requested,
             status="ok",
@@ -215,7 +240,7 @@ def _resolve_location(
         )
 
     if launch is not None and _location_exists(conn, launch):
-        return ResolvedContinuityTargetResponse(
+        return _resolved_target(
             requested_location=requested,
             resolved_location=launch,
             status="launch_fallback",
@@ -225,7 +250,7 @@ def _resolve_location(
             ),
         )
 
-    return ResolvedContinuityTargetResponse(
+    return _resolved_target(
         requested_location=requested,
         resolved_location=_HOME_LOCATION,
         status="home_fallback",
@@ -241,12 +266,15 @@ def _anchor_from_row(row: Mapping[str, Any]) -> ContinuityAnchorResponse:
         visited_at_utc=str(row["visited_at_utc"]),
         launch_location=_location_from_json(row["launch_location_json"]),
         resume_location=_location_from_json(row["resume_location_json"]),
+        resolved_resume=None,
         outcome_title=str(row["outcome_title"]) if row["outcome_title"] is not None else None,
         outcome_summary=str(row["outcome_summary"]) if row["outcome_summary"] is not None else None,
         working_set_id=int(row["working_set_id"]) if row["working_set_id"] is not None else None,
         workflow_thread_id=str(row["workflow_thread_id"])
         if row["workflow_thread_id"] is not None
         else None,
+        degraded=False,
+        degraded_label=None,
         metadata=_load_json_map(row["metadata_json"]),
     )
 
@@ -262,6 +290,14 @@ def _last_seen_marker_from_row(row: Mapping[str, Any]) -> ContinuityLastSeenMark
         if row["workflow_thread_id"] is not None
         else None,
         observed_state=_load_json_map(row["observed_state_json"]),
+        metadata=_load_json_map(row["metadata_json"]),
+    )
+
+
+def _recovery_ack_from_row(row: Mapping[str, Any]) -> ContinuityRecoveryAcknowledgementResponse:
+    return ContinuityRecoveryAcknowledgementResponse(
+        recovery_key=str(row["recovery_key"]),
+        acknowledged_at_utc=str(row["acknowledged_at_utc"]),
         metadata=_load_json_map(row["metadata_json"]),
     )
 
@@ -289,6 +325,193 @@ def _outcome_from_row(
         degraded=degraded,
         degraded_label=resolved_resume.message if degraded else None,
         metadata=_load_json_map(row["metadata_json"]),
+    )
+
+
+def _display_title(record: ContinuityOutcomeRecordResponse) -> str:
+    if isinstance(record.outcome_card, dict):
+        title = record.outcome_card.get("title")
+        if isinstance(title, str) and title.strip():
+            return title
+    return record.label
+
+
+def _replacement_family(
+    workflow_thread: WorkflowThreadRefResponse | None,
+    requested_location: ContinuityLocationResponse | None,
+    resolved_location: ContinuityLocationResponse,
+) -> str | None:
+    location = requested_location or resolved_location
+    if workflow_thread and workflow_thread.kind == "planning_checkpoint":
+        return "planning"
+    if workflow_thread and workflow_thread.kind == "review_session":
+        return "review"
+    if location.state == "plan":
+        return "planning"
+    if location.state == "decide" and location.review_focus in {"relationship", "enrichment"}:
+        return "review"
+    return None
+
+
+def _replacement_identity(
+    workflow_thread: WorkflowThreadRefResponse | None,
+    requested_location: ContinuityLocationResponse | None,
+    resolved_location: ContinuityLocationResponse,
+) -> str:
+    if workflow_thread is not None:
+        return f"thread:{workflow_thread.id}"
+    location = requested_location or resolved_location
+    return _dump_json(location)
+
+
+def _is_viable_successor(status: ContinuityTargetStatus) -> bool:
+    return status in {"ok", "working_set_scope_removed", "launch_fallback"}
+
+
+def _successor_source(
+    outcomes: list[ContinuityOutcomeRecordResponse],
+    *,
+    workflow_thread: WorkflowThreadRefResponse | None,
+    requested_location: ContinuityLocationResponse | None,
+    resolved_location: ContinuityLocationResponse,
+    visited_at_utc: str | None = None,
+) -> ContinuityOutcomeRecordResponse | None:
+    family = _replacement_family(
+        workflow_thread,
+        requested_location,
+        resolved_location,
+    )
+    identity = _replacement_identity(
+        workflow_thread,
+        requested_location,
+        resolved_location,
+    )
+    if family is None:
+        return None
+    visited_at = _parse_timestamp(visited_at_utc) if visited_at_utc is not None else None
+    return next(
+        (
+            item
+            for item in outcomes
+            if _replacement_family(
+                item.workflow_thread,
+                item.resolved_resume.requested_location,
+                item.resolved_resume.resolved_location,
+            )
+            == family
+            and _replacement_identity(
+                item.workflow_thread,
+                item.resolved_resume.requested_location,
+                item.resolved_resume.resolved_location,
+            )
+            != identity
+            and _is_viable_successor(item.resolved_resume.status)
+            and (visited_at is None or _parse_timestamp(item.occurred_at_utc) >= visited_at)
+        ),
+        None,
+    )
+
+
+def _build_successor(
+    record: ContinuityOutcomeRecordResponse,
+    prior_title: str,
+) -> ContinuitySuccessorTargetResponse:
+    successor_title = _display_title(record)
+    return ContinuitySuccessorTargetResponse(
+        kind="replacement",
+        outcome_id=record.id,
+        title=successor_title,
+        summary=record.description,
+        workflow_thread=record.workflow_thread,
+        requested_location=record.resolved_resume.requested_location,
+        resolved_location=record.resolved_resume.resolved_location,
+        status=record.resolved_resume.status,
+        message=f"{prior_title} was superseded by {successor_title}.",
+    )
+
+
+def _attach_successors(
+    outcomes: list[ContinuityOutcomeRecordResponse],
+) -> list[ContinuityOutcomeRecordResponse]:
+    ordered = sorted(
+        outcomes,
+        key=lambda item: (_parse_timestamp(item.occurred_at_utc), item.id),
+        reverse=True,
+    )
+    enriched: list[ContinuityOutcomeRecordResponse] = []
+
+    for index, candidate in enumerate(ordered):
+        successor_source = _successor_source(
+            ordered[:index],
+            workflow_thread=candidate.workflow_thread,
+            requested_location=candidate.resolved_resume.requested_location,
+            resolved_location=candidate.resolved_resume.resolved_location,
+        )
+        successor = (
+            _build_successor(successor_source, _display_title(candidate))
+            if successor_source is not None
+            else None
+        )
+        enriched.append(
+            candidate.model_copy(
+                update={
+                    "resolved_resume": candidate.resolved_resume.model_copy(
+                        update={"successor": successor}
+                    )
+                }
+            )
+        )
+
+    return enriched
+
+
+def _anchor_thread_ref(anchor: ContinuityAnchorResponse) -> WorkflowThreadRefResponse | None:
+    if not anchor.workflow_thread_id:
+        return None
+    kind: ContinuityWorkflowThreadKind = (
+        "planning_checkpoint" if anchor.kind == "planning" else "review_session"
+    )
+    return WorkflowThreadRefResponse(
+        id=anchor.workflow_thread_id,
+        kind=kind,
+        title=anchor.outcome_title or f"{anchor.kind.title()} #{anchor.session_id}",
+        summary=anchor.outcome_summary,
+        parent_outcome_id=None,
+    )
+
+
+def _resolve_anchor(
+    conn: sqlite3.Connection,
+    anchor: ContinuityAnchorResponse,
+    outcomes: list[ContinuityOutcomeRecordResponse],
+) -> ContinuityAnchorResponse:
+    resolved_resume = _resolve_location(conn, anchor.resume_location, anchor.launch_location)
+    thread_ref = _anchor_thread_ref(anchor)
+    successor_source = _successor_source(
+        outcomes,
+        workflow_thread=thread_ref,
+        requested_location=resolved_resume.requested_location,
+        resolved_location=resolved_resume.resolved_location,
+        visited_at_utc=anchor.visited_at_utc,
+    )
+    resolved_resume = resolved_resume.model_copy(
+        update={
+            "successor": _build_successor(
+                successor_source,
+                anchor.outcome_title or f"{anchor.kind.title()} #{anchor.session_id}",
+            )
+            if successor_source is not None
+            else None
+        }
+    )
+    degraded = resolved_resume.status != "ok"
+
+    return anchor.model_copy(
+        update={
+            "resolved_resume": resolved_resume,
+            "degraded": degraded,
+            "degraded_label": resolved_resume.message if degraded else None,
+        }
     )
 
 
@@ -529,6 +752,36 @@ def upsert_continuity_last_seen_markers(
         conn.commit()
 
 
+def upsert_continuity_recovery_acknowledgement(
+    payload: ContinuityRecoveryAcknowledgementUpsertRequest,
+    *,
+    settings: Settings | None = None,
+) -> None:
+    """Upsert one durable continuity recovery acknowledgement."""
+    settings = settings or get_settings()
+    with db.core_connection(settings) as conn:
+        conn.execute(
+            """
+            INSERT INTO continuity_recovery_acknowledgements (
+                recovery_key,
+                acknowledged_at_utc,
+                metadata_json,
+                updated_at
+            ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(recovery_key) DO UPDATE SET
+                acknowledged_at_utc = excluded.acknowledged_at_utc,
+                metadata_json = excluded.metadata_json,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                payload.recovery_key,
+                payload.acknowledged_at_utc,
+                _dump_json(payload.metadata),
+            ),
+        )
+        conn.commit()
+
+
 def read_continuity_snapshot(
     *,
     limit: int = 48,
@@ -543,9 +796,7 @@ def read_continuity_snapshot(
             FROM continuity_outcomes
             WHERE signal_level = 'high'
             ORDER BY occurred_at_utc DESC, id DESC
-            LIMIT ?
-            """,
-            (limit,),
+            """
         ).fetchall()
         anchor_rows = conn.execute(
             """
@@ -561,8 +812,16 @@ def read_continuity_snapshot(
             ORDER BY observed_at_utc DESC, entity_kind ASC, entity_key ASC
             """
         ).fetchall()
+        acknowledgement_rows = conn.execute(
+            """
+            SELECT *
+            FROM continuity_recovery_acknowledgements
+            ORDER BY acknowledged_at_utc DESC, recovery_key ASC
+            """
+        ).fetchall()
 
-        outcomes = [_outcome_from_row(conn, row) for row in outcome_rows]
+        all_outcomes = _attach_successors([_outcome_from_row(conn, row) for row in outcome_rows])
+        outcomes = all_outcomes[:limit]
 
         thread_buckets: dict[str, list[ContinuityOutcomeRecordResponse]] = defaultdict(list)
         for outcome in outcomes:
@@ -574,9 +833,7 @@ def read_continuity_snapshot(
                 outcome_count=len(items),
                 latest_outcome_id=items[0].id,
                 latest_occurred_at_utc=items[0].occurred_at_utc,
-                representative_title=items[0].outcome_card.get("title", items[0].label)
-                if isinstance(items[0].outcome_card, dict)
-                else items[0].label,
+                representative_title=_display_title(items[0]),
                 representative_summary=items[0].outcome_card.get("summary", items[0].description)
                 if isinstance(items[0].outcome_card, dict)
                 else items[0].description,
@@ -597,13 +854,15 @@ def read_continuity_snapshot(
 
         anchors = ContinuityAnchorsResponse()
         for row in anchor_rows:
-            anchor = _anchor_from_row(row)
-            if anchor.kind == "planning":
-                anchors.planning = anchor
-            elif anchor.kind == "review":
-                anchors.review = anchor
+            unresolved = _anchor_from_row(row)
+            resolved = _resolve_anchor(conn, unresolved, all_outcomes)
+            if resolved.kind == "planning":
+                anchors.planning = resolved
+            elif resolved.kind == "review":
+                anchors.review = resolved
 
         last_seen_markers = [_last_seen_marker_from_row(row) for row in marker_rows]
+        recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
 
         return ContinuitySnapshotResponse(
             recorded_at_utc=_utc_now_iso(),
@@ -611,6 +870,7 @@ def read_continuity_snapshot(
             anchors=anchors,
             threads=threads,
             last_seen_markers=last_seen_markers,
+            recovery_acknowledgements=recovery_acknowledgements,
         )
 
 
@@ -619,4 +879,5 @@ __all__ = [
     "record_continuity_outcome",
     "upsert_continuity_anchor",
     "upsert_continuity_last_seen_markers",
+    "upsert_continuity_recovery_acknowledgement",
 ]

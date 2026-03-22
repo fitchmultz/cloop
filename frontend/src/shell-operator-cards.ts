@@ -1982,7 +1982,6 @@ function followThroughModel(data: WorkspaceData): FollowThroughModel {
   });
   const recommendation = derivePrimaryRecommendation({
     outcomes,
-    availability,
     resumeAnchors,
     lastSeenMarkers,
   });

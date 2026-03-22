@@ -22,7 +22,8 @@
  */
 
 import type { ChatMessage, ChatPreferences } from "../contracts-ui";
-import { parseHash } from "../shell-routing";
+import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
+import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import * as state from "./state";
@@ -301,6 +302,7 @@ function renderMessageActionCards(message: ChatMessage, prompt: string | null): 
     memoryEntriesUsed: message.context?.memory_entries_used,
     ragContextApplied: message.context?.rag_context_applied,
     ragChunksUsed: message.context?.rag_chunks_used,
+    recovery: currentRecallRecovery(prompt ?? null),
   });
 }
 
@@ -458,6 +460,17 @@ function currentWorkingSetId(): number | null {
   return parseHash(window.location.hash)?.workingSetId ?? null;
 }
 
+function currentRecallRecovery(query: string | null = null) {
+  return continuityRecoveryForLocation({
+    location: createLocation({
+      state: "recall",
+      recallTool: "chat",
+      workingSetId: currentWorkingSetId(),
+      query,
+    }),
+  });
+}
+
 function renderActionCards(): void {
   renderRecallActionCards(chatActionCardsEl, {
     tool: "chat",
@@ -465,6 +478,7 @@ function renderActionCards(): void {
     chatGroundingSummary: chatControlsStatusEl?.textContent || undefined,
     hasKnowledge: state.getChatPreferences().includeRagContext,
     ragQuestion: state.getChatPreferences().ragScope || undefined,
+    recovery: currentRecallRecovery(chatInput?.value.trim() || null),
   });
 }
 

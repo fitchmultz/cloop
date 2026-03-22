@@ -24,6 +24,7 @@
  */
 
 import { recordRecentShellAction, rememberPlanningAnchor, rememberReviewAnchor } from "./continuity-intelligence";
+import type { ResumeAnchorState } from "./contracts-ui";
 import type {
   PlanningExecutionHistoryItemResponse,
   PlanningSessionSnapshotResponse,
@@ -356,6 +357,12 @@ function createMemoryStorage(): Storage {
   } satisfies Storage;
 }
 
+const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
+
+function seedResumeAnchors(anchors: ResumeAnchorState): void {
+  window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(anchors));
+}
+
 let originalLocalStorage: Storage;
 
 describe("shell-operator-cards", () => {
@@ -473,6 +480,7 @@ describe("shell-operator-cards", () => {
           resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
           status: "ok",
           message: null,
+          successor: null,
         },
       },
       persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
@@ -489,13 +497,45 @@ describe("shell-operator-cards", () => {
   });
 
   it("surfaces explicit recovery cards near the top of since-last", () => {
-    rememberPlanningAnchor({
-      sessionId: 41,
-      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
-      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
-      outcomeTitle: "Old launch plan",
-      outcomeSummary: "Prior planning path",
-      workflowThreadId: "planning:41",
+    seedResumeAnchors({
+      planning: {
+        kind: "planning",
+        reviewFocus: "planning",
+        sessionId: 41,
+        visitedAtUtc: "2026-03-18T18:09:00Z",
+        launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+        resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          resolvedLocation: createLocation({ state: "operator" }),
+          status: "home_fallback",
+          message: "Original landed target is unavailable, so continuity falls back to home.",
+          successor: {
+            kind: "replacement",
+            outcomeId: 12,
+            title: "Launch review queue is ready",
+            summary: "Open the prepared queue.",
+            workflowThread: {
+              id: "planning:99",
+              kind: "planning_checkpoint",
+              title: "Replacement plan",
+              summary: "New planning thread",
+              parentOutcomeId: null,
+            },
+            requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+            resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+            status: "ok",
+            message: "Old launch plan was superseded by Launch review queue is ready.",
+          },
+        },
+        outcomeTitle: "Old launch plan",
+        outcomeSummary: "Prior planning path",
+        workingSetId: null,
+        workflowThreadId: "planning:41",
+        degraded: true,
+        degradedLabel: "Original landed target is unavailable, so continuity falls back to home.",
+      },
+      review: null,
     });
     recordRecentShellAction({
       kind: "planning",
@@ -542,6 +582,7 @@ describe("shell-operator-cards", () => {
           resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
           status: "ok",
           message: null,
+          successor: null,
         },
       },
       persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
@@ -605,6 +646,7 @@ describe("shell-operator-cards", () => {
           resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
           status: "ok",
           message: null,
+          successor: null,
         },
       },
       persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
@@ -765,6 +807,7 @@ describe("shell-operator-cards", () => {
           resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
           status: "ok",
           message: null,
+          successor: null,
         },
       },
     });

@@ -149,6 +149,9 @@ describe("continuity-intelligence", () => {
         outcomeSummary: "Return to the saved planning session.",
         workingSetId: 3,
         workflowThreadId: "planning:41",
+        resolvedResume: null,
+        degraded: false,
+        degradedLabel: null,
       },
       review: {
         kind: "review",
@@ -161,6 +164,9 @@ describe("continuity-intelligence", () => {
         outcomeSummary: "Return to the saved relationship queue.",
         workingSetId: 5,
         workflowThreadId: "review:relationship:7",
+        resolvedResume: null,
+        degraded: false,
+        degradedLabel: null,
       },
     });
   });
@@ -242,6 +248,7 @@ describe("continuity-intelligence", () => {
               },
               status: "ok",
               message: null,
+              successor: null,
             },
             workflow_thread: {
               id: "planning:41:checkpoint:0",

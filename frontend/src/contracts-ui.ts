@@ -143,11 +143,24 @@ export type ContinuityResolvedStatus =
 
 export type ContinuityRecoveryKind = Exclude<ContinuityResolvedStatus, "ok"> | "replacement";
 
+export interface ContinuitySuccessorTarget {
+  kind: "replacement";
+  outcomeId: number;
+  title: string;
+  summary: string | null;
+  workflowThread: WorkflowThreadRef | null;
+  requestedLocation: ShellLocationContract | null;
+  resolvedLocation: ShellLocationContract;
+  status: ContinuityResolvedStatus;
+  message: string | null;
+}
+
 export interface ResolvedContinuityTarget {
   requestedLocation: ShellLocationContract | null;
   resolvedLocation: ShellLocationContract;
   status: ContinuityResolvedStatus;
   message: string | null;
+  successor: ContinuitySuccessorTarget | null;
 }
 
 export interface ContinuityPersistenceState {
@@ -213,10 +226,13 @@ export interface ResumeAnchorTarget {
   visitedAtUtc: string;
   launchLocation: ShellLocationContract | null;
   resumeLocation: ShellLocationContract | null;
+  resolvedResume: ResolvedContinuityTarget | null;
   outcomeTitle: string | null;
   outcomeSummary: string | null;
   workingSetId: number | null;
   workflowThreadId?: string | null;
+  degraded: boolean;
+  degradedLabel: string | null;
 }
 
 export interface ResumeAnchorState {
@@ -330,6 +346,12 @@ export type OperatorActionCardActionType =
   | "acknowledge";
 export type OperatorActionCardActionVariant = "primary" | "secondary";
 export type OperatorActionCardEmphasis = "standard" | "primary";
+
+export interface DurableRecoveryAcknowledgement {
+  recoveryKey: string;
+  acknowledgedAtUtc: string;
+  metadata: Record<string, unknown>;
+}
 
 export interface ContinuityRecoveryPlan {
   key: string;

@@ -31,17 +31,13 @@ import type {
   ResumeAnchorTarget,
 } from "./contracts-ui";
 import type {
-  ContinuityAvailability,
   RankedLandedOutcome,
   RankedWorkflowThread,
 } from "./continuity-follow-through";
-import {
-  fallbackFollowThroughLocation,
-  groupRankedWorkflowThreads,
-} from "./continuity-follow-through";
+import { groupRankedWorkflowThreads } from "./continuity-follow-through";
 import {
   applyContinuityRecovery,
-  buildReplacementRecoveryPlan,
+  buildContinuityRecoveryPlan,
 } from "./continuity-recovery";
 import { continuityLocationIdentity } from "./continuity-outcomes";
 
@@ -180,7 +176,6 @@ function buildChangedSinceLastSeen(
 function buildPriorState(
   representative: RankedLandedOutcome,
   anchors: ResumeAnchorState,
-  availability: ContinuityAvailability,
 ): PrimaryRecommendationPriorState | null {
   const anchor = priorAnchorForOutcome(representative, anchors);
   if (!anchor) {
@@ -196,25 +191,28 @@ function buildPriorState(
     return null;
   }
 
-  const fallback = fallbackFollowThroughLocation(anchor.resumeLocation ?? anchor.launchLocation, availability);
-  if (fallback.degraded) {
+  if (anchor.resolvedResume?.successor) {
     return {
-      kind: "gone",
+      kind: anchor.degraded ? "gone" : "replaced",
       title: anchor.outcomeTitle ?? "Prior path",
-      summary: fallback.degradedLabel ?? "The prior primary path is no longer available.",
+      summary: anchor.resolvedResume.successor.message
+        ?? `${anchor.outcomeTitle ?? "Prior path"} was superseded by ${anchor.resolvedResume.successor.title}.`,
     };
   }
 
-  return {
-    kind: "replaced",
-    title: anchor.outcomeTitle ?? "Prior path",
-    summary: `${anchor.outcomeTitle ?? "The prior path"} was superseded by ${representative.displayTitle}.`,
-  };
+  if (anchor.degraded) {
+    return {
+      kind: "gone",
+      title: anchor.outcomeTitle ?? "Prior path",
+      summary: anchor.degradedLabel ?? "The prior primary path is no longer available.",
+    };
+  }
+
+  return null;
 }
 
 export function derivePrimaryRecommendation(input: {
   outcomes: readonly RankedLandedOutcome[];
-  availability: ContinuityAvailability;
   resumeAnchors: ResumeAnchorState;
   lastSeenMarkers: readonly ContinuityLastSeenMarker[];
 }): PrimaryRecommendation | null {
@@ -227,23 +225,19 @@ export function derivePrimaryRecommendation(input: {
   const representative = workflow.representative;
   const whyNow = buildWhyNow(workflow, representative);
   const changedSinceLastSeen = buildChangedSinceLastSeen(workflow, representative, input.lastSeenMarkers);
-  const priorState = buildPriorState(representative, input.resumeAnchors, input.availability);
+  const priorState = buildPriorState(representative, input.resumeAnchors);
   const impactSummary = uniqueLines([
     ...whyNow.slice(1),
     ...changedSinceLastSeen,
     priorState?.summary,
   ]).join(" · ");
 
-  const recovery = representative.recovery ?? (priorState
-    ? buildReplacementRecoveryPlan({
-        priorTitle: priorState.title,
-        representativeTitle: representative.displayTitle,
-        location: representative.resumeLocation,
-        workflowThread: representative.workflowThread,
-        gone: priorState.kind === "gone",
-        summaryOverride: priorState.summary,
-      })
-    : null);
+  const anchor = priorAnchorForOutcome(representative, input.resumeAnchors);
+  const recovery = representative.recovery ?? buildContinuityRecoveryPlan({
+    displayTitle: anchor?.outcomeTitle ?? representative.displayTitle,
+    resolvedTarget: anchor?.resolvedResume ?? null,
+    workflowThread: representative.workflowThread,
+  });
 
   const baseCard: OperatorActionCard = {
     ...representative.card,

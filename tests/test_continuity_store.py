@@ -35,6 +35,7 @@ from cloop.schemas._loops.continuity import (
     ContinuityLastSeenMarkerUpsertRequest,
     ContinuityLocationResponse,
     ContinuityOutcomeWriteRequest,
+    ContinuityRecoveryAcknowledgementUpsertRequest,
     WorkflowThreadRefResponse,
 )
 from cloop.settings import get_settings
@@ -43,6 +44,7 @@ from cloop.storage.continuity_store import (
     record_continuity_outcome,
     upsert_continuity_anchor,
     upsert_continuity_last_seen_markers,
+    upsert_continuity_recovery_acknowledgement,
 )
 
 
@@ -59,6 +61,33 @@ def _insert_loop(tmp_data_dir: Path, loop_id: int = 11) -> None:
             ) VALUES (?, ?, ?, ?, ?)
             """,
             (loop_id, f"Loop {loop_id}", "actionable", "2026-03-21T12:00:00Z", 0),
+        )
+        conn.commit()
+
+
+def _insert_planning_session(session_id: int, *, name: str | None = None) -> None:
+    with db.core_connection(get_settings()) as conn:
+        conn.execute(
+            """
+            INSERT INTO planning_sessions (
+                id,
+                name,
+                prompt,
+                query,
+                options_json,
+                plan_json,
+                current_checkpoint_index
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                name or f"Planning session {session_id}",
+                "Test planning prompt",
+                None,
+                "{}",
+                '{"workflow": {"checkpoints": []}}',
+                0,
+            ),
         )
         conn.commit()
 
@@ -119,11 +148,19 @@ def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
         table_names = {
             row[0]
             for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?)",
-                ("continuity_outcomes", "continuity_resume_anchors"),
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
+                (
+                    "continuity_outcomes",
+                    "continuity_resume_anchors",
+                    "continuity_recovery_acknowledgements",
+                ),
             ).fetchall()
         }
-    assert table_names == {"continuity_outcomes", "continuity_resume_anchors"}
+    assert table_names == {
+        "continuity_outcomes",
+        "continuity_resume_anchors",
+        "continuity_recovery_acknowledgements",
+    }
 
 
 def test_record_continuity_outcome_dedupes_within_window(tmp_data_dir: Path) -> None:
@@ -286,3 +323,103 @@ def test_upsert_last_seen_markers_round_trips(tmp_data_dir: Path) -> None:
     assert snapshot.last_seen_markers[0].entity_key == "planning:41"
     assert snapshot.last_seen_markers[0].workflow_thread_id == "planning:41"
     assert snapshot.last_seen_markers[0].observed_state["latestOutcomeId"] == 5
+
+
+def test_snapshot_emits_backend_successor_for_superseded_planning_outcome(
+    tmp_data_dir: Path,
+) -> None:
+    _insert_planning_session(99, name="Replacement plan")
+
+    record_continuity_outcome(
+        _outcome_request(
+            label="Old plan",
+            description="The prior planning path.",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+            resume_location=ContinuityLocationResponse(
+                state="plan",
+                review_focus="planning",
+                session_id=41,
+            ),
+            dedupe_key="planning::41",
+            workflow_thread_id="planning:41",
+        )
+    )
+    record_continuity_outcome(
+        _outcome_request(
+            label="Replacement plan",
+            description="The refreshed planning path.",
+            occurred_at_utc="2026-03-21T12:05:00Z",
+            resume_location=ContinuityLocationResponse(
+                state="plan",
+                review_focus="planning",
+                session_id=99,
+            ),
+            dedupe_key="planning::99",
+            workflow_thread_id="planning:99",
+        )
+    )
+
+    snapshot = read_continuity_snapshot()
+    by_label = {item.label: item for item in snapshot.outcomes}
+
+    successor = by_label["Old plan"].resolved_resume.successor
+    assert successor is not None
+    assert successor.kind == "replacement"
+    assert successor.title == "Replacement plan"
+    assert successor.resolved_location.session_id == 99
+
+
+def test_anchor_carries_backend_successor_provenance(tmp_data_dir: Path) -> None:
+    _insert_planning_session(99, name="Replacement plan")
+
+    upsert_continuity_anchor(
+        ContinuityAnchorUpsertRequest(
+            anchor_kind="planning",
+            review_focus="planning",
+            session_id=41,
+            visited_at_utc="2026-03-21T12:00:00Z",
+            launch_location=ContinuityLocationResponse(
+                state="plan", review_focus="planning", session_id=41
+            ),
+            resume_location=ContinuityLocationResponse(
+                state="plan", review_focus="planning", session_id=41
+            ),
+            outcome_title="Old plan",
+            outcome_summary="Prior planning path.",
+            workflow_thread_id="planning:41",
+            metadata={},
+        )
+    )
+    record_continuity_outcome(
+        _outcome_request(
+            label="Replacement plan",
+            description="The refreshed planning path.",
+            occurred_at_utc="2026-03-21T12:05:00Z",
+            resume_location=ContinuityLocationResponse(
+                state="plan",
+                review_focus="planning",
+                session_id=99,
+            ),
+            dedupe_key="planning::99",
+            workflow_thread_id="planning:99",
+        )
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.anchors.planning is not None
+    assert snapshot.anchors.planning.resolved_resume is not None
+    assert snapshot.anchors.planning.resolved_resume.successor is not None
+    assert snapshot.anchors.planning.resolved_resume.successor.resolved_location.session_id == 99
+
+
+def test_recovery_acknowledgement_round_trips(tmp_data_dir: Path) -> None:
+    upsert_continuity_recovery_acknowledgement(
+        ContinuityRecoveryAcknowledgementUpsertRequest(
+            recovery_key="replacement::planning:41::location:null::plan|chat|planning|99|-|-|-|-|-",
+            acknowledged_at_utc="2026-03-21T12:06:00Z",
+            metadata={},
+        )
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.recovery_acknowledgements[0].recovery_key.startswith("replacement::")

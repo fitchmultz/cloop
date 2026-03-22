@@ -24,7 +24,9 @@
  */
 
 import { createReceiptCard } from "./action-receipts";
+import { applyContinuityRecovery } from "./continuity-recovery";
 import type {
+  ContinuityRecoveryPlan,
   OperatorActionCard,
   OperatorActionCardAction,
   OperatorActionCardUndoAction,
@@ -91,8 +93,16 @@ function pinAction(
   };
 }
 
+export interface ActionCardRecoveryInput {
+  recovery?: ContinuityRecoveryPlan | null;
+}
+
 function isUndoAction(value: OperatorActionCardUndoAction | null): value is OperatorActionCardUndoAction {
   return value != null;
+}
+
+function withRecovery(card: OperatorActionCard, options: ActionCardRecoveryInput = {}): OperatorActionCard {
+  return applyContinuityRecovery(card, options.recovery ?? null);
 }
 
 function eventAction(
@@ -208,6 +218,7 @@ export function buildPlanningExecutionSummaryCard(
   latestExecution: PlanningExecutionHistoryItemResponse,
   trust: TrustSurfaceMetadata,
   context: ReviewWorkspaceHandoffContext & { sessionName: string },
+  options: ActionCardRecoveryInput = {},
 ): OperatorActionCard {
   const planLocation = createLocation({
     state: "plan",
@@ -220,7 +231,7 @@ export function buildPlanningExecutionSummaryCard(
     ? (launchSurfaceToLocation(primarySurface, context.fallbackWorkingSetId) ?? planLocation)
     : planLocation;
 
-  return {
+  return withRecovery({
     id: `review-plan-impact-${snapshot.session.id}-${latestExecution.checkpoint_index}`,
     kind: latestExecution.launch_surfaces?.length ? "handoff" : "context",
     tone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
@@ -258,13 +269,14 @@ export function buildPlanningExecutionSummaryCard(
       }),
       pinAction("Pin handoff", primaryLocation, latestExecution.checkpoint_title, `${snapshot.session.name} · ${latestExecution.checkpoint_title}`),
     ],
-  };
+  }, options);
 }
 
 export function buildPlanningLaunchSurfaceCard(
   surface: PlanningExecutionLaunchSurfaceResponse,
   latestExecution: PlanningExecutionHistoryItemResponse,
   context: ReviewWorkspaceHandoffContext & { sessionName: string },
+  options: ActionCardRecoveryInput = {},
 ): OperatorActionCard | null {
   const location = launchSurfaceToLocation(surface, context.fallbackWorkingSetId);
   if (!location) {
@@ -276,7 +288,7 @@ export function buildPlanningLaunchSurfaceCard(
     fallbackWorkingSetId: context.fallbackWorkingSetId,
     workingSets: context.workingSets,
   });
-  return {
+  return withRecovery({
     id: `review-plan-launch-${surface.resource_type}-${surface.resource_id}`,
     kind: "handoff",
     tone: "attention",
@@ -313,12 +325,13 @@ export function buildPlanningLaunchSurfaceCard(
       openAction("Open next queue", location, surface.reason || surface.label),
       pinAction("Pin handoff", location, surface.reason || surface.label, surface.label),
     ],
-  };
+  }, options);
 }
 
 export function buildPlanningFollowUpResourceCard(
   resource: PlanningExecutionFollowUpResourceResponse,
   context: ReviewWorkspaceHandoffContext & { sessionName: string },
+  options: ActionCardRecoveryInput = {},
 ): OperatorActionCard {
   const location = resource.launch_surface
     ? launchSurfaceToLocation(resource.launch_surface, context.fallbackWorkingSetId)
@@ -329,7 +342,7 @@ export function buildPlanningFollowUpResourceCard(
     workingSets: context.workingSets,
   });
 
-  return {
+  return withRecovery({
     id: `review-plan-resource-${resource.resource_type}-${resource.resource_id}`,
     kind: handoff ? "handoff" : "context",
     tone: handoff ? "attention" : "progress",
@@ -368,7 +381,7 @@ export function buildPlanningFollowUpResourceCard(
           pinAction("Pin resource", location, resource.operation_summary, resource.label || `${resource.resource_type} #${resource.resource_id}`),
         ]
       : [],
-  };
+  }, options);
 }
 
 export function buildRelationshipImpactCard(options: {
@@ -379,6 +392,7 @@ export function buildRelationshipImpactCard(options: {
   trust: TrustSurfaceMetadata;
   selectedAction: RelationshipReviewActionResponse | null;
   context: ReviewWorkspaceHandoffContext & { sessionName: string; loopId: number };
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const { snapshot, candidate, recommendedDecision, recommendationTitle, trust, selectedAction, context } = options;
   const canUseSelectedPreset = Boolean(
@@ -387,7 +401,7 @@ export function buildRelationshipImpactCard(options: {
   );
   const doLocation = createLocation({ state: "do", loopId: context.loopId, workingSetId: context.fallbackWorkingSetId });
 
-  return {
+  return withRecovery({
     id: `review-relationship-impact-${snapshot.session.id}-${context.loopId}-${candidate.id}`,
     kind: "decision",
     tone: candidate.relationship_type === "duplicate" ? "attention" : "neutral",
@@ -479,7 +493,7 @@ export function buildRelationshipImpactCard(options: {
       ),
       openAction("Open loop in Do", doLocation, `Inspect ${loopTitle(candidate)} in Do`, "secondary"),
     ],
-  };
+  }, { recovery: options.recovery ?? null });
 }
 
 export function buildEnrichmentImpactCard(options: {
@@ -490,12 +504,13 @@ export function buildEnrichmentImpactCard(options: {
   trust: TrustSurfaceMetadata;
   selectedAction: EnrichmentReviewActionResponse | null;
   context: ReviewWorkspaceHandoffContext & { sessionName: string };
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const { snapshot, item, recommendationTitle, recommendedDecision, trust, selectedAction, context } = options;
   const suggestion = item.pending_suggestions[0] ?? null;
   const doLocation = createLocation({ state: "do", loopId: item.loop.id, workingSetId: context.fallbackWorkingSetId });
 
-  return {
+  return withRecovery({
     id: `review-enrichment-impact-${snapshot.session.id}-${item.loop.id}`,
     kind: "decision",
     tone: item.pending_clarification_count > 0 ? "attention" : "progress",
@@ -563,18 +578,19 @@ export function buildEnrichmentImpactCard(options: {
         : []),
       openAction("Open loop in Do", doLocation, `Inspect ${loopTitle(item.loop)} in Do`, "secondary"),
     ],
-  };
+  }, { recovery: options.recovery ?? null });
 }
 
 export function buildEnrichmentSuggestionCard(options: {
   suggestion: EnrichmentReviewQueueItemResponse["pending_suggestions"][number];
   selectedAction: EnrichmentReviewActionResponse | null;
   context: ReviewWorkspaceHandoffContext & { sessionName: string };
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const { suggestion, selectedAction, context } = options;
   const entries = suggestionEntries(suggestion);
 
-  return {
+  return withRecovery({
     id: `review-enrichment-suggestion-${suggestion.id}`,
     kind: "decision",
     tone: "progress",
@@ -646,7 +662,7 @@ export function buildEnrichmentSuggestionCard(options: {
         "secondary",
       ),
     ],
-  };
+  }, { recovery: options.recovery ?? null });
 }
 
 export function buildRelationshipDecisionReceiptCard(options: {
@@ -659,6 +675,7 @@ export function buildRelationshipDecisionReceiptCard(options: {
   candidate: RelationshipReviewCandidateResponse | null;
   actionType: "confirm" | "dismiss";
   relationshipType: "duplicate" | "related";
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const candidateLabel = options.candidate ? loopTitle(options.candidate) : `Loop #${options.loopId}`;
   const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
@@ -676,7 +693,7 @@ export function buildRelationshipDecisionReceiptCard(options: {
   const summary = options.actionType === "confirm"
     ? `${candidateLabel} was recorded as ${options.relationshipType} and the queue advanced.`
     : `${candidateLabel} was dismissed and the queue advanced.`;
-  return createReceiptCard({
+  return withRecovery(createReceiptCard({
     id: `relationship-receipt-${options.snapshot.session.id}-${options.loopId}-${Date.now()}`,
     eyebrow: "Relationship receipt",
     title: options.actionType === "confirm"
@@ -721,7 +738,7 @@ export function buildRelationshipDecisionReceiptCard(options: {
       }),
       openAction("Open affected loop in Do", doLocation, `Inspect ${candidateLabel} in Do`, "secondary"),
     ],
-  });
+  }), { recovery: options.recovery ?? null });
 }
 
 export function buildEnrichmentDecisionReceiptCard(options: {
@@ -734,6 +751,7 @@ export function buildEnrichmentDecisionReceiptCard(options: {
   suggestionId: number;
   actionType: "apply" | "reject" | "clarify";
   resultLoop?: import("./domain").LoopResponse | null;
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
   const loop = options.item?.loop ?? null;
@@ -753,7 +771,7 @@ export function buildEnrichmentDecisionReceiptCard(options: {
     : options.actionType === "reject"
       ? `Rejected suggestion #${options.suggestionId} and refreshed the queue.`
       : `Submitted clarification answers and reran enrichment for the queue.`;
-  return createReceiptCard({
+  return withRecovery(createReceiptCard({
     id: `enrichment-receipt-${options.snapshot.session.id}-${options.suggestionId}-${Date.now()}`,
     eyebrow: "Enrichment receipt",
     title: options.actionType === "apply"
@@ -810,7 +828,7 @@ export function buildEnrichmentDecisionReceiptCard(options: {
           ].filter(isUndoAction)
         : []),
     ],
-  });
+  }), { recovery: options.recovery ?? null });
 }
 
 export function buildPlanningExecutionReceiptCard(options: {
@@ -818,6 +836,7 @@ export function buildPlanningExecutionReceiptCard(options: {
   latestExecution: PlanningExecutionHistoryItemResponse;
   rollbackSummary: string;
   context: ReviewWorkspaceHandoffContext & { sessionName: string };
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const primarySurface = (options.latestExecution.launch_surfaces ?? []).find(
     (surface) => launchSurfaceToLocation(surface, options.context.fallbackWorkingSetId) != null,
@@ -845,7 +864,7 @@ export function buildPlanningExecutionReceiptCard(options: {
     && typeof options.latestExecution.summary["summary"] === "string"
     ? String(options.latestExecution.summary["summary"])
     : `Executed ${options.latestExecution.checkpoint_title} with ${options.latestExecution.operation_count} deterministic operation${options.latestExecution.operation_count === 1 ? "" : "s"}.`;
-  return createReceiptCard({
+  return withRecovery(createReceiptCard({
     id: `planning-receipt-${options.snapshot.session.id}-${options.latestExecution.checkpoint_index}-${Date.now()}`,
     eyebrow: "Planning receipt",
     title: `Executed ${options.latestExecution.checkpoint_title}`,
@@ -895,7 +914,7 @@ export function buildPlanningExecutionReceiptCard(options: {
         buildPlanningRollbackAction(options.snapshot.session.id, options.latestExecution),
       ].filter(isUndoAction),
     ],
-  });
+  }), { recovery: options.recovery ?? null });
 }
 
 export function buildCohortImpactCard(options: {
@@ -905,6 +924,7 @@ export function buildCohortImpactCard(options: {
   trust: TrustSurfaceMetadata;
   reviewMode: "daily" | "weekly";
   context: ReviewWorkspaceHandoffContext;
+  recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const { cohort, decisionLabel, why, trust, reviewMode, context } = options;
   const topLoop = cohort.items[0] ?? null;
@@ -913,7 +933,7 @@ export function buildCohortImpactCard(options: {
     : null;
   const reviewLocation = createLocation({ state: "review", workingSetId: context.fallbackWorkingSetId });
 
-  return {
+  return withRecovery({
     id: `review-cohort-impact-${cohort.cohort}`,
     kind: "refresh",
     tone: cohort.count > 0 ? "attention" : "neutral",
@@ -940,5 +960,5 @@ export function buildCohortImpactCard(options: {
       ...(doLocation ? [openAction("Open top loop in Do", doLocation, `Inspect ${loopTitle(topLoop!)} in Do`)] : []),
       pinAction("Pin review", reviewLocation, `Return to ${cohort.cohort.replaceAll("_", " ")} review`, `Review · ${cohort.cohort.replaceAll("_", " ")}`),
     ],
-  };
+  }, { recovery: options.recovery ?? null });
 }

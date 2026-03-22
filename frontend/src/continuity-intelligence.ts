@@ -34,7 +34,10 @@ import type {
   ContinuityLocationResponse,
   ContinuityOutcomeRecordResponse,
   ContinuityOutcomeWriteRequest,
+  ContinuityRecoveryAcknowledgementResponse,
+  ContinuityRecoveryAcknowledgementUpsertRequest,
   ContinuitySnapshotResponse,
+  ContinuitySuccessorTargetResponse,
   EnrichmentReviewSessionSnapshotResponse,
   LoopMetricsResponse,
   LoopResponse,
@@ -49,6 +52,9 @@ import type {
   ContinuityEntityKind,
   ContinuityLastSeenMarker,
   ContinuityPersistenceState,
+  ContinuityResolvedStatus,
+  ContinuitySuccessorTarget,
+  DurableRecoveryAcknowledgement,
   ExecutableRerunHandle,
   ExecutableUndoHandle,
   OperatorActionCard,
@@ -67,6 +73,7 @@ import {
   persistContinuityOutcome,
   upsertContinuityAnchor,
   upsertContinuityLastSeen,
+  upsertContinuityRecoveryAcknowledgement,
 } from "./continuity-api";
 import { rerunHandleIdentity } from "./executable-rerun";
 import { undoHandleIdentity } from "./executable-undo";
@@ -81,7 +88,7 @@ const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
 const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
 const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
-const CONTINUITY_RECOVERY_ACKS_KEY = "cloop.continuity.recovery-acks.v1";
+const CONTINUITY_RECOVERY_ACKS_KEY = "cloop.continuity.recovery-acks.cache.v2";
 const MAX_RECENT_ACTIONS = 24;
 const DEDUPE_WINDOW_MS = 15_000;
 
@@ -108,7 +115,16 @@ interface PendingLastSeenWrite {
   markers: ContinuityLastSeenMarker[];
 }
 
-type PendingContinuityWrite = PendingOutcomeWrite | PendingAnchorWrite | PendingLastSeenWrite;
+interface PendingRecoveryAckWrite {
+  kind: "recovery_ack";
+  acknowledgement: DurableRecoveryAcknowledgement;
+}
+
+type PendingContinuityWrite =
+  | PendingOutcomeWrite
+  | PendingAnchorWrite
+  | PendingLastSeenWrite
+  | PendingRecoveryAckWrite;
 
 export interface ContinuitySnapshotInput {
   metrics: LoopMetricsResponse;
@@ -168,42 +184,72 @@ function emitRecentShellActionsUpdated(): void {
   window.dispatchEvent(new CustomEvent(RECENT_SHELL_ACTIONS_UPDATED_EVENT));
 }
 
-function readContinuityRecoveryAckMap(): Record<string, string> {
+function readContinuityRecoveryAcks(): DurableRecoveryAcknowledgement[] {
   if (!canUseLocalStorage()) {
-    return {};
+    return [];
   }
-  const parsed = safeJsonParse<Record<string, string>>(
+  const parsed = safeJsonParse<DurableRecoveryAcknowledgement[]>(
     window.localStorage.getItem(CONTINUITY_RECOVERY_ACKS_KEY),
-    {},
+    [],
   );
-  return parsed && typeof parsed === "object" ? parsed : {};
+  return Array.isArray(parsed)
+    ? parsed.filter((ack): ack is DurableRecoveryAcknowledgement => {
+        return typeof ack?.recoveryKey === "string" && typeof ack?.acknowledgedAtUtc === "string";
+      })
+    : [];
 }
 
-function writeContinuityRecoveryAckMap(value: Record<string, string>): void {
+function writeContinuityRecoveryAcks(value: readonly DurableRecoveryAcknowledgement[]): void {
   if (!canUseLocalStorage()) {
     return;
   }
   window.localStorage.setItem(CONTINUITY_RECOVERY_ACKS_KEY, JSON.stringify(value));
 }
 
+function mergePendingRecoveryAcks(
+  snapshotAcks: readonly DurableRecoveryAcknowledgement[],
+): DurableRecoveryAcknowledgement[] {
+  const merged = new Map(snapshotAcks.map((ack) => [ack.recoveryKey, ack]));
+  readPendingContinuityWrites().forEach((write) => {
+    if (write.kind === "recovery_ack") {
+      merged.set(write.acknowledgement.recoveryKey, write.acknowledgement);
+    }
+  });
+  return [...merged.values()].sort(
+    (left, right) => Date.parse(right.acknowledgedAtUtc) - Date.parse(left.acknowledgedAtUtc),
+  );
+}
+
 export function isContinuityRecoveryAcknowledged(key: string): boolean {
   const normalizedKey = key.trim();
-  if (!normalizedKey) {
-    return false;
-  }
-  return typeof readContinuityRecoveryAckMap()[normalizedKey] === "string";
+  return normalizedKey.length > 0 && readContinuityRecoveryAcks().some((ack) => ack.recoveryKey === normalizedKey);
+}
+
+function writePendingRecoveryAck(acknowledgement: DurableRecoveryAcknowledgement): void {
+  const writes = readPendingContinuityWrites().filter((write) => {
+    return write.kind !== "recovery_ack" || write.acknowledgement.recoveryKey !== acknowledgement.recoveryKey;
+  });
+  writes.unshift({ kind: "recovery_ack", acknowledgement });
+  writePendingContinuityWrites(writes);
 }
 
 export function markContinuityRecoveryAcknowledged(key: string): void {
-  const normalizedKey = key.trim();
-  if (!normalizedKey || !canUseLocalStorage()) {
+  const recoveryKey = key.trim();
+  if (!recoveryKey || !canUseLocalStorage()) {
     return;
   }
-  writeContinuityRecoveryAckMap({
-    ...readContinuityRecoveryAckMap(),
-    [normalizedKey]: new Date().toISOString(),
-  });
+  const acknowledgement: DurableRecoveryAcknowledgement = {
+    recoveryKey,
+    acknowledgedAtUtc: new Date().toISOString(),
+    metadata: {},
+  };
+  writeContinuityRecoveryAcks(mergePendingRecoveryAcks([
+    acknowledgement,
+    ...readContinuityRecoveryAcks(),
+  ]));
+  writePendingRecoveryAck(acknowledgement);
   emitRecentShellActionsUpdated();
+  void flushPendingContinuityWrites();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -278,6 +324,27 @@ function normalizeWorkflowThread(value: unknown): WorkflowThreadRef | null {
   };
 }
 
+function normalizeSuccessorTarget(value: unknown): ContinuitySuccessorTarget | null {
+  if (!isRecord(value) || typeof value["outcomeId"] !== "number") {
+    return null;
+  }
+  const resolvedLocation = normalizeLocation(value["resolvedLocation"]);
+  if (!resolvedLocation) {
+    return null;
+  }
+  return {
+    kind: "replacement",
+    outcomeId: value["outcomeId"],
+    title: typeof value["title"] === "string" ? value["title"] : "Replacement workflow",
+    summary: typeof value["summary"] === "string" ? value["summary"] : null,
+    workflowThread: normalizeWorkflowThread(value["workflowThread"]),
+    requestedLocation: normalizeLocation(value["requestedLocation"]),
+    resolvedLocation,
+    status: value["status"] as ContinuityResolvedStatus,
+    message: typeof value["message"] === "string" ? value["message"] : null,
+  };
+}
+
 function normalizeResolvedTarget(value: unknown): ResolvedContinuityTarget | null {
   if (!isRecord(value) || typeof value["status"] !== "string") {
     return null;
@@ -291,6 +358,7 @@ function normalizeResolvedTarget(value: unknown): ResolvedContinuityTarget | nul
     resolvedLocation,
     status: value["status"] as ResolvedContinuityTarget["status"],
     message: typeof value["message"] === "string" ? value["message"] : null,
+    successor: normalizeSuccessorTarget(value["successor"]),
   };
 }
 
@@ -360,10 +428,13 @@ function parseResumeAnchorTarget(
     visitedAtUtc: raw["visitedAtUtc"],
     launchLocation: normalizeLocation(raw["launchLocation"]),
     resumeLocation: normalizeLocation(raw["resumeLocation"]),
+    resolvedResume: normalizeResolvedTarget(raw["resolvedResume"]),
     outcomeTitle: typeof raw["outcomeTitle"] === "string" ? raw["outcomeTitle"] : null,
     outcomeSummary: typeof raw["outcomeSummary"] === "string" ? raw["outcomeSummary"] : null,
     workingSetId: typeof raw["workingSetId"] === "number" ? raw["workingSetId"] : null,
     workflowThreadId: typeof raw["workflowThreadId"] === "string" ? raw["workflowThreadId"] : null,
+    degraded: raw["degraded"] === true,
+    degradedLabel: typeof raw["degradedLabel"] === "string" ? raw["degradedLabel"] : null,
   };
 }
 
@@ -375,10 +446,13 @@ function buildPlanningAnchor(input: RememberPlanningAnchorInput): ResumeAnchorTa
     visitedAtUtc: input.visitedAtUtc ?? new Date().toISOString(),
     launchLocation: input.launchLocation ?? null,
     resumeLocation: input.resumeLocation ?? null,
+    resolvedResume: null,
     outcomeTitle: input.outcomeTitle ?? null,
     outcomeSummary: input.outcomeSummary ?? null,
     workingSetId: input.workingSetId ?? null,
     workflowThreadId: input.workflowThreadId ?? `planning:${input.sessionId}`,
+    degraded: false,
+    degradedLabel: null,
   };
 }
 
@@ -390,10 +464,13 @@ function buildReviewAnchor(input: RememberReviewAnchorInput): ResumeAnchorTarget
     visitedAtUtc: input.visitedAtUtc ?? new Date().toISOString(),
     launchLocation: input.launchLocation ?? null,
     resumeLocation: input.resumeLocation ?? null,
+    resolvedResume: null,
     outcomeTitle: input.outcomeTitle ?? null,
     outcomeSummary: input.outcomeSummary ?? null,
     workingSetId: input.workingSetId ?? null,
     workflowThreadId: input.workflowThreadId ?? `review:${input.reviewFocus}:${input.sessionId}`,
+    degraded: false,
+    degradedLabel: null,
   };
 }
 
@@ -451,6 +528,22 @@ function readPendingContinuityWrites(): PendingContinuityWrite[] {
           } satisfies ContinuityLastSeenMarker];
         }),
       });
+      return;
+    }
+    if (item["kind"] === "recovery_ack" && isRecord(item["acknowledgement"])) {
+      const acknowledgement = item["acknowledgement"];
+      const recoveryKey = stringValue(acknowledgement["recoveryKey"]);
+      const acknowledgedAtUtc = stringValue(acknowledgement["acknowledgedAtUtc"]);
+      if (recoveryKey && acknowledgedAtUtc) {
+        writes.push({
+          kind: "recovery_ack",
+          acknowledgement: {
+            recoveryKey,
+            acknowledgedAtUtc,
+            metadata: isRecord(acknowledgement["metadata"]) ? acknowledgement["metadata"] : {},
+          },
+        });
+      }
     }
   });
   return writes;
@@ -738,6 +831,33 @@ function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workf
   };
 }
 
+function mapSuccessorFromApi(
+  successor: ContinuitySuccessorTargetResponse | null | undefined,
+): ContinuitySuccessorTarget | null {
+  if (!successor) {
+    return null;
+  }
+  return {
+    kind: "replacement",
+    outcomeId: successor.outcome_id,
+    title: successor.title,
+    summary: successor.summary ?? null,
+    workflowThread: successor.workflow_thread
+      ? {
+          id: successor.workflow_thread.id,
+          kind: successor.workflow_thread.kind,
+          title: successor.workflow_thread.title,
+          summary: successor.workflow_thread.summary ?? null,
+          parentOutcomeId: successor.workflow_thread.parent_outcome_id ?? null,
+        }
+      : null,
+    requestedLocation: mapLocationFromApi(successor.requested_location),
+    resolvedLocation: mapLocationFromApi(successor.resolved_location)!,
+    status: successor.status,
+    message: successor.message ?? null,
+  };
+}
+
 function mapResolvedTargetFromApi(
   resolved: ContinuityOutcomeRecordResponse["resolved_resume"],
 ): ResolvedContinuityTarget {
@@ -746,6 +866,7 @@ function mapResolvedTargetFromApi(
     resolvedLocation: mapLocationFromApi(resolved.resolved_location)!,
     status: resolved.status,
     message: resolved.message ?? null,
+    successor: mapSuccessorFromApi(resolved.successor),
   };
 }
 
@@ -785,10 +906,13 @@ function mapAnchorResponse(anchor: ContinuityAnchorResponse | null | undefined):
     visitedAtUtc: anchor.visited_at_utc,
     launchLocation: mapLocationFromApi(anchor.launch_location),
     resumeLocation: mapLocationFromApi(anchor.resume_location),
+    resolvedResume: anchor.resolved_resume ? mapResolvedTargetFromApi(anchor.resolved_resume) : null,
     outcomeTitle: anchor.outcome_title ?? null,
     outcomeSummary: anchor.outcome_summary ?? null,
     workingSetId: anchor.working_set_id ?? null,
     workflowThreadId: anchor.workflow_thread_id ?? null,
+    degraded: Boolean(anchor.degraded),
+    degradedLabel: anchor.degraded_label ?? null,
   };
 }
 
@@ -809,6 +933,16 @@ function mapLastSeenMarkerResponse(marker: ContinuityLastSeenMarkerResponse): Co
     workflowThreadId: marker.workflow_thread_id ?? null,
     observedState: marker.observed_state ?? {},
     metadata: marker.metadata ?? {},
+  };
+}
+
+function mapRecoveryAcknowledgementResponse(
+  response: ContinuityRecoveryAcknowledgementResponse,
+): DurableRecoveryAcknowledgement {
+  return {
+    recoveryKey: response.recovery_key,
+    acknowledgedAtUtc: response.acknowledged_at_utc,
+    metadata: response.metadata ?? {},
   };
 }
 
@@ -850,9 +984,13 @@ function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   const snapshotEntries = (snapshot.outcomes ?? []).map((item) => mapPersistedOutcomeToRecentEntry(item));
   const anchors = snapshot.anchors ?? { planning: null, review: null };
   const lastSeenMarkers = (snapshot.last_seen_markers ?? []).map((item) => mapLastSeenMarkerResponse(item));
+  const recoveryAcks = (snapshot.recovery_acknowledgements ?? []).map((item) =>
+    mapRecoveryAcknowledgementResponse(item),
+  );
   writeRecentActionsCache(mergePendingEntries(snapshotEntries));
   writeResumeAnchorsCache(mergePendingAnchors(mapPersistedAnchors(anchors)));
   writeContinuityLastSeenMarkers(mergePendingLastSeenMarkers(lastSeenMarkers));
+  writeContinuityRecoveryAcks(mergePendingRecoveryAcks(recoveryAcks));
   emitRecentShellActionsUpdated();
 }
 
@@ -914,6 +1052,16 @@ function buildLastSeenBatchWriteRequest(
   };
 }
 
+function buildRecoveryAckWriteRequest(
+  acknowledgement: DurableRecoveryAcknowledgement,
+): ContinuityRecoveryAcknowledgementUpsertRequest {
+  return {
+    recovery_key: acknowledgement.recoveryKey,
+    acknowledged_at_utc: acknowledgement.acknowledgedAtUtc,
+    metadata: acknowledgement.metadata,
+  };
+}
+
 function writePendingOutcome(entry: RecentShellActionEntry): void {
   const candidate = enrichRecentActionEntry(entry);
   const candidateKey = cacheKeyForOutcome(candidate);
@@ -967,7 +1115,10 @@ async function persistOneWrite(write: PendingContinuityWrite): Promise<Continuit
   if (write.kind === "anchor") {
     return upsertContinuityAnchor(write.anchorKind, buildAnchorWriteRequest(write.anchorKind, write.anchor));
   }
-  return upsertContinuityLastSeen(buildLastSeenBatchWriteRequest(write.markers));
+  if (write.kind === "last_seen") {
+    return upsertContinuityLastSeen(buildLastSeenBatchWriteRequest(write.markers));
+  }
+  return upsertContinuityRecoveryAcknowledgement(buildRecoveryAckWriteRequest(write.acknowledgement));
 }
 
 function upsertLocalLastSeenMarkers(markers: readonly ContinuityLastSeenMarker[]): void {

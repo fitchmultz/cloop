@@ -666,6 +666,16 @@ CREATE INDEX idx_continuity_last_seen_working_set
 CREATE INDEX idx_continuity_last_seen_thread
     ON continuity_last_seen_markers(workflow_thread_id, observed_at_utc DESC);
 
+CREATE TABLE continuity_recovery_acknowledgements (
+    recovery_key TEXT PRIMARY KEY,
+    acknowledged_at_utc TEXT NOT NULL,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_continuity_recovery_acknowledgements_acknowledged_at
+    ON continuity_recovery_acknowledgements(acknowledged_at_utc DESC, recovery_key);
+
 -- Insert system templates for fresh installations
 INSERT INTO loop_templates (name, description, raw_text_pattern, defaults_json, is_system) VALUES
     ('Daily Standup', 'Daily standup notes template', 'Standup notes for {{date}}\n\nYesterday:\n- \n\nToday:\n- \n\nBlockers:\n- ', '{"tags": ["standup", "daily"], "time_minutes": 15}', 1),

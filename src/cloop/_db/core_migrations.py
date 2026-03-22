@@ -31,6 +31,17 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    44: """
+    CREATE TABLE continuity_recovery_acknowledgements (
+        recovery_key TEXT PRIMARY KEY,
+        acknowledged_at_utc TEXT NOT NULL,
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX idx_continuity_recovery_acknowledgements_acknowledged_at
+        ON continuity_recovery_acknowledgements(acknowledged_at_utc DESC, recovery_key);
+    """,
     43: """
     CREATE TABLE continuity_last_seen_markers (
         entity_kind TEXT NOT NULL CHECK (

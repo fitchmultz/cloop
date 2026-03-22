@@ -65,7 +65,14 @@ import type {
   RelationshipReviewSessionUpdateRequest,
   WorkingSetResponse,
 } from "./domain";
-import type { OperatorActionCard, ReviewFocus, TrustSurfaceMetadata } from "./contracts-ui";
+import type {
+  OperatorActionCard,
+  ReviewFocus,
+  TrustSurfaceMetadata,
+  WorkingSetSessionMetadata,
+} from "./contracts-ui";
+import { applyContinuityRecovery } from "./continuity-recovery";
+import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
 import {
   recordRecentShellAction,
   rememberPlanningAnchor,
@@ -333,6 +340,82 @@ function parseOptionalInteger(value: string | null | undefined): number | null {
 
 function currentWorkingSetId(): number | null {
   return parseHash(window.location.hash)?.workingSetId ?? null;
+}
+
+function continuityWorkingSetMetadata(): WorkingSetSessionMetadata[] {
+  return state.workingSets.map((workingSet) => ({
+    workingSetId: workingSet.id,
+    workingSetName: workingSet.name,
+    itemCount: workingSet.item_count,
+    missingItemCount: workingSet.missing_item_count,
+  }));
+}
+
+function continuityAvailabilityInput() {
+  const planningSessionIds = new Set<number>(state.planningSessions.map((session) => session.id));
+  const relationshipSessionIds = new Set<number>(state.relationshipSessions.map((session) => session.id));
+  const enrichmentSessionIds = new Set<number>(state.enrichmentSessions.map((session) => session.id));
+
+  if (state.planningSnapshot?.session.id != null) {
+    planningSessionIds.add(state.planningSnapshot.session.id);
+  }
+  if (state.relationshipSnapshot?.session.id != null) {
+    relationshipSessionIds.add(state.relationshipSnapshot.session.id);
+  }
+  if (state.enrichmentSnapshot?.session.id != null) {
+    enrichmentSessionIds.add(state.enrichmentSnapshot.session.id);
+  }
+
+  return {
+    planningSessionIds: [...planningSessionIds],
+    relationshipSessionIds: [...relationshipSessionIds],
+    enrichmentSessionIds: [...enrichmentSessionIds],
+    workingSets: continuityWorkingSetMetadata(),
+  };
+}
+
+function surfaceRecoveryForLocation(
+  location: ReturnType<typeof createLocation> | null,
+  workflowThreadId: string | null = null,
+) {
+  return continuityRecoveryForLocation({
+    location,
+    workflowThreadId,
+    availability: continuityAvailabilityInput(),
+  });
+}
+
+function currentPlanningRecovery(snapshot: PlanningSessionSnapshotResponse | null) {
+  if (!snapshot?.session) {
+    return null;
+  }
+  return surfaceRecoveryForLocation(
+    createLocation({
+      state: "plan",
+      reviewFocus: "planning",
+      sessionId: snapshot.session.id,
+      workingSetId: currentWorkingSetId(),
+    }),
+    `planning:${snapshot.session.id}`,
+  );
+}
+
+function currentReviewSessionRecovery(
+  focus: Extract<ReviewFocus, "relationship" | "enrichment">,
+  snapshot: RelationshipReviewSessionSnapshotResponse | EnrichmentReviewSessionSnapshotResponse | null,
+) {
+  if (!snapshot?.session) {
+    return null;
+  }
+  return surfaceRecoveryForLocation(
+    createLocation({
+      state: "decide",
+      reviewFocus: focus,
+      sessionId: snapshot.session.id,
+      workingSetId: currentWorkingSetId(),
+    }),
+    `review:${focus}:${snapshot.session.id}`,
+  );
 }
 
 function planningImpactHandoffContext(sessionName: string): {
@@ -2181,12 +2264,13 @@ function renderFollowUpResource(
 
 function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null): string {
   const latestExecution = snapshot?.execution_history?.at(-1) ?? null;
+  const recovery = currentPlanningRecovery(snapshot);
   if (!snapshot?.session) {
     return '<p class="review-shell-empty">Planning impact previews appear after a session loads.</p>';
   }
 
   if (!latestExecution) {
-    const card: OperatorActionCard = {
+    const card: OperatorActionCard = applyContinuityRecovery({
       id: `review-plan-empty-${snapshot.session.id}`,
       kind: "refresh",
       tone: "neutral",
@@ -2215,7 +2299,7 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
           description: `Resume ${snapshot.session.name}`,
         },
       ],
-    };
+    }, recovery);
     return renderActionCardDeck([card], '');
   }
 
@@ -2245,6 +2329,7 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
           impactTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
         },
         planningImpactHandoffContext(snapshot.session.name),
+        { recovery },
       ),
     ], '')}
     ${(latestExecution.launch_surfaces ?? []).map((surface) => renderLaunchSurface(surface, snapshot.session.name, latestExecution)).join("")}
@@ -2281,6 +2366,7 @@ function renderRelationshipImpact(snapshot: RelationshipReviewSessionSnapshotRes
         ...reviewImpactHandoffContext(snapshot.session.name),
         loopId: item.loop.id,
       },
+      recovery: currentReviewSessionRecovery("relationship", snapshot),
     }),
   ], '');
 }
@@ -2316,6 +2402,7 @@ function renderEnrichmentImpact(snapshot: EnrichmentReviewSessionSnapshotRespons
       },
       selectedAction: selectedEnrichmentAction(),
       context: reviewImpactHandoffContext(snapshot.session.name),
+      recovery: currentReviewSessionRecovery("enrichment", snapshot),
     }),
   ], '');
 }
@@ -2372,6 +2459,7 @@ function renderCohortImpact(cohort: LoopReviewCohortResponse | null): string {
       trust: cohortTrustMetadata(cohort, state.reviewMode, state.reviewData?.generated_at_utc ?? null),
       reviewMode: state.reviewMode,
       context: cohortImpactHandoffContext(),
+      recovery: surfaceRecoveryForLocation(createLocation({ state: "review", workingSetId: currentWorkingSetId() })),
     }),
   ], '');
 }
@@ -2822,17 +2910,18 @@ async function handlePlanningExecute(): Promise<void> {
   requestWorkspaceRefresh();
   renderAll();
 
-  const receiptCard = buildPlanningExecutionReceiptCard({
-    snapshot: payload.snapshot,
-    latestExecution: payload.execution,
-    rollbackSummary: describeRollbackCue(payload.execution.rollback_cues),
-    context: planningImpactHandoffContext(payload.snapshot.session.name),
-  });
   const planLocation = createLocation({
     state: "plan",
     reviewFocus: "planning",
     sessionId,
     workingSetId: currentWorkingSetId(),
+  });
+  const receiptCard = buildPlanningExecutionReceiptCard({
+    snapshot: payload.snapshot,
+    latestExecution: payload.execution,
+    rollbackSummary: describeRollbackCue(payload.execution.rollback_cues),
+    context: planningImpactHandoffContext(payload.snapshot.session.name),
+    recovery: surfaceRecoveryForLocation(planLocation, `planning:${sessionId}`),
   });
   recordRecentShellAction(
     withReceiptOutcome(
@@ -3076,6 +3165,7 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
     candidate,
     actionType,
     relationshipType,
+    recovery: surfaceRecoveryForLocation(queueLocation, `review:relationship:${sessionId}`),
   });
   recordRecentShellAction(
     withReceiptOutcome(
@@ -3150,6 +3240,7 @@ async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void
     candidate,
     actionType: selectedAction.action_type,
     relationshipType: resolvedRelationshipType,
+    recovery: surfaceRecoveryForLocation(queueLocation, `review:relationship:${sessionId}`),
   });
   recordRecentShellAction(
     withReceiptOutcome(
@@ -3322,6 +3413,7 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
     suggestionId,
     actionType,
     resultLoop: response.result.loop ?? null,
+    recovery: surfaceRecoveryForLocation(queueLocation, `review:enrichment:${sessionId}`),
   });
   recordRecentShellAction(
     withReceiptOutcome(
@@ -3382,6 +3474,7 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
     suggestionId,
     actionType: action.action_type === "reject" ? "reject" : "apply",
     resultLoop: response.result.loop ?? null,
+    recovery: surfaceRecoveryForLocation(queueLocation, `review:enrichment:${sessionId}`),
   });
   recordRecentShellAction(
     withReceiptOutcome(
@@ -3457,6 +3550,7 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
     item: previousItem,
     suggestionId: previousItem?.pending_suggestions[0]?.id ?? 0,
     actionType: "clarify",
+    recovery: surfaceRecoveryForLocation(queueLocation, `review:enrichment:${sessionId}`),
   });
   recordRecentShellAction(
     withReceiptOutcome(

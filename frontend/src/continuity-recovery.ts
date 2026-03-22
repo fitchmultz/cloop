@@ -2,11 +2,13 @@
  * continuity-recovery.ts - Shared continuity recovery modeling and action shaping.
  *
  * Purpose:
- *   Turn degraded or superseded continuity outcomes into explicit recovery plans
- *   that every consumer surface can render and execute consistently.
+ *   Turn backend-resolved degraded or superseded continuity targets into
+ *   explicit recovery plans that every consumer surface can render and execute
+ *   consistently.
  *
  * Responsibilities:
- *   - Build recovery plans from degraded fallback states and replaced workflows.
+ *   - Build recovery plans from resolved fallback states and backend-authored
+ *     replacement successors.
  *   - Build explicit recover and acknowledge card actions.
  *   - Apply recovery state to operator cards without per-surface duplication.
  *
@@ -14,12 +16,14 @@
  *   - Frontend-only continuity recovery modeling and card shaping.
  *
  * Usage:
- *   - Imported by continuity-follow-through.ts and continuity-recommendations.ts.
+ *   - Imported by continuity-follow-through.ts, continuity-recommendations.ts,
+ *     and downstream action-card surfaces.
  *
  * Invariants/Assumptions:
  *   - Recovery is a first-class UI state, not just warning copy.
- *   - Acknowledgement is browser-local presentation state, not durable backend truth.
- *   - Recovery plans always point at a deterministic surviving destination.
+ *   - Acknowledgement is backend-synced durable state with a browser-local cache.
+ *   - Replacement recovery only appears when the backend emits explicit
+ *     successor provenance.
  */
 
 import type {
@@ -29,6 +33,7 @@ import type {
   OperatorActionCardAction,
   OperatorActionCardAcknowledgeAction,
   OperatorActionCardRecoverAction,
+  ResolvedContinuityTarget,
   ShellLocationContract,
   WorkflowThreadRef,
 } from "./contracts-ui";
@@ -49,88 +54,108 @@ function buildRecoveryKey(
   ].join("::");
 }
 
-export function buildResolvedTargetRecoveryPlan(input: {
-  kind: Exclude<ContinuityRecoveryKind, "replacement">;
+function buildSuccessorRecoveryPlan(input: {
   displayTitle: string;
-  message: string | null;
-  requestedLocation: ShellLocationContract | null;
-  location: ShellLocationContract;
+  resolvedTarget: ResolvedContinuityTarget;
   workflowThread: WorkflowThreadRef | null;
-}): ContinuityRecoveryPlan {
-  const displayTitle = input.displayTitle.trim() || "This workflow";
-  const key = buildRecoveryKey(input.kind, input.workflowThread, input.requestedLocation, input.location);
-
-  if (input.kind === "working_set_scope_removed") {
-    return {
-      key,
-      kind: input.kind,
-      title: `${displayTitle} lost its working-set scope`,
-      summary: input.message
-        ?? "The original working-set scope is gone, but the durable target still survives outside that scope.",
-      nextStep: "Open the durable target, then repin or restage it if it still belongs in a working set.",
-      ctaLabel: "Open durable target",
-      ctaDescription: "Continue from the surviving unscoped target.",
-      location: input.location,
-      acknowledged: isContinuityRecoveryAcknowledged(key),
-    };
+}): ContinuityRecoveryPlan | null {
+  const successor = input.resolvedTarget.successor;
+  if (!successor) {
+    return null;
   }
 
-  if (input.kind === "launch_fallback") {
-    return {
-      key,
-      kind: input.kind,
-      title: `${displayTitle} fell back to its launch workflow`,
-      summary: input.message
-        ?? "The landed outcome is no longer available, so recovery returns you to the workflow that created it.",
-      nextStep: "Open the launch workflow, inspect what changed, and recreate or replace the missing outcome.",
-      ctaLabel: "Open launch workflow",
-      ctaDescription: "Return to the originating workflow and recover from there.",
-      location: input.location,
-      acknowledged: isContinuityRecoveryAcknowledged(key),
-    };
-  }
-
-  return {
-    key,
-    kind: input.kind,
-    title: `${displayTitle} no longer has a surviving target`,
-    summary: input.message
-      ?? "Neither the landed outcome nor its launch workflow still exists, so recovery falls back to home.",
-    nextStep: "Return home, then choose a surviving queue, plan, or replacement path from the operator workspace.",
-    ctaLabel: "Return home",
-    ctaDescription: "Go back to the operator workspace and recover from a surviving path.",
-    location: input.location,
-    acknowledged: isContinuityRecoveryAcknowledged(key),
-  };
-}
-
-export function buildReplacementRecoveryPlan(input: {
-  priorTitle: string;
-  representativeTitle: string;
-  location: ShellLocationContract;
-  workflowThread: WorkflowThreadRef | null;
-  gone?: boolean;
-  summaryOverride?: string | null;
-}): ContinuityRecoveryPlan {
-  const key = buildRecoveryKey("replacement", input.workflowThread, null, input.location);
-  const priorTitle = input.priorTitle.trim() || "Your prior path";
+  const key = buildRecoveryKey(
+    "replacement",
+    successor.workflowThread ?? input.workflowThread,
+    input.resolvedTarget.requestedLocation,
+    successor.resolvedLocation,
+  );
 
   return {
     key,
     kind: "replacement",
-    title: input.gone ? `${priorTitle} is gone` : `${priorTitle} was replaced`,
-    summary: input.summaryOverride?.trim()
-      || (input.gone
-        ? `${priorTitle} is no longer available. Continue from ${input.representativeTitle}.`
-        : `${priorTitle} was superseded by ${input.representativeTitle}.`),
-    nextStep: input.gone
-      ? "Open the surviving workflow and continue from the newest durable state."
-      : "Open the replacement workflow and continue from the newer path instead of the superseded one.",
-    ctaLabel: input.gone ? "Open surviving workflow" : "Open replacement workflow",
-    ctaDescription: "Continue from the workflow that replaced the prior path.",
-    location: input.location,
+    title: `${input.displayTitle} was replaced`,
+    summary: successor.message?.trim()
+      || `${input.displayTitle} was superseded by ${successor.title}.`,
+    nextStep: "Open the surviving workflow and continue from the newer durable state.",
+    ctaLabel: "Open replacement workflow",
+    ctaDescription: `Continue from ${successor.title}.`,
+    location: successor.resolvedLocation,
     acknowledged: isContinuityRecoveryAcknowledged(key),
   };
+}
+
+function buildFallbackRecoveryPlan(input: {
+  displayTitle: string;
+  resolvedTarget: ResolvedContinuityTarget;
+  workflowThread: WorkflowThreadRef | null;
+}): ContinuityRecoveryPlan | null {
+  if (input.resolvedTarget.status === "ok") {
+    return null;
+  }
+
+  const key = buildRecoveryKey(
+    input.resolvedTarget.status,
+    input.workflowThread,
+    input.resolvedTarget.requestedLocation,
+    input.resolvedTarget.resolvedLocation,
+  );
+
+  if (input.resolvedTarget.status === "working_set_scope_removed") {
+    return {
+      key,
+      kind: input.resolvedTarget.status,
+      title: `${input.displayTitle} lost its working-set scope`,
+      summary: input.resolvedTarget.message
+        ?? "The original working-set scope is gone, but the durable target still survives outside that scope.",
+      nextStep: "Open the durable target, then repin or restage it if it still belongs in a working set.",
+      ctaLabel: "Open durable target",
+      ctaDescription: "Continue from the surviving unscoped target.",
+      location: input.resolvedTarget.resolvedLocation,
+      acknowledged: isContinuityRecoveryAcknowledged(key),
+    };
+  }
+
+  if (input.resolvedTarget.status === "launch_fallback") {
+    return {
+      key,
+      kind: input.resolvedTarget.status,
+      title: `${input.displayTitle} fell back to its launch workflow`,
+      summary: input.resolvedTarget.message
+        ?? "The landed outcome is no longer available, so recovery returns you to the workflow that created it.",
+      nextStep: "Open the launch workflow, inspect what changed, and recreate or replace the missing outcome.",
+      ctaLabel: "Open launch workflow",
+      ctaDescription: "Return to the originating workflow and recover from there.",
+      location: input.resolvedTarget.resolvedLocation,
+      acknowledged: isContinuityRecoveryAcknowledged(key),
+    };
+  }
+
+  return {
+    key,
+    kind: input.resolvedTarget.status,
+    title: `${input.displayTitle} no longer has a surviving target`,
+    summary: input.resolvedTarget.message
+      ?? "Neither the landed outcome nor its launch workflow still exists, so recovery falls back to home.",
+    nextStep: "Return home, then choose a surviving queue, plan, or replacement path from the operator workspace.",
+    ctaLabel: "Return home",
+    ctaDescription: "Go back to the operator workspace and recover from a surviving path.",
+    location: input.resolvedTarget.resolvedLocation,
+    acknowledged: isContinuityRecoveryAcknowledged(key),
+  };
+}
+
+export function buildContinuityRecoveryPlan(input: {
+  displayTitle: string;
+  resolvedTarget: ResolvedContinuityTarget | null;
+  workflowThread: WorkflowThreadRef | null;
+}): ContinuityRecoveryPlan | null {
+  const { resolvedTarget } = input;
+  if (!resolvedTarget) {
+    return null;
+  }
+  return buildSuccessorRecoveryPlan({ ...input, resolvedTarget })
+    ?? buildFallbackRecoveryPlan({ ...input, resolvedTarget });
 }
 
 function buildRecoverAction(recovery: ContinuityRecoveryPlan): OperatorActionCardRecoverAction {

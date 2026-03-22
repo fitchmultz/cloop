@@ -2,12 +2,14 @@
 
 Purpose:
     Define request and response models for backend-backed continuity outcomes,
-    grouped workflow threads, durable resume anchors, and last-seen markers.
+    grouped workflow threads, durable resume anchors, recovery provenance, and
+    durable recovery acknowledgements.
 
 Responsibilities:
-    - Validate continuity outcome, anchor, and last-seen write payloads.
+    - Validate continuity outcome, anchor, last-seen, and recovery-ack writes.
     - Shape continuity snapshot responses for cross-device hydration.
-    - Model explicit fallback states when persisted targets drift or disappear.
+    - Model explicit fallback and replacement states when persisted targets drift
+      or disappear.
 
 Non-scope:
     - Continuity persistence logic or target resolution behavior.
@@ -19,6 +21,8 @@ Usage:
 Invariants/Assumptions:
     - Location payloads remain transport-neutral and map to shell navigation.
     - Durable continuity stores only high-signal landed outcomes, anchors, and observations.
+    - Replacement provenance is emitted by the backend and consumed as the
+      canonical recovery contract.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ ContinuityTargetStatus = Literal[
     "launch_fallback",
     "home_fallback",
 ]
+ContinuitySuccessorKind = Literal["replacement"]
 ContinuityObservedEntityKind = Literal[
     "planning_session",
     "review_session",
@@ -88,13 +93,28 @@ class WorkflowThreadRefResponse(BaseModel):
     parent_outcome_id: int | None = None
 
 
+class ContinuitySuccessorTargetResponse(BaseModel):
+    """Backend-authored replacement target for a superseded continuity path."""
+
+    kind: ContinuitySuccessorKind = "replacement"
+    outcome_id: int
+    title: str
+    summary: str | None = None
+    workflow_thread: WorkflowThreadRefResponse | None = None
+    requested_location: ContinuityLocationResponse | None = None
+    resolved_location: ContinuityLocationResponse
+    status: ContinuityTargetStatus
+    message: str | None = None
+
+
 class ResolvedContinuityTargetResponse(BaseModel):
-    """Resolved continuity target with explicit fallback state."""
+    """Resolved continuity target with explicit fallback and successor state."""
 
     requested_location: ContinuityLocationResponse | None = None
     resolved_location: ContinuityLocationResponse
     status: ContinuityTargetStatus
     message: str | None = None
+    successor: ContinuitySuccessorTargetResponse | None = None
 
 
 class ContinuityOutcomeWriteRequest(BaseModel):
@@ -140,10 +160,13 @@ class ContinuityAnchorResponse(BaseModel):
     visited_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
     resume_location: ContinuityLocationResponse | None = None
+    resolved_resume: ResolvedContinuityTargetResponse | None = None
     outcome_title: str | None = None
     outcome_summary: str | None = None
     working_set_id: int | None = None
     workflow_thread_id: str | None = None
+    degraded: bool = False
+    degraded_label: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -186,6 +209,22 @@ class ContinuityLastSeenBatchUpsertRequest(BaseModel):
     markers: list[ContinuityLastSeenMarkerUpsertRequest] = Field(default_factory=list)
 
 
+class ContinuityRecoveryAcknowledgementUpsertRequest(BaseModel):
+    """Request to persist one durable continuity recovery acknowledgement."""
+
+    recovery_key: str
+    acknowledged_at_utc: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ContinuityRecoveryAcknowledgementResponse(BaseModel):
+    """Durable recovery acknowledgement returned to the frontend."""
+
+    recovery_key: str
+    acknowledged_at_utc: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ContinuityOutcomeRecordResponse(BaseModel):
     """Persisted high-signal landed outcome returned to the frontend shell."""
 
@@ -224,6 +263,9 @@ class ContinuitySnapshotResponse(BaseModel):
     anchors: ContinuityAnchorsResponse = Field(default_factory=ContinuityAnchorsResponse)
     threads: list[ContinuityThreadSummaryResponse] = Field(default_factory=list)
     last_seen_markers: list[ContinuityLastSeenMarkerResponse] = Field(default_factory=list)
+    recovery_acknowledgements: list[ContinuityRecoveryAcknowledgementResponse] = Field(
+        default_factory=list
+    )
 
 
 __all__ = [
@@ -236,7 +278,10 @@ __all__ = [
     "ContinuityLocationResponse",
     "ContinuityOutcomeRecordResponse",
     "ContinuityOutcomeWriteRequest",
+    "ContinuityRecoveryAcknowledgementResponse",
+    "ContinuityRecoveryAcknowledgementUpsertRequest",
     "ContinuitySnapshotResponse",
+    "ContinuitySuccessorTargetResponse",
     "ContinuityThreadSummaryResponse",
     "ResolvedContinuityTargetResponse",
     "WorkflowThreadRefResponse",

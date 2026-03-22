@@ -36,6 +36,7 @@ import type {
   OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
   RecentShellActionEntry,
+  ResolvedContinuityTarget,
   ResumeAnchorState,
   ResumeAnchorTarget,
   ShellLocationContract,
@@ -55,8 +56,7 @@ import {
 import { scoreRankingSignals, totalRankingScore } from "./continuity-drift";
 import {
   applyContinuityRecovery,
-  buildReplacementRecoveryPlan,
-  buildResolvedTargetRecoveryPlan,
+  buildContinuityRecoveryPlan,
 } from "./continuity-recovery";
 import { formatRelativeTime } from "./shell-core";
 import { createLocation } from "./shell-routing";
@@ -122,6 +122,7 @@ interface FollowThroughLocationResolution {
   status: ContinuityResolvedStatus;
   degraded: boolean;
   degradedLabel: string | null;
+  resolvedTarget: ResolvedContinuityTarget;
 }
 
 function safeTimestamp(value: string): number {
@@ -184,53 +185,93 @@ export function fallbackFollowThroughLocation(
   availability: ContinuityAvailability,
 ): FollowThroughLocationResolution {
   if (!location) {
-    return {
+    const resolvedTarget: ResolvedContinuityTarget = {
       requestedLocation: null,
-      location: createLocation({ state: "operator" }),
+      resolvedLocation: createLocation({ state: "operator" }),
       status: "home_fallback",
+      message: "Original outcome is no longer available, so this follow-through falls back to home.",
+      successor: null,
+    };
+    return {
+      requestedLocation: resolvedTarget.requestedLocation,
+      location: resolvedTarget.resolvedLocation,
+      status: resolvedTarget.status,
       degraded: true,
-      degradedLabel: "Original outcome is no longer available, so this follow-through falls back to home.",
+      degradedLabel: resolvedTarget.message,
+      resolvedTarget,
     };
   }
 
   if (location.workingSetId != null && !availability.workingSets.has(location.workingSetId)) {
     if (location.state === "working_set") {
-      return {
+      const resolvedTarget: ResolvedContinuityTarget = {
         requestedLocation: location,
-        location: createLocation({ state: "operator" }),
+        resolvedLocation: createLocation({ state: "operator" }),
         status: "home_fallback",
+        message: "Working-set session is no longer available, so this follow-through falls back to home.",
+        successor: null,
+      };
+      return {
+        requestedLocation: resolvedTarget.requestedLocation,
+        location: resolvedTarget.resolvedLocation,
+        status: resolvedTarget.status,
         degraded: true,
-        degradedLabel: "Working-set session is no longer available, so this follow-through falls back to home.",
+        degradedLabel: resolvedTarget.message,
+        resolvedTarget,
       };
     }
     const unscopedLocation = createLocation({ ...location, workingSetId: null });
     if (locationExists(unscopedLocation, availability)) {
-      return {
+      const resolvedTarget: ResolvedContinuityTarget = {
         requestedLocation: location,
-        location: unscopedLocation,
+        resolvedLocation: unscopedLocation,
         status: "working_set_scope_removed",
+        message: "Working-set scope was removed, so this follow-through falls back to the durable session or object.",
+        successor: null,
+      };
+      return {
+        requestedLocation: resolvedTarget.requestedLocation,
+        location: resolvedTarget.resolvedLocation,
+        status: resolvedTarget.status,
         degraded: true,
-        degradedLabel: "Working-set scope was removed, so this follow-through falls back to the durable session or object.",
+        degradedLabel: resolvedTarget.message,
+        resolvedTarget,
       };
     }
   }
 
   if (locationExists(location, availability)) {
-    return {
+    const resolvedTarget: ResolvedContinuityTarget = {
       requestedLocation: location,
-      location: cloneLocation(location),
+      resolvedLocation: cloneLocation(location),
       status: "ok",
+      message: null,
+      successor: null,
+    };
+    return {
+      requestedLocation: resolvedTarget.requestedLocation,
+      location: resolvedTarget.resolvedLocation,
+      status: resolvedTarget.status,
       degraded: false,
       degradedLabel: null,
+      resolvedTarget,
     };
   }
 
-  return {
+  const resolvedTarget: ResolvedContinuityTarget = {
     requestedLocation: location,
-    location: createLocation({ state: "operator" }),
+    resolvedLocation: createLocation({ state: "operator" }),
     status: "home_fallback",
+    message: "Original outcome is no longer available, so this follow-through falls back to home.",
+    successor: null,
+  };
+  return {
+    requestedLocation: resolvedTarget.requestedLocation,
+    location: resolvedTarget.resolvedLocation,
+    status: resolvedTarget.status,
     degraded: true,
-    degradedLabel: "Original outcome is no longer available, so this follow-through falls back to home.",
+    degradedLabel: resolvedTarget.message,
+    resolvedTarget,
   };
 }
 
@@ -246,9 +287,27 @@ function resolvedFollowThroughLocation(
       status: resolved.status,
       degraded: resolved.status !== "ok",
       degradedLabel: resolved.status !== "ok" ? resolved.message : null,
+      resolvedTarget: resolved,
     };
   }
   return fallbackFollowThroughLocation(resolveContinuityEntry(entry).resumeLocation, availability);
+}
+
+function resolvedAnchorLocation(
+  anchor: ResumeAnchorTarget,
+  availability: ContinuityAvailability,
+): FollowThroughLocationResolution {
+  if (anchor.resolvedResume) {
+    return {
+      requestedLocation: anchor.resolvedResume.requestedLocation ?? anchor.resumeLocation ?? anchor.launchLocation,
+      location: anchor.resolvedResume.resolvedLocation,
+      status: anchor.resolvedResume.status,
+      degraded: anchor.resolvedResume.status !== "ok",
+      degradedLabel: anchor.resolvedResume.status !== "ok" ? anchor.resolvedResume.message : null,
+      resolvedTarget: anchor.resolvedResume,
+    };
+  }
+  return fallbackFollowThroughLocation(anchor.resumeLocation ?? anchor.launchLocation, availability);
 }
 
 function buildResumeAction(location: ShellLocationContract, description: string): OperatorActionCardAction {
@@ -519,71 +578,25 @@ function scoreOutcome(input: {
   });
 }
 
-function replacementCandidate(
-  current: RankedLandedOutcome,
+export function findRecoveryPlanForLocation(
   outcomes: readonly RankedLandedOutcome[],
-): RankedLandedOutcome | null {
-  const currentFamily = outcomeFamily(current.workflowThread, current.requestedResumeLocation ?? current.resumeLocation);
-  const currentIdentity = current.workflowThread?.id ?? continuityLocationIdentity(current.requestedResumeLocation ?? current.resumeLocation);
-  if (!currentFamily) {
-    return null;
-  }
+  input: {
+    location: ShellLocationContract | null;
+    workflowThreadId?: string | null;
+  },
+): ContinuityRecoveryPlan | null {
+  const targetIdentity = continuityLocationIdentity(input.location);
 
-  return outcomes.find((candidate) => {
-    if (candidate.id === current.id || candidate.degraded) {
+  return outcomes.find((item) => {
+    if (!item.recovery) {
       return false;
     }
-    const candidateFamily = outcomeFamily(candidate.workflowThread, candidate.requestedResumeLocation ?? candidate.resumeLocation);
-    const candidateIdentity = candidate.workflowThread?.id ?? continuityLocationIdentity(candidate.requestedResumeLocation ?? candidate.resumeLocation);
-    return candidateFamily === currentFamily
-      && candidateIdentity !== currentIdentity
-      && safeTimestamp(candidate.occurredAt) >= safeTimestamp(current.occurredAt);
-  }) ?? null;
-}
-
-function enhancedRecovery(
-  outcome: RankedLandedOutcome,
-  outcomes: readonly RankedLandedOutcome[],
-): ContinuityRecoveryPlan | null {
-  const replacement = replacementCandidate(outcome, outcomes);
-
-  if (replacement && (outcome.degraded || outcome.source === "anchor")) {
-    return buildReplacementRecoveryPlan({
-      priorTitle: outcome.displayTitle,
-      representativeTitle: replacement.displayTitle,
-      location: replacement.resumeLocation,
-      workflowThread: replacement.workflowThread,
-      gone: outcome.degraded,
-      summaryOverride: outcome.degraded
-        ? `${outcome.displayTitle} is no longer available. Continue from ${replacement.displayTitle}.`
-        : `${outcome.displayTitle} was superseded by ${replacement.displayTitle}.`,
-    });
-  }
-
-  if (outcome.resolvedStatus !== "ok") {
-    return buildResolvedTargetRecoveryPlan({
-      kind: outcome.resolvedStatus,
-      displayTitle: outcome.displayTitle,
-      message: outcome.degradedLabel,
-      requestedLocation: outcome.requestedResumeLocation,
-      location: outcome.resumeLocation,
-      workflowThread: outcome.workflowThread,
-    });
-  }
-
-  return null;
-}
-
-function applyRecoveryToOutcome(
-  outcome: RankedLandedOutcome,
-  outcomes: readonly RankedLandedOutcome[],
-): RankedLandedOutcome {
-  const recovery = enhancedRecovery(outcome, outcomes);
-  return {
-    ...outcome,
-    recovery,
-    card: applyContinuityRecovery(outcome.card, recovery),
-  };
+    return (
+      (input.workflowThreadId != null && item.workflowThread?.id === input.workflowThreadId)
+      || continuityLocationIdentity(item.requestedResumeLocation) === targetIdentity
+      || continuityLocationIdentity(item.resumeLocation) === targetIdentity
+    );
+  })?.recovery ?? null;
 }
 
 function buildRecentOutcome(
@@ -622,6 +635,11 @@ function buildRecentOutcome(
     persistedOutcomeId: entry.persistence?.persistedOutcomeId ?? null,
     now,
   });
+  const recovery = buildContinuityRecoveryPlan({
+    displayTitle: resolved.displayTitle,
+    resolvedTarget: resolvedTarget.resolvedTarget,
+    workflowThread,
+  });
   const card = normalizeOutcomeCard(
     entry.outcome.card,
     resolvedTarget.location,
@@ -630,7 +648,7 @@ function buildRecentOutcome(
     undoAction,
     rerunAction,
     workingSet,
-    null,
+    recovery,
   );
 
   return {
@@ -649,7 +667,7 @@ function buildRecentOutcome(
     workingSetName: workingSet?.workingSetName ?? workingSetName(availability, resolved.workingSetId),
     degraded: resolvedTarget.degraded,
     degradedLabel: resolvedTarget.degraded ? resolvedTarget.degradedLabel : null,
-    recovery: null,
+    recovery,
     card,
     undoAction,
     rerunAction,
@@ -665,27 +683,35 @@ function buildAnchorOutcome(
   lastSeenMarkers: readonly ContinuityLastSeenMarker[],
   now: number,
 ): RankedLandedOutcome {
-  const fallback = fallbackFollowThroughLocation(anchor.resumeLocation ?? anchor.launchLocation, availability);
+  const resolvedTarget = resolvedAnchorLocation(anchor, availability);
   const workingSet = workingSetMetadata(availability, anchor.workingSetId);
   const workflowThread = anchorWorkflowThread(anchor);
-  const card = buildAnchorCard(
-    anchor,
-    fallback.location,
-    fallback.degraded ? fallback.degradedLabel : null,
-    workingSet,
-  );
   const displayTitle = anchor.outcomeTitle ?? anchorLabel(anchor);
   const displaySummary = anchor.outcomeSummary ?? "Resume the last saved landed workflow state.";
+  const recovery = buildContinuityRecoveryPlan({
+    displayTitle,
+    resolvedTarget: resolvedTarget.resolvedTarget,
+    workflowThread,
+  });
+  const card = applyContinuityRecovery(
+    buildAnchorCard(
+      anchor,
+      resolvedTarget.location,
+      resolvedTarget.degraded ? resolvedTarget.degradedLabel : null,
+      workingSet,
+    ),
+    recovery,
+  );
   const rankingSignals = scoreOutcome({
     source: "anchor",
     occurredAt: anchor.visitedAtUtc,
     activeWorkingSetId,
     workingSetId: anchor.workingSetId,
-    degraded: fallback.degraded,
+    degraded: resolvedTarget.degraded,
     undoAction: null,
     rerunAction: null,
     workflowThread,
-    resumeLocation: fallback.location,
+    resumeLocation: resolvedTarget.location,
     resumeAnchors,
     lastSeenMarkers,
     persistedOutcomeId: null,
@@ -699,16 +725,16 @@ function buildAnchorOutcome(
     rankingSignals,
     persistedOutcomeId: null,
     occurredAt: anchor.visitedAtUtc,
-    requestedResumeLocation: anchor.resumeLocation ?? anchor.launchLocation,
-    resumeLocation: fallback.location,
-    resolvedStatus: fallback.status,
+    requestedResumeLocation: resolvedTarget.requestedLocation,
+    resumeLocation: resolvedTarget.location,
+    resolvedStatus: resolvedTarget.status,
     displayTitle,
     displaySummary,
     workingSetId: anchor.workingSetId,
     workingSetName: workingSet?.workingSetName ?? workingSetName(availability, anchor.workingSetId),
-    degraded: fallback.degraded,
-    degradedLabel: fallback.degraded ? fallback.degradedLabel : null,
-    recovery: null,
+    degraded: resolvedTarget.degraded,
+    degradedLabel: resolvedTarget.degraded ? resolvedTarget.degradedLabel : null,
+    recovery,
     card,
     undoAction: null,
     rerunAction: null,
@@ -757,14 +783,12 @@ export function readRankedLandedOutcomes(input: ReadRankedLandedOutcomesInput): 
     .map((anchor) => buildAnchorOutcome(anchor, input.availability, activeWorkingSetId, resumeAnchors, lastSeenMarkers, now))
     .filter((item) => !recentLocationKeys.has(continuityLocationIdentity(item.resumeLocation)));
 
-  const sortedOutcomes = [...recent, ...anchors].sort((left, right) => {
+  return [...recent, ...anchors].sort((left, right) => {
     if (right.rank !== left.rank) {
       return right.rank - left.rank;
     }
     return safeTimestamp(right.occurredAt) - safeTimestamp(left.occurredAt);
   });
-
-  return sortedOutcomes.map((outcome) => applyRecoveryToOutcome(outcome, sortedOutcomes));
 }
 
 export function groupRankedWorkflowThreads(

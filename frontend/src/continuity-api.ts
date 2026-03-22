@@ -24,6 +24,7 @@
 import type {
   ContinuityAnchorUpsertRequest,
   ContinuityLastSeenBatchUpsertRequest,
+  ContinuityRecoveryAcknowledgementUpsertRequest,
   ContinuitySnapshotResponse,
   ContinuityOutcomeWriteRequest,
 } from "./domain";
@@ -74,5 +75,18 @@ export function upsertContinuityLastSeen(
       body: payload,
     },
     "Failed to persist durable last-seen continuity markers",
+  );
+}
+
+export function upsertContinuityRecoveryAcknowledgement(
+  payload: ContinuityRecoveryAcknowledgementUpsertRequest,
+): Promise<ContinuitySnapshotResponse> {
+  return requestJson<ContinuitySnapshotResponse, ContinuityRecoveryAcknowledgementUpsertRequest>(
+    "/loops/continuity/recovery-acks",
+    {
+      method: "PUT",
+      body: payload,
+    },
+    "Failed to persist durable continuity recovery acknowledgement",
   );
 }

@@ -985,10 +985,8 @@ function primaryRecommendationForContext(
   context: CommandPaletteContext,
   outcomes: readonly RankedLandedOutcome[],
 ) {
-  const availability = continuityAvailabilityFromContext(context);
   return derivePrimaryRecommendation({
     outcomes,
-    availability,
     resumeAnchors: readResumeAnchors(),
     lastSeenMarkers: readContinuityLastSeenMarkers(),
   });

@@ -21,7 +21,8 @@
  *   - Streaming responses use the shared SSE-like event stream parser.
  */
 
-import { parseHash } from "../shell-routing";
+import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
+import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import type { RagChunk, RagSource, SurfaceChatEventPayload } from "./contracts";
@@ -78,12 +79,24 @@ function currentWorkingSetId(): number | null {
   return parseHash(window.location.hash)?.workingSetId ?? null;
 }
 
+function currentRecallRecovery(query: string | null = null) {
+  return continuityRecoveryForLocation({
+    location: createLocation({
+      state: "recall",
+      recallTool: "rag",
+      workingSetId: currentWorkingSetId(),
+      query,
+    }),
+  });
+}
+
 function renderActionCards(options: { hasKnowledge?: boolean } = {}): void {
   renderRecallActionCards(ragActionCardsEl, {
     tool: "rag",
     workingSetId: currentWorkingSetId(),
     ragQuestion: ragInput?.value.trim() || undefined,
     hasKnowledge: options.hasKnowledge,
+    recovery: currentRecallRecovery(ragInput?.value.trim() || null),
   });
 }
 
@@ -134,6 +147,7 @@ function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[], 
           sourceLabels,
           ragContextApplied: true,
           ragChunksUsed: chunks.length || undefined,
+          recovery: currentRecallRecovery(question || null),
         });
   }
   setNoKnowledgeState(isNoKnowledgeState);

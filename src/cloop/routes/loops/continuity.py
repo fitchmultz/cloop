@@ -29,6 +29,7 @@ from ...schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityOutcomeWriteRequest,
+    ContinuityRecoveryAcknowledgementUpsertRequest,
     ContinuitySnapshotResponse,
 )
 from ...storage import (
@@ -36,6 +37,7 @@ from ...storage import (
     record_continuity_outcome,
     upsert_continuity_anchor,
     upsert_continuity_last_seen_markers,
+    upsert_continuity_recovery_acknowledgement,
 )
 from ._common import SettingsDep
 
@@ -86,6 +88,16 @@ def upsert_continuity_last_seen_endpoint(
     """Upsert durable last-seen markers and return the refreshed continuity snapshot."""
     if request.markers:
         upsert_continuity_last_seen_markers(request, settings=settings)
+    return read_continuity_snapshot(settings=settings)
+
+
+@router.put("/continuity/recovery-acks", response_model=ContinuitySnapshotResponse)
+def upsert_continuity_recovery_acknowledgement_endpoint(
+    request: ContinuityRecoveryAcknowledgementUpsertRequest,
+    settings: SettingsDep,
+) -> ContinuitySnapshotResponse:
+    """Upsert one durable recovery acknowledgement and return the refreshed snapshot."""
+    upsert_continuity_recovery_acknowledgement(request, settings=settings)
     return read_continuity_snapshot(settings=settings)
 
 

@@ -23,7 +23,14 @@
  *   - Working-set scope is optional but should be carried when available.
  */
 
-import type { OperatorActionCard, OperatorActionCardAction, RecallTool, ShellLocationContract } from "../contracts-ui";
+import type {
+  ContinuityRecoveryPlan,
+  OperatorActionCard,
+  OperatorActionCardAction,
+  RecallTool,
+  ShellLocationContract,
+} from "../contracts-ui";
+import { applyContinuityRecovery } from "../continuity-recovery";
 import { buildRecallRerunAction } from "../executable-rerun";
 import { renderActionCardDeck } from "../operator-action-cards";
 import { createLocation } from "../shell-routing";
@@ -36,6 +43,7 @@ export interface RecallActionCardContext {
   memoryQuery?: string | undefined;
   ragQuestion?: string | undefined;
   hasKnowledge?: boolean | undefined;
+  recovery?: ContinuityRecoveryPlan | null;
 }
 
 export interface RecallResultActionCardContext extends RecallActionCardContext {
@@ -249,7 +257,7 @@ export function buildRecallResultActionCards(
 
   if (context.tool === "chat") {
     const cards: OperatorActionCard[] = [
-      {
+      applyContinuityRecovery({
         id: "recall-chat-result-next-step",
         kind: "handoff",
         tone: context.sourceCount > 0 || context.loopContextApplied ? "attention" : "progress",
@@ -309,7 +317,7 @@ export function buildRecallResultActionCards(
             groundedBriefLabel,
           ),
         ],
-      },
+      }, context.recovery ?? null),
     ];
 
     if (context.sourceCount > 0 || context.ragContextApplied) {
@@ -428,7 +436,7 @@ export function buildRecallResultActionCards(
   }
 
   return [
-    {
+    applyContinuityRecovery({
       id: "recall-rag-result-chat",
       kind: "handoff",
       tone: "attention",
@@ -484,7 +492,7 @@ export function buildRecallResultActionCards(
           "Recall · Documents",
         ),
       ],
-    },
+    }, context.recovery ?? null),
     {
       id: "recall-rag-result-do",
       kind: "context",
@@ -555,7 +563,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
 
   if (context.tool === "chat") {
     return [
-      {
+      applyContinuityRecovery({
         id: "recall-chat-brief",
         kind: "context",
         tone: "attention",
@@ -586,7 +594,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
           openAction("Stay in grounded chat", chatLocation, "Ask for a grounded next-step brief"),
           pinAction("Pin chat", chatLocation, "Return to grounded chat", "Recall · Grounded chat"),
         ],
-      },
+      }, context.recovery ?? null),
       {
         id: "recall-chat-memory",
         kind: "context",
@@ -656,7 +664,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
 
   if (context.tool === "memory") {
     return [
-      {
+      applyContinuityRecovery({
         id: "recall-memory-search",
         kind: "context",
         tone: "attention",
@@ -686,7 +694,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
           openAction("Stay in memory", memoryLocation, "Search or review durable memory"),
           pinAction("Pin memory", memoryLocation, "Return to durable memory", "Recall · Memory"),
         ],
-      },
+      }, context.recovery ?? null),
       {
         id: "recall-memory-chat",
         kind: "context",
@@ -721,7 +729,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
   }
 
   return [
-    {
+    applyContinuityRecovery({
       id: "recall-rag-evidence",
       kind: "context",
       tone: context.hasKnowledge === false ? "caution" : "attention",
@@ -753,7 +761,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
         openAction("Stay in documents", ragLocation, "Use document-backed recall"),
         pinAction("Pin documents", ragLocation, "Return to document-backed recall", "Recall · Documents"),
       ],
-    },
+    }, context.recovery ?? null),
     {
       id: "recall-rag-memory",
       kind: "context",

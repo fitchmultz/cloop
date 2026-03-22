@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to move continuity recovery from frontend-only best-effort inference to backend-assisted provenance and broader downstream-surface adoption, so every stale workflow can explain exactly what replaced it and where to go next.
+The current priority is to move continuity ranking and recommendation explanation from frontend-only synthesis to backend-authored workflow summaries, so every surface opens with the same canonical next-move reasoning, drift evidence, and workflow-thread state.
 
 ## Direction
 
@@ -45,26 +45,26 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Backend-assisted recovery provenance and downstream-surface cutover
+### Next — Backend-authored ranked continuity summaries and recommendation digests
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 - [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
+- [`docs/ux/workflow-handoffs.md`](ux/workflow-handoffs.md)
 
-Goal: replace frontend-only recovery inference with explicit backend-assisted successor provenance and extend the same recovery contract into downstream planning, review, and recall surfaces.
+Goal: promote continuity from backend-backed raw outcomes to backend-authored ranked workflow summaries, so operator home, the receipt rail, command palette, and downstream action-card surfaces all render the same canonical next-move explanation without frontend-only ranking heuristics.
 
 Why this comes next:
-- the operator workspace, receipt rail, and command palette now expose explicit recovery CTAs, so the next churn-reducing step is to make their provenance exact instead of inferred from local ranked outcomes alone
-- replacement and fallback reasoning is still synthesized mostly in the frontend, which limits how precisely non-shell surfaces can explain what replaced a stale destination
-- backend-assisted successor metadata should land before broader recommendation expansion so future continuity UX can reuse one canonical recovery contract everywhere
+- recovery provenance is now durable and shared, so the next churn-reducing cutover is to centralize the remaining ranking and explanation logic that still lives mostly in frontend helpers
+- recommendation digests, since-last ordering, and command-palette guidance currently reuse the same inputs but still synthesize copy and priority client-side
+- backend-authored workflow summaries should land before broader notification or automation work so every future consumer starts from one canonical continuity feed
 
 Planned sequence:
 
-1. extend durable continuity resolution to emit explicit successor or replacement targets when a stale path can be mapped deterministically
-2. thread that recovery provenance through frontend hydration, typed contracts, and shared continuity helpers instead of recomputing it per surface
-3. reuse the same recovery contract in downstream planning, review, and recall action cards so stale handoffs stay recoverable outside operator home
-4. preserve recovery acknowledgement state and provenance labels consistently across browser sessions, devices, and refreshed shells
+1. add backend-owned ranked workflow-thread summaries with explicit why-now, changed-since-last-seen, and prior-state evidence
+2. expose those summaries through continuity snapshot hydration and OpenAPI-generated frontend contracts
+3. cut operator home, receipt rail, command palette, and downstream action-card surfaces over to the canonical summary feed instead of recomputing recommendation digests locally
+4. persist acknowledgement and last-seen side effects against backend workflow-summary identities so ranking explanations stay stable across devices and refreshes
 
 ## Delivery model
 

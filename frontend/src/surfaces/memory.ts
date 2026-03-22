@@ -20,7 +20,8 @@
  *   - Cursor pagination is opaque and stored as a string token.
  */
 
-import { parseHash } from "../shell-routing";
+import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
+import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards } from "./recall-action-cards";
 import * as api from "./api";
 import * as modals from "./modals";
@@ -75,11 +76,23 @@ function currentWorkingSetId(): number | null {
   return parseHash(window.location.hash)?.workingSetId ?? null;
 }
 
+function currentRecallRecovery(query: string | null = null) {
+  return continuityRecoveryForLocation({
+    location: createLocation({
+      state: "recall",
+      recallTool: "memory",
+      workingSetId: currentWorkingSetId(),
+      query,
+    }),
+  });
+}
+
 function renderActionCards(): void {
   renderRecallActionCards(memoryActionCardsEl, {
     tool: "memory",
     workingSetId: currentWorkingSetId(),
     memoryQuery: currentQuery() || undefined,
+    recovery: currentRecallRecovery(currentQuery() || null),
   });
 }
 
