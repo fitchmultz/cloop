@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish the delivery-status reason model now that notification-state lifecycle hygiene is in place.
+The current priority is to finish continuity delivery-decision contract cleanup and keep delivery behavior behind one backend-owned contract.
 
 ## Direction
 
@@ -38,6 +38,7 @@ The next roadmap slice starts from work that is already live:
 - durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
 - backend-authored workflow-summary continuity across operator home, the receipt rail, command-palette recents, and calm notification/push delivery
 - durable notification delivery state for canonical continuity records across push sends, in-app banners, and continuity hydration
+- deterministic notification-state compaction for expired suppressions, retired workflow ids, and orphaned workflow ids
 - drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
 - proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
 - explicit continuity recovery flows for superseded or unavailable workflows across operator cards, the receipt rail, and command-palette recommendations
@@ -46,39 +47,31 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Delivery-status reason model
+### Next — Continuity delivery-decision contract cleanup
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: define one backend-owned reason vocabulary for continuity notification delivery outcomes so cooldown, suppression, acknowledgement, send, and dedupe behavior can be inspected consistently.
-
-Why this comes next:
-- lifecycle cleanup should settle first so reason codes describe surviving state only
-- explainability and tests will churn less if they build on one canonical status model
+Goal: remove remaining implicit delivery behavior so compaction, resend eligibility, and reason evaluation all run through one backend contract.
 
 Planned sequence:
 
-1. define canonical reason codes for sent, skipped, cooled-down, suppressed, acknowledged, missing-target, and deduped outcomes
-2. attach the reason model to the scheduler/continuity delivery boundary without changing notification ranking
-3. reuse the same reason vocabulary in tests before adding any inspection surface
+1. centralize notification-state classification, compaction, and delivery-decision evaluation behind one store-level contract
+2. stop spreading delivery semantics across snapshot shaping, push filtering, and scheduler call sites
+3. keep notification ranking unchanged while tightening the integration boundary
 
-### Later — Scheduler delivery history and explainability
+### Then — Delivery history and explainability
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: expose inspectable delivery history for continuity notifications by reusing scheduler delivery records, durable notification state, and the canonical delivery-status reason model.
-
-Why this comes later:
-- lifecycle cleanup and reason modeling should settle first so diagnostics describe stable behavior
-- the write-side scheduler delivery record already exists, so the remaining work is a focused read/inspection contract
+Goal: expose inspectable continuity delivery history by joining scheduler delivery records, durable notification state, and canonical decision reasons.
 
 Planned sequence:
 
-1. add a read path that joins scheduler delivery records with continuity notification state and delivery-status reasons
+1. add a read path that joins scheduler delivery records with continuity notification state and decision reasons
 2. keep diagnostics debug-first and separate from notification ranking or operator recommendation logic
-3. add focused inspection coverage for resend, suppression, acknowledgement, dedupe, and skipped-delivery cases
+3. add focused inspection coverage for resend, suppression, acknowledgement, dedupe, missing-target, and skipped-delivery cases
 
 ## Delivery model
 

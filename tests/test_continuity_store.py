@@ -44,6 +44,7 @@ from cloop.schemas._loops.continuity import (
 )
 from cloop.settings import get_settings
 from cloop.storage.continuity_store import (
+    _notification_delivery_decisions,
     read_continuity_notification_records,
     read_continuity_snapshot,
     record_continuity_outcome,
@@ -120,6 +121,19 @@ def _outcome_request(
         signal_level="high",
         metadata={"sessionId": 41, "checkpointIndex": 0},
     )
+
+
+def _push_delivery_reasons(*, limit: int = 3) -> list[str]:
+    snapshot = read_continuity_snapshot()
+    return [
+        decision.reason
+        for decision in _notification_delivery_decisions(
+            snapshot.workflow_summaries,
+            snapshot.notification_records,
+            limit=limit,
+            channel="push",
+        )
+    ]
 
 
 def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
@@ -279,11 +293,17 @@ def test_snapshot_drops_orphaned_notification_state(tmp_data_dir: Path) -> None:
 
 
 def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) -> None:
-    record_continuity_outcome(_outcome_request())
+    record_continuity_outcome(
+        _outcome_request(
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+        )
+    )
     notification_id = "planning:41:checkpoint:0"
     now = datetime.now(UTC).replace(microsecond=0)
 
     assert read_continuity_notification_records(channel="push")[0].id == notification_id
+    assert _push_delivery_reasons() == ["sent"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -292,6 +312,7 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push") == []
+    assert _push_delivery_reasons() == ["cooled_down"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -300,6 +321,7 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push")[0].id == notification_id
+    assert _push_delivery_reasons() == ["sent"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -308,6 +330,7 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push") == []
+    assert _push_delivery_reasons() == ["cooled_down"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -316,6 +339,7 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push")[0].id == notification_id
+    assert _push_delivery_reasons() == ["sent"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -324,6 +348,7 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push") == []
+    assert _push_delivery_reasons() == ["suppressed"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -332,6 +357,7 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push")[0].id == notification_id
+    assert _push_delivery_reasons() == ["sent"]
 
     upsert_continuity_notification_state(
         notification_id,
@@ -340,6 +366,60 @@ def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) 
         ),
     )
     assert read_continuity_notification_records(channel="push") == []
+    assert _push_delivery_reasons() == ["acknowledged"]
+
+
+def test_push_delivery_marks_missing_targets(tmp_data_dir: Path) -> None:
+    record_continuity_outcome(
+        _outcome_request(
+            launch_location=None,
+            resume_location=ContinuityLocationResponse(state="do", loop_id=999),
+            dedupe_key="missing::target",
+            workflow_thread_id="loop:999",
+        )
+    )
+
+    assert read_continuity_notification_records(channel="push") == []
+    assert _push_delivery_reasons() == ["missing_target"]
+
+
+def test_push_delivery_reasons_cover_deduped_and_skipped_records(tmp_data_dir: Path) -> None:
+    shared_location = ContinuityLocationResponse(state="recall", recall_tool="chat")
+    record_continuity_outcome(
+        _outcome_request(
+            label="Newest recall path",
+            occurred_at_utc="2026-03-21T12:20:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=shared_location,
+            dedupe_key="planning::shared-a",
+            workflow_thread_id="planning:shared-a",
+        )
+    )
+    record_continuity_outcome(
+        _outcome_request(
+            label="Duplicate recall path",
+            occurred_at_utc="2026-03-21T12:10:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=shared_location,
+            dedupe_key="planning::shared-b",
+            workflow_thread_id="planning:shared-b",
+        )
+    )
+    record_continuity_outcome(
+        _outcome_request(
+            label="Older distinct path",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(state="recall", recall_tool="memory"),
+            dedupe_key="planning::distinct",
+            workflow_thread_id="planning:distinct",
+        )
+    )
+
+    records = read_continuity_notification_records(channel="push", limit=1)
+
+    assert [record.id for record in records] == ["planning:shared-a"]
+    assert _push_delivery_reasons(limit=1) == ["sent", "deduped", "skipped"]
 
 
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:

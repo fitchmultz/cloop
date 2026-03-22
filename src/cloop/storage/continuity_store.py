@@ -77,6 +77,21 @@ _NotificationStateLifecycle = Literal[
     "retired",
     "orphaned",
 ]
+_ContinuityDeliveryReason = Literal[
+    "sent",
+    "cooled_down",
+    "suppressed",
+    "acknowledged",
+    "missing_target",
+    "deduped",
+    "skipped",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class _NotificationDeliveryDecision:
+    record: ContinuityNotificationRecordResponse
+    reason: _ContinuityDeliveryReason
 
 
 def _json_default(value: Any) -> Any:
@@ -1700,19 +1715,76 @@ def _push_resend_ready_at(
     return None
 
 
-def _push_deliverable(
+def _notification_delivery_dedupe_key(
+    summary: ContinuityWorkflowSummaryResponse,
+) -> str:
+    return _location_identity(summary.resolved_resume.resolved_location)
+
+
+def _notification_delivery_reason(
+    summary: ContinuityWorkflowSummaryResponse,
     record: ContinuityNotificationRecordResponse,
     *,
-    now: datetime | None = None,
-) -> bool:
+    channel: Literal["all", "push"],
+    now: datetime,
+) -> _ContinuityDeliveryReason:
+    if channel != "push":
+        return "sent"
     state = record.state
-    now = now or datetime.now(UTC)
     if state.acknowledged_at_utc is not None:
-        return False
+        return "acknowledged"
     if _notification_state_is_suppressed(state, now=now):
-        return False
+        return "suppressed"
+    if not _is_viable_successor(summary.resolved_resume.status):
+        return "missing_target"
     resend_ready_at = _push_resend_ready_at(state)
-    return resend_ready_at is None or resend_ready_at <= now
+    if resend_ready_at is not None and resend_ready_at > now:
+        return "cooled_down"
+    return "sent"
+
+
+def _notification_delivery_decisions(
+    workflow_summaries: list[ContinuityWorkflowSummaryResponse],
+    notification_records: list[ContinuityNotificationRecordResponse],
+    *,
+    limit: int,
+    channel: Literal["all", "push"] = "all",
+    now: datetime | None = None,
+) -> list[_NotificationDeliveryDecision]:
+    now = now or datetime.now(UTC)
+    summary_by_id = {summary.id: summary for summary in workflow_summaries}
+    sent_count = 0
+    sent_dedupe_keys: set[str] = set()
+    decisions: list[_NotificationDeliveryDecision] = []
+
+    for record in notification_records:
+        summary = summary_by_id.get(record.id)
+        if summary is None:
+            decisions.append(_NotificationDeliveryDecision(record=record, reason="missing_target"))
+            continue
+
+        reason = _notification_delivery_reason(summary, record, channel=channel, now=now)
+        if reason != "sent":
+            decisions.append(_NotificationDeliveryDecision(record=record, reason=reason))
+            continue
+
+        dedupe_key: str | None = None
+        if channel == "push":
+            dedupe_key = _notification_delivery_dedupe_key(summary)
+            if dedupe_key in sent_dedupe_keys:
+                decisions.append(_NotificationDeliveryDecision(record=record, reason="deduped"))
+                continue
+
+        if sent_count >= limit:
+            decisions.append(_NotificationDeliveryDecision(record=record, reason="skipped"))
+            continue
+
+        if dedupe_key is not None:
+            sent_dedupe_keys.add(dedupe_key)
+        sent_count += 1
+        decisions.append(_NotificationDeliveryDecision(record=record, reason="sent"))
+
+    return decisions
 
 
 def read_continuity_notification_records(
@@ -1723,10 +1795,13 @@ def read_continuity_notification_records(
 ) -> list[ContinuityNotificationRecordResponse]:
     """Read calm notification records derived from ranked workflow summaries."""
     snapshot = read_continuity_snapshot(limit=max(24, limit * 4), settings=settings)
-    records = snapshot.notification_records
-    if channel == "push":
-        records = [record for record in records if _push_deliverable(record)]
-    return records[:limit]
+    decisions = _notification_delivery_decisions(
+        snapshot.workflow_summaries,
+        snapshot.notification_records,
+        limit=limit,
+        channel=channel,
+    )
+    return [decision.record for decision in decisions if decision.reason == "sent"]
 
 
 __all__ = [
