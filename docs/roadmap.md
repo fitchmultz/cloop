@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish notification-state lifecycle hygiene now that scheduler delivery timing and resend policy are settled.
+The current priority is to finish the delivery-status reason model now that notification-state lifecycle hygiene is in place.
 
 ## Direction
 
@@ -46,39 +46,39 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Notification-state lifecycle hygiene
+### Next — Delivery-status reason model
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: compact durable notification state once delivery policy settles so expired suppressions, long-lived terminal states, and retired workflow ids do not accumulate indefinitely.
+Goal: define one backend-owned reason vocabulary for continuity notification delivery outcomes so cooldown, suppression, acknowledgement, send, and dedupe behavior can be inspected consistently.
 
 Why this comes next:
-- resend policy needs stable state semantics before cleanup rules can be made deterministic
-- cleanup should happen before exposing delivery diagnostics so debug views reflect the final lifecycle rules
+- lifecycle cleanup should settle first so reason codes describe surviving state only
+- explainability and tests will churn less if they build on one canonical status model
 
 Planned sequence:
 
-1. define which notification-state rows are active, terminal, expired, retired, or orphaned
-2. add deterministic compaction for expired suppressions, stale terminal rows, and unresolved workflow ids
-3. keep cleanup invisible to active notification delivery and operator inbox behavior
+1. define canonical reason codes for sent, skipped, cooled-down, suppressed, acknowledged, missing-target, and deduped outcomes
+2. attach the reason model to the scheduler/continuity delivery boundary without changing notification ranking
+3. reuse the same reason vocabulary in tests before adding any inspection surface
 
 ### Later — Scheduler delivery history and explainability
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: expose why a continuity notification was sent, skipped, cooled down, or deduped by reusing scheduler delivery records and durable notification state.
+Goal: expose inspectable delivery history for continuity notifications by reusing scheduler delivery records, durable notification state, and the canonical delivery-status reason model.
 
 Why this comes later:
-- delivery rules and cleanup behavior should settle first so explanations describe stable behavior
-- the write-side scheduler delivery record already exists, so the follow-up is mainly a read/diagnostic contract
+- lifecycle cleanup and reason modeling should settle first so diagnostics describe stable behavior
+- the write-side scheduler delivery record already exists, so the remaining work is a focused read/inspection contract
 
 Planned sequence:
 
-1. define canonical delivery-status reasons across sent, skipped, cooled-down, suppressed, and deduped outcomes
-2. add a read path that joins scheduler delivery records with continuity notification state for inspection and tests
-3. keep diagnostics debug-first and separate from notification ranking or operator recommendation logic
+1. add a read path that joins scheduler delivery records with continuity notification state and delivery-status reasons
+2. keep diagnostics debug-first and separate from notification ranking or operator recommendation logic
+3. add focused inspection coverage for resend, suppression, acknowledgement, dedupe, and skipped-delivery cases
 
 ## Delivery model
 

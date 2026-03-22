@@ -205,6 +205,79 @@ def test_notification_state_round_trips_on_snapshot(tmp_data_dir: Path) -> None:
     assert snapshot.notification_records[0].state.suppressed_until_utc == "2026-03-21T13:00:00Z"
 
 
+def test_snapshot_clears_expired_notification_suppression(tmp_data_dir: Path) -> None:
+    record_continuity_outcome(_outcome_request())
+    upsert_continuity_notification_state(
+        "planning:41:checkpoint:0",
+        ContinuityNotificationStateUpsertRequest(
+            suppressed_until_utc="2026-03-21T11:00:00Z",
+        ),
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.notification_records[0].state.suppressed_until_utc is None
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT suppressed_until_utc "
+            "FROM continuity_notification_states WHERE notification_id = ?",
+            ("planning:41:checkpoint:0",),
+        ).fetchone()
+
+    assert row is not None
+    assert row["suppressed_until_utc"] is None
+
+
+def test_snapshot_drops_retired_terminal_notification_state(tmp_data_dir: Path) -> None:
+    notification_id = "planning:41:checkpoint:0"
+    record_continuity_outcome(_outcome_request(occurred_at_utc="2026-03-21T12:00:00Z"))
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            acknowledged_at_utc="2026-03-21T12:03:00Z",
+        ),
+    )
+    record_continuity_outcome(
+        _outcome_request(
+            label="Refreshed planning thread",
+            description="The plan changed again.",
+            occurred_at_utc="2026-03-21T12:20:00Z",
+            dedupe_key="planning::queue-2",
+        )
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.notification_records[0].state.acknowledged_at_utc is None
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM continuity_notification_states WHERE notification_id = ?",
+            (notification_id,),
+        ).fetchone()
+
+    assert row is None
+
+
+def test_snapshot_drops_orphaned_notification_state(tmp_data_dir: Path) -> None:
+    upsert_continuity_notification_state(
+        "planning:999",
+        ContinuityNotificationStateUpsertRequest(
+            inboxed_at_utc="2026-03-21T12:01:00Z",
+        ),
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.notification_records == []
+
+    with db.core_connection(get_settings()) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM continuity_notification_states WHERE notification_id = ?",
+            ("planning:999",),
+        ).fetchone()
+
+    assert row is None
+
+
 def test_push_notification_reads_respect_delivery_cooldowns(tmp_data_dir: Path) -> None:
     record_continuity_outcome(_outcome_request())
     notification_id = "planning:41:checkpoint:0"

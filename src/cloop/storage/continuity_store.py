@@ -70,6 +70,13 @@ _DEDUPE_WINDOW_SECONDS = 15.0
 _PUSH_UNSEEN_RESEND_COOLDOWN = timedelta(hours=6)
 _PUSH_SEEN_RESEND_COOLDOWN = timedelta(hours=24)
 _HOME_LOCATION = ContinuityLocationResponse(state="operator", recall_tool="chat")
+_NotificationStateLifecycle = Literal[
+    "active",
+    "terminal",
+    "expired",
+    "retired",
+    "orphaned",
+]
 
 
 def _json_default(value: Any) -> Any:
@@ -1437,6 +1444,100 @@ def upsert_continuity_notification_state(
         conn.commit()
 
 
+def _notification_state_latest_lifecycle_at(
+    state: ContinuityNotificationStateResponse,
+) -> datetime | None:
+    timestamps = [
+        _parse_timestamp(value)
+        for value in (
+            state.inboxed_at_utc,
+            state.seen_at_utc,
+            state.acknowledged_at_utc,
+        )
+        if value is not None
+    ]
+    if not timestamps:
+        return None
+    return max(timestamps)
+
+
+def _classify_notification_state(
+    notification_id: str,
+    state: ContinuityNotificationStateResponse,
+    workflow_summary_times: Mapping[str, datetime],
+    *,
+    now: datetime,
+) -> _NotificationStateLifecycle:
+    summary_time = workflow_summary_times.get(notification_id)
+    if summary_time is None:
+        return "orphaned"
+
+    lifecycle_at = _notification_state_latest_lifecycle_at(state)
+    if lifecycle_at is not None and lifecycle_at < summary_time:
+        return "retired"
+    if state.acknowledged_at_utc is not None:
+        return "terminal"
+    if (
+        state.suppressed_until_utc is not None
+        and _parse_timestamp(state.suppressed_until_utc) <= now
+    ):
+        return "expired"
+    return "active"
+
+
+def _compact_notification_states(
+    conn: sqlite3.Connection,
+    rows: list[Mapping[str, Any]],
+    workflow_summaries: list[ContinuityWorkflowSummaryResponse],
+    *,
+    now: datetime | None = None,
+) -> dict[str, ContinuityNotificationStateResponse]:
+    now = now or datetime.now(UTC)
+    workflow_summary_times = {
+        summary.id: _parse_timestamp(summary.occurred_at_utc) for summary in workflow_summaries
+    }
+    retained: dict[str, ContinuityNotificationStateResponse] = {}
+    expired_ids: list[str] = []
+    deleted_ids: list[str] = []
+
+    for row in rows:
+        notification_id = str(row["notification_id"])
+        state = _notification_state_from_row(row)
+        lifecycle = _classify_notification_state(
+            notification_id,
+            state,
+            workflow_summary_times,
+            now=now,
+        )
+        if lifecycle in {"orphaned", "retired"}:
+            deleted_ids.append(notification_id)
+            continue
+        if lifecycle == "expired":
+            expired_ids.append(notification_id)
+            state = state.model_copy(update={"suppressed_until_utc": None})
+        retained[notification_id] = state
+
+    if deleted_ids:
+        placeholders = ", ".join("?" for _ in deleted_ids)
+        conn.execute(
+            f"DELETE FROM continuity_notification_states WHERE notification_id IN ({placeholders})",
+            deleted_ids,
+        )
+    if expired_ids:
+        conn.executemany(
+            """
+            UPDATE continuity_notification_states
+            SET suppressed_until_utc = NULL, updated_at = CURRENT_TIMESTAMP
+            WHERE notification_id = ?
+            """,
+            [(notification_id,) for notification_id in expired_ids],
+        )
+    if deleted_ids or expired_ids:
+        conn.commit()
+
+    return retained
+
+
 def read_continuity_snapshot(
     *,
     limit: int = 48,
@@ -1501,10 +1602,11 @@ def read_continuity_snapshot(
             anchors=anchors,
             markers=last_seen_markers,
         )
-        notification_states = {
-            str(row["notification_id"]): _notification_state_from_row(row)
-            for row in notification_state_rows
-        }
+        notification_states = _compact_notification_states(
+            conn,
+            notification_state_rows,
+            workflow_summaries,
+        )
         notification_records = [
             _notification_record(summary, notification_states.get(summary.id))
             for summary in workflow_summaries
