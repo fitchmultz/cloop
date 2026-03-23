@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to make delivery-diagnostics reads bounded and explicit before spreading them to more surfaces or reworking scheduler storage.
+The current priority is to bound delivery-diagnostics reads, then remove payload-only scheduler reason parsing, before exposing the contract on more surfaces.
 
 ## Direction
 
@@ -37,29 +37,29 @@ Planned sequence:
 2. keep the metadata on the shared diagnostics contract instead of introducing a side response shape
 3. cover empty scans and truncated mixes of sendable and non-sendable records
 
-### Then — Normalize scheduler delivery reasons
+### Then — Persist scheduler delivery reasons
 
-Goal: stop relying on `payload_json` parsing for terminal delivery nuances before the diagnostics contract spreads to more surfaces.
-
-Planned sequence:
-
-1. promote the scheduler delivery reason fields that diagnostics actually needs out of payload-only provenance
-2. keep the shared diagnostics contract unchanged during the storage cutover
-3. delete the payload fallback once the durable fields are authoritative
-
-### Then — CLI and MCP diagnostics rollout
-
-Goal: reuse the shared diagnostics contract outside HTTP.
+Goal: move scheduler terminal delivery reasons out of `payload_json` before more consumers depend on them.
 
 Planned sequence:
 
-1. add CLI and MCP entrypoints backed by the same read path
-2. keep HTTP, CLI, and MCP fields aligned on one contract
-3. keep surface-specific formatting minimal and downstream of the shared data model
+1. add first-class durable fields for the scheduler delivery reasons the diagnostics contract actually reads
+2. keep the shared diagnostics contract stable while writers and readers cut over
+3. delete the payload fallback after the durable fields become authoritative
 
-### Later — Scan policy calibration
+### Then — Lock scheduler delivery reason vocabulary
 
-Goal: tune or replace the fixed push scan policy only after shared diagnostics show real misses or over-scan.
+Goal: stop exposing free-form scheduler reason strings once durable fields exist.
+
+Planned sequence:
+
+1. define the canonical scheduler terminal reason set used by push sending and diagnostics
+2. validate and serialize that vocabulary consistently in storage and transport
+3. keep pre-cutover rows readable until the storage migration is complete
+
+### Then — Scan policy calibration
+
+Goal: tune or replace the fixed push scan policy before the diagnostics contract spreads to more surfaces.
 
 Planned sequence:
 
@@ -67,15 +67,15 @@ Planned sequence:
 2. decide whether to raise, parameterize, or replace the fixed floor and multiplier
 3. keep the cutover inside the shared delivery contract with explainable diagnostics
 
-### Later — Runtime cleanup ambiguity attribution
+### Later — CLI and MCP diagnostics rollout
 
-Goal: reduce false-positive ambiguous runtime warnings without broadening automatic cleanup.
+Goal: reuse the stable diagnostics contract outside HTTP.
 
 Planned sequence:
 
-1. label why a detected process is ambiguous, such as cwd mismatch, command-only match, or missing cwd
-2. surface enough attribution in runtime-clean verification output to distinguish repo-owned helpers from external tools
-3. keep automatic termination conservative and limited to clearly repo-owned resources
+1. add CLI and MCP entrypoints backed by the same read path
+2. keep HTTP, CLI, and MCP fields aligned on one contract
+3. keep surface-specific formatting minimal and downstream of the shared data model
 
 ## Delivery model
 
