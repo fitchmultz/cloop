@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to ship one canonical delivery-diagnostics read model, then bounded scan metadata, then cross-surface access.
+The current priority is to finish one canonical delivery-diagnostics contract end to end before tuning scan policy or cleanup tooling.
 
 ## Direction
 
@@ -27,47 +27,57 @@ Current product goals:
 
 ## Execution order
 
-### Next — Canonical delivery diagnostics read model
+### Next — Canonical delivery diagnostics contract
 
-Goal: expose one joined read path for current continuity decisions and prior scheduler push attempts.
+Goal: return one shared backend contract for ranked continuity decisions and scheduler push attempts.
 
 Planned sequence:
 
-1. join ranked notification decisions to `scheduler_push_deliveries` through canonical persisted provenance
-2. return slot identity, claim/send timestamps, terminal status, push counts, resend-readiness context, and current reason codes in one contract
-3. cover reserved-only crashes, vanished preselection, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions
+1. build one read path that joins ranked notification decisions to `scheduler_push_deliveries` through persisted provenance
+2. emit slot identity, claim/send timestamps, terminal status, push counts, resend-readiness context, and current reason codes from that contract
+3. distinguish reserved-only crashes, vanished preselection, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions without per-surface logic
 
-### Then — Bounded diagnostics metadata
+### Then — Diagnostics pagination metadata
 
-Goal: make diagnostics responses explain their own scan boundaries.
+Goal: make diagnostics responses bounded, explicit, and resumable.
 
 Planned sequence:
 
 1. add effective limit, inspected count, returned count, truncation flag, and stable continuation cue
-2. keep the metadata on the joined diagnostics contract instead of adding an intermediate shape
+2. keep the metadata on the shared diagnostics contract instead of adding a temporary response shape
 3. cover empty scans and truncated mixes of sendable and non-sendable records
 
-### Later — CLI and MCP diagnostics surfaces
+### Then — CLI and MCP diagnostics rollout
 
-Goal: reuse the canonical diagnostics read model outside HTTP.
+Goal: reuse the shared diagnostics contract outside HTTP.
 
 Planned sequence:
 
-1. add CLI and MCP entrypoints backed by the shared store read path
-2. keep HTTP, CLI, and MCP fields aligned on one schema contract
-3. keep surface-specific formatting minimal and downstream of the shared contract
+1. add CLI and MCP entrypoints backed by the same read path
+2. keep HTTP, CLI, and MCP fields aligned on one contract
+3. keep surface-specific formatting minimal and downstream of the shared data model
+
+### Later — Scheduler delivery provenance normalization
+
+Goal: stop depending on ad hoc payload fields for terminal delivery nuances once the shared diagnostics contract proves which fields need to be durable.
+
+Planned sequence:
+
+1. identify which scheduler terminal reasons need first-class persisted fields instead of payload-only provenance
+2. normalize the durable shape only after the shared diagnostics contract is stable
+3. preserve diagnostics behavior across the storage cutover
 
 ### Later — Scan policy calibration
 
-Goal: tune or replace the fixed push scan policy only after joined diagnostics show real misses or over-scan.
+Goal: tune or replace the fixed push scan policy only after shared diagnostics show real misses or over-scan.
 
 Planned sequence:
 
 1. compare truncation and later-sendable records against actual scheduler attempt history
 2. decide whether to raise, parameterize, or replace the fixed floor and multiplier
-3. keep the cutover inside the shared delivery store contract with explainable diagnostics
+3. keep the cutover inside the shared delivery contract with explainable diagnostics
 
-### Later — Runtime cleanup ownership hints
+### Later — Runtime cleanup ambiguity attribution
 
 Goal: reduce false-positive ambiguous runtime warnings without broadening automatic cleanup.
 
