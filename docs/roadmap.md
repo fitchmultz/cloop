@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to push diagnostics windowing into storage and harden continuation semantics before tuning scan policy or exposing delivery diagnostics on more surfaces.
+The current priority is to land one storage-backed diagnostics stabilization slice before exposing delivery diagnostics on more surfaces.
 
 ## Direction
 
@@ -27,39 +27,19 @@ Current product goals:
 
 ## Execution order
 
-### Next — Storage-level diagnostics windowing
+### Next — Storage-backed diagnostics stabilization
 
-Goal: stop loading the full high-signal continuity set before slicing one diagnostics page.
-
-Planned sequence:
-
-1. push the diagnostics outcome window and continuation lookup down to the storage query layer
-2. keep anchor resolution and snapshot hydration behavior unchanged
-3. preserve the existing diagnostics contract while reducing per-page scan work
-
-### Then — Stable diagnostics continuation semantics
-
-Goal: make multi-page diagnostics reads predictable while new outcomes continue to arrive.
+Goal: finish one durable diagnostics slice end to end by locking cursor semantics, moving page-window reads into storage, and calibrating scan bounds together.
 
 Planned sequence:
 
-1. replace the current outcome-id continuation cue if needed with a cursor that survives concurrent inserts
-2. keep duplicate and skipped-decision behavior stable across page boundaries
-3. preserve the existing diagnostics fields or replace them in one cutover before CLI and MCP reuse them
-
-### Then — Scan policy calibration
-
-Goal: tune or replace the fixed push scan policy after bounded reads and stable continuation semantics are in place.
-
-Planned sequence:
-
-1. compare truncation and later-sendable records against actual scheduler attempt history
-2. decide whether to raise, parameterize, or replace the fixed floor and multiplier
-3. keep the cutover inside the shared delivery contract with explainable diagnostics
+1. replace the current outcome-id continuation cue with one stable cursor contract that preserves page boundaries across concurrent inserts
+2. push diagnostics windowing and continuation lookup down to the storage query layer against that final cursor contract
+3. tune or replace the fixed push scan floor and multiplier using real truncation and later-sendable evidence while keeping diagnostics explanations intact
 
 ### Later — CLI and MCP diagnostics rollout
 
-Goal: reuse the stable diagnostics contract outside HTTP.
+Goal: reuse the stabilized diagnostics contract outside HTTP.
 
 Planned sequence:
 

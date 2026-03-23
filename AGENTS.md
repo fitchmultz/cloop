@@ -62,6 +62,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - CI and release workflows use locked `uv` installs with a pinned `uv` CLI version; keep lockfile drift explicit instead of letting runners resolve live
 - Frontend work surfaces are now fully owned by strict TypeScript under `frontend/src/surfaces/*.ts`; do not reintroduce raw JavaScript modules or temporary `allowJs` support
 - When Cloop needs explicit pi selector defaults, keep `src/cloop/settings.py`, `.env.example`, local `.env` guidance, and public docs aligned on the current project preference order (`zai/glm-5`, then `kimi-coding/k2p5`, then `openai-codex/gpt-5.4`) and the current selector-resolution contract (comma-separated ordered preferences plus `CLOOP_PI_SELECTOR_MODE={fallback|exact}`); still allow any pi-supported selector override
+- When updating `docs/roadmap.md`, prefer larger end-to-end slices that combine tightly coupled contract, storage, transport, and policy work; do not split one churn-prone lane into micro-items unless the cuts are truly independent.
 
 ## Non-Obvious Patterns
 
