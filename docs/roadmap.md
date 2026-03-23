@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish continuity delivery-decision contract cleanup and keep delivery behavior behind one backend-owned contract.
+The current priority is to add a delivery-decision inspection read path so each continuity notification exposes its current backend decision and reason.
 
 ## Direction
 
@@ -47,31 +47,31 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Continuity delivery-decision contract cleanup
+### Next — Delivery-decision inspection read path
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: remove remaining implicit delivery behavior so compaction, resend eligibility, and reason evaluation all run through one backend contract.
+Goal: expose the current backend delivery decision for each continuity notification without coupling it to scheduler history yet.
 
 Planned sequence:
 
-1. centralize notification-state classification, compaction, and delivery-decision evaluation behind one store-level contract
-2. stop spreading delivery semantics across snapshot shaping, push filtering, and scheduler call sites
-3. keep notification ranking unchanged while tightening the integration boundary
+1. add a debug-first read path that returns notification state plus canonical decision reason
+2. keep the inspection contract separate from operator ranking and rendering
+3. cover sent, cooled_down, suppressed, acknowledged, missing_target, deduped, and skipped outcomes
 
 ### Then — Delivery history and explainability
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: expose inspectable continuity delivery history by joining scheduler delivery records, durable notification state, and canonical decision reasons.
+Goal: join current continuity delivery decisions with scheduler delivery records for resend and send-history inspection.
 
 Planned sequence:
 
-1. add a read path that joins scheduler delivery records with continuity notification state and decision reasons
+1. add a read path that joins scheduler delivery records with the current decision snapshot
 2. keep diagnostics debug-first and separate from notification ranking or operator recommendation logic
-3. add focused inspection coverage for resend, suppression, acknowledgement, dedupe, missing-target, and skipped-delivery cases
+3. add focused inspection coverage for resend windows, suppression expiry, acknowledgement, dedupe, missing-target, and skipped-delivery transitions
 
 ## Delivery model
 

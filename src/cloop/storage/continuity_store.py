@@ -94,6 +94,22 @@ class _NotificationDeliveryDecision:
     reason: _ContinuityDeliveryReason
 
 
+@dataclass(frozen=True, slots=True)
+class _ContinuityDeliveryContract:
+    notification_records: list[ContinuityNotificationRecordResponse]
+    decisions: list[_NotificationDeliveryDecision]
+
+
+@dataclass(frozen=True, slots=True)
+class _ContinuitySnapshotState:
+    outcomes: list[ContinuityOutcomeRecordResponse]
+    anchors: ContinuityAnchorsResponse
+    workflow_summaries: list[ContinuityWorkflowSummaryResponse]
+    last_seen_markers: list[ContinuityLastSeenMarkerResponse]
+    recovery_acknowledgements: list[ContinuityRecoveryAcknowledgementResponse]
+    notification_state_rows: list[Mapping[str, Any]]
+
+
 def _json_default(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="python")
@@ -1553,90 +1569,77 @@ def _compact_notification_states(
     return retained
 
 
-def read_continuity_snapshot(
+def _read_continuity_snapshot_state(
+    conn: sqlite3.Connection,
     *,
-    limit: int = 48,
-    settings: Settings | None = None,
-) -> ContinuitySnapshotResponse:
-    """Read the durable continuity snapshot for frontend hydration."""
-    settings = settings or get_settings()
-    with db.core_connection(settings) as conn:
-        outcome_rows = conn.execute(
-            """
-            SELECT *
-            FROM continuity_outcomes
-            WHERE signal_level = 'high'
-            ORDER BY occurred_at_utc DESC, id DESC
-            """
-        ).fetchall()
-        anchor_rows = conn.execute(
-            """
-            SELECT *
-            FROM continuity_resume_anchors
-            ORDER BY updated_at DESC, anchor_kind ASC
-            """
-        ).fetchall()
-        marker_rows = conn.execute(
-            """
-            SELECT *
-            FROM continuity_last_seen_markers
-            ORDER BY observed_at_utc DESC, entity_kind ASC, entity_key ASC
-            """
-        ).fetchall()
-        acknowledgement_rows = conn.execute(
-            """
-            SELECT *
-            FROM continuity_recovery_acknowledgements
-            ORDER BY acknowledged_at_utc DESC, recovery_key ASC
-            """
-        ).fetchall()
-        notification_state_rows = conn.execute(
-            """
-            SELECT *
-            FROM continuity_notification_states
-            ORDER BY updated_at DESC, notification_id ASC
-            """
-        ).fetchall()
+    limit: int,
+) -> _ContinuitySnapshotState:
+    outcome_rows = conn.execute(
+        """
+        SELECT *
+        FROM continuity_outcomes
+        WHERE signal_level = 'high'
+        ORDER BY occurred_at_utc DESC, id DESC
+        """
+    ).fetchall()
+    anchor_rows = conn.execute(
+        """
+        SELECT *
+        FROM continuity_resume_anchors
+        ORDER BY updated_at DESC, anchor_kind ASC
+        """
+    ).fetchall()
+    marker_rows = conn.execute(
+        """
+        SELECT *
+        FROM continuity_last_seen_markers
+        ORDER BY observed_at_utc DESC, entity_kind ASC, entity_key ASC
+        """
+    ).fetchall()
+    acknowledgement_rows = conn.execute(
+        """
+        SELECT *
+        FROM continuity_recovery_acknowledgements
+        ORDER BY acknowledged_at_utc DESC, recovery_key ASC
+        """
+    ).fetchall()
+    notification_state_rows = conn.execute(
+        """
+        SELECT *
+        FROM continuity_notification_states
+        ORDER BY updated_at DESC, notification_id ASC
+        """
+    ).fetchall()
 
-        all_outcomes = _attach_successors([_outcome_from_row(conn, row) for row in outcome_rows])
-        outcomes = all_outcomes[:limit]
+    all_outcomes = _attach_successors([_outcome_from_row(conn, row) for row in outcome_rows])
+    outcomes = all_outcomes[:limit]
 
-        anchors = ContinuityAnchorsResponse()
-        for row in anchor_rows:
-            unresolved = _anchor_from_row(row)
-            resolved = _resolve_anchor(conn, unresolved, all_outcomes)
-            if resolved.kind == "planning":
-                anchors.planning = resolved
-            elif resolved.kind == "review":
-                anchors.review = resolved
+    anchors = ContinuityAnchorsResponse()
+    for row in anchor_rows:
+        unresolved = _anchor_from_row(row)
+        resolved = _resolve_anchor(conn, unresolved, all_outcomes)
+        if resolved.kind == "planning":
+            anchors.planning = resolved
+        elif resolved.kind == "review":
+            anchors.review = resolved
 
-        last_seen_markers = [_last_seen_marker_from_row(row) for row in marker_rows]
-        workflow_summaries = _build_workflow_summaries(
-            conn=conn,
-            outcomes=outcomes,
-            anchors=anchors,
-            markers=last_seen_markers,
-        )
-        notification_states = _compact_notification_states(
-            conn,
-            notification_state_rows,
-            workflow_summaries,
-        )
-        notification_records = [
-            _notification_record(summary, notification_states.get(summary.id))
-            for summary in workflow_summaries
-        ]
-        recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
+    last_seen_markers = [_last_seen_marker_from_row(row) for row in marker_rows]
+    workflow_summaries = _build_workflow_summaries(
+        conn=conn,
+        outcomes=outcomes,
+        anchors=anchors,
+        markers=last_seen_markers,
+    )
+    recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
 
-        return ContinuitySnapshotResponse(
-            recorded_at_utc=_utc_now_iso(),
-            outcomes=outcomes,
-            anchors=anchors,
-            workflow_summaries=workflow_summaries,
-            notification_records=notification_records,
-            last_seen_markers=last_seen_markers,
-            recovery_acknowledgements=recovery_acknowledgements,
-        )
+    return _ContinuitySnapshotState(
+        outcomes=outcomes,
+        anchors=anchors,
+        workflow_summaries=workflow_summaries,
+        last_seen_markers=last_seen_markers,
+        recovery_acknowledgements=recovery_acknowledgements,
+        notification_state_rows=notification_state_rows,
+    )
 
 
 def _notification_severity(
@@ -1743,15 +1746,27 @@ def _notification_delivery_reason(
     return "sent"
 
 
-def _notification_delivery_decisions(
+def _evaluate_notification_delivery_contract(
+    conn: sqlite3.Connection,
     workflow_summaries: list[ContinuityWorkflowSummaryResponse],
-    notification_records: list[ContinuityNotificationRecordResponse],
+    notification_state_rows: list[Mapping[str, Any]],
     *,
     limit: int,
     channel: Literal["all", "push"] = "all",
     now: datetime | None = None,
-) -> list[_NotificationDeliveryDecision]:
+) -> _ContinuityDeliveryContract:
     now = now or datetime.now(UTC)
+    notification_states = _compact_notification_states(
+        conn,
+        notification_state_rows,
+        workflow_summaries,
+        now=now,
+    )
+    notification_records = [
+        _notification_record(summary, notification_states.get(summary.id))
+        for summary in workflow_summaries
+    ]
+
     summary_by_id = {summary.id: summary for summary in workflow_summaries}
     sent_count = 0
     sent_dedupe_keys: set[str] = set()
@@ -1784,7 +1799,56 @@ def _notification_delivery_decisions(
         sent_count += 1
         decisions.append(_NotificationDeliveryDecision(record=record, reason="sent"))
 
-    return decisions
+    return _ContinuityDeliveryContract(
+        notification_records=notification_records,
+        decisions=decisions,
+    )
+
+
+def _read_continuity_delivery_contract(
+    *,
+    limit: int,
+    settings: Settings | None = None,
+    channel: Literal["all", "push"] = "all",
+) -> _ContinuityDeliveryContract:
+    settings = settings or get_settings()
+    snapshot_limit = limit if channel == "all" else max(24, limit * 4)
+    with db.core_connection(settings) as conn:
+        snapshot_state = _read_continuity_snapshot_state(conn, limit=snapshot_limit)
+        return _evaluate_notification_delivery_contract(
+            conn,
+            snapshot_state.workflow_summaries,
+            snapshot_state.notification_state_rows,
+            limit=limit,
+            channel=channel,
+        )
+
+
+def read_continuity_snapshot(
+    *,
+    limit: int = 48,
+    settings: Settings | None = None,
+) -> ContinuitySnapshotResponse:
+    """Read the durable continuity snapshot for frontend hydration."""
+    settings = settings or get_settings()
+    with db.core_connection(settings) as conn:
+        snapshot_state = _read_continuity_snapshot_state(conn, limit=limit)
+        delivery_contract = _evaluate_notification_delivery_contract(
+            conn,
+            snapshot_state.workflow_summaries,
+            snapshot_state.notification_state_rows,
+            limit=len(snapshot_state.workflow_summaries),
+            channel="all",
+        )
+        return ContinuitySnapshotResponse(
+            recorded_at_utc=_utc_now_iso(),
+            outcomes=snapshot_state.outcomes,
+            anchors=snapshot_state.anchors,
+            workflow_summaries=snapshot_state.workflow_summaries,
+            notification_records=delivery_contract.notification_records,
+            last_seen_markers=snapshot_state.last_seen_markers,
+            recovery_acknowledgements=snapshot_state.recovery_acknowledgements,
+        )
 
 
 def read_continuity_notification_records(
@@ -1794,14 +1858,14 @@ def read_continuity_notification_records(
     channel: Literal["all", "push"] = "all",
 ) -> list[ContinuityNotificationRecordResponse]:
     """Read calm notification records derived from ranked workflow summaries."""
-    snapshot = read_continuity_snapshot(limit=max(24, limit * 4), settings=settings)
-    decisions = _notification_delivery_decisions(
-        snapshot.workflow_summaries,
-        snapshot.notification_records,
+    delivery_contract = _read_continuity_delivery_contract(
         limit=limit,
+        settings=settings,
         channel=channel,
     )
-    return [decision.record for decision in decisions if decision.reason == "sent"]
+    return [
+        decision.record for decision in delivery_contract.decisions if decision.reason == "sent"
+    ]
 
 
 __all__ = [

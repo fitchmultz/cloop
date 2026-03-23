@@ -44,7 +44,7 @@ from cloop.schemas._loops.continuity import (
 )
 from cloop.settings import get_settings
 from cloop.storage.continuity_store import (
-    _notification_delivery_decisions,
+    _read_continuity_delivery_contract,
     read_continuity_notification_records,
     read_continuity_snapshot,
     record_continuity_outcome,
@@ -124,16 +124,8 @@ def _outcome_request(
 
 
 def _push_delivery_reasons(*, limit: int = 3) -> list[str]:
-    snapshot = read_continuity_snapshot()
-    return [
-        decision.reason
-        for decision in _notification_delivery_decisions(
-            snapshot.workflow_summaries,
-            snapshot.notification_records,
-            limit=limit,
-            channel="push",
-        )
-    ]
+    delivery_contract = _read_continuity_delivery_contract(limit=limit, channel="push")
+    return [decision.reason for decision in delivery_contract.decisions]
 
 
 def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
