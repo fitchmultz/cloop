@@ -542,6 +542,8 @@ CREATE TABLE scheduler_push_deliveries (
     send_completed_at TEXT,
     delivery_status TEXT NOT NULL DEFAULT 'claimed'
         CHECK (delivery_status IN ('claimed', 'attempted', 'sent', 'no_recipients', 'skipped')),
+    delivery_reason TEXT
+        CHECK (delivery_reason IS NULL OR delivery_reason IN ('notification_missing')),
     push_count INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (task_name, slot_key, push_kind)
 );

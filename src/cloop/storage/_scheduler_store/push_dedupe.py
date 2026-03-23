@@ -34,6 +34,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any, Literal
 
+from ..._scheduler.models import SchedulerPushDeliveryReason
 from ._shared import dump_optional_json, iso_utc
 
 SchedulerPushDeliveryStatus = Literal[
@@ -57,6 +58,7 @@ def record_scheduler_push(
     notification_id: str | None = None,
     workflow_thread_id: str | None = None,
     delivery_status: Literal["sent", "no_recipients", "skipped"] | None = None,
+    delivery_reason: SchedulerPushDeliveryReason | None = None,
 ) -> bool:
     """Record a scheduler push terminal outcome once per task slot and push kind."""
     payload_json = dump_optional_json(payload)
@@ -74,6 +76,7 @@ def record_scheduler_push(
             workflow_thread_id = ?,
             send_completed_at = ?,
             delivery_status = ?,
+            delivery_reason = ?,
             push_count = ?
         WHERE task_name = ?
           AND slot_key = ?
@@ -85,6 +88,7 @@ def record_scheduler_push(
             workflow_thread_id,
             iso_utc(completed_at),
             final_status,
+            delivery_reason,
             push_count,
             task_name,
             slot_key,
@@ -108,9 +112,10 @@ def record_scheduler_push(
             send_started_at,
             send_completed_at,
             delivery_status,
+            delivery_reason,
             push_count
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             task_name,
@@ -123,6 +128,7 @@ def record_scheduler_push(
             iso_utc(completed_at) if final_status in {"sent", "no_recipients"} else None,
             iso_utc(completed_at),
             final_status,
+            delivery_reason,
             push_count,
         ),
     )

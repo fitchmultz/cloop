@@ -1773,9 +1773,6 @@ def _delivery_read_window(
 def _scheduler_push_delivery_from_row(
     row: Mapping[str, Any],
 ) -> ContinuitySchedulerPushDeliveryResponse:
-    payload = _load_json_map(str(row["payload_json"]) if row["payload_json"] is not None else None)
-    raw_delivery_reason = payload.get("delivery_reason")
-    delivery_reason = raw_delivery_reason if isinstance(raw_delivery_reason, str) else None
     return ContinuitySchedulerPushDeliveryResponse(
         task_name=str(row["task_name"]),
         slot_key=str(row["slot_key"]),
@@ -1792,7 +1789,7 @@ def _scheduler_push_delivery_from_row(
         if row["send_completed_at"] is not None
         else None,
         delivery_status=cast(ContinuitySchedulerPushDeliveryStatus, str(row["delivery_status"])),
-        delivery_reason=delivery_reason,
+        delivery_reason=str(row["delivery_reason"]) if row["delivery_reason"] is not None else None,
         push_count=int(row["push_count"] or 0),
     )
 
@@ -1820,8 +1817,9 @@ def _read_latest_scheduler_push_deliveries(
 
     rows = conn.execute(
         f"""
-        SELECT task_name, slot_key, push_kind, payload_json, notification_id, workflow_thread_id,
-               claimed_at, send_started_at, send_completed_at, delivery_status, push_count
+        SELECT task_name, slot_key, push_kind, notification_id, workflow_thread_id,
+               claimed_at, send_started_at, send_completed_at, delivery_status, delivery_reason,
+               push_count
         FROM scheduler_push_deliveries
         WHERE {" OR ".join(predicates)}
         ORDER BY COALESCE(send_completed_at, send_started_at, claimed_at) DESC,

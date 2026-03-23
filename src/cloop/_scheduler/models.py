@@ -42,6 +42,8 @@ SCHEDULER_TASKS = (
     "webhook_delivery",
 )
 
+SchedulerPushDeliveryReason = Literal["notification_missing"]
+
 
 @dataclass(slots=True)
 class SchedulerRunContext:
@@ -65,7 +67,7 @@ class SchedulerPushResult:
 
     push_count: int
     delivery_status: Literal["sent", "no_recipients", "skipped"]
-    delivery_reason: str | None = None
+    delivery_reason: SchedulerPushDeliveryReason | None = None
 
 
 SchedulerTaskRunner = Callable[

@@ -451,7 +451,7 @@ class TestSchedulerState:
 
         row = scheduler_db.execute(
             """
-            SELECT notification_id, workflow_thread_id, payload_json, delivery_status,
+            SELECT notification_id, workflow_thread_id, delivery_reason, delivery_status,
                    claimed_at, send_started_at, send_completed_at, push_count
             FROM scheduler_push_deliveries
             WHERE task_name = ? AND slot_key = ? AND push_kind = ?
@@ -467,7 +467,7 @@ class TestSchedulerState:
         assert row["send_started_at"] is not None
         assert row["send_completed_at"] is not None
         assert row["push_count"] == 0
-        assert json.loads(row["payload_json"])["delivery_reason"] == "notification_missing"
+        assert row["delivery_reason"] == "notification_missing"
 
     def test_send_scheduler_push_uses_preselected_notification_provenance(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch

@@ -31,6 +31,18 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    47: """
+    ALTER TABLE scheduler_push_deliveries
+        ADD COLUMN delivery_reason TEXT
+            CHECK (delivery_reason IS NULL OR delivery_reason IN ('notification_missing'));
+
+    UPDATE scheduler_push_deliveries
+    SET delivery_reason = CASE
+        WHEN json_extract(payload_json, '$.delivery_reason') = 'notification_missing'
+            THEN 'notification_missing'
+        ELSE NULL
+    END;
+    """,
     46: """
     ALTER TABLE scheduler_push_deliveries RENAME TO scheduler_push_deliveries_old;
 

@@ -197,23 +197,18 @@ def send_scheduler_push_once(
         conn=conn,
     )
     result = send_push_fn(push_kind, payload_with_provenance, context.settings, conn)
-    recorded_payload = payload_with_provenance
-    if result.delivery_reason is not None:
-        recorded_payload = {
-            **payload_with_provenance,
-            "delivery_reason": result.delivery_reason,
-        }
     scheduler_push_store.record_scheduler_push(
         task_name=context.task_name,
         slot_key=context.slot_key,
         push_kind=push_kind,
-        payload=recorded_payload,
+        payload=payload_with_provenance,
         push_count=result.push_count,
         completed_at=utc_now(),
         conn=conn,
         notification_id=notification.id,
         workflow_thread_id=notification.workflow_thread.id,
         delivery_status=result.delivery_status,
+        delivery_reason=result.delivery_reason,
     )
     return result.push_count
 

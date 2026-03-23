@@ -204,9 +204,6 @@ def insert_scheduler_push_delivery(
     send_completed_at: str | None = "2026-03-21T12:00:12Z",
 ) -> None:
     """Insert one scheduler push-delivery row for continuity diagnostics tests."""
-    payload = {"event_type": "review_generated"}
-    if delivery_reason is not None:
-        payload["delivery_reason"] = delivery_reason
     with db.core_connection(get_settings()) as conn:
         conn.execute(
             """
@@ -221,20 +218,24 @@ def insert_scheduler_push_delivery(
                 send_started_at,
                 send_completed_at,
                 delivery_status,
+                delivery_reason,
                 push_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 "daily_review",
                 slot_key,
                 "review_generated",
-                json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                json.dumps(
+                    {"event_type": "review_generated"}, separators=(",", ":"), sort_keys=True
+                ),
                 notification_id,
                 workflow_thread_id,
                 claimed_at,
                 send_started_at,
                 send_completed_at,
                 delivery_status,
+                delivery_reason,
                 push_count,
             ),
         )
