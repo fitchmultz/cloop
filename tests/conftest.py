@@ -27,6 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
+from cloop.ai_bridge import shutdown_bridge_runtime
 from cloop.settings import (
     EmbedStorageMode,
     PiSelectorMode,
@@ -208,8 +209,19 @@ def tmp_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+@pytest.fixture(autouse=True)
+def cleanup_bridge_runtime() -> Iterator[None]:
+    """Stop any leaked singleton pi bridge after each test."""
+    try:
+        yield
+    finally:
+        shutdown_bridge_runtime()
+
+
 @pytest.fixture
-def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., TestClient]:
+def make_test_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[Callable[..., TestClient]]:
     """Factory fixture returning a function to create isolated test clients.
 
     This provides a bare TestClient without the full mock setup from the
@@ -225,6 +237,8 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
         A function that creates a TestClient with isolated database.
     """
 
+    clients: list[TestClient] = []
+
     def _factory(data_dir: Path | None = None, raise_server_exceptions: bool = True) -> TestClient:
         target_dir = data_dir or tmp_path
         monkeypatch.setenv("CLOOP_DATA_DIR", str(target_dir))
@@ -236,9 +250,15 @@ def make_test_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callabl
         monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
         get_settings.cache_clear()
         db.init_databases(get_settings())
-        return TestClient(_get_app(), raise_server_exceptions=raise_server_exceptions)
+        client = TestClient(_get_app(), raise_server_exceptions=raise_server_exceptions)
+        clients.append(client)
+        return client
 
-    return _factory
+    try:
+        yield _factory
+    finally:
+        for client in reversed(clients):
+            client.close()
 
 
 @pytest.fixture
@@ -366,7 +386,7 @@ def test_client(
     mock_completion: Any,
     mock_embedding_response: Any,
     mock_stream_events: Any,
-) -> TestClient:
+) -> Iterator[TestClient]:
     """Create a TestClient with all LLM/embedding mocks configured."""
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_SCHEDULER_ENABLED", "false")
@@ -406,4 +426,5 @@ def test_client(
         },
     )
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", mock_embedding_response)
-    return TestClient(_get_app())
+    with TestClient(_get_app()) as client:
+        yield client

@@ -18,6 +18,7 @@ Non-scope:
 
 from __future__ import annotations
 
+import atexit
 import logging
 import os
 import queue
@@ -197,9 +198,13 @@ class BridgeRuntime:
 
             self._process = process
             self._stderr_lines.clear()
-            self._start_stderr_thread(process)
-            self._bridge_info = self._read_handshake(process)
-            self._start_stdout_thread(process)
+            try:
+                self._start_stderr_thread(process)
+                self._bridge_info = self._read_handshake(process)
+                self._start_stdout_thread(process)
+            except Exception:
+                self.shutdown()
+                raise
             return self._bridge_info
 
     def open_session(self, request: BridgeStartRequest) -> BridgeSession:
@@ -279,6 +284,15 @@ class BridgeRuntime:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=2.0)
+
+        for stream_name in ("stdout", "stderr"):
+            stream = getattr(process, stream_name)
+            if stream is None or stream.closed:
+                continue
+            try:
+                stream.close()
+            except OSError:
+                pass
 
     def _request_once(
         self,
@@ -535,3 +549,6 @@ def bridge_health(settings: Settings) -> dict[str, Any]:
     bridge_info["chat_selector"] = _resolve(settings.pi_model_preferences)
     bridge_info["organizer_selector"] = _resolve(settings.pi_organizer_model_preferences)
     return bridge_info
+
+
+atexit.register(shutdown_bridge_runtime)

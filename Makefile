@@ -1,9 +1,10 @@
-.PHONY: help lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.PHONY: help lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data cleanup-runtime verify-runtime-clean sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
 
 UV_RUN := uv run --locked
 PNPM_BRIDGE := pnpm --dir src/cloop/pi_bridge
 PNPM_FRONTEND := pnpm --dir frontend
 DEFAULT_LOCAL_DATA_DIR := $(CURDIR)/data
+RUNTIME_CLEANUP_WRAP := status=0; trap 'status=$$?; $(MAKE) cleanup-runtime >/dev/null; cleanup_status=$$?; if [ $$status -eq 0 ] && [ $$cleanup_status -ne 0 ]; then exit $$cleanup_status; fi; exit $$status' EXIT;
 
 help:
 	@printf "%s\n" \
@@ -21,6 +22,8 @@ help:
 		"  frontend-build  Build the Vite frontend bundle" \
 		"  frontend-dev    Run the Vite frontend dev server" \
 		"  reset-local-data Delete and recreate the default repo-local data directory" \
+		"  cleanup-runtime Stop repo-owned runtime processes and remove orphaned temp browser profiles" \
+		"  verify-runtime-clean Report repo-owned runtime leaks without changing state" \
 		"  fmt             Format code with ruff" \
 		"  fmt-check       Check formatting (no changes)" \
 		"  lint            Lint with ruff" \
@@ -59,7 +62,7 @@ bridge-lock-check:
 	$(PNPM_BRIDGE) install --frozen-lockfile
 
 bridge-test: bridge-lock-check
-	$(PNPM_BRIDGE) test
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(PNPM_BRIDGE) test
 
 frontend-lock-check:
 	test -f frontend/package.json
@@ -73,7 +76,7 @@ frontend-type: frontend-contracts
 	$(PNPM_FRONTEND) typecheck
 
 frontend-test: frontend-contracts
-	$(PNPM_FRONTEND) test
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(PNPM_FRONTEND) test
 
 frontend-build: frontend-contracts
 	$(PNPM_FRONTEND) build
@@ -85,6 +88,12 @@ reset-local-data:
 	rm -rf $(DEFAULT_LOCAL_DATA_DIR)
 	mkdir -p $(DEFAULT_LOCAL_DATA_DIR)
 	@printf "Reset local repo data directory: %s\n" "$(DEFAULT_LOCAL_DATA_DIR)"
+
+cleanup-runtime:
+	$(UV_RUN) python scripts/cleanup_runtime.py --clean
+
+verify-runtime-clean:
+	$(UV_RUN) python scripts/cleanup_runtime.py --check
 
 fmt:
 	$(UV_RUN) ruff format .
@@ -122,25 +131,25 @@ type:
 quality: lock-check bridge-lock-check frontend-type fmt-check lint env-sync header-check secrets-check version-check changelog-check smoke-public type
 
 test-backup-safety:
-	$(UV_RUN) pytest tests/test_backup.py -q
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest tests/test_backup.py -q
 
 test: frontend-build frontend-test test-backup-safety
-	$(UV_RUN) pytest -m "not performance"
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "not performance"
 
 test-all:
-	$(UV_RUN) pytest
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest
 
 test-fast: frontend-build frontend-test test-backup-safety
-	$(UV_RUN) pytest -m "not slow and not performance"
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "not slow and not performance"
 
 test-slow:
-	$(UV_RUN) pytest -m "slow"
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "slow"
 
 test-performance:
-	$(UV_RUN) pytest -m "performance"
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "performance"
 
 test-cov:
-	$(UV_RUN) pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
 
 dist: frontend-build
 	rm -rf dist build src/cloop.egg-info

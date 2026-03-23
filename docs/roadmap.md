@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to make continuity delivery diagnostics explicit, historically accurate, and joinable before tuning push-scan policy.
+The current priority is to stop conflating vanished preselected notifications with real zero-recipient sends, then ship one canonical continuity delivery-diagnostics contract before tuning push-scan policy.
 
 ## Direction
 
@@ -27,39 +27,49 @@ Current product goals:
 
 ## Execution order
 
-### Next — Delivery inspection scan metadata
+### Next — Preselected notification disappearance outcome
 
-Goal: make bounded delivery inspection say exactly what it scanned, what it omitted, and how to continue.
-
-Planned sequence:
-
-1. add explicit scan metadata for the effective scan limit, inspected decision count, truncation state, and stable continuation cue
-2. preserve current push selection and snapshot hydration behavior while exposing the bounded-read contract directly
-3. thread the metadata through shared schemas/OpenAPI and cover cooled_down, deduped, missing-target, skipped, and empty-scan cases
-
-### Then — Joined continuity delivery diagnostics
-
-Goal: inspect current continuity delivery decisions and prior scheduler push attempts in one canonical contract.
+Goal: stop conflating a vanished preselected notification with a real zero-recipient send.
 
 Planned sequence:
 
-1. join delivery-inspection decisions to scheduler push rows through persisted canonical notification provenance
-2. expose claim/send timestamps, terminal delivery status, slot identity, push counts, and resend-readiness context alongside current reason codes
-3. distinguish reserved-only crash rows, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions
+1. record an explicit terminal scheduler-push outcome when a claimed `notification_id` no longer resolves at send time
+2. keep slot-level at-most-once behavior and current selection flow unchanged
+3. thread the outcome through scheduler persistence and the future diagnostics read model
+
+### Then — Canonical joined delivery diagnostics
+
+Goal: read current continuity decisions and prior scheduler push attempts from one shared contract.
+
+Planned sequence:
+
+1. build one store read path that joins ranked notification decisions to `scheduler_push_deliveries` through persisted canonical provenance
+2. expose slot identity, claim/send timestamps, terminal delivery status, push counts, and resend-readiness context alongside current reason codes
+3. distinguish reserved-only crashes, vanished-preselection rows, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions
+
+### Then — Delivery diagnostics scan metadata
+
+Goal: make bounded diagnostics self-describing and resumable without changing selection behavior.
+
+Planned sequence:
+
+1. add explicit metadata for effective scan limit, inspected count, returned count, truncation state, and stable continuation cue
+2. attach the metadata to the joined diagnostics contract instead of growing a temporary pre-join shape
+3. cover empty scans and truncated mixes of sendable and non-sendable decisions
 
 ### Later — Cross-surface delivery diagnostics access
 
-Goal: make the canonical delivery diagnostics usable outside the HTTP debug endpoint.
+Goal: expose the canonical delivery diagnostics contract outside the HTTP debug endpoint.
 
 Planned sequence:
 
-1. expose the shared delivery-diagnostics read contract through CLI and MCP entrypoints
-2. keep HTTP, CLI, and MCP output backed by the same store and schema contract
+1. add CLI and MCP entrypoints backed by the shared store read path
+2. keep HTTP, CLI, and MCP output aligned on one schema contract
 3. add only minimal surface-specific formatting after the shared contract is stable
 
 ### Later — Delivery scan policy calibration
 
-Goal: tune or replace the fixed push scan policy only after inspection metadata and joined history show where it hides sendable work or over-scans cold records.
+Goal: tune or replace the fixed push scan policy only after joined diagnostics show where the current bounded scan hides sendable work or over-scans cold records.
 
 Planned sequence:
 

@@ -31,6 +31,11 @@ def _start_request() -> BridgeStartRequest:
     )
 
 
+def _assert_runtime_stopped(runtime: BridgeRuntime) -> None:
+    process = runtime._process
+    assert process is None or process.poll() is not None
+
+
 def test_bridge_runtime_ping_round_trip(tmp_path: Path) -> None:
     script = _write_bridge_script(
         tmp_path,
@@ -129,6 +134,8 @@ def test_bridge_runtime_rejects_malformed_handshake(tmp_path: Path) -> None:
     with pytest.raises(BridgeProtocolError, match="Malformed bridge JSONL"):
         runtime.ensure_started()
 
+    _assert_runtime_stopped(runtime)
+
 
 def test_bridge_runtime_times_out_when_handshake_never_arrives(tmp_path: Path) -> None:
     script = _write_bridge_script(
@@ -144,11 +151,10 @@ def test_bridge_runtime_times_out_when_handshake_never_arrives(tmp_path: Path) -
         agent_dir=None,
         startup_timeout_s=0.1,
     )
-    try:
-        with pytest.raises(BridgeStartupError, match="Timed out waiting for pi bridge handshake"):
-            runtime.ensure_started()
-    finally:
-        runtime.shutdown()
+    with pytest.raises(BridgeStartupError, match="Timed out waiting for pi bridge handshake"):
+        runtime.ensure_started()
+
+    _assert_runtime_stopped(runtime)
 
 
 def test_bridge_session_surfaces_upstream_error_events(tmp_path: Path) -> None:
