@@ -26,10 +26,12 @@ from typing import Any
 
 from .schemas._loops.continuity import (
     ContinuityLocationResponse,
+    ContinuityNotificationRecordResponse,
     ContinuityNotificationStateUpsertRequest,
 )
 from .storage.continuity_store import (
     read_continuity_notification_records,
+    read_continuity_snapshot,
     upsert_continuity_notification_state,
 )
 
@@ -71,9 +73,27 @@ def _continuity_location_url(location: ContinuityLocationResponse) -> str:
     return "/#operator"
 
 
-def _continuity_push_payload(settings: Any) -> tuple[str, PushPayload] | None:
+def _selected_continuity_notification(
+    settings: Any,
+    event_payload: dict[str, Any],
+) -> ContinuityNotificationRecordResponse | None:
+    selected_id = event_payload.get("notification_id")
+    if isinstance(selected_id, str) and selected_id.strip():
+        snapshot = read_continuity_snapshot(settings=settings)
+        for notification in snapshot.notification_records:
+            if notification.id == selected_id:
+                return notification
+        return None
+
     notifications = read_continuity_notification_records(limit=1, settings=settings, channel="push")
-    notification = notifications[0] if notifications else None
+    return notifications[0] if notifications else None
+
+
+def _continuity_push_payload(
+    settings: Any,
+    event_payload: dict[str, Any],
+) -> tuple[str, PushPayload] | None:
+    notification = _selected_continuity_notification(settings, event_payload)
     if notification is None:
         return None
     return (
@@ -171,7 +191,7 @@ def send_scheduler_push(
     if event_type in {"nudge_due_soon", "nudge_stale"} and not event_payload.get("details"):
         return 0
 
-    continuity_notification = _continuity_push_payload(settings)
+    continuity_notification = _continuity_push_payload(settings, event_payload)
     if continuity_notification is None:
         return 0
 

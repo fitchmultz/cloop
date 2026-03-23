@@ -30,12 +30,14 @@ import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Iterator
 
 import pytest
 
 from cloop import db
 from cloop.loops.models import LoopEventType
+from cloop.push_sender import PushPayload, send_scheduler_push
 from cloop.scheduler import (
     SchedulerRunContext,
     _emit_scheduler_event,
@@ -51,6 +53,33 @@ from cloop.scheduler import (
 from cloop.settings import get_settings
 from cloop.storage import scheduler_store
 from cloop.storage._scheduler_store import task_runs as scheduler_task_runs
+
+
+def _notification_record(
+    *,
+    notification_id: str = "planning:41:checkpoint:0",
+    workflow_thread_id: str | None = None,
+    title: str = "Created review queue is ready in your working set",
+) -> SimpleNamespace:
+    resolved_location = SimpleNamespace(
+        state="decide",
+        review_focus="enrichment",
+        session_id=52,
+        loop_id=None,
+        working_set_id=None,
+        recall_tool="chat",
+    )
+    return SimpleNamespace(
+        id=notification_id,
+        title=title,
+        body="This workflow has fresh unseen movement.",
+        workflow_thread=SimpleNamespace(
+            id=workflow_thread_id or notification_id,
+            kind="planning_checkpoint",
+            title="Weekly reset",
+        ),
+        resolved_location=resolved_location,
+    )
 
 
 @pytest.fixture
@@ -226,15 +255,20 @@ class TestSchedulerState:
         assert row is not None
         assert row["count"] == 1
 
-    def test_same_slot_push_is_reserved_before_send(
+    def test_same_slot_push_records_lifecycle_and_provenance(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         send_calls: list[dict[str, object]] = []
+        notification = _notification_record()
 
         def _fake_send(push_kind, payload, settings, conn):  # noqa: ANN001
             send_calls.append({"push_kind": push_kind, "payload": payload})
             return 3
 
+        monkeypatch.setattr(
+            "cloop._scheduler.side_effects.read_continuity_notification_records",
+            lambda **kwargs: [notification],
+        )
         monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _fake_send)
         context = SchedulerRunContext(
             task_name="daily_review",
@@ -259,7 +293,8 @@ class TestSchedulerState:
 
         row = scheduler_db.execute(
             """
-            SELECT push_count
+            SELECT notification_id, workflow_thread_id, delivery_status,
+                   claimed_at, send_started_at, send_completed_at, push_count
             FROM scheduler_push_deliveries
             WHERE task_name = ? AND slot_key = ? AND push_kind = ?
             """,
@@ -268,19 +303,35 @@ class TestSchedulerState:
         assert push_count_one == 3
         assert push_count_two == 3
         assert len(send_calls) == 1
+        assert send_calls[0]["payload"] == {
+            "review_type": "daily",
+            "notification_id": notification.id,
+            "workflow_thread_id": notification.workflow_thread.id,
+        }
         assert row is not None
+        assert row["notification_id"] == notification.id
+        assert row["workflow_thread_id"] == notification.workflow_thread.id
+        assert row["delivery_status"] == "sent"
+        assert row["claimed_at"] is not None
+        assert row["send_started_at"] is not None
+        assert row["send_completed_at"] is not None
         assert row["push_count"] == 3
 
-    def test_same_slot_push_is_not_retried_after_send_crash(
+    def test_same_slot_push_crash_persists_attempted_state(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         call_count = 0
+        notification = _notification_record(notification_id="planning:41:checkpoint:1")
 
         def _crashing_send(push_kind, payload, settings, conn):  # noqa: ANN001
             nonlocal call_count
             call_count += 1
             raise RuntimeError("push send crashed after reservation")
 
+        monkeypatch.setattr(
+            "cloop._scheduler.side_effects.read_continuity_notification_records",
+            lambda **kwargs: [notification],
+        )
         monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _crashing_send)
         context = SchedulerRunContext(
             task_name="daily_review",
@@ -307,7 +358,8 @@ class TestSchedulerState:
 
         row = scheduler_db.execute(
             """
-            SELECT push_count
+            SELECT notification_id, delivery_status, claimed_at, send_started_at,
+                   send_completed_at, push_count
             FROM scheduler_push_deliveries
             WHERE task_name = ? AND slot_key = ? AND push_kind = ?
             """,
@@ -316,7 +368,103 @@ class TestSchedulerState:
         assert call_count == 1
         assert push_count == 0
         assert row is not None
+        assert row["notification_id"] == notification.id
+        assert row["delivery_status"] == "attempted"
+        assert row["claimed_at"] is not None
+        assert row["send_started_at"] is not None
+        assert row["send_completed_at"] is None
         assert row["push_count"] == 0
+
+    def test_same_slot_push_without_sendable_notification_is_marked_skipped(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "cloop._scheduler.side_effects.read_continuity_notification_records",
+            lambda **kwargs: [],
+        )
+        context = SchedulerRunContext(
+            task_name="daily_review",
+            slot_key="2026-03-13",
+            owner_token="owner-a",
+            settings=get_settings(),
+            lease_lost=asyncio.Event(),
+        )
+
+        push_count = _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload={"review_type": "daily"},
+            context=context,
+            conn=scheduler_db,
+        )
+
+        row = scheduler_db.execute(
+            """
+            SELECT notification_id, workflow_thread_id, delivery_status,
+                   claimed_at, send_started_at, send_completed_at, push_count
+            FROM scheduler_push_deliveries
+            WHERE task_name = ? AND slot_key = ? AND push_kind = ?
+            """,
+            ("daily_review", "2026-03-13", "review_generated"),
+        ).fetchone()
+        assert push_count == 0
+        assert row is not None
+        assert row["notification_id"] is None
+        assert row["workflow_thread_id"] is None
+        assert row["delivery_status"] == "skipped"
+        assert row["claimed_at"] is not None
+        assert row["send_started_at"] is None
+        assert row["send_completed_at"] is not None
+        assert row["push_count"] == 0
+
+    def test_send_scheduler_push_uses_preselected_notification_provenance(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        selected = _notification_record(notification_id="planning:selected")
+        fallback = _notification_record(notification_id="planning:fallback")
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_snapshot",
+            lambda settings=None, limit=48: SimpleNamespace(notification_records=[selected]),
+        )
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_notification_records",
+            lambda **kwargs: [fallback],
+        )
+
+        def _capture_push(payload, settings, conn):  # noqa: ANN001
+            captured["payload"] = payload
+            return 1
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture_push)
+        monkeypatch.setattr(
+            "cloop.push_sender.upsert_continuity_notification_state",
+            lambda notification_id, payload, *, settings=None: captured.update(
+                {"notification_id": notification_id, "state_payload": payload}
+            ),
+        )
+
+        result = send_scheduler_push(
+            "review_generated",
+            {
+                "review_type": "daily",
+                "total_items": 5,
+                "cohorts": [],
+                "notification_id": selected.id,
+            },
+            get_settings(),
+            scheduler_db,
+        )
+
+        assert result == 1
+        assert captured["notification_id"] == selected.id
+        payload = captured["payload"]
+        assert isinstance(payload, PushPayload)
+        assert payload.data == {
+            "workflow_summary_id": selected.id,
+            "workflow_thread_id": selected.workflow_thread.id,
+            "event_type": "review_generated",
+        }
 
 
 class TestDailyReview:

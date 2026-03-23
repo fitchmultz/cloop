@@ -31,6 +31,63 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    46: """
+    ALTER TABLE scheduler_push_deliveries RENAME TO scheduler_push_deliveries_old;
+
+    CREATE TABLE scheduler_push_deliveries (
+        task_name TEXT NOT NULL,
+        slot_key TEXT NOT NULL,
+        push_kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        notification_id TEXT,
+        workflow_thread_id TEXT,
+        claimed_at TEXT NOT NULL,
+        send_started_at TEXT,
+        send_completed_at TEXT,
+        delivery_status TEXT NOT NULL DEFAULT 'claimed'
+            CHECK (delivery_status IN ('claimed', 'attempted', 'sent', 'no_recipients', 'skipped')),
+        push_count INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (task_name, slot_key, push_kind)
+    );
+
+    INSERT INTO scheduler_push_deliveries (
+        task_name,
+        slot_key,
+        push_kind,
+        payload_json,
+        notification_id,
+        workflow_thread_id,
+        claimed_at,
+        send_started_at,
+        send_completed_at,
+        delivery_status,
+        push_count
+    )
+    SELECT
+        task_name,
+        slot_key,
+        push_kind,
+        payload_json,
+        NULL,
+        NULL,
+        sent_at,
+        sent_at,
+        sent_at,
+        CASE
+            WHEN push_count > 0 THEN 'sent'
+            ELSE 'no_recipients'
+        END,
+        push_count
+    FROM scheduler_push_deliveries_old;
+
+    DROP TABLE scheduler_push_deliveries_old;
+
+    CREATE INDEX idx_scheduler_push_deliveries_notification
+        ON scheduler_push_deliveries(notification_id, send_completed_at DESC);
+
+    CREATE INDEX idx_scheduler_push_deliveries_thread
+        ON scheduler_push_deliveries(workflow_thread_id, send_completed_at DESC);
+    """,
     45: """
     CREATE TABLE continuity_notification_states (
         notification_id TEXT PRIMARY KEY,

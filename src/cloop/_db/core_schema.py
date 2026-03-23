@@ -535,10 +535,22 @@ CREATE TABLE scheduler_push_deliveries (
     slot_key TEXT NOT NULL,
     push_kind TEXT NOT NULL,
     payload_json TEXT NOT NULL,
+    notification_id TEXT,
+    workflow_thread_id TEXT,
+    claimed_at TEXT NOT NULL,
+    send_started_at TEXT,
+    send_completed_at TEXT,
+    delivery_status TEXT NOT NULL DEFAULT 'claimed'
+        CHECK (delivery_status IN ('claimed', 'attempted', 'sent', 'no_recipients', 'skipped')),
     push_count INTEGER NOT NULL DEFAULT 0,
-    sent_at TEXT NOT NULL,
     PRIMARY KEY (task_name, slot_key, push_kind)
 );
+
+CREATE INDEX idx_scheduler_push_deliveries_notification
+    ON scheduler_push_deliveries(notification_id, send_completed_at DESC);
+
+CREATE INDEX idx_scheduler_push_deliveries_thread
+    ON scheduler_push_deliveries(workflow_thread_id, send_completed_at DESC);
 
 -- Nudge tracking for escalation state
 CREATE TABLE loop_nudges (

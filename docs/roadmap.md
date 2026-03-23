@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to make bounded continuity delivery inspection explainable before adding delivery history joins.
+The current priority is to make continuity delivery diagnostics explicit, historically accurate, and joinable before tuning push-scan policy.
 
 ## Direction
 
@@ -23,57 +23,49 @@ Current product goals:
 
 - Experience vision: [`docs/ux/experience-vision.md`](ux/experience-vision.md)
 - Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
-
-## Shipped foundation
-
-The next roadmap slice starts from work that is already live:
-
-- TypeScript/Vite operator-shell cutover with state-driven shell routing
-- operator workspace foundation and state-oriented navigation model
-- working-set sessions, focus mode, and working-set-aware handoffs
-- shared trust surfaces and shared AI/action-card rendering across planning, review, recall, and follow-through flows
-- post-action receipt cards with resume targets and rollback cues
-- review workspace redesign across relationship, enrichment, and hygiene review
-- durable backend-backed continuity outcomes and resume anchors with browser-local visit baselines still preserved for local drift comparison
-- durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
-- backend-authored workflow-summary continuity across operator home, the receipt rail, command-palette recents, and calm notification/push delivery
-- durable notification delivery state for canonical continuity records across push sends, in-app banners, and continuity hydration
-- debug-first continuity delivery-decision inspection over the canonical store contract
-- explicit bounded delivery scan contract shared by debug inspection and push selection
-- deterministic notification-state compaction for expired suppressions, retired workflow ids, and orphaned workflow ids
-- drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
-- proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
-- explicit continuity recovery flows for superseded or unavailable workflows across operator cards, the receipt rail, and command-palette recommendations
-- bounded read-only alternate generation strategies with surfaced provenance metadata
-- shared rerun and refresh affordances across planning, saved review sessions, recall result cards, continuity, CLI, HTTP, and MCP
+- Continuity intelligence: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
 ## Execution order
 
-### Next — Delivery inspection explainability metadata
+### Next — Delivery inspection scan metadata
 
-**Primary specs:**
-- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-
-Goal: make bounded debug inspection responses explain when the scan stopped and how to continue.
+Goal: make bounded delivery inspection say exactly what it scanned, what it omitted, and how to continue.
 
 Planned sequence:
 
-1. add explicit truncation or continuation metadata to the debug delivery-inspection response
-2. preserve the shared bounded scan contract and current push selection behavior
-3. cover truncated cooled_down, deduped, missing-target, and skipped cases without changing snapshot hydration
+1. add explicit scan metadata for the effective scan limit, inspected decision count, truncation state, and stable continuation cue
+2. preserve current push selection and snapshot hydration behavior while exposing the bounded-read contract directly
+3. thread the metadata through shared schemas/OpenAPI and cover cooled_down, deduped, missing-target, skipped, and empty-scan cases
 
-### Then — Scheduler delivery history join
+### Then — Joined continuity delivery diagnostics
 
-**Primary specs:**
-- [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
-
-Goal: join current continuity delivery decisions with scheduler delivery records for resend and send-history inspection.
+Goal: inspect current continuity delivery decisions and prior scheduler push attempts in one canonical contract.
 
 Planned sequence:
 
-1. add a read path that joins scheduler delivery records with the current decision snapshot
-2. keep diagnostics separate from notification ranking and push selection
-3. cover resend windows, suppression expiry, acknowledgement, dedupe, missing-target, and skipped-delivery transitions
+1. join delivery-inspection decisions to scheduler push rows through persisted canonical notification provenance
+2. expose claim/send timestamps, terminal delivery status, slot identity, push counts, and resend-readiness context alongside current reason codes
+3. distinguish reserved-only crash rows, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions
+
+### Later — Cross-surface delivery diagnostics access
+
+Goal: make the canonical delivery diagnostics usable outside the HTTP debug endpoint.
+
+Planned sequence:
+
+1. expose the shared delivery-diagnostics read contract through CLI and MCP entrypoints
+2. keep HTTP, CLI, and MCP output backed by the same store and schema contract
+3. add only minimal surface-specific formatting after the shared contract is stable
+
+### Later — Delivery scan policy calibration
+
+Goal: tune or replace the fixed push scan policy only after inspection metadata and joined history show where it hides sendable work or over-scans cold records.
+
+Planned sequence:
+
+1. compare truncation and later-sendable records against actual scheduler attempt history
+2. decide whether to raise, parameterize, or replace the fixed floor and multiplier with a clearer contract
+3. keep the cutover inside the shared delivery store contract and preserve explainable diagnostics
 
 ## Delivery model
 

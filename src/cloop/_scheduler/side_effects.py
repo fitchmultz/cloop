@@ -36,11 +36,39 @@ from typing import Any
 
 from .. import db
 from ..loops.models import LoopEventType, utc_now
+from ..schemas._loops.continuity import ContinuityNotificationRecordResponse
 from ..storage._scheduler_store import push_dedupe as scheduler_push_store
 from ..storage._scheduler_store import task_runs as scheduler_task_runs
+from ..storage.continuity_store import read_continuity_notification_records
 from .models import SchedulerPushSender, SchedulerRunContext
 
 logger = logging.getLogger(__name__)
+
+
+def _select_scheduler_notification(
+    *,
+    context: SchedulerRunContext,
+) -> ContinuityNotificationRecordResponse | None:
+    notifications = read_continuity_notification_records(
+        limit=1,
+        settings=context.settings,
+        channel="push",
+    )
+    return notifications[0] if notifications else None
+
+
+def _scheduler_push_payload(
+    payload: dict[str, Any],
+    *,
+    notification: ContinuityNotificationRecordResponse | None,
+) -> dict[str, Any]:
+    if notification is None:
+        return payload
+    return {
+        **payload,
+        "notification_id": notification.id,
+        "workflow_thread_id": notification.workflow_thread.id,
+    }
 
 
 async def heartbeat_scheduler_run(
@@ -133,13 +161,19 @@ def send_scheduler_push_once(
     if existing is not None:
         return int(existing["push_count"] or 0)
 
+    notification = _select_scheduler_notification(context=context)
+    payload_with_provenance = _scheduler_push_payload(payload, notification=notification)
+    claimed_at = utc_now()
     claimed = scheduler_push_store.claim_scheduler_push(
         task_name=context.task_name,
         slot_key=context.slot_key,
         push_kind=push_kind,
-        payload=payload,
-        claimed_at=utc_now(),
+        payload=payload_with_provenance,
+        claimed_at=claimed_at,
         conn=conn,
+        notification_id=notification.id if notification is not None else None,
+        workflow_thread_id=notification.workflow_thread.id if notification is not None else None,
+        delivery_status="claimed" if notification is not None else "skipped",
     )
     if not claimed:
         row = conn.execute(
@@ -152,15 +186,27 @@ def send_scheduler_push_once(
         ).fetchone()
         return int(row["push_count"] or 0) if row is not None else 0
 
-    push_count = send_push_fn(push_kind, payload, context.settings, conn)
+    if notification is None:
+        return 0
+
+    scheduler_push_store.mark_scheduler_push_attempt(
+        task_name=context.task_name,
+        slot_key=context.slot_key,
+        push_kind=push_kind,
+        attempted_at=utc_now(),
+        conn=conn,
+    )
+    push_count = send_push_fn(push_kind, payload_with_provenance, context.settings, conn)
     scheduler_push_store.record_scheduler_push(
         task_name=context.task_name,
         slot_key=context.slot_key,
         push_kind=push_kind,
-        payload=payload,
+        payload=payload_with_provenance,
         push_count=push_count,
-        sent_at=utc_now(),
+        completed_at=utc_now(),
         conn=conn,
+        notification_id=notification.id,
+        workflow_thread_id=notification.workflow_thread.id,
     )
     return push_count
 
