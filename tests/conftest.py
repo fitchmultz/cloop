@@ -19,6 +19,7 @@ Invariants/Assumptions:
     - Temporary data directories stay isolated per test.
 """
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List
@@ -185,6 +186,56 @@ def insert_planning_session(session_id: int, *, name: str | None = None) -> None
                 "{}",
                 '{"workflow": {"checkpoints": []}}',
                 0,
+            ),
+        )
+        conn.commit()
+
+
+def insert_scheduler_push_delivery(
+    *,
+    notification_id: str,
+    workflow_thread_id: str,
+    slot_key: str = "2026-03-21T12:00:00Z",
+    delivery_status: str = "sent",
+    delivery_reason: str | None = None,
+    push_count: int = 1,
+    claimed_at: str = "2026-03-21T12:00:10Z",
+    send_started_at: str | None = "2026-03-21T12:00:11Z",
+    send_completed_at: str | None = "2026-03-21T12:00:12Z",
+) -> None:
+    """Insert one scheduler push-delivery row for continuity diagnostics tests."""
+    payload = {"event_type": "review_generated"}
+    if delivery_reason is not None:
+        payload["delivery_reason"] = delivery_reason
+    with db.core_connection(get_settings()) as conn:
+        conn.execute(
+            """
+            INSERT INTO scheduler_push_deliveries (
+                task_name,
+                slot_key,
+                push_kind,
+                payload_json,
+                notification_id,
+                workflow_thread_id,
+                claimed_at,
+                send_started_at,
+                send_completed_at,
+                delivery_status,
+                push_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "daily_review",
+                slot_key,
+                "review_generated",
+                json.dumps(payload, separators=(",", ":"), sort_keys=True),
+                notification_id,
+                workflow_thread_id,
+                claimed_at,
+                send_started_at,
+                send_completed_at,
+                delivery_status,
+                push_count,
             ),
         )
         conn.commit()

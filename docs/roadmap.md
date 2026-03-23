@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish one canonical delivery-diagnostics contract end to end before tuning scan policy or cleanup tooling.
+The current priority is to make delivery-diagnostics reads bounded and explicit before spreading them to more surfaces or reworking scheduler storage.
 
 ## Direction
 
@@ -27,25 +27,25 @@ Current product goals:
 
 ## Execution order
 
-### Next — Canonical delivery diagnostics contract
+### Next — Diagnostics scan metadata
 
-Goal: return one shared backend contract for ranked continuity decisions and scheduler push attempts.
-
-Planned sequence:
-
-1. build one read path that joins ranked notification decisions to `scheduler_push_deliveries` through persisted provenance
-2. emit slot identity, claim/send timestamps, terminal status, push counts, resend-readiness context, and current reason codes from that contract
-3. distinguish reserved-only crashes, vanished preselection, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions without per-surface logic
-
-### Then — Diagnostics pagination metadata
-
-Goal: make diagnostics responses bounded, explicit, and resumable.
+Goal: make diagnostics reads bounded, explicit, and resumable.
 
 Planned sequence:
 
 1. add effective limit, inspected count, returned count, truncation flag, and stable continuation cue
-2. keep the metadata on the shared diagnostics contract instead of adding a temporary response shape
+2. keep the metadata on the shared diagnostics contract instead of introducing a side response shape
 3. cover empty scans and truncated mixes of sendable and non-sendable records
+
+### Then — Normalize scheduler delivery reasons
+
+Goal: stop relying on `payload_json` parsing for terminal delivery nuances before the diagnostics contract spreads to more surfaces.
+
+Planned sequence:
+
+1. promote the scheduler delivery reason fields that diagnostics actually needs out of payload-only provenance
+2. keep the shared diagnostics contract unchanged during the storage cutover
+3. delete the payload fallback once the durable fields are authoritative
 
 ### Then — CLI and MCP diagnostics rollout
 
@@ -56,16 +56,6 @@ Planned sequence:
 1. add CLI and MCP entrypoints backed by the same read path
 2. keep HTTP, CLI, and MCP fields aligned on one contract
 3. keep surface-specific formatting minimal and downstream of the shared data model
-
-### Later — Scheduler delivery provenance normalization
-
-Goal: stop depending on ad hoc payload fields for terminal delivery nuances once the shared diagnostics contract proves which fields need to be durable.
-
-Planned sequence:
-
-1. identify which scheduler terminal reasons need first-class persisted fields instead of payload-only provenance
-2. normalize the durable shape only after the shared diagnostics contract is stable
-3. preserve diagnostics behavior across the storage cutover
 
 ### Later — Scan policy calibration
 

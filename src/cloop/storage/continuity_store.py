@@ -59,6 +59,8 @@ from ..schemas._loops.continuity import (
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementResponse,
     ContinuityRecoveryAcknowledgementUpsertRequest,
+    ContinuitySchedulerPushDeliveryResponse,
+    ContinuitySchedulerPushDeliveryStatus,
     ContinuitySnapshotResponse,
     ContinuitySuccessorTargetResponse,
     ContinuityTargetStatus,
@@ -91,6 +93,8 @@ _PUSH_DELIVERY_SCAN_MULTIPLIER = 4
 class _NotificationDeliveryDecision:
     record: ContinuityNotificationRecordResponse
     reason: ContinuityDeliveryReason
+    resend_ready_at_utc: str | None = None
+    latest_push_delivery: ContinuitySchedulerPushDeliveryResponse | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1741,6 +1745,102 @@ def _delivery_read_window(
     return _ContinuityDeliveryReadWindow(limit=limit, scan_limit=scan_limit, channel=channel)
 
 
+def _scheduler_push_delivery_from_row(
+    row: Mapping[str, Any],
+) -> ContinuitySchedulerPushDeliveryResponse:
+    payload = _load_json_map(str(row["payload_json"]) if row["payload_json"] is not None else None)
+    raw_delivery_reason = payload.get("delivery_reason")
+    delivery_reason = raw_delivery_reason if isinstance(raw_delivery_reason, str) else None
+    return ContinuitySchedulerPushDeliveryResponse(
+        task_name=str(row["task_name"]),
+        slot_key=str(row["slot_key"]),
+        push_kind=str(row["push_kind"]),
+        notification_id=str(row["notification_id"]) if row["notification_id"] is not None else None,
+        workflow_thread_id=str(row["workflow_thread_id"])
+        if row["workflow_thread_id"] is not None
+        else None,
+        claimed_at_utc=str(row["claimed_at"]),
+        send_started_at_utc=str(row["send_started_at"])
+        if row["send_started_at"] is not None
+        else None,
+        send_completed_at_utc=str(row["send_completed_at"])
+        if row["send_completed_at"] is not None
+        else None,
+        delivery_status=cast(ContinuitySchedulerPushDeliveryStatus, str(row["delivery_status"])),
+        delivery_reason=delivery_reason,
+        push_count=int(row["push_count"] or 0),
+    )
+
+
+def _read_latest_scheduler_push_deliveries(
+    conn: sqlite3.Connection,
+    notification_records: list[ContinuityNotificationRecordResponse],
+) -> dict[str, ContinuitySchedulerPushDeliveryResponse]:
+    if not notification_records:
+        return {}
+
+    notification_ids = sorted({record.id for record in notification_records})
+    workflow_thread_ids = sorted({record.workflow_thread.id for record in notification_records})
+    predicates: list[str] = []
+    params: list[str] = []
+
+    if notification_ids:
+        placeholders = ", ".join("?" for _ in notification_ids)
+        predicates.append(f"notification_id IN ({placeholders})")
+        params.extend(notification_ids)
+    if workflow_thread_ids:
+        placeholders = ", ".join("?" for _ in workflow_thread_ids)
+        predicates.append(f"workflow_thread_id IN ({placeholders})")
+        params.extend(workflow_thread_ids)
+
+    rows = conn.execute(
+        f"""
+        SELECT task_name, slot_key, push_kind, payload_json, notification_id, workflow_thread_id,
+               claimed_at, send_started_at, send_completed_at, delivery_status, push_count
+        FROM scheduler_push_deliveries
+        WHERE {" OR ".join(predicates)}
+        ORDER BY COALESCE(send_completed_at, send_started_at, claimed_at) DESC,
+                 task_name ASC,
+                 slot_key ASC,
+                 push_kind ASC
+        """,
+        tuple(params),
+    ).fetchall()
+
+    latest_by_key: dict[str, ContinuitySchedulerPushDeliveryResponse] = {}
+    for row in rows:
+        delivery = _scheduler_push_delivery_from_row(row)
+        if delivery.notification_id is not None:
+            latest_by_key.setdefault(f"notification:{delivery.notification_id}", delivery)
+        if delivery.workflow_thread_id is not None:
+            latest_by_key.setdefault(f"thread:{delivery.workflow_thread_id}", delivery)
+
+    deliveries: dict[str, ContinuitySchedulerPushDeliveryResponse] = {}
+    for record in notification_records:
+        delivery = latest_by_key.get(f"notification:{record.id}") or latest_by_key.get(
+            f"thread:{record.workflow_thread.id}"
+        )
+        if delivery is not None:
+            deliveries[record.id] = delivery
+    return deliveries
+
+
+def _notification_resend_ready_at(
+    state: ContinuityNotificationStateResponse,
+    *,
+    channel: ContinuityDeliveryInspectionChannel,
+    now: datetime,
+) -> str | None:
+    if channel != "push":
+        return None
+    if _notification_state_is_suppressed(state, now=now):
+        return state.suppressed_until_utc
+    resend_ready_at = _push_resend_ready_at(state)
+    if resend_ready_at is None or resend_ready_at <= now:
+        return None
+    return resend_ready_at.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _notification_delivery_reason(
     summary: ContinuityWorkflowSummaryResponse,
     record: ContinuityNotificationRecordResponse,
@@ -1786,36 +1886,74 @@ def _evaluate_notification_delivery_contract(
     ]
 
     summary_by_id = {summary.id: summary for summary in workflow_summaries}
+    latest_push_deliveries = _read_latest_scheduler_push_deliveries(conn, notification_records)
     sent_count = 0
     sent_dedupe_keys: set[str] = set()
     decisions: list[_NotificationDeliveryDecision] = []
 
     for record in notification_records:
         summary = summary_by_id.get(record.id)
+        resend_ready_at_utc = _notification_resend_ready_at(record.state, channel=channel, now=now)
+        latest_push_delivery = latest_push_deliveries.get(record.id)
         if summary is None:
-            decisions.append(_NotificationDeliveryDecision(record=record, reason="missing_target"))
+            decisions.append(
+                _NotificationDeliveryDecision(
+                    record=record,
+                    reason="missing_target",
+                    resend_ready_at_utc=resend_ready_at_utc,
+                    latest_push_delivery=latest_push_delivery,
+                )
+            )
             continue
 
         reason = _notification_delivery_reason(summary, record, channel=channel, now=now)
         if reason != "sent":
-            decisions.append(_NotificationDeliveryDecision(record=record, reason=reason))
+            decisions.append(
+                _NotificationDeliveryDecision(
+                    record=record,
+                    reason=reason,
+                    resend_ready_at_utc=resend_ready_at_utc,
+                    latest_push_delivery=latest_push_delivery,
+                )
+            )
             continue
 
         dedupe_key: str | None = None
         if channel == "push":
             dedupe_key = _notification_delivery_dedupe_key(summary)
             if dedupe_key in sent_dedupe_keys:
-                decisions.append(_NotificationDeliveryDecision(record=record, reason="deduped"))
+                decisions.append(
+                    _NotificationDeliveryDecision(
+                        record=record,
+                        reason="deduped",
+                        resend_ready_at_utc=resend_ready_at_utc,
+                        latest_push_delivery=latest_push_delivery,
+                    )
+                )
                 continue
 
         if sent_count >= limit:
-            decisions.append(_NotificationDeliveryDecision(record=record, reason="skipped"))
+            decisions.append(
+                _NotificationDeliveryDecision(
+                    record=record,
+                    reason="skipped",
+                    resend_ready_at_utc=resend_ready_at_utc,
+                    latest_push_delivery=latest_push_delivery,
+                )
+            )
             continue
 
         if dedupe_key is not None:
             sent_dedupe_keys.add(dedupe_key)
         sent_count += 1
-        decisions.append(_NotificationDeliveryDecision(record=record, reason="sent"))
+        decisions.append(
+            _NotificationDeliveryDecision(
+                record=record,
+                reason="sent",
+                resend_ready_at_utc=resend_ready_at_utc,
+                latest_push_delivery=latest_push_delivery,
+            )
+        )
 
     return _ContinuityDeliveryContract(
         notification_records=notification_records,
@@ -1887,7 +2025,12 @@ def read_continuity_delivery_inspection(
         channel=channel,
         limit=limit,
         decisions=[
-            ContinuityDeliveryDecisionResponse(record=decision.record, reason=decision.reason)
+            ContinuityDeliveryDecisionResponse(
+                record=decision.record,
+                reason=decision.reason,
+                resend_ready_at_utc=decision.resend_ready_at_utc,
+                latest_push_delivery=decision.latest_push_delivery,
+            )
             for decision in delivery_contract.decisions
         ],
     )

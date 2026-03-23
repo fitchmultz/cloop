@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from conftest import insert_planning_session
+from conftest import insert_planning_session, insert_scheduler_push_delivery
 from fastapi.testclient import TestClient
 
 
@@ -140,6 +140,13 @@ def test_get_continuity_delivery_decisions_returns_debug_payload(
             "seen_at_utc": "2026-03-21T12:02:00Z",
         },
     )
+    insert_scheduler_push_delivery(
+        notification_id="planning:41:checkpoint:0",
+        workflow_thread_id="planning:41:checkpoint:0",
+        delivery_status="skipped",
+        delivery_reason="notification_missing",
+        push_count=0,
+    )
 
     response = test_client.get("/loops/continuity/debug/delivery-decisions?limit=1&channel=all")
 
@@ -154,6 +161,20 @@ def test_get_continuity_delivery_decisions_returns_debug_payload(
         "seen_at_utc": "2026-03-21T12:02:00Z",
         "acknowledged_at_utc": None,
         "suppressed_until_utc": None,
+    }
+    assert payload["decisions"][0]["resend_ready_at_utc"] is None
+    assert payload["decisions"][0]["latest_push_delivery"] == {
+        "task_name": "daily_review",
+        "slot_key": "2026-03-21T12:00:00Z",
+        "push_kind": "review_generated",
+        "notification_id": "planning:41:checkpoint:0",
+        "workflow_thread_id": "planning:41:checkpoint:0",
+        "claimed_at_utc": "2026-03-21T12:00:10Z",
+        "send_started_at_utc": "2026-03-21T12:00:11Z",
+        "send_completed_at_utc": "2026-03-21T12:00:12Z",
+        "delivery_status": "skipped",
+        "delivery_reason": "notification_missing",
+        "push_count": 0,
     }
 
 

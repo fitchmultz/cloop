@@ -79,6 +79,13 @@ ContinuityDeliveryReason = Literal[
     "deduped",
     "skipped",
 ]
+ContinuitySchedulerPushDeliveryStatus = Literal[
+    "claimed",
+    "attempted",
+    "sent",
+    "no_recipients",
+    "skipped",
+]
 
 
 class ContinuityLocationResponse(BaseModel):
@@ -333,11 +340,29 @@ class ContinuityNotificationRecordResponse(BaseModel):
     )
 
 
+class ContinuitySchedulerPushDeliveryResponse(BaseModel):
+    """Latest persisted scheduler push-delivery row joined onto one notification."""
+
+    task_name: str
+    slot_key: str
+    push_kind: str
+    notification_id: str | None = None
+    workflow_thread_id: str | None = None
+    claimed_at_utc: str
+    send_started_at_utc: str | None = None
+    send_completed_at_utc: str | None = None
+    delivery_status: ContinuitySchedulerPushDeliveryStatus
+    delivery_reason: str | None = None
+    push_count: int
+
+
 class ContinuityDeliveryDecisionResponse(BaseModel):
     """One inspected continuity delivery decision with canonical reason."""
 
     record: ContinuityNotificationRecordResponse
     reason: ContinuityDeliveryReason
+    resend_ready_at_utc: str | None = None
+    latest_push_delivery: ContinuitySchedulerPushDeliveryResponse | None = None
 
 
 class ContinuityDeliveryInspectionResponse(BaseModel):
@@ -371,6 +396,8 @@ __all__ = [
     "ContinuityDeliveryInspectionChannel",
     "ContinuityDeliveryInspectionResponse",
     "ContinuityDeliveryReason",
+    "ContinuitySchedulerPushDeliveryResponse",
+    "ContinuitySchedulerPushDeliveryStatus",
     "ContinuityLastSeenBatchUpsertRequest",
     "ContinuityLastSeenMarkerResponse",
     "ContinuityLastSeenMarkerUpsertRequest",

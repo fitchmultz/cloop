@@ -29,7 +29,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from conftest import insert_planning_session
+from conftest import insert_planning_session, insert_scheduler_push_delivery
 
 from cloop import db
 from cloop.schemas._loops.continuity import (
@@ -229,6 +229,58 @@ def test_delivery_inspection_returns_record_state_and_reason(tmp_data_dir: Path)
     assert inspection.decisions[0].record.id == "planning:41:checkpoint:0"
     assert inspection.decisions[0].record.state.inboxed_at_utc == "2026-03-21T12:01:00Z"
     assert inspection.decisions[0].record.state.seen_at_utc == "2026-03-21T12:02:00Z"
+    assert inspection.decisions[0].resend_ready_at_utc is None
+    assert inspection.decisions[0].latest_push_delivery is None
+
+
+def test_delivery_inspection_joins_latest_scheduler_push_delivery(tmp_data_dir: Path) -> None:
+    notification_id = "planning:41:checkpoint:0"
+    record_continuity_outcome(
+        _outcome_request(
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+        )
+    )
+    insert_scheduler_push_delivery(
+        notification_id=notification_id,
+        workflow_thread_id=notification_id,
+        delivery_status="skipped",
+        delivery_reason="notification_missing",
+        push_count=0,
+    )
+
+    inspection = read_continuity_delivery_inspection(limit=1, channel="push")
+
+    assert inspection.decisions[0].reason == "sent"
+    assert inspection.decisions[0].latest_push_delivery is not None
+    assert inspection.decisions[0].latest_push_delivery.slot_key == "2026-03-21T12:00:00Z"
+    assert inspection.decisions[0].latest_push_delivery.delivery_status == "skipped"
+    assert inspection.decisions[0].latest_push_delivery.delivery_reason == "notification_missing"
+    assert inspection.decisions[0].latest_push_delivery.push_count == 0
+
+
+def test_delivery_inspection_returns_resend_ready_at_for_push_cooldown(tmp_data_dir: Path) -> None:
+    notification_id = "planning:41:checkpoint:0"
+    record_continuity_outcome(
+        _outcome_request(
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+        )
+    )
+    inboxed_at = (datetime.now(UTC) - timedelta(hours=2)).replace(microsecond=0)
+    upsert_continuity_notification_state(
+        notification_id,
+        ContinuityNotificationStateUpsertRequest(
+            inboxed_at_utc=inboxed_at.isoformat().replace("+00:00", "Z"),
+        ),
+    )
+
+    inspection = read_continuity_delivery_inspection(limit=1, channel="push")
+
+    assert inspection.decisions[0].reason == "cooled_down"
+    assert inspection.decisions[0].resend_ready_at_utc == (
+        inboxed_at + timedelta(hours=6)
+    ).isoformat().replace("+00:00", "Z")
 
 
 def test_snapshot_clears_expired_notification_suppression(tmp_data_dir: Path) -> None:
