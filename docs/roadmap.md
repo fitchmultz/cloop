@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to add a delivery-decision inspection read path so each continuity notification exposes its current backend decision and reason.
+The current priority is to replace the remaining implicit continuity delivery read-window heuristic with an explicit bounded contract before more consumers depend on it.
 
 ## Direction
 
@@ -47,20 +47,20 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Delivery-decision inspection read path
+### Next — Delivery read-window contract cleanup
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: expose the current backend delivery decision for each continuity notification without coupling it to scheduler history yet.
+Goal: replace the implicit delivery over-read heuristic with an explicit bounded read contract before more consumers depend on it.
 
 Planned sequence:
 
-1. add a debug-first read path that returns notification state plus canonical decision reason
-2. keep the inspection contract separate from operator ranking and rendering
-3. cover sent, cooled_down, suppressed, acknowledged, missing_target, deduped, and skipped outcomes
+1. define explicit scan-limit or pagination semantics for delivery-decision reads
+2. make push selection and inspection reads consume that same bounded contract
+3. delete hidden read-window assumptions without changing ranking or send selection
 
-### Then — Delivery history and explainability
+### Then — Scheduler delivery history join
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
@@ -70,8 +70,8 @@ Goal: join current continuity delivery decisions with scheduler delivery records
 Planned sequence:
 
 1. add a read path that joins scheduler delivery records with the current decision snapshot
-2. keep diagnostics debug-first and separate from notification ranking or operator recommendation logic
-3. add focused inspection coverage for resend windows, suppression expiry, acknowledgement, dedupe, missing-target, and skipped-delivery transitions
+2. keep diagnostics separate from notification ranking and push selection
+3. cover resend windows, suppression expiry, acknowledgement, dedupe, missing-target, and skipped-delivery transitions
 
 ## Delivery model
 

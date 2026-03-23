@@ -6,6 +6,7 @@ Purpose:
 
 Responsibilities:
     - Return the current durable continuity snapshot.
+    - Expose debug-first continuity delivery-decision inspection.
     - Persist high-signal landed outcomes.
     - Upsert durable planning and review resume anchors.
     - Upsert durable notification delivery state and recovery acknowledgements.
@@ -24,10 +25,14 @@ Invariants/Assumptions:
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Query
 
 from ...schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
+    ContinuityDeliveryInspectionChannel,
+    ContinuityDeliveryInspectionResponse,
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityNotificationStateUpsertRequest,
     ContinuityOutcomeWriteRequest,
@@ -35,6 +40,7 @@ from ...schemas._loops.continuity import (
     ContinuitySnapshotResponse,
 )
 from ...storage import (
+    read_continuity_delivery_inspection,
     read_continuity_snapshot,
     record_continuity_outcome,
     upsert_continuity_anchor,
@@ -54,6 +60,18 @@ def get_continuity_snapshot_endpoint(
 ) -> ContinuitySnapshotResponse:
     """Return the current durable continuity snapshot."""
     return read_continuity_snapshot(limit=limit, settings=settings)
+
+
+@router.get(
+    "/continuity/debug/delivery-decisions", response_model=ContinuityDeliveryInspectionResponse
+)
+def get_continuity_delivery_decisions_endpoint(
+    settings: SettingsDep,
+    limit: int = Query(default=3, ge=1, le=50),
+    channel: Annotated[ContinuityDeliveryInspectionChannel, Query()] = "all",
+) -> ContinuityDeliveryInspectionResponse:
+    """Inspect canonical continuity delivery decisions for debugging."""
+    return read_continuity_delivery_inspection(limit=limit, settings=settings, channel=channel)
 
 
 @router.post("/continuity/outcomes", response_model=ContinuitySnapshotResponse)

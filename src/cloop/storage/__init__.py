@@ -21,6 +21,7 @@ Invariants/Assumptions:
 """
 
 from .continuity_store import (
+    read_continuity_delivery_inspection,
     read_continuity_snapshot,
     record_continuity_outcome,
     upsert_continuity_anchor,
@@ -53,6 +54,7 @@ from .scheduler_store import (
 )
 
 __all__ = [
+    "read_continuity_delivery_inspection",
     "read_continuity_snapshot",
     "record_continuity_outcome",
     "upsert_continuity_anchor",

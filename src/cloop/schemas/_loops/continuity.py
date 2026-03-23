@@ -7,7 +7,7 @@ Purpose:
 
 Responsibilities:
     - Validate continuity outcome, anchor, last-seen, notification-state, and recovery-ack writes.
-    - Shape continuity snapshot responses for cross-device hydration.
+    - Shape continuity snapshot and delivery-inspection responses for cross-device hydration.
     - Model explicit fallback and replacement states when persisted targets drift
       or disappear.
 
@@ -68,6 +68,16 @@ ContinuityObservedEntityKind = Literal[
     "working_set",
     "cohort_snapshot",
     "workflow_thread",
+]
+ContinuityDeliveryInspectionChannel = Literal["all", "push"]
+ContinuityDeliveryReason = Literal[
+    "sent",
+    "cooled_down",
+    "suppressed",
+    "acknowledged",
+    "missing_target",
+    "deduped",
+    "skipped",
 ]
 
 
@@ -323,6 +333,22 @@ class ContinuityNotificationRecordResponse(BaseModel):
     )
 
 
+class ContinuityDeliveryDecisionResponse(BaseModel):
+    """One inspected continuity delivery decision with canonical reason."""
+
+    record: ContinuityNotificationRecordResponse
+    reason: ContinuityDeliveryReason
+
+
+class ContinuityDeliveryInspectionResponse(BaseModel):
+    """Debug-first continuity delivery inspection payload."""
+
+    inspected_at_utc: str
+    channel: ContinuityDeliveryInspectionChannel
+    limit: int
+    decisions: list[ContinuityDeliveryDecisionResponse] = Field(default_factory=list)
+
+
 class ContinuitySnapshotResponse(BaseModel):
     """Durable continuity snapshot used to hydrate frontend cache state."""
 
@@ -341,6 +367,10 @@ __all__ = [
     "ContinuityAnchorResponse",
     "ContinuityAnchorUpsertRequest",
     "ContinuityAnchorsResponse",
+    "ContinuityDeliveryDecisionResponse",
+    "ContinuityDeliveryInspectionChannel",
+    "ContinuityDeliveryInspectionResponse",
+    "ContinuityDeliveryReason",
     "ContinuityLastSeenBatchUpsertRequest",
     "ContinuityLastSeenMarkerResponse",
     "ContinuityLastSeenMarkerUpsertRequest",

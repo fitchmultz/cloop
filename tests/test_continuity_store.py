@@ -6,7 +6,7 @@ Purpose:
 
 Responsibilities:
     - Assert durable continuity tables exist through the public DB bootstrap.
-    - Guard outcome deduplication and backend-authored workflow summaries.
+    - Guard outcome deduplication, backend-authored workflow summaries, and delivery inspection.
     - Verify explicit degraded fallback behavior for missing working-set scope and targets.
     - Confirm planning/review anchors persist through the snapshot surface.
 
@@ -44,7 +44,7 @@ from cloop.schemas._loops.continuity import (
 )
 from cloop.settings import get_settings
 from cloop.storage.continuity_store import (
-    _read_continuity_delivery_contract,
+    read_continuity_delivery_inspection,
     read_continuity_notification_records,
     read_continuity_snapshot,
     record_continuity_outcome,
@@ -124,8 +124,8 @@ def _outcome_request(
 
 
 def _push_delivery_reasons(*, limit: int = 3) -> list[str]:
-    delivery_contract = _read_continuity_delivery_contract(limit=limit, channel="push")
-    return [decision.reason for decision in delivery_contract.decisions]
+    inspection = read_continuity_delivery_inspection(limit=limit, channel="push")
+    return [decision.reason for decision in inspection.decisions]
 
 
 def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
@@ -209,6 +209,26 @@ def test_notification_state_round_trips_on_snapshot(tmp_data_dir: Path) -> None:
     assert snapshot.notification_records[0].state.seen_at_utc == "2026-03-21T12:02:00Z"
     assert snapshot.notification_records[0].state.acknowledged_at_utc == "2026-03-21T12:03:00Z"
     assert snapshot.notification_records[0].state.suppressed_until_utc == "2026-03-21T13:00:00Z"
+
+
+def test_delivery_inspection_returns_record_state_and_reason(tmp_data_dir: Path) -> None:
+    record_continuity_outcome(_outcome_request())
+    upsert_continuity_notification_state(
+        "planning:41:checkpoint:0",
+        ContinuityNotificationStateUpsertRequest(
+            inboxed_at_utc="2026-03-21T12:01:00Z",
+            seen_at_utc="2026-03-21T12:02:00Z",
+        ),
+    )
+
+    inspection = read_continuity_delivery_inspection(limit=1, channel="all")
+
+    assert inspection.channel == "all"
+    assert inspection.limit == 1
+    assert inspection.decisions[0].reason == "sent"
+    assert inspection.decisions[0].record.id == "planning:41:checkpoint:0"
+    assert inspection.decisions[0].record.state.inboxed_at_utc == "2026-03-21T12:01:00Z"
+    assert inspection.decisions[0].record.state.seen_at_utc == "2026-03-21T12:02:00Z"
 
 
 def test_snapshot_clears_expired_notification_suppression(tmp_data_dir: Path) -> None:

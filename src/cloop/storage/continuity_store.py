@@ -13,6 +13,7 @@ Responsibilities:
     - Build backend-authored workflow summaries for frontend hydration.
     - Attach explicit successor provenance for stale or superseded resumable paths.
     - Persist durable notification delivery state and recovery acknowledgements.
+    - Project canonical delivery decisions for debug inspection and push selection.
 
 Non-scope:
     - Frontend ranking or rendering behavior.
@@ -44,6 +45,10 @@ from ..schemas._loops.continuity import (
     ContinuityAnchorResponse,
     ContinuityAnchorsResponse,
     ContinuityAnchorUpsertRequest,
+    ContinuityDeliveryDecisionResponse,
+    ContinuityDeliveryInspectionChannel,
+    ContinuityDeliveryInspectionResponse,
+    ContinuityDeliveryReason,
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityLastSeenMarkerResponse,
     ContinuityLocationResponse,
@@ -77,21 +82,12 @@ _NotificationStateLifecycle = Literal[
     "retired",
     "orphaned",
 ]
-_ContinuityDeliveryReason = Literal[
-    "sent",
-    "cooled_down",
-    "suppressed",
-    "acknowledged",
-    "missing_target",
-    "deduped",
-    "skipped",
-]
 
 
 @dataclass(frozen=True, slots=True)
 class _NotificationDeliveryDecision:
     record: ContinuityNotificationRecordResponse
-    reason: _ContinuityDeliveryReason
+    reason: ContinuityDeliveryReason
 
 
 @dataclass(frozen=True, slots=True)
@@ -1728,9 +1724,9 @@ def _notification_delivery_reason(
     summary: ContinuityWorkflowSummaryResponse,
     record: ContinuityNotificationRecordResponse,
     *,
-    channel: Literal["all", "push"],
+    channel: ContinuityDeliveryInspectionChannel,
     now: datetime,
-) -> _ContinuityDeliveryReason:
+) -> ContinuityDeliveryReason:
     if channel != "push":
         return "sent"
     state = record.state
@@ -1752,7 +1748,7 @@ def _evaluate_notification_delivery_contract(
     notification_state_rows: list[Mapping[str, Any]],
     *,
     limit: int,
-    channel: Literal["all", "push"] = "all",
+    channel: ContinuityDeliveryInspectionChannel = "all",
     now: datetime | None = None,
 ) -> _ContinuityDeliveryContract:
     now = now or datetime.now(UTC)
@@ -1809,7 +1805,7 @@ def _read_continuity_delivery_contract(
     *,
     limit: int,
     settings: Settings | None = None,
-    channel: Literal["all", "push"] = "all",
+    channel: ContinuityDeliveryInspectionChannel = "all",
 ) -> _ContinuityDeliveryContract:
     settings = settings or get_settings()
     snapshot_limit = limit if channel == "all" else max(24, limit * 4)
@@ -1851,11 +1847,34 @@ def read_continuity_snapshot(
         )
 
 
+def read_continuity_delivery_inspection(
+    *,
+    limit: int = 3,
+    settings: Settings | None = None,
+    channel: ContinuityDeliveryInspectionChannel = "all",
+) -> ContinuityDeliveryInspectionResponse:
+    """Inspect canonical continuity delivery decisions without changing selection behavior."""
+    delivery_contract = _read_continuity_delivery_contract(
+        limit=limit,
+        settings=settings,
+        channel=channel,
+    )
+    return ContinuityDeliveryInspectionResponse(
+        inspected_at_utc=_utc_now_iso(),
+        channel=channel,
+        limit=limit,
+        decisions=[
+            ContinuityDeliveryDecisionResponse(record=decision.record, reason=decision.reason)
+            for decision in delivery_contract.decisions
+        ],
+    )
+
+
 def read_continuity_notification_records(
     *,
     limit: int = 3,
     settings: Settings | None = None,
-    channel: Literal["all", "push"] = "all",
+    channel: ContinuityDeliveryInspectionChannel = "all",
 ) -> list[ContinuityNotificationRecordResponse]:
     """Read calm notification records derived from ranked workflow summaries."""
     delivery_contract = _read_continuity_delivery_contract(
@@ -1870,6 +1889,7 @@ def read_continuity_notification_records(
 
 __all__ = [
     "ContinuityNotificationRecordResponse",
+    "read_continuity_delivery_inspection",
     "read_continuity_notification_records",
     "read_continuity_snapshot",
     "record_continuity_outcome",

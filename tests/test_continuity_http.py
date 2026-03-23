@@ -5,7 +5,7 @@ Purpose:
     contracts for the operator shell.
 
 Responsibilities:
-    - Assert snapshot reads succeed from a clean database.
+    - Assert snapshot and debug delivery-inspection reads succeed from a clean database.
     - Assert outcome writes and anchor upserts return refreshed snapshots.
 
 Non-scope:
@@ -114,6 +114,47 @@ def test_get_continuity_snapshot_returns_empty_payload(
     assert payload["workflow_summaries"] == []
     assert payload["notification_records"] == []
     assert payload["recovery_acknowledgements"] == []
+
+
+def test_get_continuity_delivery_decisions_returns_debug_payload(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    test_client.post(
+        "/loops/continuity/outcomes",
+        json=_planning_outcome_payload(
+            label="Created launch queue",
+            description="The downstream review queue is ready.",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+            session_id=41,
+            workflow_thread_id="planning:41:checkpoint:0",
+            workflow_thread_summary="Planning checkpoint thread",
+            dedupe_key="planning::queue",
+            resume_state="operator",
+        ),
+    )
+    test_client.put(
+        "/loops/continuity/notifications/planning%3A41%3Acheckpoint%3A0/state",
+        json={
+            "inboxed_at_utc": "2026-03-21T12:01:00Z",
+            "seen_at_utc": "2026-03-21T12:02:00Z",
+        },
+    )
+
+    response = test_client.get("/loops/continuity/debug/delivery-decisions?limit=1&channel=all")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["channel"] == "all"
+    assert payload["limit"] == 1
+    assert payload["decisions"][0]["reason"] == "sent"
+    assert payload["decisions"][0]["record"]["id"] == "planning:41:checkpoint:0"
+    assert payload["decisions"][0]["record"]["state"] == {
+        "inboxed_at_utc": "2026-03-21T12:01:00Z",
+        "seen_at_utc": "2026-03-21T12:02:00Z",
+        "acknowledged_at_utc": None,
+        "suppressed_until_utc": None,
+    }
 
 
 def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
