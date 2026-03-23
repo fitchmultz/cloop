@@ -83,11 +83,21 @@ _NotificationStateLifecycle = Literal[
     "orphaned",
 ]
 
+_PUSH_DELIVERY_SCAN_FLOOR = 24
+_PUSH_DELIVERY_SCAN_MULTIPLIER = 4
+
 
 @dataclass(frozen=True, slots=True)
 class _NotificationDeliveryDecision:
     record: ContinuityNotificationRecordResponse
     reason: ContinuityDeliveryReason
+
+
+@dataclass(frozen=True, slots=True)
+class _ContinuityDeliveryReadWindow:
+    limit: int
+    scan_limit: int
+    channel: ContinuityDeliveryInspectionChannel
 
 
 @dataclass(frozen=True, slots=True)
@@ -1720,6 +1730,17 @@ def _notification_delivery_dedupe_key(
     return _location_identity(summary.resolved_resume.resolved_location)
 
 
+def _delivery_read_window(
+    *,
+    limit: int,
+    channel: ContinuityDeliveryInspectionChannel,
+) -> _ContinuityDeliveryReadWindow:
+    scan_limit = limit
+    if channel == "push":
+        scan_limit = max(_PUSH_DELIVERY_SCAN_FLOOR, limit * _PUSH_DELIVERY_SCAN_MULTIPLIER)
+    return _ContinuityDeliveryReadWindow(limit=limit, scan_limit=scan_limit, channel=channel)
+
+
 def _notification_delivery_reason(
     summary: ContinuityWorkflowSummaryResponse,
     record: ContinuityNotificationRecordResponse,
@@ -1747,11 +1768,12 @@ def _evaluate_notification_delivery_contract(
     workflow_summaries: list[ContinuityWorkflowSummaryResponse],
     notification_state_rows: list[Mapping[str, Any]],
     *,
-    limit: int,
-    channel: ContinuityDeliveryInspectionChannel = "all",
+    read_window: _ContinuityDeliveryReadWindow,
     now: datetime | None = None,
 ) -> _ContinuityDeliveryContract:
     now = now or datetime.now(UTC)
+    limit = read_window.limit
+    channel = read_window.channel
     notification_states = _compact_notification_states(
         conn,
         notification_state_rows,
@@ -1808,15 +1830,14 @@ def _read_continuity_delivery_contract(
     channel: ContinuityDeliveryInspectionChannel = "all",
 ) -> _ContinuityDeliveryContract:
     settings = settings or get_settings()
-    snapshot_limit = limit if channel == "all" else max(24, limit * 4)
+    read_window = _delivery_read_window(limit=limit, channel=channel)
     with db.core_connection(settings) as conn:
-        snapshot_state = _read_continuity_snapshot_state(conn, limit=snapshot_limit)
+        snapshot_state = _read_continuity_snapshot_state(conn, limit=read_window.scan_limit)
         return _evaluate_notification_delivery_contract(
             conn,
             snapshot_state.workflow_summaries,
             snapshot_state.notification_state_rows,
-            limit=limit,
-            channel=channel,
+            read_window=read_window,
         )
 
 
@@ -1833,8 +1854,10 @@ def read_continuity_snapshot(
             conn,
             snapshot_state.workflow_summaries,
             snapshot_state.notification_state_rows,
-            limit=len(snapshot_state.workflow_summaries),
-            channel="all",
+            read_window=_delivery_read_window(
+                limit=len(snapshot_state.workflow_summaries),
+                channel="all",
+            ),
         )
         return ContinuitySnapshotResponse(
             recorded_at_utc=_utc_now_iso(),

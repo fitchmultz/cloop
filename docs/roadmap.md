@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to replace the remaining implicit continuity delivery read-window heuristic with an explicit bounded contract before more consumers depend on it.
+The current priority is to make bounded continuity delivery inspection explainable before adding delivery history joins.
 
 ## Direction
 
@@ -38,6 +38,8 @@ The next roadmap slice starts from work that is already live:
 - durable last-seen continuity markers for planning sessions, review sessions, workflow threads, and review cohorts
 - backend-authored workflow-summary continuity across operator home, the receipt rail, command-palette recents, and calm notification/push delivery
 - durable notification delivery state for canonical continuity records across push sends, in-app banners, and continuity hydration
+- debug-first continuity delivery-decision inspection over the canonical store contract
+- explicit bounded delivery scan contract shared by debug inspection and push selection
 - deterministic notification-state compaction for expired suppressions, retired workflow ids, and orphaned workflow ids
 - drift-aware since-last summaries and resume ranking driven by durable evidence instead of recency-first local history
 - proactive operator guidance with one featured deterministic next move, a calm why-this-won digest, and a Recommended command-palette group
@@ -47,18 +49,18 @@ The next roadmap slice starts from work that is already live:
 
 ## Execution order
 
-### Next — Delivery read-window contract cleanup
+### Next — Delivery inspection explainability metadata
 
 **Primary specs:**
 - [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 
-Goal: replace the implicit delivery over-read heuristic with an explicit bounded read contract before more consumers depend on it.
+Goal: make bounded debug inspection responses explain when the scan stopped and how to continue.
 
 Planned sequence:
 
-1. define explicit scan-limit or pagination semantics for delivery-decision reads
-2. make push selection and inspection reads consume that same bounded contract
-3. delete hidden read-window assumptions without changing ranking or send selection
+1. add explicit truncation or continuation metadata to the debug delivery-inspection response
+2. preserve the shared bounded scan contract and current push selection behavior
+3. cover truncated cooled_down, deduped, missing-target, and skipped cases without changing snapshot hydration
 
 ### Then — Scheduler delivery history join
 

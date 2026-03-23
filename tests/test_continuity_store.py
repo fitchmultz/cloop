@@ -434,6 +434,38 @@ def test_push_delivery_reasons_cover_deduped_and_skipped_records(tmp_data_dir: P
     assert _push_delivery_reasons(limit=1) == ["sent", "deduped", "skipped"]
 
 
+def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -> None:
+    for index in range(25):
+        notification_id = f"planning:window-{index:02d}"
+        record_continuity_outcome(
+            _outcome_request(
+                label=f"Window {index:02d}",
+                occurred_at_utc=f"2026-03-21T12:{59 - index:02d}:00Z",
+                launch_location=ContinuityLocationResponse(state="operator"),
+                resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+                dedupe_key=f"planning::window-{index:02d}",
+                workflow_thread_id=notification_id,
+            )
+        )
+        if index < 24:
+            upsert_continuity_notification_state(
+                notification_id,
+                ContinuityNotificationStateUpsertRequest(
+                    inboxed_at_utc=(datetime.now(UTC) - timedelta(hours=2))
+                    .replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                ),
+            )
+
+    records = read_continuity_notification_records(channel="push", limit=1)
+    inspection = read_continuity_delivery_inspection(limit=1, channel="push")
+
+    assert records == []
+    assert len(inspection.decisions) == 24
+    assert {decision.reason for decision in inspection.decisions} == {"cooled_down"}
+
+
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:
     _insert_loop(tmp_data_dir, loop_id=11)
     record_continuity_outcome(
