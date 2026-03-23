@@ -69,9 +69,15 @@ def get_continuity_delivery_decisions_endpoint(
     settings: SettingsDep,
     limit: int = Query(default=3, ge=1, le=50),
     channel: Annotated[ContinuityDeliveryInspectionChannel, Query()] = "all",
+    after_outcome_id: int | None = Query(default=None, ge=1),
 ) -> ContinuityDeliveryInspectionResponse:
     """Inspect canonical continuity delivery decisions for debugging."""
-    return read_continuity_delivery_inspection(limit=limit, settings=settings, channel=channel)
+    return read_continuity_delivery_inspection(
+        limit=limit,
+        settings=settings,
+        channel=channel,
+        after_outcome_id=after_outcome_id,
+    )
 
 
 @router.post("/continuity/outcomes", response_model=ContinuitySnapshotResponse)

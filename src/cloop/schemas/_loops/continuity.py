@@ -365,12 +365,23 @@ class ContinuityDeliveryDecisionResponse(BaseModel):
     latest_push_delivery: ContinuitySchedulerPushDeliveryResponse | None = None
 
 
+class ContinuityDeliveryInspectionContinuationResponse(BaseModel):
+    """Stable cue for continuing one bounded delivery-diagnostics scan."""
+
+    after_outcome_id: int
+
+
 class ContinuityDeliveryInspectionResponse(BaseModel):
     """Debug-first continuity delivery inspection payload."""
 
     inspected_at_utc: str
     channel: ContinuityDeliveryInspectionChannel
     limit: int
+    effective_limit: int
+    inspected_count: int
+    returned_count: int
+    truncated: bool = False
+    continuation: ContinuityDeliveryInspectionContinuationResponse | None = None
     decisions: list[ContinuityDeliveryDecisionResponse] = Field(default_factory=list)
 
 
@@ -394,6 +405,7 @@ __all__ = [
     "ContinuityAnchorsResponse",
     "ContinuityDeliveryDecisionResponse",
     "ContinuityDeliveryInspectionChannel",
+    "ContinuityDeliveryInspectionContinuationResponse",
     "ContinuityDeliveryInspectionResponse",
     "ContinuityDeliveryReason",
     "ContinuitySchedulerPushDeliveryResponse",

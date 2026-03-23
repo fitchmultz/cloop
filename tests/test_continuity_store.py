@@ -225,6 +225,11 @@ def test_delivery_inspection_returns_record_state_and_reason(tmp_data_dir: Path)
 
     assert inspection.channel == "all"
     assert inspection.limit == 1
+    assert inspection.effective_limit == 1
+    assert inspection.inspected_count == 1
+    assert inspection.returned_count == 1
+    assert inspection.truncated is False
+    assert inspection.continuation is None
     assert inspection.decisions[0].reason == "sent"
     assert inspection.decisions[0].record.id == "planning:41:checkpoint:0"
     assert inspection.decisions[0].record.state.inboxed_at_utc == "2026-03-21T12:01:00Z"
@@ -514,8 +519,26 @@ def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -
     inspection = read_continuity_delivery_inspection(limit=1, channel="push")
 
     assert records == []
+    assert inspection.effective_limit == 24
+    assert inspection.inspected_count == 24
+    assert inspection.returned_count == 24
+    assert inspection.truncated is True
+    assert inspection.continuation is not None
     assert len(inspection.decisions) == 24
     assert {decision.reason for decision in inspection.decisions} == {"cooled_down"}
+
+    resumed = read_continuity_delivery_inspection(
+        limit=1,
+        channel="push",
+        after_outcome_id=inspection.continuation.after_outcome_id,
+    )
+
+    assert resumed.inspected_count == 1
+    assert resumed.returned_count == 1
+    assert resumed.truncated is False
+    assert resumed.continuation is None
+    assert [decision.record.id for decision in resumed.decisions] == ["planning:window-24"]
+    assert {decision.reason for decision in resumed.decisions} == {"sent"}
 
 
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:

@@ -47,6 +47,7 @@ from ..schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
     ContinuityDeliveryDecisionResponse,
     ContinuityDeliveryInspectionChannel,
+    ContinuityDeliveryInspectionContinuationResponse,
     ContinuityDeliveryInspectionResponse,
     ContinuityDeliveryReason,
     ContinuityLastSeenBatchUpsertRequest,
@@ -102,12 +103,16 @@ class _ContinuityDeliveryReadWindow:
     limit: int
     scan_limit: int
     channel: ContinuityDeliveryInspectionChannel
+    after_outcome_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _ContinuityDeliveryContract:
     notification_records: list[ContinuityNotificationRecordResponse]
     decisions: list[_NotificationDeliveryDecision]
+    effective_limit: int
+    truncated: bool
+    continuation_after_outcome_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +123,8 @@ class _ContinuitySnapshotState:
     last_seen_markers: list[ContinuityLastSeenMarkerResponse]
     recovery_acknowledgements: list[ContinuityRecoveryAcknowledgementResponse]
     notification_state_rows: list[Mapping[str, Any]]
+    total_outcome_count: int
+    next_outcome_id: int | None = None
 
 
 def _json_default(value: Any) -> Any:
@@ -1583,6 +1590,7 @@ def _read_continuity_snapshot_state(
     conn: sqlite3.Connection,
     *,
     limit: int,
+    after_outcome_id: int | None = None,
 ) -> _ContinuitySnapshotState:
     outcome_rows = conn.execute(
         """
@@ -1622,7 +1630,16 @@ def _read_continuity_snapshot_state(
     ).fetchall()
 
     all_outcomes = _attach_successors([_outcome_from_row(conn, row) for row in outcome_rows])
-    outcomes = all_outcomes[:limit]
+    start_index = 0
+    if after_outcome_id is not None:
+        start_index = len(all_outcomes)
+        for index, outcome in enumerate(all_outcomes):
+            if outcome.id == after_outcome_id:
+                start_index = index + 1
+                break
+    end_index = start_index + limit
+    outcomes = all_outcomes[start_index:end_index]
+    next_outcome_id = all_outcomes[end_index - 1].id if end_index < len(all_outcomes) else None
 
     anchors = ContinuityAnchorsResponse()
     for row in anchor_rows:
@@ -1649,6 +1666,8 @@ def _read_continuity_snapshot_state(
         last_seen_markers=last_seen_markers,
         recovery_acknowledgements=recovery_acknowledgements,
         notification_state_rows=notification_state_rows,
+        total_outcome_count=max(0, len(all_outcomes) - start_index),
+        next_outcome_id=next_outcome_id,
     )
 
 
@@ -1738,11 +1757,17 @@ def _delivery_read_window(
     *,
     limit: int,
     channel: ContinuityDeliveryInspectionChannel,
+    after_outcome_id: int | None = None,
 ) -> _ContinuityDeliveryReadWindow:
     scan_limit = limit
     if channel == "push":
         scan_limit = max(_PUSH_DELIVERY_SCAN_FLOOR, limit * _PUSH_DELIVERY_SCAN_MULTIPLIER)
-    return _ContinuityDeliveryReadWindow(limit=limit, scan_limit=scan_limit, channel=channel)
+    return _ContinuityDeliveryReadWindow(
+        limit=limit,
+        scan_limit=scan_limit,
+        channel=channel,
+        after_outcome_id=after_outcome_id,
+    )
 
 
 def _scheduler_push_delivery_from_row(
@@ -1869,6 +1894,8 @@ def _evaluate_notification_delivery_contract(
     notification_state_rows: list[Mapping[str, Any]],
     *,
     read_window: _ContinuityDeliveryReadWindow,
+    total_outcome_count: int,
+    next_outcome_id: int | None,
     now: datetime | None = None,
 ) -> _ContinuityDeliveryContract:
     now = now or datetime.now(UTC)
@@ -1958,6 +1985,9 @@ def _evaluate_notification_delivery_contract(
     return _ContinuityDeliveryContract(
         notification_records=notification_records,
         decisions=decisions,
+        effective_limit=read_window.scan_limit,
+        truncated=total_outcome_count > read_window.scan_limit,
+        continuation_after_outcome_id=next_outcome_id,
     )
 
 
@@ -1966,16 +1996,27 @@ def _read_continuity_delivery_contract(
     limit: int,
     settings: Settings | None = None,
     channel: ContinuityDeliveryInspectionChannel = "all",
+    after_outcome_id: int | None = None,
 ) -> _ContinuityDeliveryContract:
     settings = settings or get_settings()
-    read_window = _delivery_read_window(limit=limit, channel=channel)
+    read_window = _delivery_read_window(
+        limit=limit,
+        channel=channel,
+        after_outcome_id=after_outcome_id,
+    )
     with db.core_connection(settings) as conn:
-        snapshot_state = _read_continuity_snapshot_state(conn, limit=read_window.scan_limit)
+        snapshot_state = _read_continuity_snapshot_state(
+            conn,
+            limit=read_window.scan_limit,
+            after_outcome_id=read_window.after_outcome_id,
+        )
         return _evaluate_notification_delivery_contract(
             conn,
             snapshot_state.workflow_summaries,
             snapshot_state.notification_state_rows,
             read_window=read_window,
+            total_outcome_count=snapshot_state.total_outcome_count,
+            next_outcome_id=snapshot_state.next_outcome_id,
         )
 
 
@@ -1996,6 +2037,8 @@ def read_continuity_snapshot(
                 limit=len(snapshot_state.workflow_summaries),
                 channel="all",
             ),
+            total_outcome_count=snapshot_state.total_outcome_count,
+            next_outcome_id=snapshot_state.next_outcome_id,
         )
         return ContinuitySnapshotResponse(
             recorded_at_utc=_utc_now_iso(),
@@ -2013,26 +2056,42 @@ def read_continuity_delivery_inspection(
     limit: int = 3,
     settings: Settings | None = None,
     channel: ContinuityDeliveryInspectionChannel = "all",
+    after_outcome_id: int | None = None,
 ) -> ContinuityDeliveryInspectionResponse:
     """Inspect canonical continuity delivery decisions without changing selection behavior."""
     delivery_contract = _read_continuity_delivery_contract(
         limit=limit,
         settings=settings,
         channel=channel,
+        after_outcome_id=after_outcome_id,
+    )
+    decisions = [
+        ContinuityDeliveryDecisionResponse(
+            record=decision.record,
+            reason=decision.reason,
+            resend_ready_at_utc=decision.resend_ready_at_utc,
+            latest_push_delivery=decision.latest_push_delivery,
+        )
+        for decision in delivery_contract.decisions
+    ]
+    continuation = (
+        ContinuityDeliveryInspectionContinuationResponse(
+            after_outcome_id=delivery_contract.continuation_after_outcome_id
+        )
+        if delivery_contract.truncated
+        and delivery_contract.continuation_after_outcome_id is not None
+        else None
     )
     return ContinuityDeliveryInspectionResponse(
         inspected_at_utc=_utc_now_iso(),
         channel=channel,
         limit=limit,
-        decisions=[
-            ContinuityDeliveryDecisionResponse(
-                record=decision.record,
-                reason=decision.reason,
-                resend_ready_at_utc=decision.resend_ready_at_utc,
-                latest_push_delivery=decision.latest_push_delivery,
-            )
-            for decision in delivery_contract.decisions
-        ],
+        effective_limit=delivery_contract.effective_limit,
+        inspected_count=len(decisions),
+        returned_count=len(decisions),
+        truncated=delivery_contract.truncated,
+        continuation=continuation,
+        decisions=decisions,
     )
 
 

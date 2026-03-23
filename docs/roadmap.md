@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to bound delivery-diagnostics reads, then remove payload-only scheduler reason parsing, before exposing the contract on more surfaces.
+The current priority is to persist canonical scheduler delivery reasons, then retire payload fallback parsing, before exposing delivery diagnostics on more surfaces.
 
 ## Direction
 
@@ -27,45 +27,45 @@ Current product goals:
 
 ## Execution order
 
-### Next — Diagnostics scan metadata
+### Next — Persist canonical scheduler delivery reasons
 
-Goal: make diagnostics reads bounded, explicit, and resumable.
-
-Planned sequence:
-
-1. add effective limit, inspected count, returned count, truncation flag, and stable continuation cue
-2. keep the metadata on the shared diagnostics contract instead of introducing a side response shape
-3. cover empty scans and truncated mixes of sendable and non-sendable records
-
-### Then — Persist scheduler delivery reasons
-
-Goal: move scheduler terminal delivery reasons out of `payload_json` before more consumers depend on them.
+Goal: move scheduler terminal delivery reasons out of `payload_json` with one stable vocabulary before more consumers depend on them.
 
 Planned sequence:
 
 1. add first-class durable fields for the scheduler delivery reasons the diagnostics contract actually reads
-2. keep the shared diagnostics contract stable while writers and readers cut over
-3. delete the payload fallback after the durable fields become authoritative
+2. define and validate the canonical scheduler terminal reason set in the writer and transport layers during the cutover
+3. keep the shared diagnostics contract stable while readers switch to the durable fields
 
-### Then — Lock scheduler delivery reason vocabulary
+### Then — Retire payload fallback for scheduler delivery reasons
 
-Goal: stop exposing free-form scheduler reason strings once durable fields exist.
+Goal: delete payload-only compatibility once durable scheduler reason fields are authoritative.
 
 Planned sequence:
 
-1. define the canonical scheduler terminal reason set used by push sending and diagnostics
-2. validate and serialize that vocabulary consistently in storage and transport
-3. keep pre-cutover rows readable until the storage migration is complete
+1. backfill or preserve legacy rows enough to keep existing diagnostics readable through the cutover
+2. remove diagnostics reads that parse `payload_json` for scheduler delivery reasons
+3. trim payload-coupled tests and helpers once the durable fields are the only source of truth
 
 ### Then — Scan policy calibration
 
-Goal: tune or replace the fixed push scan policy before the diagnostics contract spreads to more surfaces.
+Goal: tune or replace the fixed push scan policy after bounded reads and durable scheduler reasons are in place.
 
 Planned sequence:
 
 1. compare truncation and later-sendable records against actual scheduler attempt history
 2. decide whether to raise, parameterize, or replace the fixed floor and multiplier
 3. keep the cutover inside the shared delivery contract with explainable diagnostics
+
+### Then — Storage-level diagnostics windowing
+
+Goal: stop loading the full high-signal continuity set before slicing one diagnostics page.
+
+Planned sequence:
+
+1. push the diagnostics outcome window and continuation lookup down to the storage query layer
+2. keep anchor resolution and snapshot hydration behavior unchanged
+3. preserve the existing diagnostics contract while reducing scan work per page
 
 ### Later — CLI and MCP diagnostics rollout
 
