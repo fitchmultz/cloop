@@ -196,19 +196,26 @@ def send_scheduler_push_once(
         attempted_at=utc_now(),
         conn=conn,
     )
-    push_count = send_push_fn(push_kind, payload_with_provenance, context.settings, conn)
+    result = send_push_fn(push_kind, payload_with_provenance, context.settings, conn)
+    recorded_payload = payload_with_provenance
+    if result.delivery_reason is not None:
+        recorded_payload = {
+            **payload_with_provenance,
+            "delivery_reason": result.delivery_reason,
+        }
     scheduler_push_store.record_scheduler_push(
         task_name=context.task_name,
         slot_key=context.slot_key,
         push_kind=push_kind,
-        payload=payload_with_provenance,
-        push_count=push_count,
+        payload=recorded_payload,
+        push_count=result.push_count,
         completed_at=utc_now(),
         conn=conn,
         notification_id=notification.id,
         workflow_thread_id=notification.workflow_thread.id,
+        delivery_status=result.delivery_status,
     )
-    return push_count
+    return result.push_count
 
 
 def upsert_nudge_state_for_slot(

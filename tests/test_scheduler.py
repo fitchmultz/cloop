@@ -36,6 +36,7 @@ from typing import Iterator
 import pytest
 
 from cloop import db
+from cloop._scheduler.models import SchedulerPushResult
 from cloop.loops.models import LoopEventType
 from cloop.push_sender import PushPayload, send_scheduler_push
 from cloop.scheduler import (
@@ -263,7 +264,7 @@ class TestSchedulerState:
 
         def _fake_send(push_kind, payload, settings, conn):  # noqa: ANN001
             send_calls.append({"push_kind": push_kind, "payload": payload})
-            return 3
+            return SchedulerPushResult(push_count=3, delivery_status="sent")
 
         monkeypatch.setattr(
             "cloop._scheduler.side_effects.read_continuity_notification_records",
@@ -416,6 +417,58 @@ class TestSchedulerState:
         assert row["send_completed_at"] is not None
         assert row["push_count"] == 0
 
+    def test_same_slot_push_with_missing_selected_notification_records_terminal_reason(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        notification = _notification_record(notification_id="planning:missing")
+
+        monkeypatch.setattr(
+            "cloop._scheduler.side_effects.read_continuity_notification_records",
+            lambda **kwargs: [notification],
+        )
+        monkeypatch.setattr(
+            "cloop.scheduler.send_scheduler_push",
+            lambda push_kind, payload, settings, conn: SchedulerPushResult(
+                push_count=0,
+                delivery_status="skipped",
+                delivery_reason="notification_missing",
+            ),
+        )
+        context = SchedulerRunContext(
+            task_name="daily_review",
+            slot_key="2026-03-14",
+            owner_token="owner-a",
+            settings=get_settings(),
+            lease_lost=asyncio.Event(),
+        )
+
+        push_count = _send_scheduler_push_once(
+            push_kind="review_generated",
+            payload={"review_type": "daily"},
+            context=context,
+            conn=scheduler_db,
+        )
+
+        row = scheduler_db.execute(
+            """
+            SELECT notification_id, workflow_thread_id, payload_json, delivery_status,
+                   claimed_at, send_started_at, send_completed_at, push_count
+            FROM scheduler_push_deliveries
+            WHERE task_name = ? AND slot_key = ? AND push_kind = ?
+            """,
+            ("daily_review", "2026-03-14", "review_generated"),
+        ).fetchone()
+        assert push_count == 0
+        assert row is not None
+        assert row["notification_id"] == notification.id
+        assert row["workflow_thread_id"] == notification.workflow_thread.id
+        assert row["delivery_status"] == "skipped"
+        assert row["claimed_at"] is not None
+        assert row["send_started_at"] is not None
+        assert row["send_completed_at"] is not None
+        assert row["push_count"] == 0
+        assert json.loads(row["payload_json"])["delivery_reason"] == "notification_missing"
+
     def test_send_scheduler_push_uses_preselected_notification_provenance(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -456,7 +509,8 @@ class TestSchedulerState:
             scheduler_db,
         )
 
-        assert result == 1
+        assert result.push_count == 1
+        assert result.delivery_status == "sent"
         assert captured["notification_id"] == selected.id
         payload = captured["payload"]
         assert isinstance(payload, PushPayload)

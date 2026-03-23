@@ -22,6 +22,7 @@ from typing import Iterator
 import pytest
 
 from cloop import db
+from cloop._scheduler.models import SchedulerPushResult
 from cloop.push_sender import PushPayload, send_scheduler_push
 from cloop.schemas._loops.continuity import (
     ContinuityLocationResponse,
@@ -181,7 +182,7 @@ class TestPushSender:
         }
         result = send_scheduler_push("nudge_due_soon", payload, settings, push_db)
         # Returns 0 if pywebpush not installed (expected in test env)
-        assert result >= 0
+        assert result.push_count >= 0
 
     def test_send_scheduler_push_empty_payload(
         self, push_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -191,7 +192,8 @@ class TestPushSender:
 
         payload = {"details": []}
         result = send_scheduler_push("nudge_due_soon", payload, settings, push_db)
-        assert result == 0
+        assert result.push_count == 0
+        assert result.delivery_status == "skipped"
 
     def test_send_scheduler_push_review_generated(
         self, push_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -209,7 +211,7 @@ class TestPushSender:
         }
         result = send_scheduler_push("review_generated", payload, settings, push_db)
         # Returns 0 if pywebpush not installed (expected in test env)
-        assert result >= 0
+        assert result.push_count >= 0
 
     def test_send_scheduler_push_review_generated_zero_items(
         self, push_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -219,7 +221,8 @@ class TestPushSender:
 
         payload = {"review_type": "daily", "total_items": 0, "cohorts": []}
         result = send_scheduler_push("review_generated", payload, settings, push_db)
-        assert result == 0
+        assert result.push_count == 0
+        assert result.delivery_status == "skipped"
 
     def test_send_scheduler_push_uses_canonical_continuity_record(
         self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
@@ -272,7 +275,8 @@ class TestPushSender:
             push_db,
         )
 
-        assert result == 1
+        assert result.push_count == 1
+        assert result.delivery_status == "sent"
         payload = captured["payload"]
         assert isinstance(payload, PushPayload)
         assert payload.title == "Created launch review queue is ready in your working set"
@@ -287,6 +291,57 @@ class TestPushSender:
         state_payload = captured["state_payload"]
         assert isinstance(state_payload, ContinuityNotificationStateUpsertRequest)
         assert state_payload.inboxed_at_utc is not None
+
+    def test_send_scheduler_push_marks_missing_preselected_notification(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test a vanished preselected notification returns a distinct terminal reason."""
+        settings = get_settings()
+        selected = SimpleNamespace(
+            id="planning:selected",
+            title="Selected",
+            body="Body",
+            workflow_thread=SimpleNamespace(id="planning:selected"),
+            resolved_location=SimpleNamespace(
+                state="operator",
+                review_focus=None,
+                session_id=None,
+                loop_id=None,
+                working_set_id=None,
+                recall_tool="chat",
+            ),
+        )
+
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_snapshot",
+            lambda settings=None, limit=48: SimpleNamespace(notification_records=[]),
+        )
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_notification_records",
+            lambda **kwargs: [selected],
+        )
+        monkeypatch.setattr(
+            "cloop.push_sender.send_push_notification",
+            lambda payload, settings_arg, conn_arg: (_ for _ in ()).throw(AssertionError(payload)),
+        )
+
+        result = send_scheduler_push(
+            "review_generated",
+            {
+                "review_type": "daily",
+                "total_items": 5,
+                "cohorts": [],
+                "notification_id": selected.id,
+            },
+            settings,
+            push_db,
+        )
+
+        assert result == SchedulerPushResult(
+            push_count=0,
+            delivery_status="skipped",
+            delivery_reason="notification_missing",
+        )
 
     def test_send_scheduler_push_skips_recently_inboxed_notifications(
         self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
@@ -316,7 +371,8 @@ class TestPushSender:
             push_db,
         )
 
-        assert result == 0
+        assert result.push_count == 0
+        assert result.delivery_status == "skipped"
 
     def test_send_scheduler_push_refreshes_inboxed_timestamp_after_resend(
         self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
@@ -345,7 +401,8 @@ class TestPushSender:
             push_db,
         )
 
-        assert result == 1
+        assert result.push_count == 1
+        assert result.delivery_status == "sent"
         snapshot = read_continuity_snapshot(settings=settings)
         refreshed = snapshot.notification_records[0].state.inboxed_at_utc
         assert refreshed is not None

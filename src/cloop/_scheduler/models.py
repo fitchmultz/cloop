@@ -30,7 +30,7 @@ import asyncio
 import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from ..settings import Settings
 
@@ -59,9 +59,20 @@ class SchedulerRunContext:
             raise RuntimeError(f"scheduler_lease_lost:{self.task_name}:{self.slot_key}")
 
 
+@dataclass(frozen=True, slots=True)
+class SchedulerPushResult:
+    """Terminal scheduler push outcome returned by the push sender."""
+
+    push_count: int
+    delivery_status: Literal["sent", "no_recipients", "skipped"]
+    delivery_reason: str | None = None
+
+
 SchedulerTaskRunner = Callable[
     [Settings, sqlite3.Connection, SchedulerRunContext | None],
     Awaitable[dict[str, Any]],
 ]
 SchedulerTaskRunnerResolver = Callable[[str], SchedulerTaskRunner]
-SchedulerPushSender = Callable[[str, dict[str, Any], Settings, sqlite3.Connection], int]
+SchedulerPushSender = Callable[
+    [str, dict[str, Any], Settings, sqlite3.Connection], SchedulerPushResult
+]

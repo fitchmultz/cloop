@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from ._scheduler.models import SchedulerPushResult
 from .schemas._loops.continuity import (
     ContinuityLocationResponse,
     ContinuityNotificationRecordResponse,
@@ -176,7 +177,7 @@ def send_scheduler_push(
     event_payload: dict[str, Any],
     settings: Any,
     conn: sqlite3.Connection,
-) -> int:
+) -> SchedulerPushResult:
     """Send push notification for a scheduler event.
 
     Scheduler-owned pushes now read the canonical continuity notification feed
@@ -184,16 +185,23 @@ def send_scheduler_push(
     record used by in-app banners and operator digests.
     """
     if event_type not in {"nudge_due_soon", "nudge_stale", "review_generated"}:
-        return 0
+        return SchedulerPushResult(push_count=0, delivery_status="skipped")
 
     if event_type == "review_generated" and event_payload.get("total_items", 0) == 0:
-        return 0
+        return SchedulerPushResult(push_count=0, delivery_status="skipped")
     if event_type in {"nudge_due_soon", "nudge_stale"} and not event_payload.get("details"):
-        return 0
+        return SchedulerPushResult(push_count=0, delivery_status="skipped")
 
+    selected_id = event_payload.get("notification_id")
     continuity_notification = _continuity_push_payload(settings, event_payload)
     if continuity_notification is None:
-        return 0
+        if isinstance(selected_id, str) and selected_id.strip():
+            return SchedulerPushResult(
+                push_count=0,
+                delivery_status="skipped",
+                delivery_reason="notification_missing",
+            )
+        return SchedulerPushResult(push_count=0, delivery_status="skipped")
 
     notification_id, continuity_payload = continuity_notification
     continuity_payload.data = {
@@ -212,4 +220,5 @@ def send_scheduler_push(
             ),
             settings=settings,
         )
-    return sent
+        return SchedulerPushResult(push_count=sent, delivery_status="sent")
+    return SchedulerPushResult(push_count=0, delivery_status="no_recipients")

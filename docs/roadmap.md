@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to stop conflating vanished preselected notifications with real zero-recipient sends, then ship one canonical continuity delivery-diagnostics contract before tuning push-scan policy.
+The current priority is to ship one canonical delivery-diagnostics read model, then bounded scan metadata, then cross-surface access.
 
 ## Direction
 
@@ -27,55 +27,55 @@ Current product goals:
 
 ## Execution order
 
-### Next — Preselected notification disappearance outcome
+### Next — Canonical delivery diagnostics read model
 
-Goal: stop conflating a vanished preselected notification with a real zero-recipient send.
-
-Planned sequence:
-
-1. record an explicit terminal scheduler-push outcome when a claimed `notification_id` no longer resolves at send time
-2. keep slot-level at-most-once behavior and current selection flow unchanged
-3. thread the outcome through scheduler persistence and the future diagnostics read model
-
-### Then — Canonical joined delivery diagnostics
-
-Goal: read current continuity decisions and prior scheduler push attempts from one shared contract.
+Goal: expose one joined read path for current continuity decisions and prior scheduler push attempts.
 
 Planned sequence:
 
-1. build one store read path that joins ranked notification decisions to `scheduler_push_deliveries` through persisted canonical provenance
-2. expose slot identity, claim/send timestamps, terminal delivery status, push counts, and resend-readiness context alongside current reason codes
-3. distinguish reserved-only crashes, vanished-preselection rows, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions
+1. join ranked notification decisions to `scheduler_push_deliveries` through canonical persisted provenance
+2. return slot identity, claim/send timestamps, terminal status, push counts, resend-readiness context, and current reason codes in one contract
+3. cover reserved-only crashes, vanished preselection, zero-recipient sends, acknowledgement, suppression expiry, cooldown, dedupe, missing-target, and skipped-delivery transitions
 
-### Then — Delivery diagnostics scan metadata
+### Then — Bounded diagnostics metadata
 
-Goal: make bounded diagnostics self-describing and resumable without changing selection behavior.
+Goal: make diagnostics responses explain their own scan boundaries.
 
 Planned sequence:
 
-1. add explicit metadata for effective scan limit, inspected count, returned count, truncation state, and stable continuation cue
-2. attach the metadata to the joined diagnostics contract instead of growing a temporary pre-join shape
-3. cover empty scans and truncated mixes of sendable and non-sendable decisions
+1. add effective limit, inspected count, returned count, truncation flag, and stable continuation cue
+2. keep the metadata on the joined diagnostics contract instead of adding an intermediate shape
+3. cover empty scans and truncated mixes of sendable and non-sendable records
 
-### Later — Cross-surface delivery diagnostics access
+### Later — CLI and MCP diagnostics surfaces
 
-Goal: expose the canonical delivery diagnostics contract outside the HTTP debug endpoint.
+Goal: reuse the canonical diagnostics read model outside HTTP.
 
 Planned sequence:
 
 1. add CLI and MCP entrypoints backed by the shared store read path
-2. keep HTTP, CLI, and MCP output aligned on one schema contract
-3. add only minimal surface-specific formatting after the shared contract is stable
+2. keep HTTP, CLI, and MCP fields aligned on one schema contract
+3. keep surface-specific formatting minimal and downstream of the shared contract
 
-### Later — Delivery scan policy calibration
+### Later — Scan policy calibration
 
-Goal: tune or replace the fixed push scan policy only after joined diagnostics show where the current bounded scan hides sendable work or over-scans cold records.
+Goal: tune or replace the fixed push scan policy only after joined diagnostics show real misses or over-scan.
 
 Planned sequence:
 
 1. compare truncation and later-sendable records against actual scheduler attempt history
-2. decide whether to raise, parameterize, or replace the fixed floor and multiplier with a clearer contract
-3. keep the cutover inside the shared delivery store contract and preserve explainable diagnostics
+2. decide whether to raise, parameterize, or replace the fixed floor and multiplier
+3. keep the cutover inside the shared delivery store contract with explainable diagnostics
+
+### Later — Runtime cleanup ownership hints
+
+Goal: reduce false-positive ambiguous runtime warnings without broadening automatic cleanup.
+
+Planned sequence:
+
+1. label why a detected process is ambiguous, such as cwd mismatch, command-only match, or missing cwd
+2. surface enough attribution in runtime-clean verification output to distinguish repo-owned helpers from external tools
+3. keep automatic termination conservative and limited to clearly repo-owned resources
 
 ## Delivery model
 
