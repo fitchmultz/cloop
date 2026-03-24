@@ -376,10 +376,12 @@ class ContinuityDeliveryInspectionResponse(BaseModel):
 
     inspected_at_utc: str
     channel: ContinuityDeliveryInspectionChannel
-    limit: int
-    effective_limit: int
-    inspected_count: int
-    returned_count: int
+    limit: int = Field(
+        description=(
+            "Requested sent-decision limit. Push inspections may include additional "
+            "non-sent decisions from the bounded scan needed to find sendable records."
+        )
+    )
     truncated: bool = False
     continuation: ContinuityDeliveryInspectionContinuationResponse | None = None
     decisions: list[ContinuityDeliveryDecisionResponse] = Field(default_factory=list)

@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to freeze the delivery diagnostics policy and contract now that the keyset read-model cutover has landed.
+The current priority is to roll the frozen delivery diagnostics contract out across CLI and MCP.
 
 ## Direction
 
@@ -27,17 +27,7 @@ Current product goals:
 
 ## Execution order
 
-### Next — Diagnostics policy and contract cleanup
-
-Goal: freeze the final diagnostics payload and scan policy after the new read model lands.
-
-Planned sequence:
-
-1. recalibrate or replace the fixed push scan floor and multiplier using actual truncation and later-sendable evidence
-2. remove diagnostics metadata that no longer carries distinct meaning after keyset paging
-3. keep push selection and delivery inspection on the same bounded-read rules and reason vocabulary
-
-### Later — CLI and MCP diagnostics rollout
+### Next — CLI and MCP diagnostics rollout
 
 Goal: reuse the frozen diagnostics contract outside HTTP.
 

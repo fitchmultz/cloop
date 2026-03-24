@@ -374,6 +374,97 @@ class TestPushSender:
         assert result.push_count == 0
         assert result.delivery_status == "skipped"
 
+    def test_send_scheduler_push_walks_to_later_sendable_notification(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Test push selection keeps scanning until it finds a later sendable notification."""
+        settings = get_settings()
+        _add_push_subscription(push_db)
+        base_time = datetime(2026, 3, 21, 12, 59, tzinfo=UTC)
+
+        for index in range(25):
+            notification_id = f"planning:scan-{index:02d}"
+            record_continuity_outcome(
+                ContinuityOutcomeWriteRequest(
+                    kind="planning",
+                    label=f"Scan {index:02d}",
+                    description="The downstream queue is ready.",
+                    occurred_at_utc=(base_time - timedelta(minutes=index))
+                    .replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                    launch_location=ContinuityLocationResponse(state="operator"),
+                    resume_location=ContinuityLocationResponse(
+                        state="decide",
+                        review_focus="enrichment",
+                        session_id=52,
+                    ),
+                    outcome_card={
+                        "id": f"receipt-scan-{index:02d}",
+                        "kind": "receipt",
+                        "tone": "progress",
+                        "eyebrow": "Planning receipt",
+                        "title": f"Scan {index:02d}",
+                        "summary": "The downstream queue is ready.",
+                        "rationale": "Receipt",
+                        "preview": [],
+                        "trust": {
+                            "contextSources": ["Planning session"],
+                            "assumptions": [],
+                            "confidenceLabel": "Recorded",
+                            "freshnessLabel": "Saved just now",
+                            "rollbackLabel": "Undo remains available.",
+                        },
+                        "handoff": None,
+                        "actions": [],
+                    },
+                    workflow_thread=WorkflowThreadRefResponse(
+                        id=notification_id,
+                        kind="planning_checkpoint",
+                        title=f"Scan {index:02d}",
+                        summary="Planning checkpoint thread",
+                        parent_outcome_id=None,
+                    ),
+                    dedupe_key=f"planning::scan-{index:02d}",
+                    source_surface="review-workspace",
+                    signal_level="high",
+                    metadata={"sessionId": 41, "checkpointIndex": index},
+                )
+            )
+            if index < 24:
+                upsert_continuity_notification_state(
+                    notification_id,
+                    ContinuityNotificationStateUpsertRequest(
+                        inboxed_at_utc=(datetime.now(UTC) - timedelta(hours=2))
+                        .replace(microsecond=0)
+                        .isoformat()
+                        .replace("+00:00", "Z"),
+                    ),
+                    settings=settings,
+                )
+
+        captured: dict[str, object] = {}
+
+        def _capture(payload: PushPayload, settings_arg, conn_arg) -> int:
+            captured["payload"] = payload
+            return 1
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture)
+
+        result = send_scheduler_push(
+            "review_generated",
+            {"review_type": "daily", "total_items": 5, "cohorts": []},
+            settings,
+            push_db,
+        )
+
+        assert result.push_count == 1
+        assert result.delivery_status == "sent"
+        payload = captured["payload"]
+        assert isinstance(payload, PushPayload)
+        assert payload.data is not None
+        assert payload.data["workflow_summary_id"] == "planning:scan-24"
+
     def test_send_scheduler_push_refreshes_inboxed_timestamp_after_resend(
         self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -89,8 +89,10 @@ _NotificationStateLifecycle = Literal[
     "orphaned",
 ]
 
-_PUSH_DELIVERY_SCAN_FLOOR = 24
-_PUSH_DELIVERY_SCAN_MULTIPLIER = 4
+# Push inspection/selection should walk far enough to find later sendable records
+# without regressing into unbounded snapshot reads.
+_PUSH_DELIVERY_SCAN_BATCH_SIZE = 24
+_PUSH_DELIVERY_MAX_SCAN_OUTCOMES = 96
 _DELIVERY_CURSOR_VERSION = 1
 
 
@@ -120,7 +122,8 @@ class _ContinuityDeliveryCursorState:
 @dataclass(frozen=True, slots=True)
 class _ContinuityDeliveryReadWindow:
     limit: int
-    scan_limit: int
+    scan_batch_size: int
+    scan_budget: int
     channel: ContinuityDeliveryInspectionChannel
     cursor: str | None = None
 
@@ -129,7 +132,6 @@ class _ContinuityDeliveryReadWindow:
 class _ContinuityDeliveryContract:
     notification_records: list[ContinuityNotificationRecordResponse]
     decisions: list[_NotificationDeliveryDecision]
-    effective_limit: int
     truncated: bool
     continuation_cursor: str | None = None
 
@@ -1920,12 +1922,15 @@ def _delivery_read_window(
     channel: ContinuityDeliveryInspectionChannel,
     cursor: str | None = None,
 ) -> _ContinuityDeliveryReadWindow:
-    scan_limit = limit
+    scan_batch_size = limit
+    scan_budget = limit
     if channel == "push":
-        scan_limit = max(_PUSH_DELIVERY_SCAN_FLOOR, limit * _PUSH_DELIVERY_SCAN_MULTIPLIER)
+        scan_batch_size = max(limit, _PUSH_DELIVERY_SCAN_BATCH_SIZE)
+        scan_budget = max(limit, _PUSH_DELIVERY_MAX_SCAN_OUTCOMES)
     return _ContinuityDeliveryReadWindow(
         limit=limit,
-        scan_limit=scan_limit,
+        scan_batch_size=scan_batch_size,
+        scan_budget=scan_budget,
         channel=channel,
         cursor=cursor,
     )
@@ -1959,33 +1964,43 @@ def _prepare_continuity_delivery_cursor_state(
     )
 
 
-def _read_continuity_delivery_outcome_page(
+def _continuation_cursor_for_outcome_row(
+    row: Mapping[str, Any],
+    *,
+    cursor_state: _ContinuityDeliveryCursorState,
+) -> str:
+    return _encode_delivery_cursor(
+        _ContinuityDeliveryCursor(
+            snapshot_outcome_id=cursor_state.snapshot_outcome_id,
+            anchor_occurred_at_utc=str(row["occurred_at_utc"]),
+            anchor_outcome_id=int(row["id"]),
+            fingerprint=cursor_state.fingerprint,
+        )
+    )
+
+
+def _read_continuity_delivery_outcome_batch_rows(
     conn: sqlite3.Connection,
     *,
     cursor_state: _ContinuityDeliveryCursorState,
+    page_anchor: tuple[str, int] | None,
     limit: int,
-) -> tuple[list[ContinuityOutcomeRecordResponse], bool, str | None]:
+) -> tuple[list[Mapping[str, Any]], bool, str | None]:
     outcome_rows = _read_high_signal_outcome_rows(
         conn,
         snapshot_outcome_id=cursor_state.snapshot_outcome_id,
-        page_anchor=cursor_state.page_anchor,
+        page_anchor=page_anchor,
         limit=limit + 1,
     )
     has_more = len(outcome_rows) > limit
     page_rows = outcome_rows[:limit]
-    outcomes = [_outcome_from_row(conn, row) for row in page_rows]
     continuation_cursor = None
     if has_more and page_rows:
-        last_row = page_rows[-1]
-        continuation_cursor = _encode_delivery_cursor(
-            _ContinuityDeliveryCursor(
-                snapshot_outcome_id=cursor_state.snapshot_outcome_id,
-                anchor_occurred_at_utc=str(last_row["occurred_at_utc"]),
-                anchor_outcome_id=int(last_row["id"]),
-                fingerprint=cursor_state.fingerprint,
-            )
+        continuation_cursor = _continuation_cursor_for_outcome_row(
+            page_rows[-1],
+            cursor_state=cursor_state,
         )
-    return outcomes, has_more, continuation_cursor
+    return page_rows, has_more, continuation_cursor
 
 
 def _scheduler_push_delivery_from_row(
@@ -2104,6 +2119,46 @@ def _notification_delivery_reason(
     return "sent"
 
 
+def _build_continuity_delivery_inputs(
+    conn: sqlite3.Connection,
+    *,
+    outcome_rows: list[Mapping[str, Any]],
+    include_anchor_candidates: bool,
+) -> tuple[
+    list[ContinuityWorkflowSummaryResponse],
+    list[Mapping[str, Any]],
+]:
+    outcomes = [_outcome_from_row(conn, row) for row in outcome_rows]
+    anchors = _resolve_anchors(conn, outcomes=outcomes, anchor_rows=_read_anchor_rows(conn))
+    workflow_thread_ids = {
+        outcome.workflow_thread.id for outcome in outcomes if outcome.workflow_thread is not None
+    }
+    if include_anchor_candidates:
+        workflow_thread_ids.update(
+            anchor.workflow_thread_id
+            for anchor in (anchors.planning, anchors.review)
+            if anchor is not None and anchor.workflow_thread_id is not None
+        )
+    workflow_summaries = _build_workflow_summaries(
+        conn=conn,
+        outcomes=outcomes,
+        anchors=anchors,
+        markers=[
+            _last_seen_marker_from_row(row)
+            for row in _read_last_seen_marker_rows(
+                conn,
+                workflow_thread_ids=workflow_thread_ids,
+            )
+        ],
+        include_anchor_candidates=include_anchor_candidates,
+    )
+    notification_state_rows = _read_notification_state_rows(
+        conn,
+        notification_ids={summary.id for summary in workflow_summaries},
+    )
+    return workflow_summaries, notification_state_rows
+
+
 def _evaluate_notification_delivery_contract(
     conn: sqlite3.Connection,
     workflow_summaries: list[ContinuityWorkflowSummaryResponse],
@@ -2201,7 +2256,6 @@ def _evaluate_notification_delivery_contract(
     return _ContinuityDeliveryContract(
         notification_records=notification_records,
         decisions=decisions,
-        effective_limit=read_window.scan_limit,
         truncated=truncated,
         continuation_cursor=continuation_cursor,
     )
@@ -2216,55 +2270,68 @@ def _read_continuity_delivery_contract(
 ) -> _ContinuityDeliveryContract:
     settings = settings or get_settings()
     read_window = _delivery_read_window(limit=limit, channel=channel, cursor=cursor)
+    empty_contract = _ContinuityDeliveryContract(
+        notification_records=[],
+        decisions=[],
+        truncated=False,
+        continuation_cursor=None,
+    )
     with db.core_connection(settings) as conn:
         cursor_state = _prepare_continuity_delivery_cursor_state(
             conn,
             channel=read_window.channel,
             cursor=read_window.cursor,
         )
-        outcomes, truncated, continuation_cursor = _read_continuity_delivery_outcome_page(
-            conn,
-            cursor_state=cursor_state,
-            limit=read_window.scan_limit,
-        )
-        anchors = _resolve_anchors(conn, outcomes=outcomes, anchor_rows=_read_anchor_rows(conn))
         include_anchor_candidates = read_window.cursor is None
-        workflow_thread_ids = {
-            outcome.workflow_thread.id
-            for outcome in outcomes
-            if outcome.workflow_thread is not None
-        }
-        if include_anchor_candidates:
-            workflow_thread_ids.update(
-                anchor.workflow_thread_id
-                for anchor in (anchors.planning, anchors.review)
-                if anchor is not None and anchor.workflow_thread_id is not None
-            )
-        workflow_summaries = _build_workflow_summaries(
-            conn=conn,
-            outcomes=outcomes,
-            anchors=anchors,
-            markers=[
-                _last_seen_marker_from_row(row)
-                for row in _read_last_seen_marker_rows(
+        scanned_rows: list[Mapping[str, Any]] = []
+        page_anchor = cursor_state.page_anchor
+        remaining_budget = read_window.scan_budget
+        latest_contract = empty_contract
+
+        while remaining_budget > 0:
+            batch_limit = min(read_window.scan_batch_size, remaining_budget)
+            batch_rows, truncated, continuation_cursor = (
+                _read_continuity_delivery_outcome_batch_rows(
                     conn,
-                    workflow_thread_ids=workflow_thread_ids,
+                    cursor_state=cursor_state,
+                    page_anchor=page_anchor,
+                    limit=batch_limit,
                 )
-            ],
-            include_anchor_candidates=include_anchor_candidates,
-        )
-        notification_state_rows = _read_notification_state_rows(
-            conn,
-            notification_ids={summary.id for summary in workflow_summaries},
-        )
-        return _evaluate_notification_delivery_contract(
-            conn,
-            workflow_summaries,
-            notification_state_rows,
-            read_window=read_window,
-            truncated=truncated,
-            continuation_cursor=continuation_cursor,
-        )
+            )
+            if not batch_rows:
+                return latest_contract
+
+            scanned_rows.extend(batch_rows)
+            workflow_summaries, notification_state_rows = _build_continuity_delivery_inputs(
+                conn,
+                outcome_rows=scanned_rows,
+                include_anchor_candidates=include_anchor_candidates,
+            )
+            latest_contract = _evaluate_notification_delivery_contract(
+                conn,
+                workflow_summaries,
+                notification_state_rows,
+                read_window=read_window,
+                truncated=truncated,
+                continuation_cursor=continuation_cursor,
+            )
+            if read_window.channel != "push":
+                return latest_contract
+
+            if (
+                sum(1 for decision in latest_contract.decisions if decision.reason == "sent")
+                >= limit
+            ):
+                return latest_contract
+            if not truncated:
+                return latest_contract
+
+            remaining_budget -= len(batch_rows)
+            if remaining_budget <= 0:
+                return latest_contract
+            page_anchor = (str(batch_rows[-1]["occurred_at_utc"]), int(batch_rows[-1]["id"]))
+
+        return latest_contract
 
 
 def read_continuity_snapshot(
@@ -2332,9 +2399,6 @@ def read_continuity_delivery_inspection(
         inspected_at_utc=_utc_now_iso(),
         channel=channel,
         limit=limit,
-        effective_limit=delivery_contract.effective_limit,
-        inspected_count=len(decisions),
-        returned_count=len(decisions),
         truncated=delivery_contract.truncated,
         continuation=continuation,
         decisions=decisions,

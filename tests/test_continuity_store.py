@@ -227,9 +227,6 @@ def test_delivery_inspection_returns_record_state_and_reason(tmp_data_dir: Path)
 
     assert inspection.channel == "all"
     assert inspection.limit == 1
-    assert inspection.effective_limit == 1
-    assert inspection.inspected_count == 1
-    assert inspection.returned_count == 1
     assert inspection.truncated is False
     assert inspection.continuation is None
     assert inspection.decisions[0].reason == "sent"
@@ -493,13 +490,17 @@ def test_push_delivery_reasons_cover_deduped_and_skipped_records(tmp_data_dir: P
     assert _push_delivery_reasons(limit=1) == ["sent", "deduped", "skipped"]
 
 
-def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -> None:
+def test_push_delivery_scan_walks_to_later_sendable_notification(tmp_data_dir: Path) -> None:
+    base_time = datetime(2026, 3, 21, 12, 59, tzinfo=UTC)
     for index in range(25):
         notification_id = f"planning:window-{index:02d}"
         record_continuity_outcome(
             _outcome_request(
                 label=f"Window {index:02d}",
-                occurred_at_utc=f"2026-03-21T12:{59 - index:02d}:00Z",
+                occurred_at_utc=(base_time - timedelta(minutes=index))
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
                 launch_location=ContinuityLocationResponse(state="operator"),
                 resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
                 dedupe_key=f"planning::window-{index:02d}",
@@ -520,13 +521,52 @@ def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -
     records = read_continuity_notification_records(channel="push", limit=1)
     inspection = read_continuity_delivery_inspection(limit=1, channel="push")
 
+    assert [record.id for record in records] == ["planning:window-24"]
+    assert inspection.truncated is False
+    assert inspection.continuation is None
+    assert len(inspection.decisions) == 25
+    assert [decision.record.id for decision in inspection.decisions[-1:]] == ["planning:window-24"]
+    assert inspection.decisions[-1].reason == "sent"
+    assert {decision.reason for decision in inspection.decisions[:-1]} == {"cooled_down"}
+
+
+def test_push_delivery_scan_budget_stays_bounded_when_later_sendable_is_too_deep(
+    tmp_data_dir: Path,
+) -> None:
+    base_time = datetime(2026, 3, 21, 12, 59, tzinfo=UTC)
+    for index in range(97):
+        notification_id = f"planning:deep-window-{index:02d}"
+        record_continuity_outcome(
+            _outcome_request(
+                label=f"Deep window {index:02d}",
+                occurred_at_utc=(base_time - timedelta(minutes=index))
+                .replace(microsecond=0)
+                .isoformat()
+                .replace("+00:00", "Z"),
+                launch_location=ContinuityLocationResponse(state="operator"),
+                resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+                dedupe_key=f"planning::deep-window-{index:02d}",
+                workflow_thread_id=notification_id,
+            )
+        )
+        if index < 96:
+            upsert_continuity_notification_state(
+                notification_id,
+                ContinuityNotificationStateUpsertRequest(
+                    inboxed_at_utc=(datetime.now(UTC) - timedelta(hours=2))
+                    .replace(microsecond=0)
+                    .isoformat()
+                    .replace("+00:00", "Z"),
+                ),
+            )
+
+    records = read_continuity_notification_records(channel="push", limit=1)
+    inspection = read_continuity_delivery_inspection(limit=1, channel="push")
+
     assert records == []
-    assert inspection.effective_limit == 24
-    assert inspection.inspected_count == 24
-    assert inspection.returned_count == 24
     assert inspection.truncated is True
     assert inspection.continuation is not None
-    assert len(inspection.decisions) == 24
+    assert len(inspection.decisions) == 96
     assert {decision.reason for decision in inspection.decisions} == {"cooled_down"}
 
     resumed = read_continuity_delivery_inspection(
@@ -535,11 +575,9 @@ def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -
         cursor=inspection.continuation.cursor,
     )
 
-    assert resumed.inspected_count == 1
-    assert resumed.returned_count == 1
     assert resumed.truncated is False
     assert resumed.continuation is None
-    assert [decision.record.id for decision in resumed.decisions] == ["planning:window-24"]
+    assert [decision.record.id for decision in resumed.decisions] == ["planning:deep-window-96"]
     assert {decision.reason for decision in resumed.decisions} == {"sent"}
 
 

@@ -154,9 +154,6 @@ def test_get_continuity_delivery_decisions_returns_debug_payload(
     payload = response.json()
     assert payload["channel"] == "all"
     assert payload["limit"] == 1
-    assert payload["effective_limit"] == 1
-    assert payload["inspected_count"] == 1
-    assert payload["returned_count"] == 1
     assert payload["truncated"] is False
     assert payload["continuation"] is None
     assert payload["decisions"][0]["reason"] == "sent"
