@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to roll the frozen delivery diagnostics contract out across CLI and MCP.
+The current priority is to roll executable undo cues across workflow surfaces without breaking the landed-outcome continuity model.
 
 ## Direction
 
@@ -24,18 +24,19 @@ Current product goals:
 - Experience vision: [`docs/ux/experience-vision.md`](ux/experience-vision.md)
 - Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
 - Continuity intelligence: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
+- Undo actions: [`docs/ux/undo-actions.md`](ux/undo-actions.md)
 
 ## Execution order
 
-### Next — CLI and MCP diagnostics rollout
+### Next — Workflow undo cue rollout
 
-Goal: reuse the frozen diagnostics contract outside HTTP.
+Goal: make meaningful landed outcomes expose executable rollback cues across operator, HTTP, CLI, and MCP.
 
 Planned sequence:
 
-1. add CLI and MCP entrypoints backed by the same read path
-2. keep HTTP, CLI, and MCP fields aligned on one contract
-3. keep surface-specific formatting minimal and downstream of the shared data model
+1. promote one shared undo/handoff contract for reversible workflow outcomes
+2. wire operator, CLI, HTTP, and MCP surfaces to expose that contract without transport-specific rollback logic
+3. preserve continuity receipts and follow-up state coherently after undo executes
 
 ## Delivery model
 

@@ -38,6 +38,7 @@ from typing import Any
 from .._version import __version__
 from .parsers.backup import add_backup_parser
 from .parsers.chat import add_chat_parser
+from .parsers.continuity import add_continuity_parser
 from .parsers.loop import add_loop_parser
 from .parsers.loop_misc_parsers import (
     add_capture_parser,
@@ -107,6 +108,9 @@ Examples:
     --query "status:open"
   cloop plan session execute --session 3
 
+  # Continuity delivery diagnostics
+  cloop continuity delivery-decisions --channel push --limit 5
+
   # Working-set undo
   cloop working-set undo --event-id 42
 
@@ -154,6 +158,7 @@ TOP_LEVEL_PARSER_BUILDERS: tuple[ParserBuilder, ...] = (
     add_plan_parser,
     add_memory_parser,
     add_working_set_parser,
+    add_continuity_parser,
 )
 
 

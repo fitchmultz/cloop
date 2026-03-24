@@ -46,6 +46,7 @@ from .backup_commands import (
     backup_verify_command,
 )
 from .chat_commands import chat_command
+from .continuity_commands import continuity_delivery_decisions_command
 from .loop_bulk_commands import (
     loop_bulk_close_command,
     loop_bulk_enrich_command,
@@ -405,6 +406,13 @@ ROOT_TARGET = _branch(
             "working-set command",
             {
                 "undo": working_set_undo_command,
+            },
+        ),
+        "continuity": _branch(
+            "continuity_command",
+            "continuity command",
+            {
+                "delivery-decisions": continuity_delivery_decisions_command,
             },
         ),
     },

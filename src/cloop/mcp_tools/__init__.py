@@ -5,6 +5,7 @@ Each module registers its tools with the central FastMCP instance.
 """
 
 from .chat_tools import register_chat_tools
+from .continuity_tools import register_continuity_tools
 from .loop_bulk import register_loop_bulk_tools
 from .loop_claims import register_loop_claim_tools
 from .loop_core import register_loop_core_tools
@@ -22,6 +23,7 @@ from .working_set_tools import register_working_set_tools
 
 __all__ = [
     "register_chat_tools",
+    "register_continuity_tools",
     "register_loop_bulk_tools",
     "register_loop_claim_tools",
     "register_loop_core_tools",

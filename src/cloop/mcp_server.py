@@ -55,6 +55,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .mcp_tools import (
     register_chat_tools,
+    register_continuity_tools,
     register_loop_bulk_tools,
     register_loop_claim_tools,
     register_loop_core_tools,
@@ -75,6 +76,7 @@ mcp = FastMCP("Cloop", json_response=True)
 
 # Register all tool modules
 register_chat_tools(mcp)
+register_continuity_tools(mcp)
 register_loop_core_tools(mcp)
 register_loop_read_tools(mcp)
 register_loop_relationship_tools(mcp)

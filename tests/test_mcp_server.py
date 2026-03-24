@@ -24,6 +24,7 @@ from cloop import db
 from cloop.mcp_server import mcp
 from cloop.mcp_tools._runtime import to_tool_error
 from cloop.mcp_tools.chat_tools import chat_complete
+from cloop.mcp_tools.continuity_tools import continuity_delivery_decisions
 from cloop.mcp_tools.loop_bulk import (
     loop_bulk_close,
     loop_bulk_enrich,
@@ -82,8 +83,14 @@ from cloop.mcp_tools.suggestion_tools import (
     suggestion_reject,
 )
 from cloop.rag import NO_KNOWLEDGE_MESSAGE
+from cloop.schemas._loops.continuity import (
+    ContinuityLocationResponse,
+    ContinuityOutcomeWriteRequest,
+    WorkflowThreadRefResponse,
+)
 from cloop.schemas.chat import ChatMessage, ToolCall
 from cloop.settings import Settings, ToolMode, get_settings
+from cloop.storage.continuity_store import record_continuity_outcome
 
 
 def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,6 +103,54 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()
     db.init_databases(get_settings())
+
+
+def _record_continuity_delivery_outcome() -> None:
+    """Insert one continuity outcome suitable for delivery diagnostics tests."""
+    record_continuity_outcome(
+        ContinuityOutcomeWriteRequest(
+            kind="planning",
+            label="Created review queue",
+            description="The downstream queue is ready.",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(
+                state="decide",
+                review_focus="enrichment",
+                session_id=52,
+            ),
+            outcome_card={
+                "id": "receipt-created-review-queue",
+                "kind": "receipt",
+                "tone": "progress",
+                "eyebrow": "Planning receipt",
+                "title": "Created review queue",
+                "summary": "The downstream queue is ready.",
+                "rationale": "Receipt",
+                "preview": [],
+                "trust": {
+                    "contextSources": ["Planning session"],
+                    "assumptions": [],
+                    "confidenceLabel": "Recorded",
+                    "freshnessLabel": "Saved just now",
+                    "rollbackLabel": "Undo remains available.",
+                },
+                "handoff": None,
+                "actions": [],
+            },
+            workflow_thread=WorkflowThreadRefResponse(
+                id="planning:41:checkpoint:0",
+                kind="planning_checkpoint",
+                title="Weekly reset",
+                summary="Planning checkpoint thread",
+                parent_outcome_id=None,
+            ),
+            dedupe_key="planning::queue",
+            source_surface="review-workspace",
+            signal_level="high",
+            metadata={"sessionId": 41, "checkpointIndex": 0},
+        )
+    )
 
 
 def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3478,6 +3533,7 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "memory.create" in tool_names
     assert "memory.update" in tool_names
     assert "memory.delete" in tool_names
+    assert "continuity.delivery_decisions" in tool_names
     assert "loop.semantic_search" in tool_names
     assert "loop.relationship_review" in tool_names
     assert "loop.relationship_queue" in tool_names
@@ -3569,6 +3625,34 @@ def test_memory_tools_support_direct_crud_and_search(
 
     with pytest.raises(ToolError, match="Memory not found"):
         memory_get(entry_id=entry_id)
+
+
+def test_continuity_delivery_decisions_tool_reuses_shared_contract(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Continuity MCP diagnostics should reuse the shared delivery inspection contract."""
+    _setup_test_db(tmp_path, monkeypatch)
+    _record_continuity_delivery_outcome()
+
+    result = continuity_delivery_decisions(channel="all", limit=1)
+
+    assert result["channel"] == "all"
+    assert result["limit"] == 1
+    assert result["truncated"] is False
+    assert result["decisions"][0]["record"]["id"] == "planning:41:checkpoint:0"
+    assert result["decisions"][0]["reason"] == "sent"
+
+
+def test_continuity_delivery_decisions_tool_rejects_invalid_cursor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Continuity MCP diagnostics should surface shared cursor validation errors."""
+    _setup_test_db(tmp_path, monkeypatch)
+
+    with pytest.raises(ToolError, match="invalid cursor"):
+        continuity_delivery_decisions(channel="all", cursor="bad-cursor")
 
 
 def test_suggestion_list_and_get_include_linked_clarifications(
@@ -3869,6 +3953,7 @@ def test_mcp_tool_descriptions_surface_operator_examples() -> None:
     enrichment_description = (
         tool_map["review.enrichment_session.answer_clarifications"].description or ""
     )
+    continuity_description = tool_map["continuity.delivery_decisions"].description or ""
     chat_description = tool_map["chat.complete"].description or ""
 
     assert "Args:" in planning_description
@@ -3876,6 +3961,8 @@ def test_mcp_tool_descriptions_surface_operator_examples() -> None:
     assert "checkpointed" in planning_description.lower()
     assert "pause and resume" in relationship_description.lower()
     assert "rerun enrichment" in enrichment_description.lower()
+    assert "continuation cursor" in continuity_description.lower()
+    assert "Examples:" in continuity_description
     assert "Examples:" in chat_description
     assert "tool_mode='llm'" in chat_description
 

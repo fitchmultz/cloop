@@ -16,6 +16,7 @@ import pytest
 from cloop import db
 from cloop.cli_package._runtime import run_cli_action
 from cloop.cli_package.chat_commands import chat_command
+from cloop.cli_package.continuity_commands import continuity_delivery_decisions_command
 from cloop.cli_package.loop_core_commands import (
     capture_command,
     inbox_command,
@@ -32,7 +33,13 @@ from cloop.cli_package.main import build_parser, main
 from cloop.cli_package.rag_commands import ask_command, ingest_command
 from cloop.loops.errors import LoopNotFoundError
 from cloop.loops.models import LoopStatus, resolve_status_from_flags
+from cloop.schemas._loops.continuity import (
+    ContinuityLocationResponse,
+    ContinuityOutcomeWriteRequest,
+    WorkflowThreadRefResponse,
+)
 from cloop.settings import Settings, get_settings
+from cloop.storage.continuity_store import record_continuity_outcome
 
 cli = SimpleNamespace(
     build_parser=build_parser,
@@ -40,6 +47,7 @@ cli = SimpleNamespace(
     _ask_command=ask_command,
     _chat_command=chat_command,
     _capture_command=capture_command,
+    _continuity_delivery_decisions_command=continuity_delivery_decisions_command,
     _import_command=import_command,
     _inbox_command=inbox_command,
     _ingest_command=ingest_command,
@@ -63,6 +71,54 @@ def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     settings = get_settings()
     db.init_databases(settings)
     return settings
+
+
+def _record_continuity_delivery_outcome() -> None:
+    """Insert one continuity outcome suitable for diagnostics tests."""
+    record_continuity_outcome(
+        ContinuityOutcomeWriteRequest(
+            kind="planning",
+            label="Created review queue",
+            description="The downstream queue is ready.",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(
+                state="decide",
+                review_focus="enrichment",
+                session_id=52,
+            ),
+            outcome_card={
+                "id": "receipt-created-review-queue",
+                "kind": "receipt",
+                "tone": "progress",
+                "eyebrow": "Planning receipt",
+                "title": "Created review queue",
+                "summary": "The downstream queue is ready.",
+                "rationale": "Receipt",
+                "preview": [],
+                "trust": {
+                    "contextSources": ["Planning session"],
+                    "assumptions": [],
+                    "confidenceLabel": "Recorded",
+                    "freshnessLabel": "Saved just now",
+                    "rollbackLabel": "Undo remains available.",
+                },
+                "handoff": None,
+                "actions": [],
+            },
+            workflow_thread=WorkflowThreadRefResponse(
+                id="planning:41:checkpoint:0",
+                kind="planning_checkpoint",
+                title="Weekly reset",
+                summary="Planning checkpoint thread",
+                parent_outcome_id=None,
+            ),
+            dedupe_key="planning::queue",
+            source_surface="review-workspace",
+            signal_level="high",
+            metadata={"sessionId": 41, "checkpointIndex": 0},
+        )
+    )
 
 
 def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -462,6 +518,15 @@ def test_loop_list_help_describes_open_default(tmp_path: Path) -> None:
     assert "List all open loops (default)" in result.stdout
 
 
+def test_continuity_delivery_decisions_help_mentions_cursor(tmp_path: Path) -> None:
+    """Rendered continuity help should document opaque cursor continuation."""
+    result = _run_cli_subprocess(tmp_path, "continuity", "delivery-decisions", "--help")
+
+    assert result.returncode == 0
+    assert "Opaque continuation cursor" in result.stdout
+    assert "--channel" in result.stdout
+
+
 def test_build_parser_memory_command() -> None:
     """Memory parser should accept deterministic CRUD/search arguments."""
     parser = cli.build_parser()
@@ -488,9 +553,73 @@ def test_build_parser_memory_command() -> None:
     assert args.metadata_json == '{"source_app":"cli"}'
 
 
+def test_build_parser_continuity_delivery_decisions_command() -> None:
+    """Continuity parser should accept delivery diagnostics arguments."""
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        [
+            "continuity",
+            "delivery-decisions",
+            "--channel",
+            "push",
+            "--limit",
+            "5",
+            "--cursor",
+            "opaque-cursor",
+            "--format",
+            "table",
+        ]
+    )
+    assert args.command == "continuity"
+    assert args.continuity_command == "delivery-decisions"
+    assert args.channel == "push"
+    assert args.limit == 5
+    assert args.cursor == "opaque-cursor"
+    assert args.format == "table"
+
+
 # =============================================================================
 # Command Function Tests
 # =============================================================================
+
+
+def test_continuity_delivery_decisions_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Continuity delivery diagnostics CLI should reuse the shared inspection contract."""
+    settings = _make_settings(tmp_path, monkeypatch)
+    _record_continuity_delivery_outcome()
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["continuity", "delivery-decisions", "--channel", "all"])
+
+    exit_code = cli._continuity_delivery_decisions_command(args, settings)
+
+    assert exit_code == 0
+    output = _get_last_json(capsys)
+    assert output["channel"] == "all"
+    assert output["limit"] == 3
+    assert output["truncated"] is False
+    assert output["decisions"][0]["record"]["id"] == "planning:41:checkpoint:0"
+    assert output["decisions"][0]["reason"] == "sent"
+
+
+def test_continuity_delivery_decisions_command_rejects_invalid_cursor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    """Continuity delivery diagnostics CLI should surface shared cursor validation errors."""
+    settings = _make_settings(tmp_path, monkeypatch)
+
+    parser = cli.build_parser()
+    args = parser.parse_args(
+        ["continuity", "delivery-decisions", "--channel", "all", "--cursor", "bad-cursor"]
+    )
+
+    exit_code = cli._continuity_delivery_decisions_command(args, settings)
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "invalid cursor" in captured.err
 
 
 def test_ingest_command_success(

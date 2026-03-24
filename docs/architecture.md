@@ -105,6 +105,12 @@ flowchart LR
 3. Search requests backfill missing or stale loop embeddings before scoring, so older loops stay searchable without introducing transport-specific indexing code.
 4. Internal related/duplicate workflows can reuse the same loop-embedding substrate instead of inventing parallel semantic contracts.
 
+### Continuity delivery diagnostics (HTTP + CLI + MCP)
+1. HTTP `/loops/continuity/debug/delivery-decisions`, `cloop continuity delivery-decisions`, and MCP `continuity.delivery_decisions` all call `src/cloop/storage/continuity_store.py::read_continuity_delivery_inspection`.
+2. `src/cloop/storage/continuity_store.py` owns the bounded diagnostics scan, opaque cursor contract, sendability reason vocabulary, resend timing, and latest scheduler-push provenance.
+3. Push selection reuses that same bounded diagnostics substrate through `read_continuity_notification_records(...)`, so scheduler/browser delivery behavior stays aligned with debug inspection instead of drifting into a separate policy.
+4. Surface-specific layers should only add transport ergonomics (JSON, table rendering, tool registration) downstream of the shared diagnostics payload.
+
 ### Relationship review (HTTP + Web + CLI + MCP)
 1. HTTP relationship-review endpoints, the Review tab, `cloop loop relationship *`, and MCP `loop.relationship_*` all call `src/cloop/loops/relationship_review.py`.
 2. `src/cloop/loops/relationship_review.py` owns duplicate-vs-related classification, cross-loop review queues, confirm/dismiss decisions, and merge-resolution state updates.

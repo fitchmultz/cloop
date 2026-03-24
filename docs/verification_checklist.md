@@ -93,6 +93,7 @@ uv run cloop review relationship-session list
 uv run cloop review enrichment-action list
 uv run cloop review enrichment-session list
 uv run cloop plan session list
+uv run cloop continuity delivery-decisions --channel push --limit 3
 uv run cloop loop bulk enrich --query "status:open" --dry-run
 uv run cloop chat "What should I focus on today?" --include-loop-context --no-stream
 uv run cloop memory create "User prefers dark mode" --category preference --priority 40
@@ -143,9 +144,9 @@ MCP:
 uv run cloop-mcp
 ```
 
-Confirm your MCP client discovers grounded chat (`chat.complete`), direct memory tools (`memory.list`, `memory.search`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`), semantic loop search (`loop.semantic_search`), relationship-review tools (`loop.relationship_review`, `loop.relationship_queue`, `loop.relationship_confirm`, `loop.relationship_dismiss`), saved review workflow tools (`review.relationship_action.*`, `review.relationship_session.*`, `review.enrichment_action.*`, `review.enrichment_session.*`), planning workflow tools (`plan.session.*`), both retrieval tools (`rag.ask`, `rag.ingest`), suggestion review tools (`suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`), clarification tools (`clarification.list`, `clarification.answer`, `clarification.answer_many`), and the rest of the loop tool set.
+Confirm your MCP client discovers grounded chat (`chat.complete`), continuity diagnostics (`continuity.delivery_decisions`), direct memory tools (`memory.list`, `memory.search`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`), semantic loop search (`loop.semantic_search`), relationship-review tools (`loop.relationship_review`, `loop.relationship_queue`, `loop.relationship_confirm`, `loop.relationship_dismiss`), saved review workflow tools (`review.relationship_action.*`, `review.relationship_session.*`, `review.enrichment_action.*`, `review.enrichment_session.*`), planning workflow tools (`plan.session.*`), both retrieval tools (`rag.ask`, `rag.ingest`), suggestion review tools (`suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`), clarification tools (`clarification.list`, `clarification.answer`, `clarification.answer_many`), and the rest of the loop tool set.
 
-Also confirm the MCP client surfaces rich tool descriptions for `chat.complete`, `plan.session.*`, and `review.*` so operators can see Args/Returns/examples guidance during tool discovery.
+Also confirm the MCP client surfaces rich tool descriptions for `chat.complete`, `continuity.delivery_decisions`, `plan.session.*`, and `review.*` so operators can see Args/Returns/examples guidance during tool discovery.
 
 ## 4) CI workflow intent check
 

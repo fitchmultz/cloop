@@ -277,6 +277,24 @@ Notes:
 - Updates preserve field presence, so `--clear-key` explicitly clears the nullable key instead of silently ignoring it.
 - `--metadata-json` must be a JSON object.
 
+### Continuity Diagnostics Commands
+
+```bash
+# Inspect the first page of delivery decisions
+cloop continuity delivery-decisions [--channel all|push] [--limit N] [--cursor CURSOR] [--format json|table]
+
+# Focus on push sendability with the shared bounded scan contract
+cloop continuity delivery-decisions --channel push --limit 5
+
+# Continue from a prior opaque cursor
+cloop continuity delivery-decisions --cursor <opaque-cursor>
+```
+
+Notes:
+- `cloop continuity delivery-decisions` reuses the shared `read_continuity_delivery_inspection(...)` contract used by HTTP and MCP.
+- `--cursor` is an opaque continuation token; do not parse or edit it.
+- `--limit` is the requested sendable-decision target, even when push diagnostics inspect additional non-sendable rows inside the bounded scan budget.
+
 ### Loop Lifecycle Commands
 
 Full loop lifecycle management from the terminal:
@@ -926,14 +944,15 @@ Run the MCP server (stdio transport):
 uv run cloop-mcp
 ```
 
-Exposed tools include `chat.complete`, `loop.create`, `loop.update`, `loop.close`, `loop.get`,
-`loop.next`, `loop.transition`, `loop.tags`, `loop.list`, `loop.search`, `loop.semantic_search`,
-`loop.relationship_review`, `loop.relationship_queue`, `loop.relationship_confirm`,
-`loop.relationship_dismiss`, `loop.snooze`, `loop.enrich`, `loop.bulk_enrich`,
-`loop.bulk_enrich_query`, `memory.list`, `memory.search`, `memory.get`, `memory.create`,
-`memory.update`, `memory.delete`, `suggestion.list`, `suggestion.get`, `suggestion.apply`,
-`suggestion.reject`, `clarification.list`, `clarification.answer`, `clarification.answer_many`,
-`clarification.refine`, `review.relationship_session.move`, `review.enrichment_session.move`,
+Exposed tools include `chat.complete`, `continuity.delivery_decisions`, `loop.create`,
+`loop.update`, `loop.close`, `loop.get`, `loop.next`, `loop.transition`, `loop.tags`,
+`loop.list`, `loop.search`, `loop.semantic_search`, `loop.relationship_review`,
+`loop.relationship_queue`, `loop.relationship_confirm`, `loop.relationship_dismiss`,
+`loop.snooze`, `loop.enrich`, `loop.bulk_enrich`, `loop.bulk_enrich_query`, `memory.list`,
+`memory.search`, `memory.get`, `memory.create`, `memory.update`, `memory.delete`,
+`suggestion.list`, `suggestion.get`, `suggestion.apply`, `suggestion.reject`,
+`clarification.list`, `clarification.answer`, `clarification.answer_many`, `clarification.refine`,
+`review.relationship_session.move`, `review.enrichment_session.move`,
 `review.enrichment_session.answer_clarifications`, `project.list`, `rag.ask`, and `rag.ingest`.
 
 `chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
@@ -950,6 +969,10 @@ lightweight workflow playbook directly inside tool discovery.
 
 `memory.*` reuses the shared `memory_management` contract as the HTTP, web, and CLI surfaces,
 so direct memory CRUD/search semantics stay aligned everywhere.
+
+`continuity.delivery_decisions` reuses the same shared continuity delivery-diagnostics contract as
+HTTP `/loops/continuity/debug/delivery-decisions` and `cloop continuity delivery-decisions`, so
+opaque cursor paging, sendability reasons, resend timing, and latest scheduler-push provenance stay aligned.
 
 `loop.semantic_search` reuses the same shared semantic loop-search contract as HTTP, the Inbox web UI,
 and `cloop loop semantic-search`, so ranking logic, on-demand embedding refresh, and similarity-score payloads stay aligned.
