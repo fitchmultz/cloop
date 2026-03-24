@@ -183,6 +183,53 @@ def test_get_continuity_delivery_decisions_returns_debug_payload(
     }
 
 
+def test_get_continuity_delivery_decisions_uses_cursor_pagination(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+) -> None:
+    for label, occurred_at_utc in (
+        ("Newest queue", "2026-03-21T12:03:00Z"),
+        ("Older queue", "2026-03-21T12:02:00Z"),
+    ):
+        response = test_client.post(
+            "/loops/continuity/outcomes",
+            json=_planning_outcome_payload(
+                label=label,
+                description="The downstream review queue is ready.",
+                occurred_at_utc=occurred_at_utc,
+                session_id=41,
+                workflow_thread_id=f"planning:41:{label.lower().replace(' ', '-')}",
+                workflow_thread_summary="Planning checkpoint thread",
+                dedupe_key=f"planning::{label.lower().replace(' ', '-')}",
+                resume_state="operator",
+            ),
+        )
+        assert response.status_code == 200
+
+    first_page = test_client.get("/loops/continuity/debug/delivery-decisions?limit=1&channel=all")
+
+    assert first_page.status_code == 200
+    first_payload = first_page.json()
+    assert first_payload["truncated"] is True
+    assert isinstance(first_payload["continuation"]["cursor"], str)
+    assert first_payload["decisions"][0]["record"]["id"] == "planning:41:newest-queue"
+
+    second_page = test_client.get(
+        "/loops/continuity/debug/delivery-decisions",
+        params={
+            "limit": 1,
+            "channel": "all",
+            "cursor": first_payload["continuation"]["cursor"],
+        },
+    )
+
+    assert second_page.status_code == 200
+    second_payload = second_page.json()
+    assert second_payload["truncated"] is False
+    assert second_payload["continuation"] is None
+    assert second_payload["decisions"][0]["record"]["id"] == "planning:41:older-queue"
+
+
 def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
     test_client: TestClient,
     tmp_data_dir: Path,

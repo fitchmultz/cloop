@@ -368,7 +368,7 @@ class ContinuityDeliveryDecisionResponse(BaseModel):
 class ContinuityDeliveryInspectionContinuationResponse(BaseModel):
     """Stable cue for continuing one bounded delivery-diagnostics scan."""
 
-    after_outcome_id: int
+    cursor: str
 
 
 class ContinuityDeliveryInspectionResponse(BaseModel):

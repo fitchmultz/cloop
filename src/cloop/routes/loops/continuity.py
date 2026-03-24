@@ -69,14 +69,14 @@ def get_continuity_delivery_decisions_endpoint(
     settings: SettingsDep,
     limit: int = Query(default=3, ge=1, le=50),
     channel: Annotated[ContinuityDeliveryInspectionChannel, Query()] = "all",
-    after_outcome_id: int | None = Query(default=None, ge=1),
+    cursor: str | None = Query(default=None),
 ) -> ContinuityDeliveryInspectionResponse:
     """Inspect canonical continuity delivery decisions for debugging."""
     return read_continuity_delivery_inspection(
         limit=limit,
         settings=settings,
         channel=channel,
-        after_outcome_id=after_outcome_id,
+        cursor=cursor,
     )
 
 

@@ -29,9 +29,11 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import pytest
 from conftest import insert_planning_session, insert_scheduler_push_delivery
 
 from cloop import db
+from cloop.loops.errors import ValidationError
 from cloop.schemas._loops.continuity import (
     ContinuityAnchorUpsertRequest,
     ContinuityLastSeenBatchUpsertRequest,
@@ -530,7 +532,7 @@ def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -
     resumed = read_continuity_delivery_inspection(
         limit=1,
         channel="push",
-        after_outcome_id=inspection.continuation.after_outcome_id,
+        cursor=inspection.continuation.cursor,
     )
 
     assert resumed.inspected_count == 1
@@ -539,6 +541,92 @@ def test_push_delivery_scan_window_is_explicit_and_bounded(tmp_data_dir: Path) -
     assert resumed.continuation is None
     assert [decision.record.id for decision in resumed.decisions] == ["planning:window-24"]
     assert {decision.reason for decision in resumed.decisions} == {"sent"}
+
+
+def test_delivery_inspection_cursor_stays_stable_across_concurrent_inserts(
+    tmp_data_dir: Path,
+) -> None:
+    for label, occurred_at_utc in (
+        ("Newest", "2026-03-21T12:03:00Z"),
+        ("Middle", "2026-03-21T12:02:00Z"),
+        ("Oldest", "2026-03-21T12:01:00Z"),
+    ):
+        record_continuity_outcome(
+            _outcome_request(
+                label=label,
+                occurred_at_utc=occurred_at_utc,
+                launch_location=ContinuityLocationResponse(state="operator"),
+                resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+                dedupe_key=f"planning::{label.lower()}",
+                workflow_thread_id=f"planning:{label.lower()}",
+            )
+        )
+
+    first_page = read_continuity_delivery_inspection(limit=2, channel="all")
+
+    assert [decision.record.id for decision in first_page.decisions] == [
+        "planning:newest",
+        "planning:middle",
+    ]
+    assert first_page.continuation is not None
+
+    record_continuity_outcome(
+        _outcome_request(
+            label="New Head",
+            occurred_at_utc="2026-03-21T12:04:00Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+            dedupe_key="planning::new-head",
+            workflow_thread_id="planning:new-head",
+        )
+    )
+    record_continuity_outcome(
+        _outcome_request(
+            label="Backfilled",
+            occurred_at_utc="2026-03-21T12:01:30Z",
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+            dedupe_key="planning::backfilled",
+            workflow_thread_id="planning:backfilled",
+        )
+    )
+
+    second_page = read_continuity_delivery_inspection(
+        limit=2,
+        channel="all",
+        cursor=first_page.continuation.cursor,
+    )
+
+    assert second_page.truncated is False
+    assert second_page.continuation is None
+    assert [decision.record.id for decision in second_page.decisions] == ["planning:oldest"]
+
+
+def test_delivery_inspection_cursor_rejects_query_mismatch(tmp_data_dir: Path) -> None:
+    for label, occurred_at_utc in (
+        ("Newest", "2026-03-21T12:03:00Z"),
+        ("Older", "2026-03-21T12:02:00Z"),
+    ):
+        record_continuity_outcome(
+            _outcome_request(
+                label=label,
+                occurred_at_utc=occurred_at_utc,
+                launch_location=ContinuityLocationResponse(state="operator"),
+                resume_location=ContinuityLocationResponse(state="recall", recall_tool="chat"),
+                dedupe_key=f"planning::{label.lower()}",
+                workflow_thread_id=f"planning:{label.lower()}",
+            )
+        )
+
+    inspection = read_continuity_delivery_inspection(limit=1, channel="all")
+    assert inspection.continuation is not None
+
+    with pytest.raises(ValidationError, match="cursor does not match this query"):
+        read_continuity_delivery_inspection(
+            limit=1,
+            channel="push",
+            cursor=inspection.continuation.cursor,
+        )
 
 
 def test_snapshot_resolves_missing_working_set_scope_to_unscoped_target(tmp_data_dir: Path) -> None:

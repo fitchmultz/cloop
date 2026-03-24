@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to land one storage-backed diagnostics stabilization slice before exposing delivery diagnostics on more surfaces.
+The current priority is to freeze the delivery diagnostics policy and contract now that the keyset read-model cutover has landed.
 
 ## Direction
 
@@ -27,19 +27,19 @@ Current product goals:
 
 ## Execution order
 
-### Next — Storage-backed diagnostics stabilization
+### Next — Diagnostics policy and contract cleanup
 
-Goal: finish one durable diagnostics slice end to end by locking cursor semantics, moving page-window reads into storage, and calibrating scan bounds together.
+Goal: freeze the final diagnostics payload and scan policy after the new read model lands.
 
 Planned sequence:
 
-1. replace the current outcome-id continuation cue with one stable cursor contract that preserves page boundaries across concurrent inserts
-2. push diagnostics windowing and continuation lookup down to the storage query layer against that final cursor contract
-3. tune or replace the fixed push scan floor and multiplier using real truncation and later-sendable evidence while keeping diagnostics explanations intact
+1. recalibrate or replace the fixed push scan floor and multiplier using actual truncation and later-sendable evidence
+2. remove diagnostics metadata that no longer carries distinct meaning after keyset paging
+3. keep push selection and delivery inspection on the same bounded-read rules and reason vocabulary
 
 ### Later — CLI and MCP diagnostics rollout
 
-Goal: reuse the stabilized diagnostics contract outside HTTP.
+Goal: reuse the frozen diagnostics contract outside HTTP.
 
 Planned sequence:
 
