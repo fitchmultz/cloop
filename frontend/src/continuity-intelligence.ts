@@ -56,6 +56,7 @@ import type {
 } from "./domain";
 import type {
   ContinuityBaselineSnapshot,
+  ContinuityCardDisplay,
   ContinuityEntityKind,
   ContinuityLastSeenMarker,
   ContinuityNotificationRecord,
@@ -100,7 +101,7 @@ import {
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
-const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v1";
+const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v2";
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
 const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
 const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
@@ -385,6 +386,75 @@ function normalizeResolvedTarget(value: unknown): ResolvedContinuityTarget | nul
   };
 }
 
+function normalizeContinuityCardDisplay(value: unknown): ContinuityCardDisplay | null {
+  if (!isRecord(value) || typeof value["kind"] !== "string" || typeof value["tone"] !== "string" || typeof value["eyebrow"] !== "string" || typeof value["title"] !== "string" || typeof value["summary"] !== "string" || typeof value["rationale"] !== "string") {
+    return null;
+  }
+  const trustValue = value["trust"];
+  if (!isRecord(trustValue)) {
+    return null;
+  }
+  const preview = Array.isArray(value["preview"])
+    ? value["preview"].flatMap((item) => {
+        if (!isRecord(item) || typeof item["label"] !== "string" || typeof item["value"] !== "string") {
+          return [];
+        }
+        return [{ label: item["label"], value: item["value"] }];
+      })
+    : [];
+  const handoffValue = value["handoff"];
+  const workingSetValue = isRecord(handoffValue) && isRecord(handoffValue["workingSet"]) ? handoffValue["workingSet"] : null;
+  return {
+    kind: value["kind"] as ContinuityCardDisplay["kind"],
+    tone: value["tone"] as ContinuityCardDisplay["tone"],
+    eyebrow: value["eyebrow"],
+    title: value["title"],
+    summary: value["summary"],
+    rationale: value["rationale"],
+    preview,
+    trust: {
+      generationLabel: stringValue(trustValue["generationLabel"]),
+      generationTone: (stringValue(trustValue["generationTone"]) as ContinuityCardDisplay["trust"]["generationTone"]) ?? null,
+      contextSources: Array.isArray(trustValue["contextSources"])
+        ? trustValue["contextSources"].filter((item): item is string => typeof item === "string")
+        : [],
+      assumptions: Array.isArray(trustValue["assumptions"])
+        ? trustValue["assumptions"].filter((item): item is string => typeof item === "string")
+        : [],
+      confidenceLabel: stringValue(trustValue["confidenceLabel"]),
+      confidenceTone: (stringValue(trustValue["confidenceTone"]) as ContinuityCardDisplay["trust"]["confidenceTone"]) ?? null,
+      freshnessLabel: stringValue(trustValue["freshnessLabel"]),
+      freshnessTone: (stringValue(trustValue["freshnessTone"]) as ContinuityCardDisplay["trust"]["freshnessTone"]) ?? null,
+      rollbackLabel: stringValue(trustValue["rollbackLabel"]),
+      rollbackTone: (stringValue(trustValue["rollbackTone"]) as ContinuityCardDisplay["trust"]["rollbackTone"]) ?? null,
+      impactSummary: stringValue(trustValue["impactSummary"]),
+      impactTone: (stringValue(trustValue["impactTone"]) as ContinuityCardDisplay["trust"]["impactTone"]) ?? null,
+    },
+    handoff: isRecord(handoffValue)
+      ? {
+          changeSummary: stringValue(handoffValue["changeSummary"]) ?? "Continue from the landed workflow state.",
+          createdResources: Array.isArray(handoffValue["createdResources"])
+            ? handoffValue["createdResources"].filter((item): item is string => typeof item === "string")
+            : [],
+          nextStep: stringValue(handoffValue["nextStep"]),
+          breadcrumbs: Array.isArray(handoffValue["breadcrumbs"])
+            ? handoffValue["breadcrumbs"].filter((item): item is string => typeof item === "string")
+            : [],
+          workingSet: workingSetValue && typeof workingSetValue["workingSetId"] === "number" && typeof workingSetValue["workingSetName"] === "string"
+            ? {
+                workingSetId: workingSetValue["workingSetId"],
+                workingSetName: workingSetValue["workingSetName"],
+                itemCount: typeof workingSetValue["itemCount"] === "number" ? workingSetValue["itemCount"] : 0,
+                missingItemCount: typeof workingSetValue["missingItemCount"] === "number" ? workingSetValue["missingItemCount"] : 0,
+              }
+            : null,
+        }
+      : null,
+    actionContextLabel: stringValue(value["actionContextLabel"]),
+    actionWarning: stringValue(value["actionWarning"]),
+  };
+}
+
 function parseUndoHandle(value: unknown): ExecutableUndoHandle | null {
   if (!isRecord(value) || typeof value["kind"] !== "string") {
     return null;
@@ -595,7 +665,8 @@ function parseContinuityWorkflowSummary(value: unknown): ContinuityWorkflowSumma
   const workflowThread = normalizeWorkflowThread(value["workflowThread"]);
   const resolvedResume = normalizeResolvedTarget(value["resolvedResume"]);
   const rankingSignals = parseContinuityRankingSignals(value["rankingSignals"]);
-  if (!workflowThread || !resolvedResume || !rankingSignals) {
+  const displayCard = normalizeContinuityCardDisplay(value["displayCard"]);
+  if (!workflowThread || !resolvedResume || !rankingSignals || !displayCard) {
     return null;
   }
   return {
@@ -615,6 +686,7 @@ function parseContinuityWorkflowSummary(value: unknown): ContinuityWorkflowSumma
     resolvedResume,
     displayTitle: typeof value["displayTitle"] === "string" ? value["displayTitle"] : workflowThread.title,
     displaySummary: typeof value["displaySummary"] === "string" ? value["displaySummary"] : workflowThread.summary ?? "",
+    displayCard,
     undoAction: parseUndoAction(value["undoAction"]),
     rerunAction: parseRerunAction(value["rerunAction"]),
     workingSetId: integerValue(value["workingSetId"]),
@@ -1324,6 +1396,75 @@ function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workf
   };
 }
 
+function mapContinuityCardDisplayFromApi(
+  response: ContinuityOutcomeRecordResponse["display_card"] | ContinuityWorkflowSummaryResponse["display_card"],
+): ContinuityCardDisplay {
+  return {
+    kind: response.kind,
+    tone: response.tone,
+    eyebrow: response.eyebrow,
+    title: response.title,
+    summary: response.summary,
+    rationale: response.rationale,
+    preview: (response.preview ?? []).map((item) => ({
+      label: item.label,
+      value: item.value,
+    })),
+    trust: {
+      generationLabel: response.trust.generation_label ?? null,
+      generationTone: response.trust.generation_tone ?? null,
+      contextSources: response.trust.context_sources ?? [],
+      assumptions: response.trust.assumptions ?? [],
+      confidenceLabel: response.trust.confidence_label ?? null,
+      confidenceTone: response.trust.confidence_tone ?? null,
+      freshnessLabel: response.trust.freshness_label ?? null,
+      freshnessTone: response.trust.freshness_tone ?? null,
+      rollbackLabel: response.trust.rollback_label ?? null,
+      rollbackTone: response.trust.rollback_tone ?? null,
+      impactSummary: response.trust.impact_summary ?? null,
+      impactTone: response.trust.impact_tone ?? null,
+    },
+    handoff: response.handoff
+      ? {
+          changeSummary: response.handoff.change_summary,
+          createdResources: response.handoff.created_resources ?? [],
+          nextStep: response.handoff.next_step ?? null,
+          breadcrumbs: response.handoff.breadcrumbs ?? [],
+          workingSet: response.handoff.working_set
+            ? {
+                workingSetId: response.handoff.working_set.working_set_id,
+                workingSetName: response.handoff.working_set.working_set_name,
+                itemCount: response.handoff.working_set.item_count,
+                missingItemCount: response.handoff.working_set.missing_item_count,
+              }
+            : null,
+        }
+      : null,
+    actionContextLabel: response.action_context_label ?? null,
+    actionWarning: response.action_warning ?? null,
+  };
+}
+
+function applyDisplayCardToOutcomeCard(
+  displayCard: ContinuityCardDisplay,
+  outcomeCard: OperatorActionCard,
+): OperatorActionCard {
+  return {
+    ...outcomeCard,
+    kind: displayCard.kind,
+    tone: displayCard.tone,
+    eyebrow: displayCard.eyebrow,
+    title: displayCard.title,
+    summary: displayCard.summary,
+    rationale: displayCard.rationale,
+    preview: displayCard.preview,
+    trust: displayCard.trust,
+    handoff: displayCard.handoff,
+    actionContextLabel: displayCard.actionContextLabel ?? null,
+    actionWarning: displayCard.actionWarning ?? null,
+  };
+}
+
 function mapSuccessorFromApi(
   successor: ContinuitySuccessorTargetResponse | null | undefined,
 ): ContinuitySuccessorTarget | null {
@@ -1420,7 +1561,11 @@ function mapRerunActionFromApi(
 }
 
 function mapPersistedOutcomeToRecentEntry(response: ContinuityOutcomeRecordResponse): RecentShellActionEntry {
-  const card = response.outcome_card as unknown as OperatorActionCard;
+  const displayCard = mapContinuityCardDisplayFromApi(response.display_card);
+  const card = applyDisplayCardToOutcomeCard(
+    displayCard,
+    response.outcome_card as unknown as OperatorActionCard,
+  );
   return enrichRecentActionEntry({
     kind: response.kind as RecentShellActionEntry["kind"],
     label: response.label,
@@ -1557,6 +1702,7 @@ function mapWorkflowSummaryResponse(
     resolvedResume: mapResolvedTargetFromApi(response.resolved_resume),
     displayTitle: response.display_title,
     displaySummary: response.display_summary,
+    displayCard: mapContinuityCardDisplayFromApi(response.display_card),
     undoAction: mapUndoActionFromApi(response.undo_action),
     rerunAction: mapRerunActionFromApi(response.rerun_action),
     workingSetId: response.working_set_id ?? null,

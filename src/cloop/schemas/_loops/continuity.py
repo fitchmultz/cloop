@@ -62,6 +62,15 @@ ContinuityTargetStatus = Literal[
 ContinuitySuccessorKind = Literal["replacement"]
 ContinuityWorkflowSummarySource = Literal["receipt", "recent", "anchor"]
 ContinuityWorkflowSummaryPriorStateKind = Literal["replaced", "gone"]
+ContinuityDisplayCardKind = Literal[
+    "mutation",
+    "decision",
+    "handoff",
+    "refresh",
+    "context",
+    "receipt",
+]
+ContinuityDisplayCardTone = Literal["neutral", "attention", "progress", "caution"]
 ContinuityObservedEntityKind = Literal[
     "planning_session",
     "review_session",
@@ -251,6 +260,65 @@ class ContinuityRerunAction(BaseModel):
     contract: ContinuityRerunAttemptContract
 
 
+class ContinuityDisplayPreviewItemResponse(BaseModel):
+    """One backend-authored preview row for a continuity display card."""
+
+    label: str
+    value: str
+
+
+class ContinuityDisplayWorkingSetResponse(BaseModel):
+    """Working-set context attached to a continuity display handoff."""
+
+    working_set_id: int
+    working_set_name: str
+    item_count: int = 0
+    missing_item_count: int = 0
+
+
+class ContinuityDisplayHandoffResponse(BaseModel):
+    """Backend-authored follow-through handoff details for one continuity card."""
+
+    change_summary: str
+    created_resources: list[str] = Field(default_factory=list)
+    next_step: str | None = None
+    breadcrumbs: list[str] = Field(default_factory=list)
+    working_set: ContinuityDisplayWorkingSetResponse | None = None
+
+
+class ContinuityDisplayTrustResponse(BaseModel):
+    """Backend-authored trust metadata for one continuity display card."""
+
+    generation_label: str | None = None
+    generation_tone: ContinuityDisplayCardTone | None = None
+    context_sources: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    confidence_label: str | None = None
+    confidence_tone: ContinuityDisplayCardTone | None = None
+    freshness_label: str | None = None
+    freshness_tone: ContinuityDisplayCardTone | None = None
+    rollback_label: str | None = None
+    rollback_tone: ContinuityDisplayCardTone | None = None
+    impact_summary: str | None = None
+    impact_tone: ContinuityDisplayCardTone | None = None
+
+
+class ContinuityDisplayCardResponse(BaseModel):
+    """Minimal backend-authored continuity card display contract."""
+
+    kind: ContinuityDisplayCardKind
+    tone: ContinuityDisplayCardTone
+    eyebrow: str
+    title: str
+    summary: str
+    rationale: str
+    preview: list[ContinuityDisplayPreviewItemResponse] = Field(default_factory=list)
+    trust: ContinuityDisplayTrustResponse
+    handoff: ContinuityDisplayHandoffResponse | None = None
+    action_context_label: str | None = None
+    action_warning: str | None = None
+
+
 class ContinuityOutcomeWriteRequest(BaseModel):
     """Request to persist one high-signal landed outcome."""
 
@@ -389,6 +457,7 @@ class ContinuityOutcomeRecordResponse(BaseModel):
     occurred_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
     outcome_card: dict[str, Any]
+    display_card: ContinuityDisplayCardResponse
     undo_action: ContinuityUndoAction | None = None
     rerun_action: ContinuityRerunAction | None = None
     resume_location: ContinuityLocationResponse | None = None
@@ -436,6 +505,7 @@ class ContinuityWorkflowSummaryResponse(BaseModel):
     resolved_resume: ResolvedContinuityTargetResponse
     display_title: str
     display_summary: str
+    display_card: ContinuityDisplayCardResponse
     undo_action: ContinuityUndoAction | None = None
     rerun_action: ContinuityRerunAction | None = None
     working_set_id: int | None = None

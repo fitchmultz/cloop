@@ -125,6 +125,43 @@ function continuitySnapshot() {
           },
           actions: [],
         },
+        display_card: {
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Created launch review queue",
+          summary: "The enrichment queue is ready to resume.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            generation_label: null,
+            generation_tone: null,
+            context_sources: ["Planning session"],
+            assumptions: [],
+            confidence_label: "Recorded",
+            confidence_tone: null,
+            freshness_label: "Saved just now",
+            freshness_tone: null,
+            rollback_label: "Undo remains available.",
+            rollback_tone: null,
+            impact_summary: null,
+            impact_tone: null,
+          },
+          handoff: {
+            change_summary: "Queue created.",
+            created_resources: ["Launch enrichment queue"],
+            next_step: "Open the queue.",
+            breadcrumbs: ["Home", "Plan"],
+            working_set: {
+              working_set_id: 7,
+              working_set_name: "Launch Prep",
+              item_count: 5,
+              missing_item_count: 0,
+            },
+          },
+          action_context_label: null,
+          action_warning: null,
+        },
         undo_action: {
           label: "Undo checkpoint",
           description: "Undo the checkpoint execution.",
@@ -303,6 +340,43 @@ function continuitySnapshot() {
         },
         display_title: "Created launch review queue",
         display_summary: "The enrichment queue is ready to resume.",
+        display_card: {
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Created launch review queue",
+          summary: "The enrichment queue is ready to resume.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            generation_label: null,
+            generation_tone: null,
+            context_sources: ["Planning session"],
+            assumptions: [],
+            confidence_label: "Recorded",
+            confidence_tone: null,
+            freshness_label: "Saved just now",
+            freshness_tone: null,
+            rollback_label: "Undo remains available.",
+            rollback_tone: null,
+            impact_summary: null,
+            impact_tone: null,
+          },
+          handoff: {
+            change_summary: "Queue created.",
+            created_resources: ["Launch enrichment queue"],
+            next_step: "Open the queue.",
+            breadcrumbs: ["Home", "Plan"],
+            working_set: {
+              working_set_id: 7,
+              working_set_name: "Launch Prep",
+              item_count: 5,
+              missing_item_count: 0,
+            },
+          },
+          action_context_label: "Continue from here",
+          action_warning: null,
+        },
         undo_action: {
           label: "Undo checkpoint",
           description: "Undo the checkpoint execution.",
@@ -438,6 +512,47 @@ function continuitySnapshot() {
         },
         display_title: "Replacement plan",
         display_summary: "Return to the surviving workflow.",
+        display_card: {
+          kind: "handoff",
+          tone: "attention",
+          eyebrow: "Resume anchor",
+          title: "Replacement plan",
+          summary: "Return to the surviving workflow.",
+          rationale: "This card is rendered from the canonical backend continuity summary instead of client-side ranking heuristics.",
+          preview: [
+            {
+              label: "Why now",
+              value: "The prior landing target disappeared, so this is the safest surviving path.",
+            },
+            {
+              label: "Changed",
+              value: "This workflow has never been seen from durable continuity.",
+            },
+          ],
+          trust: {
+            generation_label: "Backend continuity summary",
+            generation_tone: "neutral",
+            context_sources: ["Durable continuity workflow summary"],
+            assumptions: [],
+            confidence_label: "Deterministic continuity ranking",
+            confidence_tone: "progress",
+            freshness_label: "Updated 2026-03-20T11:50:00Z",
+            freshness_tone: "neutral",
+            rollback_label: null,
+            rollback_tone: "neutral",
+            impact_summary: "The prior landing target disappeared, so this is the safest surviving path. · This workflow has never been seen from durable continuity.",
+            impact_tone: "neutral",
+          },
+          handoff: {
+            change_summary: "This workflow has never been seen from durable continuity.",
+            created_resources: ["Replacement plan"],
+            next_step: "Open the ranked workflow and continue from the durable landed state.",
+            breadcrumbs: ["Home", "Since last visit", "Replacement plan"],
+            working_set: null,
+          },
+          action_context_label: "Continue from here",
+          action_warning: "Original landed target is unavailable, so continuity falls back to home.",
+        },
         working_set_id: null,
         degraded: true,
         degraded_label: "Original landed target is unavailable, so continuity falls back to home.",
@@ -544,11 +659,12 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summaries[1]?.id).toBe("planning:99");
   });
 
-  it("hydrates backend-owned undo and rerun actions onto representative receipt cards", async () => {
+  it("hydrates backend-owned display, undo, and rerun actions onto ranked workflow cards", async () => {
     await hydrateDurableContinuityState();
 
     const summary = readRankedWorkflowSummaries()[0]!;
     expect(summary.card.title).toBe("Created launch review queue");
+    expect(summary.card.rationale).toBe("Receipt");
     expect(summary.undoAction?.type).toBe("undo");
     expect(summary.rerunAction?.type).toBe("rerun");
     expect(summary.card.actions[0]?.type).toBe("open");

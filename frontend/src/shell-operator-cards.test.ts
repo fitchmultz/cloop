@@ -393,7 +393,7 @@ function createMemoryStorage(): Storage {
 }
 
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
-const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v1";
+const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v2";
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
 
 function seedResumeAnchors(anchors: ResumeAnchorState): void {
@@ -517,6 +517,45 @@ function summaryRecord(input: {
     },
     displayTitle: input.displayTitle,
     displaySummary: input.displaySummary,
+    displayCard: {
+      kind: input.source === "anchor" ? "handoff" : "context",
+      tone: input.degraded ? "attention" : "neutral",
+      eyebrow: input.source === "anchor" ? "Resume anchor" : "Workflow summary",
+      title: input.displayTitle,
+      summary: input.displaySummary,
+      rationale: "Backend continuity summary",
+      preview: [],
+      trust: {
+        generationLabel: "Backend continuity summary",
+        generationTone: "neutral",
+        contextSources: ["Durable continuity workflow summary"],
+        assumptions: [],
+        confidenceLabel: "Deterministic continuity ranking",
+        confidenceTone: "progress",
+        freshnessLabel: null,
+        freshnessTone: "neutral",
+        rollbackLabel: null,
+        rollbackTone: "neutral",
+        impactSummary: input.displaySummary,
+        impactTone: "neutral",
+      },
+      handoff: input.workingSetName
+        ? {
+            changeSummary: input.displaySummary,
+            createdResources: [],
+            nextStep: null,
+            breadcrumbs: ["Home", input.workflowThreadTitle],
+            workingSet: {
+              workingSetId: input.resolvedLocation.workingSetId ?? 0,
+              workingSetName: input.workingSetName,
+              itemCount: 0,
+              missingItemCount: 0,
+            },
+          }
+        : null,
+      actionContextLabel: "Continue from here",
+      actionWarning: input.degradedLabel ?? null,
+    },
     workingSetId: input.resolvedLocation.workingSetId ?? null,
     workingSetName: input.workingSetName ?? null,
     degraded: input.degraded ?? false,

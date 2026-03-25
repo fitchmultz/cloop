@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to cut continuity’s representative-card join, then slim stored outcome payloads.
+The current priority is to finish continuity consumer convergence, then slim the durable outcome payload.
 
 ## Direction
 
@@ -28,33 +28,29 @@ Current product goals:
 
 ## Execution order
 
-### Next — Continuity display contract cutover
+### Next — Continuity consumer convergence
 
-Goal: stop continuity rendering from joining backend summaries to browser-local representative receipt cards.
+Goal: remove frontend-side continuity display patching so shell, palette, notifications, and recovery all consume the same backend-authored summary contract.
 
-Planned sequence:
-
-1. define the minimal backend-authored display, trust, and handoff fields continuity cards still need
-2. backfill workflow summaries and landed outcomes so representative cards render without `RecentShellActionEntry.outcome.card`
-3. cut continuity readers to backend display payloads only and delete representative-card lookup joins
+1. replace summary-card normalization that still mixes backend summaries with browser-local card fields
+2. align notification, recommendation, and recovery consumers to the same display and trust payload
+3. delete representative-card lookup joins and other display-only glue kept for the transition
 
 ### Later — Outcome payload slimming
 
-Goal: shrink durable continuity payloads after typed follow-through and display contracts are fully backend-authored.
+Goal: shrink durable continuity storage after display and follow-through are fully backend-authored.
 
-Planned sequence:
-
-1. keep only backend-owned trust, handoff, display, and typed follow-through fields needed for continuity rendering
+1. keep only backend-owned display, trust, handoff, and typed follow-through fields needed for rendering and execution
 2. remove redundant action blobs and transitional display copies from persisted outcome payloads
-3. delete parser fallbacks and metadata shims kept only for the cutover
+3. delete parser fallbacks and metadata shims kept only for cutover support
 
 ## Delivery model
 
 - Keep `docs/roadmap.md` concise and ordered.
-- Use linked UX specs for detailed workflows, interaction models, contract implications, and acceptance criteria.
+- Use linked UX specs for workflow detail and acceptance criteria.
 - Remove completed roadmap items instead of marking them done.
 - Update the relevant spec when implementation materially changes intended behavior.
-- Land UX changes as end-to-end workflow slices once a spec is accepted, not as isolated visual polish.
+- Land UX changes as end-to-end workflow slices, not isolated visual polish.
 
 ## Guardrails
 

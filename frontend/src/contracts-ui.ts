@@ -212,6 +212,20 @@ export interface ContinuityWorkflowSummaryPriorState {
   summary: string;
 }
 
+export interface ContinuityCardDisplay {
+  kind: OperatorActionCardKind;
+  tone: OperatorActionCardTone;
+  eyebrow: string;
+  title: string;
+  summary: string;
+  rationale: string;
+  preview: OperatorActionPreviewItem[];
+  trust: OperatorActionTrustMetadata;
+  handoff: OperatorActionHandoff | null;
+  actionContextLabel?: string | null;
+  actionWarning?: string | null;
+}
+
 export interface ContinuityWorkflowSummary {
   id: string;
   source: ContinuityWorkflowSummarySource;
@@ -227,6 +241,7 @@ export interface ContinuityWorkflowSummary {
   resolvedResume: ResolvedContinuityTarget;
   displayTitle: string;
   displaySummary: string;
+  displayCard: ContinuityCardDisplay;
   undoAction?: OperatorActionCardUndoAction | null;
   rerunAction?: OperatorActionCardRerunAction | null;
   workingSetId: number | null;

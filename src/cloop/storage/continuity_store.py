@@ -53,6 +53,11 @@ from ..schemas._loops.continuity import (
     ContinuityDeliveryInspectionContinuationResponse,
     ContinuityDeliveryInspectionResponse,
     ContinuityDeliveryReason,
+    ContinuityDisplayCardResponse,
+    ContinuityDisplayHandoffResponse,
+    ContinuityDisplayPreviewItemResponse,
+    ContinuityDisplayTrustResponse,
+    ContinuityDisplayWorkingSetResponse,
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityLastSeenMarkerResponse,
     ContinuityLocationResponse,
@@ -516,7 +521,7 @@ def _outcome_from_row(
     metadata, undo_action, rerun_action = _sanitize_outcome_metadata(
         _load_json_map(row["metadata_json"])
     )
-    return ContinuityOutcomeRecordResponse(
+    record = ContinuityOutcomeRecordResponse(
         id=int(row["id"]),
         kind=str(row["kind"]),
         label=str(row["label"]),
@@ -524,6 +529,16 @@ def _outcome_from_row(
         occurred_at_utc=str(row["occurred_at_utc"]),
         launch_location=launch_location,
         outcome_card=_load_json_map(row["outcome_json"]),
+        display_card=ContinuityDisplayCardResponse(
+            kind="receipt",
+            tone="neutral",
+            eyebrow="Recent outcome",
+            title=str(row["label"]),
+            summary=str(row["description"]),
+            rationale="This card summarizes a landed continuity outcome.",
+            preview=[],
+            trust=ContinuityDisplayTrustResponse(context_sources=[]),
+        ),
         undo_action=undo_action,
         rerun_action=rerun_action,
         resume_location=resume_location,
@@ -534,6 +549,7 @@ def _outcome_from_row(
         degraded_label=resolved_resume.message if degraded else None,
         metadata=metadata,
     )
+    return record.model_copy(update={"display_card": _outcome_display_card(record)})
 
 
 def _display_title(record: ContinuityOutcomeRecordResponse) -> str:
@@ -550,6 +566,169 @@ def _display_summary(record: ContinuityOutcomeRecordResponse) -> str:
         if isinstance(summary, str) and summary.strip():
             return summary
     return record.description
+
+
+_DISPLAY_CARD_KINDS = {"mutation", "decision", "handoff", "refresh", "context", "receipt"}
+_DISPLAY_CARD_TONES = {"neutral", "attention", "progress", "caution"}
+_DISPLAY_SUMMARY_RATIONALE = (
+    "This card is rendered from the canonical backend continuity summary "
+    "instead of client-side ranking heuristics."
+)
+_DisplayTone = Literal["neutral", "attention", "progress", "caution"]
+_DisplayKind = Literal["mutation", "decision", "handoff", "refresh", "context", "receipt"]
+
+
+def _optional_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return None
+
+
+def _display_tone(value: Any, default: _DisplayTone = "neutral") -> _DisplayTone:
+    if isinstance(value, str) and value in _DISPLAY_CARD_TONES:
+        return cast(_DisplayTone, value)
+    return default
+
+
+def _display_kind(value: Any, default: _DisplayKind = "context") -> _DisplayKind:
+    if isinstance(value, str) and value in _DISPLAY_CARD_KINDS:
+        return cast(_DisplayKind, value)
+    return default
+
+
+def _display_preview_items(value: Any) -> list[ContinuityDisplayPreviewItemResponse]:
+    if not isinstance(value, list):
+        return []
+    preview: list[ContinuityDisplayPreviewItemResponse] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        label = _optional_text(item.get("label"))
+        preview_value = _optional_text(item.get("value"))
+        if label and preview_value:
+            preview.append(ContinuityDisplayPreviewItemResponse(label=label, value=preview_value))
+    return preview
+
+
+def _display_working_set(value: Any) -> ContinuityDisplayWorkingSetResponse | None:
+    if not isinstance(value, Mapping):
+        return None
+    working_set_id = value.get("workingSetId")
+    working_set_name = _optional_text(value.get("workingSetName"))
+    if not isinstance(working_set_id, int) or working_set_name is None:
+        return None
+    item_count = value.get("itemCount") if isinstance(value.get("itemCount"), int) else 0
+    missing_item_count = (
+        value.get("missingItemCount") if isinstance(value.get("missingItemCount"), int) else 0
+    )
+    return ContinuityDisplayWorkingSetResponse(
+        working_set_id=working_set_id,
+        working_set_name=working_set_name,
+        item_count=item_count,
+        missing_item_count=missing_item_count,
+    )
+
+
+def _display_handoff(value: Any) -> ContinuityDisplayHandoffResponse | None:
+    if not isinstance(value, Mapping):
+        return None
+    change_summary = _optional_text(value.get("changeSummary"))
+    created_resources = (
+        [
+            item.strip()
+            for item in value.get("createdResources", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(value.get("createdResources"), list)
+        else []
+    )
+    breadcrumbs = (
+        [
+            item.strip()
+            for item in value.get("breadcrumbs", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(value.get("breadcrumbs"), list)
+        else []
+    )
+    if change_summary is None and not created_resources and not breadcrumbs:
+        return None
+    return ContinuityDisplayHandoffResponse(
+        change_summary=change_summary or "Continue from the landed workflow state.",
+        created_resources=created_resources,
+        next_step=_optional_text(value.get("nextStep")),
+        breadcrumbs=breadcrumbs,
+        working_set=_display_working_set(value.get("workingSet")),
+    )
+
+
+def _display_trust(
+    value: Any,
+    *,
+    default_context_source: str,
+    fallback_impact: str,
+    rollback_label: str | None,
+) -> ContinuityDisplayTrustResponse:
+    payload = value if isinstance(value, Mapping) else {}
+    context_sources = (
+        [
+            item.strip()
+            for item in payload.get("contextSources", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(payload.get("contextSources"), list)
+        else []
+    )
+    assumptions = (
+        [
+            item.strip()
+            for item in payload.get("assumptions", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if isinstance(payload.get("assumptions"), list)
+        else []
+    )
+    return ContinuityDisplayTrustResponse(
+        generation_label=_optional_text(payload.get("generationLabel")),
+        generation_tone=_display_tone(payload.get("generationTone"), default="neutral"),
+        context_sources=context_sources or [default_context_source],
+        assumptions=assumptions,
+        confidence_label=_optional_text(payload.get("confidenceLabel"))
+        or "Persisted continuity state",
+        confidence_tone=_display_tone(payload.get("confidenceTone"), default="progress"),
+        freshness_label=_optional_text(payload.get("freshnessLabel")) or None,
+        freshness_tone=_display_tone(payload.get("freshnessTone"), default="neutral"),
+        rollback_label=_optional_text(payload.get("rollbackLabel")) or rollback_label,
+        rollback_tone=_display_tone(payload.get("rollbackTone"), default="neutral"),
+        impact_summary=_optional_text(payload.get("impactSummary")) or fallback_impact,
+        impact_tone=_display_tone(payload.get("impactTone"), default="neutral"),
+    )
+
+
+def _outcome_display_card(record: ContinuityOutcomeRecordResponse) -> ContinuityDisplayCardResponse:
+    card = record.outcome_card if isinstance(record.outcome_card, Mapping) else {}
+    return ContinuityDisplayCardResponse(
+        kind=cast(Any, _display_kind(card.get("kind"), default="receipt")),
+        tone=cast(Any, _display_tone(card.get("tone"), default="neutral")),
+        eyebrow=_optional_text(card.get("eyebrow")) or "Recent outcome",
+        title=_display_title(record),
+        summary=_display_summary(record),
+        rationale=_optional_text(card.get("rationale"))
+        or "This card summarizes a landed continuity outcome.",
+        preview=_display_preview_items(card.get("preview")),
+        trust=_display_trust(
+            card.get("trust"),
+            default_context_source="Durable continuity outcome",
+            fallback_impact=_display_summary(record),
+            rollback_label=record.undo_action.label if record.undo_action else None,
+        ),
+        handoff=_display_handoff(card.get("handoff")),
+        action_context_label=_optional_text(card.get("actionContextLabel")),
+        action_warning=(record.degraded_label if record.degraded else None)
+        or _optional_text(card.get("actionWarning")),
+    )
 
 
 _DRIFT_SCORE: dict[str, int] = {
@@ -574,6 +753,7 @@ class _WorkflowSummaryCandidate:
     resolved_resume: ResolvedContinuityTargetResponse
     display_title: str
     display_summary: str
+    display_card: ContinuityDisplayCardResponse
     undo_action: ContinuityUndoAction | None
     rerun_action: ContinuityRerunAction | None
     working_set_id: int | None
@@ -630,6 +810,24 @@ def _anchor_display_title(anchor: ContinuityAnchorResponse) -> str:
 
 def _anchor_display_summary(anchor: ContinuityAnchorResponse) -> str:
     return anchor.outcome_summary or "Resume the last saved landed workflow state."
+
+
+def _anchor_display_card(anchor: ContinuityAnchorResponse) -> ContinuityDisplayCardResponse:
+    return ContinuityDisplayCardResponse(
+        kind="handoff",
+        tone="attention" if anchor.degraded else "neutral",
+        eyebrow="Resume anchor",
+        title=_anchor_display_title(anchor),
+        summary=_anchor_display_summary(anchor),
+        rationale=_DISPLAY_SUMMARY_RATIONALE,
+        preview=[],
+        trust=ContinuityDisplayTrustResponse(
+            context_sources=["Durable continuity workflow summary"]
+        ),
+        handoff=None,
+        action_context_label="Continue from here",
+        action_warning=anchor.degraded_label if anchor.degraded else None,
+    )
 
 
 def _active_working_set_id(conn: sqlite3.Connection) -> int | None:
@@ -783,6 +981,7 @@ def _candidate_from_outcome(
             resolved_resume=record.resolved_resume,
             display_title=_display_title(record),
             display_summary=_display_summary(record),
+            display_card=record.display_card,
             undo_action=record.undo_action,
             rerun_action=record.rerun_action,
             working_set_id=record.working_set_id,
@@ -820,6 +1019,7 @@ def _candidate_from_outcome(
         resolved_resume=record.resolved_resume,
         display_title=_display_title(record),
         display_summary=_display_summary(record),
+        display_card=record.display_card,
         undo_action=record.undo_action,
         rerun_action=record.rerun_action,
         working_set_id=record.working_set_id,
@@ -866,6 +1066,7 @@ def _candidate_from_anchor(
             resolved_resume=anchor.resolved_resume,
             display_title=_anchor_display_title(anchor),
             display_summary=_anchor_display_summary(anchor),
+            display_card=_anchor_display_card(anchor),
             undo_action=None,
             rerun_action=None,
             working_set_id=anchor.working_set_id,
@@ -901,6 +1102,7 @@ def _candidate_from_anchor(
         resolved_resume=anchor.resolved_resume,
         display_title=_anchor_display_title(anchor),
         display_summary=_anchor_display_summary(anchor),
+        display_card=_anchor_display_card(anchor),
         undo_action=None,
         rerun_action=None,
         working_set_id=anchor.working_set_id,
@@ -1020,6 +1222,123 @@ def _build_changed_since_last_seen(
     return lines
 
 
+def _summary_working_set(
+    candidate: _WorkflowSummaryCandidate,
+    *,
+    working_set_name: str | None,
+) -> ContinuityDisplayWorkingSetResponse | None:
+    existing = (
+        candidate.display_card.handoff.working_set if candidate.display_card.handoff else None
+    )
+    if existing is not None:
+        return existing
+    if candidate.working_set_id is None or working_set_name is None:
+        return None
+    return ContinuityDisplayWorkingSetResponse(
+        working_set_id=candidate.working_set_id,
+        working_set_name=working_set_name,
+        item_count=0,
+        missing_item_count=0,
+    )
+
+
+def _summary_display_card(
+    candidate: _WorkflowSummaryCandidate,
+    *,
+    working_set_name: str | None,
+    outcome_preview_titles: list[str],
+    why_now: list[str],
+    changed_since_last_seen: list[str],
+) -> ContinuityDisplayCardResponse:
+    working_set = _summary_working_set(candidate, working_set_name=working_set_name)
+    if candidate.source == "anchor":
+        preview = [
+            *(
+                [ContinuityDisplayPreviewItemResponse(label="Why now", value=why_now[0])]
+                if why_now
+                else []
+            ),
+            *(
+                [
+                    ContinuityDisplayPreviewItemResponse(
+                        label="Changed", value=changed_since_last_seen[0]
+                    )
+                ]
+                if changed_since_last_seen
+                else []
+            ),
+            *(
+                [
+                    ContinuityDisplayPreviewItemResponse(
+                        label="Working set", value=working_set.working_set_name
+                    )
+                ]
+                if working_set
+                else []
+            ),
+            *(
+                [
+                    ContinuityDisplayPreviewItemResponse(
+                        label="Outcomes", value=str(len(outcome_preview_titles))
+                    )
+                ]
+                if len(outcome_preview_titles) > 1
+                else []
+            ),
+        ]
+        return ContinuityDisplayCardResponse(
+            kind="handoff",
+            tone="attention" if candidate.degraded else "neutral",
+            eyebrow="Resume anchor",
+            title=candidate.display_title,
+            summary=candidate.display_summary,
+            rationale=_DISPLAY_SUMMARY_RATIONALE,
+            preview=preview,
+            trust=ContinuityDisplayTrustResponse(
+                generation_label="Backend continuity summary",
+                generation_tone="neutral",
+                context_sources=["Durable continuity workflow summary"],
+                assumptions=[],
+                confidence_label="Deterministic continuity ranking",
+                confidence_tone="progress",
+                freshness_label=f"Updated {candidate.occurred_at_utc}",
+                freshness_tone="neutral",
+                rollback_label=None,
+                rollback_tone="neutral",
+                impact_summary=" · ".join([*why_now, *changed_since_last_seen])
+                or candidate.display_summary,
+                impact_tone="neutral",
+            ),
+            handoff=ContinuityDisplayHandoffResponse(
+                change_summary=" · ".join(changed_since_last_seen) or candidate.display_summary,
+                created_resources=outcome_preview_titles[:3],
+                next_step="Open the ranked workflow and continue from the durable landed state.",
+                breadcrumbs=["Home", "Since last visit", candidate.workflow_thread.title],
+                working_set=working_set,
+            ),
+            action_context_label="Continue from here",
+            action_warning=candidate.degraded_label,
+        )
+
+    base = candidate.display_card
+    handoff = None
+    if base.handoff is not None:
+        handoff = base.handoff.model_copy(
+            update={
+                "working_set": base.handoff.working_set or working_set,
+            }
+        )
+    return base.model_copy(
+        update={
+            "title": candidate.display_title,
+            "summary": candidate.display_summary,
+            "handoff": handoff,
+            "action_context_label": base.action_context_label or "Continue from here",
+            "action_warning": candidate.degraded_label or base.action_warning,
+        }
+    )
+
+
 def _build_workflow_summaries(
     *,
     conn: sqlite3.Connection,
@@ -1085,6 +1404,19 @@ def _build_workflow_summaries(
         prior_state = _build_prior_state(representative, anchors)
         outcome_count = len(items)
         summary_rank = representative.rank + min(outcome_count, 4) * 8
+        outcome_preview_titles = [item.display_title for item in sorted_items[:3]]
+        working_set_name = (
+            working_set_names.get(representative.working_set_id)
+            if representative.working_set_id is not None
+            else None
+        )
+        why_now = _build_why_now(representative, outcome_count=outcome_count)
+        changed_since_last_seen = _build_changed_since_last_seen(
+            representative,
+            outcome_count=outcome_count,
+            marker=marker,
+            latest_outcome_id=latest_by_time.latest_outcome_id,
+        )
         summaries.append(
             ContinuityWorkflowSummaryResponse(
                 id=representative.workflow_thread.id,
@@ -1096,26 +1428,26 @@ def _build_workflow_summaries(
                 latest_outcome_id=latest_by_time.latest_outcome_id,
                 occurred_at_utc=representative.occurred_at_utc,
                 outcome_count=outcome_count,
-                outcome_preview_titles=[item.display_title for item in sorted_items[:3]],
+                outcome_preview_titles=outcome_preview_titles,
                 requested_resume_location=representative.requested_resume_location,
                 resolved_resume=representative.resolved_resume,
                 display_title=representative.display_title,
                 display_summary=representative.display_summary,
+                display_card=_summary_display_card(
+                    representative,
+                    working_set_name=working_set_name,
+                    outcome_preview_titles=outcome_preview_titles,
+                    why_now=why_now,
+                    changed_since_last_seen=changed_since_last_seen,
+                ),
                 undo_action=representative.undo_action,
                 rerun_action=representative.rerun_action,
                 working_set_id=representative.working_set_id,
-                working_set_name=working_set_names.get(representative.working_set_id)
-                if representative.working_set_id is not None
-                else None,
+                working_set_name=working_set_name,
                 degraded=representative.degraded,
                 degraded_label=representative.degraded_label,
-                why_now=_build_why_now(representative, outcome_count=outcome_count),
-                changed_since_last_seen=_build_changed_since_last_seen(
-                    representative,
-                    outcome_count=outcome_count,
-                    marker=marker,
-                    latest_outcome_id=latest_by_time.latest_outcome_id,
-                ),
+                why_now=why_now,
+                changed_since_last_seen=changed_since_last_seen,
                 prior_state=prior_state,
             )
         )
