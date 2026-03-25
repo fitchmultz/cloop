@@ -95,6 +95,7 @@ def test_relationship_review_workflow_endpoints(
     session_payload = session_response.json()
     session_id = session_payload["session"]["id"]
     assert session_payload["current_item"]["loop"]["id"] == first_id
+    assert session_payload["rerun_action"]["rerun"]["review_focus"] == "relationship"
 
     action_run = client.post(
         f"/loops/review/relationship/sessions/{session_id}/action",

@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal
 
 from ._shared import RAW_TEXT_MAX, SEARCH_QUERY_MAX, VIEW_NAME_MAX, BaseModel, Field
+from .continuity import ContinuityRerunAction
 from .core import LoopResponse
 
 PlanningSessionStatus = Literal["draft", "in_progress", "completed"]
@@ -308,6 +309,7 @@ class PlanningSessionSnapshotResponse(BaseModel):
     checkpoints: List[PlanningCheckpointResponse] = Field(default_factory=list)
     current_checkpoint: PlanningCheckpointResponse | None = None
     execution_history: List[PlanningExecutionHistoryItemResponse] = Field(default_factory=list)
+    rerun_action: ContinuityRerunAction | None = None
 
 
 class PlanningSessionExecuteResponse(BaseModel):

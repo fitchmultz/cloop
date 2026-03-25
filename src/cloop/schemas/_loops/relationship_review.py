@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import List, Literal
 
 from ._shared import SEARCH_QUERY_MAX, VIEW_DESCRIPTION_MAX, VIEW_NAME_MAX, BaseModel, Field
+from .continuity import ContinuityRerunAction
 from .core import LoopResponse
 
 
@@ -145,6 +146,7 @@ class RelationshipReviewSessionSnapshotResponse(BaseModel):
     current_index: int | None = None
     current_item: LoopRelationshipReviewQueueItemResponse | None = None
     items: List[LoopRelationshipReviewQueueItemResponse]
+    rerun_action: ContinuityRerunAction | None = None
 
 
 class RelationshipReviewSessionActionRequest(BaseModel):

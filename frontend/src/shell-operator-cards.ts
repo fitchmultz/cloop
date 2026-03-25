@@ -71,10 +71,7 @@ import {
   buildPrimaryRecommendationDigestCard,
   derivePrimaryRecommendation,
 } from "./continuity-recommendations";
-import {
-  buildPlanningRefreshAction,
-  buildReviewSessionRefreshAction,
-} from "./executable-rerun";
+import { requireApiRerunAction } from "./executable-rerun";
 import { buildPlanningRollbackAction } from "./executable-undo";
 import {
   buildChangedCountPreviewItems,
@@ -583,9 +580,8 @@ function buildRelationshipDecisionCard(
     },
     actions: [
       buildOpenAction("Open decision queue", location, `${snapshot.loop_count} relationship decisions queued`),
-      buildReviewSessionRefreshAction({
-        reviewFocus: "relationship",
-        snapshot,
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Saved relationship review session ${snapshot.session.name}`,
       }),
       buildPinAction("Pin queue", location, `${snapshot.loop_count} relationship decisions queued`, `Decide · ${snapshot.session.name}`),
     ],
@@ -652,9 +648,8 @@ function buildEnrichmentDecisionCard(
     },
     actions: [
       buildOpenAction("Open enrichment queue", location, `${snapshot.loop_count} enrichment follow-up items queued`),
-      buildReviewSessionRefreshAction({
-        reviewFocus: "enrichment",
-        snapshot,
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Saved enrichment review session ${snapshot.session.name}`,
       }),
       buildPinAction("Pin queue", location, `${snapshot.loop_count} enrichment follow-up items queued`, `Decide · ${snapshot.session.name}`),
     ],
@@ -773,7 +768,9 @@ function buildPlanningResumeCard(snapshot: PlanningSessionSnapshotResponse): Ope
     },
     actions: [
       buildOpenAction("Resume plan", location, `Resume ${currentCheckpointTitle}`),
-      buildPlanningRefreshAction(snapshot),
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Planning session ${snapshot.session.name}`,
+      }),
       buildPinAction("Pin plan", location, `Resume ${currentCheckpointTitle}`, `Plan · ${snapshot.session.name}`),
     ],
   } satisfies OperatorActionCard;
@@ -835,7 +832,9 @@ function buildPlanningExecutionCard(
         primaryLocation,
         followUpBits[0] ?? latestExecution.checkpoint_title,
       ),
-      buildPlanningRefreshAction(snapshot),
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Planning session ${snapshot.session.name}`,
+      }),
       buildPinAction(
         "Pin handoff",
         primaryLocation,
@@ -1465,7 +1464,8 @@ function buildPlanningDriftCard(data: WorkspaceData): PrioritizedCard | null {
         breadcrumbs: ["Home", "Since last visit", "Planning drift"],
       },
       actions: [
-        buildPlanningRefreshAction(current, {
+        requireApiRerunAction(current.rerun_action, {
+          sourceLabel: `Planning session ${current.session.name}`,
           variant: "primary",
         }),
         buildOpenAction(

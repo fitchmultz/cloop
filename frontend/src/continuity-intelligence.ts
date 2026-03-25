@@ -89,7 +89,7 @@ import {
   upsertContinuityNotificationState,
   upsertContinuityRecoveryAcknowledgement,
 } from "./continuity-api";
-import { rerunHandleIdentity } from "./executable-rerun";
+import { mapApiRerunAction, rerunHandleIdentity } from "./executable-rerun";
 import { undoHandleIdentity } from "./executable-undo";
 import {
   isLowSignalNavigationEntry,
@@ -1424,56 +1424,7 @@ function mapUndoActionFromApi(
 function mapRerunActionFromApi(
   action: ContinuityOutcomeRecordResponse["rerun_action"] | ContinuityWorkflowSummaryResponse["rerun_action"] | null | undefined,
 ): OperatorActionCardRerunAction | null {
-  if (!action) {
-    return null;
-  }
-  let rerun: ExecutableRerunHandle | null = null;
-  if (action.rerun.kind === "planning_session") {
-    rerun = {
-      kind: "planning_session",
-      sessionId: action.rerun.session_id,
-      sessionName: action.rerun.session_name,
-    };
-  } else if (action.rerun.kind === "review_session") {
-    rerun = {
-      kind: "review_session",
-      reviewFocus: action.rerun.review_focus,
-      sessionId: action.rerun.session_id,
-      sessionName: action.rerun.session_name,
-    };
-  } else if (action.rerun.kind === "recall_query") {
-    rerun = {
-      kind: "recall_query",
-      recallTool: action.rerun.recall_tool,
-      query: action.rerun.query,
-      workingSetId: action.rerun.working_set_id ?? null,
-      includeLoopContext: action.rerun.include_loop_context ?? undefined,
-      includeMemoryContext: action.rerun.include_memory_context ?? undefined,
-      includeRagContext: action.rerun.include_rag_context ?? undefined,
-    };
-  }
-  if (!rerun) {
-    return null;
-  }
-  return {
-    type: "rerun",
-    label: action.label,
-    variant: "secondary",
-    description: action.description,
-    rerun,
-    contract: {
-      mode: action.contract.mode,
-      provenanceLabel: action.contract.provenance_label,
-      freshnessLabel: action.contract.freshness_label ?? null,
-      strategySummary: action.contract.strategy_summary,
-      strictInvariants: action.contract.strict_invariants ?? [],
-      mayVary: action.contract.may_vary ?? [],
-      postRun: {
-        summary: action.contract.post_run.summary,
-        location: mapLocationFromApi(action.contract.post_run.location),
-      },
-    },
-  };
+  return mapApiRerunAction(action);
 }
 
 function mapPersistedOutcomeToRecentEntry(response: ContinuityOutcomeRecordResponse): RecentShellActionEntry {

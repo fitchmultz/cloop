@@ -54,10 +54,7 @@ import {
   resolveWorkingSetSessionMetadata,
   type ReviewWorkspaceHandoffContext,
 } from "./review-workspace-handoffs";
-import {
-  buildPlanningRefreshAction,
-  buildReviewSessionRefreshAction,
-} from "./executable-rerun";
+import { requireApiRerunAction } from "./executable-rerun";
 import { buildLoopUndoAction, buildPlanningRollbackAction } from "./executable-undo";
 import { createLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
@@ -264,7 +261,8 @@ export function buildPlanningExecutionSummaryCard(
     },
     actions: [
       openAction(primarySurface ? "Open next surface" : "Resume plan", primaryLocation, latestExecution.checkpoint_title),
-      buildPlanningRefreshAction(snapshot, {
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Planning session ${snapshot.session.name}`,
         workingSetId: context.fallbackWorkingSetId,
       }),
       pinAction("Pin handoff", primaryLocation, latestExecution.checkpoint_title, `${snapshot.session.name} · ${latestExecution.checkpoint_title}`),
@@ -428,9 +426,8 @@ export function buildRelationshipImpactCard(options: {
       ? "Duplicate confirmation or merge is not reversible in-place. Verify both loops represent the same work before committing."
       : "Confirm as duplicate is not reversible in-place. Use that path only if both loops should collapse together.",
     actions: [
-      buildReviewSessionRefreshAction({
-        reviewFocus: "relationship",
-        snapshot,
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Saved relationship review session ${snapshot.session.name}`,
         workingSetId: context.fallbackWorkingSetId,
       }),
       ...(selectedAction && canUseSelectedPreset
@@ -539,9 +536,8 @@ export function buildEnrichmentImpactCard(options: {
       ? "Clarification answers rerun enrichment and may supersede older suggestions in this queue."
       : "Applying a suggestion mutates loop fields immediately and may supersede current loop context.",
     actions: [
-      buildReviewSessionRefreshAction({
-        reviewFocus: "enrichment",
-        snapshot,
+      requireApiRerunAction(snapshot.rerun_action, {
+        sourceLabel: `Saved enrichment review session ${snapshot.session.name}`,
         workingSetId: context.fallbackWorkingSetId,
       }),
       ...(selectedAction && suggestion
@@ -731,9 +727,8 @@ export function buildRelationshipDecisionReceiptCard(options: {
     resumeDescription: summary,
     pinLabel: `Relationship review · ${options.sessionName}`,
     actions: [
-      buildReviewSessionRefreshAction({
-        reviewFocus: "relationship",
-        snapshot: options.snapshot,
+      requireApiRerunAction(options.snapshot.rerun_action, {
+        sourceLabel: `Saved relationship review session ${options.snapshot.session.name}`,
         workingSetId: options.workingSetId,
       }),
       openAction("Open affected loop in Do", doLocation, `Inspect ${candidateLabel} in Do`, "secondary"),
@@ -812,9 +807,8 @@ export function buildEnrichmentDecisionReceiptCard(options: {
     resumeDescription: summary,
     pinLabel: `Enrichment review · ${options.sessionName}`,
     actions: [
-      buildReviewSessionRefreshAction({
-        reviewFocus: "enrichment",
-        snapshot: options.snapshot,
+      requireApiRerunAction(options.snapshot.rerun_action, {
+        sourceLabel: `Saved enrichment review session ${options.snapshot.session.name}`,
         workingSetId: options.workingSetId,
       }),
       ...(loop
@@ -907,7 +901,8 @@ export function buildPlanningExecutionReceiptCard(options: {
     resumeDescription: summary,
     pinLabel: `${options.snapshot.session.name} · ${options.latestExecution.checkpoint_title}`,
     actions: [
-      buildPlanningRefreshAction(options.snapshot, {
+      requireApiRerunAction(options.snapshot.rerun_action, {
+        sourceLabel: `Planning session ${options.snapshot.session.name}`,
         workingSetId: options.context.fallbackWorkingSetId,
       }),
       ...[

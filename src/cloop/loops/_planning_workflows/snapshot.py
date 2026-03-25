@@ -885,6 +885,61 @@ def _build_execution_analytics(
     return summary
 
 
+def _build_planning_session_rerun_action(
+    *,
+    session: Mapping[str, Any],
+    context_freshness: Mapping[str, Any],
+) -> dict[str, Any]:
+    is_stale = bool(context_freshness.get("is_stale"))
+    freshness_label = (
+        context_freshness.get("summary_label") or f"Updated {session['updated_at_utc']}"
+    )
+    description = (
+        "Land back in the saved planning session with refreshed checkpoints, trust metadata, "
+        "and handoff cues."
+    )
+    return {
+        "label": "Refresh plan" if is_stale else "Regenerate plan",
+        "description": description,
+        "rerun": {
+            "kind": "planning_session",
+            "session_id": int(session["id"]),
+            "session_name": str(session["name"]),
+        },
+        "contract": {
+            "mode": "refresh" if is_stale else "rerun",
+            "provenance_label": f"Planning session: {session['name']}",
+            "freshness_label": str(freshness_label),
+            "strategy_summary": (
+                "Reuse the saved planning session and refresh it against current loop state."
+                if is_stale
+                else (
+                    "Reuse the saved planning session contract and regenerate the current "
+                    "plan from live state."
+                )
+            ),
+            "strict_invariants": [
+                "Same planning session identity",
+                "Same saved prompt, query, and grounded planning contract",
+                "Same planning-session landing surface after the rerun",
+            ],
+            "may_vary": [
+                "Checkpoint wording and emphasis",
+                "Target ordering when loop state changed",
+                "Generation strategy path or alternate selector choice",
+            ],
+            "post_run": {
+                "summary": description,
+                "location": {
+                    "state": "plan",
+                    "review_focus": "planning",
+                    "session_id": int(session["id"]),
+                },
+            },
+        },
+    }
+
+
 def _build_planning_session_snapshot(
     *,
     session_row: Mapping[str, Any],
@@ -906,6 +961,11 @@ def _build_planning_session_snapshot(
         if bool(item.get("is_active", True))
         for result in list(item.get("results") or [])
     ]
+    context_freshness = _build_context_freshness(
+        context_summary=context_summary,
+        target_loops=target_loops,
+        conn=conn,
+    )
 
     return {
         "session": session,
@@ -913,11 +973,7 @@ def _build_planning_session_snapshot(
         "plan_summary": str(workflow.get("summary") or ""),
         "assumptions": list(workflow.get("assumptions") or []),
         "context_summary": context_summary,
-        "context_freshness": _build_context_freshness(
-            context_summary=context_summary,
-            target_loops=target_loops,
-            conn=conn,
-        ),
+        "context_freshness": context_freshness,
         "execution_analytics": _build_execution_analytics(
             execution_history=execution_history,
             checkpoints=checkpoints,
@@ -928,6 +984,10 @@ def _build_planning_session_snapshot(
         "checkpoints": checkpoints,
         "current_checkpoint": current_checkpoint,
         "execution_history": execution_history,
+        "rerun_action": _build_planning_session_rerun_action(
+            session=session,
+            context_freshness=context_freshness,
+        ),
     }
 
 

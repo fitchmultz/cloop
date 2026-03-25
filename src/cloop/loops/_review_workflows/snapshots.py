@@ -89,6 +89,68 @@ def _persist_session_cursor(
     return updated
 
 
+def _build_review_session_rerun_action(
+    *,
+    session: Mapping[str, Any],
+    review_focus: str,
+) -> dict[str, Any]:
+    description = (
+        f"Land back in the saved {review_focus} queue with refreshed items and trust copy."
+    )
+    may_vary = (
+        [
+            "Queue size and cursor target",
+            "Candidate ordering and similarity scores",
+            "Strategy path or alternate selector choice behind refreshed AI metadata",
+        ]
+        if review_focus == "relationship"
+        else [
+            "Queue size and cursor target",
+            "Suggestion ranking or clarification pressure",
+            "Strategy path or alternate selector choice behind refreshed AI metadata",
+        ]
+    )
+    strategy_summary = (
+        "Reuse the saved review query and rebuild the current relationship queue from live "
+        "similarity state."
+        if review_focus == "relationship"
+        else (
+            "Reuse the saved review query and rebuild the current enrichment queue from live "
+            "suggestions and clarifications."
+        )
+    )
+    return {
+        "label": "Refresh queue" if review_focus == "relationship" else "Refresh enrichment",
+        "description": description,
+        "rerun": {
+            "kind": "review_session",
+            "review_focus": review_focus,
+            "session_id": int(session["id"]),
+            "session_name": str(session["name"]),
+        },
+        "contract": {
+            "mode": "refresh",
+            "provenance_label": f"{session['name']} · {session['query']}",
+            "freshness_label": f"Updated {session['updated_at_utc']}",
+            "strategy_summary": strategy_summary,
+            "strict_invariants": [
+                "Same saved review session identity",
+                f"Same {review_focus} review kind and saved query",
+                "Same saved-session landing surface after refresh",
+            ],
+            "may_vary": may_vary,
+            "post_run": {
+                "summary": description,
+                "location": {
+                    "state": "decide",
+                    "review_focus": review_focus,
+                    "session_id": int(session["id"]),
+                },
+            },
+        },
+    }
+
+
 def _build_relationship_session_snapshot(
     *,
     session_row: dict[str, Any],
@@ -131,6 +193,10 @@ def _build_relationship_session_snapshot(
         "current_index": current_index,
         "current_item": current_item,
         "items": queue["items"],
+        "rerun_action": _build_review_session_rerun_action(
+            session=session,
+            review_focus="relationship",
+        ),
     }
 
 
@@ -175,6 +241,10 @@ def _build_enrichment_session_snapshot(
         "current_index": current_index,
         "current_item": current_item,
         "items": queue["items"],
+        "rerun_action": _build_review_session_rerun_action(
+            session=session,
+            review_focus="enrichment",
+        ),
     }
 
 

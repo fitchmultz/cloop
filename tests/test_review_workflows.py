@@ -111,6 +111,8 @@ def test_relationship_review_session_advances_after_resolving_current_pair(
 
         assert snapshot["session"]["current_loop_id"] == first_loop["id"]
         assert snapshot["current_item"]["loop"]["id"] == first_loop["id"]
+        assert snapshot["rerun_action"]["rerun"]["kind"] == "review_session"
+        assert snapshot["rerun_action"]["rerun"]["review_focus"] == "relationship"
 
         after = review_workflows.execute_relationship_review_session_action(
             session_id=snapshot["session"]["id"],
@@ -209,6 +211,8 @@ def test_review_session_move_helpers_step_through_saved_cursors(
             current_loop_id=enrich_first["id"],
             conn=conn,
         )
+        assert enrichment_session["rerun_action"]["rerun"]["kind"] == "review_session"
+        assert enrichment_session["rerun_action"]["rerun"]["review_focus"] == "enrichment"
 
         relationship_direction = (
             "next" if relationship_session["current_index"] == 0 else "previous"

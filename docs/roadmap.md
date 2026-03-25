@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to roll backend-authored rerun contracts across workflow surfaces without regressing the landed-outcome continuity model.
+The current priority is to finish recall rerun contracts, then complete continuity normalization and payload cleanup without re-cutting the same surfaces twice.
 
 ## Direction
 
@@ -28,25 +28,35 @@ Current product goals:
 
 ## Execution order
 
-### Next — Workflow rerun contract rollout
+### Next — Recall rerun contract rollout
 
-Goal: make planning, saved review, and recall reruns share one backend-authored contract instead of frontend-only handle builders.
+Goal: give recall follow-through one backend-owned rerun contract instead of shell-only reconstruction.
 
 Planned sequence:
 
-1. define one transport-safe rerun handle + attempt contract for planning, review, and recall refresh flows
-2. expose that contract from shared orchestration payloads and continuity follow-through surfaces
-3. keep stale-target handling and post-rerun landing semantics consistent across operator, HTTP, CLI, and MCP
+1. define a transport-safe rerun contract for recall queries and grounded-answer refreshes
+2. persist and expose that contract through receipt outcomes and continuity summaries
+3. reuse one execution/staleness path across cards, continuity, and command palette
+
+### Then — Legacy continuity follow-through normalization
+
+Goal: rewrite or normalize older persisted continuity outcomes so typed follow-through stays available after the final payload cleanup.
+
+Planned sequence:
+
+1. identify legacy outcomes that still depend on `outcome_card.actions` for undo or rerun
+2. backfill typed follow-through fields from canonical workflow data where a safe contract still exists
+3. leave irrecoverable legacy outcomes explicit instead of silently inventing actions
 
 ### Later — Outcome payload slimming
 
-Goal: shrink durable continuity payloads after typed follow-through contracts land so storage and hydration stop depending on full UI-card action blobs.
+Goal: shrink durable continuity payloads after first-party readers stop depending on full UI-card action blobs.
 
 Planned sequence:
 
-1. keep only backend-owned trust, handoff, and action fields needed for continuity rendering
-2. remove redundant action data from persisted `outcome_card` payloads where typed fields already exist
-3. delete transitional card-action parsing once all first-party readers use the typed contract
+1. keep only backend-owned trust, handoff, and display fields needed for continuity rendering
+2. remove redundant action data from persisted `outcome_card` payloads once typed fields are complete
+3. delete parser fallbacks and metadata shims kept only for the cutover
 
 ## Delivery model
 

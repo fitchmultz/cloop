@@ -216,6 +216,40 @@ function makeExecution(
   } as unknown as PlanningExecutionHistoryItemResponse;
 }
 
+function makePlanningRerunAction(sessionId: number, sessionName: string) {
+  return {
+    label: "Refresh plan",
+    description: "Land back in the saved planning session with refreshed checkpoints, trust metadata, and handoff cues.",
+    rerun: {
+      kind: "planning_session",
+      session_id: sessionId,
+      session_name: sessionName,
+    },
+    contract: {
+      mode: "refresh",
+      provenance_label: `Planning session: ${sessionName}`,
+      freshness_label: "Updated 2026-03-18T18:05:00Z",
+      strategy_summary: "Reuse the saved planning session and refresh it against current loop state.",
+      strict_invariants: ["Same planning session identity"],
+      may_vary: ["Checkpoint wording and emphasis"],
+      post_run: {
+        summary: "Land back in the saved planning session with refreshed checkpoints, trust metadata, and handoff cues.",
+        location: {
+          state: "plan",
+          recall_tool: "chat",
+          review_focus: "planning",
+          session_id: sessionId,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: null,
+        },
+      },
+    },
+  };
+}
+
 function makePlanningSnapshot(executionHistory: PlanningExecutionHistoryItemResponse[]): PlanningSessionSnapshotResponse {
   return {
     session: {
@@ -269,6 +303,7 @@ function makePlanningSnapshot(executionHistory: PlanningExecutionHistoryItemResp
     checkpoints: [],
     current_checkpoint: null,
     execution_history: executionHistory,
+    rerun_action: makePlanningRerunAction(14, "Weekly reset"),
   } as unknown as PlanningSessionSnapshotResponse;
 }
 

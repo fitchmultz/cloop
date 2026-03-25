@@ -56,6 +56,79 @@ const trust: TrustSurfaceMetadata = {
   rollbackLabel: "Explicit apply/reject",
 };
 
+function makeReviewRerunAction(
+  reviewFocus: "relationship" | "enrichment",
+  sessionId: number,
+  sessionName: string,
+) {
+  return {
+    label: reviewFocus === "relationship" ? "Refresh queue" : "Refresh enrichment",
+    description: `Land back in the saved ${reviewFocus} queue with refreshed items and trust copy.`,
+    rerun: {
+      kind: "review_session",
+      review_focus: reviewFocus,
+      session_id: sessionId,
+      session_name: sessionName,
+    },
+    contract: {
+      mode: "refresh",
+      provenance_label: `${sessionName} · status:open`,
+      freshness_label: "Updated 2026-03-19T16:20:00Z",
+      strategy_summary: `Reuse the saved review query and rebuild the current ${reviewFocus} queue from live state.`,
+      strict_invariants: ["Same saved review session identity"],
+      may_vary: ["Queue size and cursor target"],
+      post_run: {
+        summary: `Land back in the saved ${reviewFocus} queue with refreshed items and trust copy.`,
+        location: {
+          state: "decide",
+          recall_tool: "chat",
+          review_focus: reviewFocus,
+          session_id: sessionId,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: null,
+        },
+      },
+    },
+  };
+}
+
+function makePlanningRerunAction(sessionId: number, sessionName: string) {
+  return {
+    label: "Refresh plan",
+    description: "Land back in the saved planning session with refreshed checkpoints, trust metadata, and handoff cues.",
+    rerun: {
+      kind: "planning_session",
+      session_id: sessionId,
+      session_name: sessionName,
+    },
+    contract: {
+      mode: "refresh",
+      provenance_label: `Planning session: ${sessionName}`,
+      freshness_label: "Updated 2026-03-19T16:30:00Z",
+      strategy_summary: "Reuse the saved planning session and refresh it against current loop state.",
+      strict_invariants: ["Same planning session identity"],
+      may_vary: ["Checkpoint wording and emphasis"],
+      post_run: {
+        summary: "Land back in the saved planning session with refreshed checkpoints, trust metadata, and handoff cues.",
+        location: {
+          state: "plan",
+          recall_tool: "chat",
+          review_focus: "planning",
+          session_id: sessionId,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: null,
+        },
+      },
+    },
+  };
+}
+
 describe("review-workspace-action-cards", () => {
   it("builds relationship impact cards with executable review actions", () => {
     const candidate = {
@@ -74,6 +147,7 @@ describe("review-workspace-action-cards", () => {
         name: "Duplicate review",
       },
       items: [candidate],
+      rerun_action: makeReviewRerunAction("relationship", 11, "Duplicate review"),
     } as unknown as RelationshipReviewSessionSnapshotResponse;
 
     const card = buildRelationshipImpactCard({
@@ -145,6 +219,7 @@ describe("review-workspace-action-cards", () => {
         duplicate_candidates: [],
         related_candidates: [],
       },
+      rerun_action: makeReviewRerunAction("relationship", 11, "Duplicate review"),
     } as unknown as RelationshipReviewSessionSnapshotResponse;
     const candidate = {
       id: 22,
@@ -191,6 +266,7 @@ describe("review-workspace-action-cards", () => {
       loop_count: 4,
       current_index: 1,
       current_item: item,
+      rerun_action: makeReviewRerunAction("enrichment", 15, "Enrichment review"),
     } as unknown as EnrichmentReviewSessionSnapshotResponse;
 
     const card = buildEnrichmentDecisionReceiptCard({
@@ -222,6 +298,7 @@ describe("review-workspace-action-cards", () => {
         id: 19,
         name: "Weekly reset",
       },
+      rerun_action: makePlanningRerunAction(19, "Weekly reset"),
     } as unknown as import("./domain").PlanningSessionSnapshotResponse;
     const latestExecution = {
       run_id: 44,

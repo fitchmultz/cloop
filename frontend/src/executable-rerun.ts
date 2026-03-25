@@ -6,8 +6,8 @@
  *   recall flows so cards, continuity, and recents reuse one execution model.
  *
  * Responsibilities:
- *   - Build typed rerun actions for planning sessions, saved review sessions,
- *     and recall queries.
+ *   - Map backend-authored rerun contracts into executable frontend actions.
+ *   - Build recall rerun actions where the shell still authors the contract.
  *   - Execute rerun actions through shared HTTP or shell recall hooks.
  *   - Shape landed receipt outcomes after reruns complete.
  *   - Classify stale rerun failures so disabled follow-through actions stay truthful.
@@ -28,6 +28,8 @@
 
 import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
 import type {
+  ContinuityOutcomeRecordResponse,
+  ContinuityWorkflowSummaryResponse,
   EnrichmentReviewSessionSnapshotResponse,
   PlanningSessionSnapshotResponse,
   RelationshipReviewSessionSnapshotResponse,
@@ -80,128 +82,108 @@ function rerunTrust(
   };
 }
 
-function planningRerunContract(
-  snapshot: PlanningSessionSnapshotResponse,
-  workingSetId: number | null,
-): RerunAttemptContract {
-  const freshness = snapshot.context_freshness;
-  return {
-    mode: freshness?.is_stale ? "refresh" : "rerun",
-    provenanceLabel: `Planning session: ${snapshot.session.name}`,
-    freshnessLabel: freshness?.summary_label ?? `Updated ${snapshot.session.updated_at_utc}`,
-    strategySummary: freshness?.is_stale
-      ? "Reuse the saved planning session and refresh it against current loop state."
-      : "Reuse the saved planning session contract and regenerate the current plan from live state.",
-    strictInvariants: [
-      "Same planning session identity",
-      "Same saved prompt, query, and grounded planning contract",
-      "Same planning-session landing surface after the rerun",
-    ],
-    mayVary: [
-      "Checkpoint wording and emphasis",
-      "Target ordering when loop state changed",
-      "Generation strategy path or alternate selector choice",
-    ],
-    postRun: {
-      summary: "Land back in the saved planning session with refreshed checkpoints, trust metadata, and handoff cues.",
-      location: createLocation({
-        state: "plan",
-        reviewFocus: "planning",
-        sessionId: snapshot.session.id,
-        workingSetId,
-      }),
-    },
-  };
+type ApiRerunAction =
+  | PlanningSessionSnapshotResponse["rerun_action"]
+  | RelationshipReviewSessionSnapshotResponse["rerun_action"]
+  | EnrichmentReviewSessionSnapshotResponse["rerun_action"]
+  | ContinuityOutcomeRecordResponse["rerun_action"]
+  | ContinuityWorkflowSummaryResponse["rerun_action"]
+  | null
+  | undefined;
+
+function withWorkingSetLocation(
+  location: ShellLocationContract | null,
+  workingSetId: number | null | undefined,
+): ShellLocationContract | null {
+  return location && workingSetId != null ? { ...location, workingSetId } : location;
 }
 
-function reviewRerunContract(
-  snapshot: RelationshipReviewSessionSnapshotResponse | EnrichmentReviewSessionSnapshotResponse,
-  reviewFocus: "relationship" | "enrichment",
-  workingSetId: number | null,
-): RerunAttemptContract {
-  return {
-    mode: "refresh",
-    provenanceLabel: `${snapshot.session.name} · ${snapshot.session.query}`,
-    freshnessLabel: `Updated ${snapshot.session.updated_at_utc}`,
-    strategySummary: reviewFocus === "relationship"
-      ? "Reuse the saved review query and rebuild the current relationship queue from live similarity state."
-      : "Reuse the saved review query and rebuild the current enrichment queue from live suggestions and clarifications.",
-    strictInvariants: [
-      "Same saved review session identity",
-      `Same ${reviewFocus} review kind and saved query`,
-      "Same saved-session landing surface after refresh",
-    ],
-    mayVary: reviewFocus === "relationship"
-      ? [
-          "Queue size and cursor target",
-          "Candidate ordering and similarity scores",
-          "Strategy path or alternate selector choice behind refreshed AI metadata",
-        ]
-      : [
-          "Queue size and cursor target",
-          "Suggestion ranking or clarification pressure",
-          "Strategy path or alternate selector choice behind refreshed AI metadata",
-        ],
-    postRun: {
-      summary: `Land back in the saved ${reviewFocus} queue with refreshed items and trust copy.`,
-      location: createLocation({
-        state: "decide",
-        reviewFocus,
-        sessionId: snapshot.session.id,
-        workingSetId,
-      }),
-    },
-  };
-}
-
-export function buildPlanningRefreshAction(
-  snapshot: PlanningSessionSnapshotResponse,
+export function mapApiRerunAction(
+  action: ApiRerunAction,
   options: { workingSetId?: number | null; variant?: OperatorActionCardActionVariant } = {},
-): OperatorActionCardRerunAction {
-  const contract = planningRerunContract(snapshot, options.workingSetId ?? null);
+): OperatorActionCardRerunAction | null {
+  if (!action) {
+    return null;
+  }
+
+  let rerun: ExecutableRerunHandle | null = null;
+  if (action.rerun.kind === "planning_session") {
+    rerun = {
+      kind: "planning_session",
+      sessionId: action.rerun.session_id,
+      sessionName: action.rerun.session_name,
+    };
+  } else if (action.rerun.kind === "review_session") {
+    rerun = {
+      kind: "review_session",
+      reviewFocus: action.rerun.review_focus,
+      sessionId: action.rerun.session_id,
+      sessionName: action.rerun.session_name,
+    };
+  } else if (action.rerun.kind === "recall_query") {
+    rerun = {
+      kind: "recall_query",
+      recallTool: action.rerun.recall_tool,
+      query: action.rerun.query,
+      workingSetId: action.rerun.working_set_id ?? options.workingSetId ?? null,
+      includeLoopContext: action.rerun.include_loop_context ?? undefined,
+      includeMemoryContext: action.rerun.include_memory_context ?? undefined,
+      includeRagContext: action.rerun.include_rag_context ?? undefined,
+    };
+  }
+  if (!rerun) {
+    return null;
+  }
+
   return {
     type: "rerun",
-    label: contract.mode === "refresh" ? "Refresh plan" : "Regenerate plan",
+    label: action.label,
     variant: options.variant ?? "secondary",
-    description: contract.postRun.summary,
-    rerun: {
-      kind: "planning_session",
-      sessionId: snapshot.session.id,
-      sessionName: snapshot.session.name,
+    description: action.description,
+    rerun,
+    contract: {
+      mode: action.contract.mode,
+      provenanceLabel: action.contract.provenance_label,
+      freshnessLabel: action.contract.freshness_label ?? null,
+      strategySummary: action.contract.strategy_summary,
+      strictInvariants: action.contract.strict_invariants ?? [],
+      mayVary: action.contract.may_vary ?? [],
+      postRun: {
+        summary: action.contract.post_run.summary,
+        location: withWorkingSetLocation(
+          action.contract.post_run.location
+            ? createLocation({
+                state: action.contract.post_run.location.state,
+                recallTool: action.contract.post_run.location.recall_tool,
+                reviewFocus: action.contract.post_run.location.review_focus,
+                sessionId: action.contract.post_run.location.session_id,
+                loopId: action.contract.post_run.location.loop_id,
+                viewId: action.contract.post_run.location.view_id,
+                memoryId: action.contract.post_run.location.memory_id,
+                workingSetId: action.contract.post_run.location.working_set_id,
+                query: action.contract.post_run.location.query,
+              })
+            : null,
+          options.workingSetId,
+        ),
+      },
     },
-    contract,
   };
 }
 
-export function buildReviewSessionRefreshAction(
-  input:
-    | {
-        reviewFocus: "relationship";
-        snapshot: RelationshipReviewSessionSnapshotResponse;
-        workingSetId?: number | null;
-        variant?: OperatorActionCardActionVariant;
-      }
-    | {
-        reviewFocus: "enrichment";
-        snapshot: EnrichmentReviewSessionSnapshotResponse;
-        workingSetId?: number | null;
-        variant?: OperatorActionCardActionVariant;
-      },
+export function requireApiRerunAction(
+  action: ApiRerunAction,
+  options: {
+    sourceLabel: string;
+    workingSetId?: number | null;
+    variant?: OperatorActionCardActionVariant;
+  },
 ): OperatorActionCardRerunAction {
-  const contract = reviewRerunContract(input.snapshot, input.reviewFocus, input.workingSetId ?? null);
-  return {
-    type: "rerun",
-    label: input.reviewFocus === "relationship" ? "Refresh queue" : "Refresh enrichment",
-    variant: input.variant ?? "secondary",
-    description: contract.postRun.summary,
-    rerun: {
-      kind: "review_session",
-      reviewFocus: input.reviewFocus,
-      sessionId: input.snapshot.session.id,
-      sessionName: input.snapshot.session.name,
-    },
-    contract,
-  };
+  const rerunAction = mapApiRerunAction(action, options);
+  if (!rerunAction) {
+    throw new Error(`${options.sourceLabel} is missing rerun_action.`);
+  }
+  return rerunAction;
 }
 
 export function buildRecallRerunAction(input: {
@@ -273,7 +255,8 @@ export function rerunHandleIdentity(handle: ExecutableRerunHandle): string {
 
 function planningRefreshReceipt(snapshot: PlanningSessionSnapshotResponse, action: OperatorActionCardRerunAction): ExecutedRerunResult {
   const resumeLocation = action.contract.postRun.location;
-  const refreshAction = buildPlanningRefreshAction(snapshot, {
+  const refreshAction = requireApiRerunAction(snapshot.rerun_action, {
+    sourceLabel: `Planning session ${snapshot.session.name}`,
     workingSetId: resumeLocation?.workingSetId ?? null,
   });
   const title = action.contract.mode === "refresh"
@@ -350,11 +333,10 @@ function reviewRefreshReceipt(
     throw new Error("Expected a saved review-session rerun handle.");
   }
   const resumeLocation = action.contract.postRun.location;
-  const refreshAction = buildReviewSessionRefreshAction({
-    reviewFocus: action.rerun.reviewFocus,
-    snapshot: snapshot as RelationshipReviewSessionSnapshotResponse & EnrichmentReviewSessionSnapshotResponse,
+  const refreshAction = requireApiRerunAction(snapshot.rerun_action, {
+    sourceLabel: `Saved ${action.rerun.reviewFocus} review session ${snapshot.session.name}`,
     workingSetId: resumeLocation?.workingSetId ?? null,
-  } as never);
+  });
   const title = `Refreshed ${snapshot.session.name}`;
   const summary = action.rerun.reviewFocus === "relationship"
     ? `Relationship queue rebuilt with ${snapshot.loop_count} queued item${snapshot.loop_count === 1 ? "" : "s"}.`

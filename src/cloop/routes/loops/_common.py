@@ -42,6 +42,7 @@ from ...schemas.loops import (
     ClarificationRefinementResponse,
     ClarificationResponse,
     ClarificationSubmitResponse,
+    ContinuityRerunAction,
     DependencyInfo,
     EnrichmentReviewActionResponse,
     EnrichmentReviewActionResultResponse,
@@ -301,6 +302,11 @@ def build_relationship_review_session_snapshot_response(
             LoopRelationshipReviewQueueItemResponse.model_validate(item)
             for item in snapshot.get("items", [])
         ],
+        rerun_action=(
+            ContinuityRerunAction.model_validate(snapshot["rerun_action"])
+            if snapshot.get("rerun_action") is not None
+            else None
+        ),
     )
 
 
@@ -375,6 +381,11 @@ def build_enrichment_review_session_snapshot_response(
         items=[
             build_enrichment_review_queue_item_response(item) for item in snapshot.get("items", [])
         ],
+        rerun_action=(
+            ContinuityRerunAction.model_validate(snapshot["rerun_action"])
+            if snapshot.get("rerun_action") is not None
+            else None
+        ),
     )
 
 
@@ -562,6 +573,11 @@ def build_planning_session_snapshot_response(
             build_planning_execution_history_item_response(item)
             for item in snapshot.get("execution_history", [])
         ],
+        rerun_action=(
+            ContinuityRerunAction.model_validate(snapshot["rerun_action"])
+            if snapshot.get("rerun_action") is not None
+            else None
+        ),
     )
 
 
