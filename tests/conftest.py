@@ -29,6 +29,11 @@ from fastapi.testclient import TestClient
 
 from cloop import db
 from cloop.ai_bridge import shutdown_bridge_runtime
+from cloop.schemas._loops.continuity import (
+    ContinuityLocationResponse,
+    ContinuityOutcomeWriteRequest,
+    WorkflowThreadRefResponse,
+)
 from cloop.settings import (
     EmbedStorageMode,
     PiSelectorMode,
@@ -38,6 +43,7 @@ from cloop.settings import (
     VectorSearchMode,
     get_settings,
 )
+from cloop.storage.continuity_store import record_continuity_outcome
 
 STREAM_TOKENS = ["Answer ", "segment"]
 
@@ -161,6 +167,66 @@ def _now_iso() -> str:
     Used by test_db_failures.py, test_mcp_server.py, test_loops_query.py, test_loop_*.py.
     """
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def record_continuity_delivery_outcome(
+    *,
+    label: str = "Created review queue",
+    description: str = "The downstream queue is ready.",
+    occurred_at_utc: str = "2026-03-21T12:00:00Z",
+    workflow_thread_id: str = "planning:41:checkpoint:0",
+    workflow_thread_title: str = "Weekly reset",
+    workflow_thread_summary: str = "Planning checkpoint thread",
+    dedupe_key: str = "planning::queue",
+    session_id: int = 41,
+    checkpoint_index: int = 0,
+) -> str:
+    """Record one canonical continuity outcome used by delivery diagnostics tests."""
+    record_continuity_outcome(
+        ContinuityOutcomeWriteRequest(
+            kind="planning",
+            label=label,
+            description=description,
+            occurred_at_utc=occurred_at_utc,
+            launch_location=ContinuityLocationResponse(state="operator"),
+            resume_location=ContinuityLocationResponse(
+                state="decide",
+                review_focus="enrichment",
+                session_id=52,
+            ),
+            outcome_card={
+                "id": f"receipt-{label.lower().replace(' ', '-')}",
+                "kind": "receipt",
+                "tone": "progress",
+                "eyebrow": "Planning receipt",
+                "title": label,
+                "summary": description,
+                "rationale": "Receipt",
+                "preview": [],
+                "trust": {
+                    "contextSources": ["Planning session"],
+                    "assumptions": [],
+                    "confidenceLabel": "Recorded",
+                    "freshnessLabel": "Saved just now",
+                    "rollbackLabel": "Undo remains available.",
+                },
+                "handoff": None,
+                "actions": [],
+            },
+            workflow_thread=WorkflowThreadRefResponse(
+                id=workflow_thread_id,
+                kind="planning_checkpoint",
+                title=workflow_thread_title,
+                summary=workflow_thread_summary,
+                parent_outcome_id=None,
+            ),
+            dedupe_key=dedupe_key,
+            source_surface="review-workspace",
+            signal_level="high",
+            metadata={"sessionId": session_id, "checkpointIndex": checkpoint_index},
+        )
+    )
+    return workflow_thread_id
 
 
 def insert_planning_session(session_id: int, *, name: str | None = None) -> None:

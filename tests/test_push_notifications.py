@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from typing import Iterator
 
 import pytest
+from conftest import record_continuity_delivery_outcome
 
 from cloop import db
 from cloop._scheduler.models import SchedulerPushResult
@@ -55,50 +56,7 @@ def push_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[sqlite3
 
 
 def _record_notification() -> None:
-    record_continuity_outcome(
-        ContinuityOutcomeWriteRequest(
-            kind="planning",
-            label="Created review queue",
-            description="The downstream queue is ready.",
-            occurred_at_utc="2026-03-21T12:00:00Z",
-            launch_location=ContinuityLocationResponse(state="operator"),
-            resume_location=ContinuityLocationResponse(
-                state="decide",
-                review_focus="enrichment",
-                session_id=52,
-            ),
-            outcome_card={
-                "id": "receipt-created-review-queue",
-                "kind": "receipt",
-                "tone": "progress",
-                "eyebrow": "Planning receipt",
-                "title": "Created review queue",
-                "summary": "The downstream queue is ready.",
-                "rationale": "Receipt",
-                "preview": [],
-                "trust": {
-                    "contextSources": ["Planning session"],
-                    "assumptions": [],
-                    "confidenceLabel": "Recorded",
-                    "freshnessLabel": "Saved just now",
-                    "rollbackLabel": "Undo remains available.",
-                },
-                "handoff": None,
-                "actions": [],
-            },
-            workflow_thread=WorkflowThreadRefResponse(
-                id="planning:41:checkpoint:0",
-                kind="planning_checkpoint",
-                title="Weekly reset",
-                summary="Planning checkpoint thread",
-                parent_outcome_id=None,
-            ),
-            dedupe_key="planning::queue",
-            source_surface="review-workspace",
-            signal_level="high",
-            metadata={"sessionId": 41, "checkpointIndex": 0},
-        )
-    )
+    record_continuity_delivery_outcome()
 
 
 def _add_push_subscription(conn: sqlite3.Connection) -> None:

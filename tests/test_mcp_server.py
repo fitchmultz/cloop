@@ -17,7 +17,12 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-from conftest import _now_iso
+from conftest import (
+    _now_iso,
+)
+from conftest import (
+    record_continuity_delivery_outcome as _record_continuity_delivery_outcome,
+)
 from mcp.server.fastmcp.exceptions import ToolError
 
 from cloop import db
@@ -83,14 +88,8 @@ from cloop.mcp_tools.suggestion_tools import (
     suggestion_reject,
 )
 from cloop.rag import NO_KNOWLEDGE_MESSAGE
-from cloop.schemas._loops.continuity import (
-    ContinuityLocationResponse,
-    ContinuityOutcomeWriteRequest,
-    WorkflowThreadRefResponse,
-)
 from cloop.schemas.chat import ChatMessage, ToolCall
 from cloop.settings import Settings, ToolMode, get_settings
-from cloop.storage.continuity_store import record_continuity_outcome
 
 
 def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,54 +102,6 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()
     db.init_databases(get_settings())
-
-
-def _record_continuity_delivery_outcome() -> None:
-    """Insert one continuity outcome suitable for delivery diagnostics tests."""
-    record_continuity_outcome(
-        ContinuityOutcomeWriteRequest(
-            kind="planning",
-            label="Created review queue",
-            description="The downstream queue is ready.",
-            occurred_at_utc="2026-03-21T12:00:00Z",
-            launch_location=ContinuityLocationResponse(state="operator"),
-            resume_location=ContinuityLocationResponse(
-                state="decide",
-                review_focus="enrichment",
-                session_id=52,
-            ),
-            outcome_card={
-                "id": "receipt-created-review-queue",
-                "kind": "receipt",
-                "tone": "progress",
-                "eyebrow": "Planning receipt",
-                "title": "Created review queue",
-                "summary": "The downstream queue is ready.",
-                "rationale": "Receipt",
-                "preview": [],
-                "trust": {
-                    "contextSources": ["Planning session"],
-                    "assumptions": [],
-                    "confidenceLabel": "Recorded",
-                    "freshnessLabel": "Saved just now",
-                    "rollbackLabel": "Undo remains available.",
-                },
-                "handoff": None,
-                "actions": [],
-            },
-            workflow_thread=WorkflowThreadRefResponse(
-                id="planning:41:checkpoint:0",
-                kind="planning_checkpoint",
-                title="Weekly reset",
-                summary="Planning checkpoint thread",
-                parent_outcome_id=None,
-            ),
-            dedupe_key="planning::queue",
-            source_surface="review-workspace",
-            signal_level="high",
-            metadata={"sessionId": 41, "checkpointIndex": 0},
-        )
-    )
 
 
 def _mock_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
