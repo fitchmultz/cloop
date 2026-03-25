@@ -20,11 +20,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from ..ai_bridge.errors import BridgeError
 from ..chat_execution import execute_chat_request, stream_chat_request
 from ..loops.errors import CloopError
 from ..schemas.chat import ChatRequest, ChatResponse
 from ..settings import Settings, get_settings
 from ..sse import format_sse_event
+from ._streaming import format_stream_error_event, prime_stream
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -40,14 +42,22 @@ def chat_endpoint(
     stream_enabled = stream if stream is not None else settings.stream_default
 
     if stream_enabled:
-
-        def event_stream() -> Iterator[str]:
-            try:
-                for event in stream_chat_request(
+        try:
+            _, primed_events = prime_stream(
+                stream_chat_request(
                     request=request,
                     settings=settings,
                     endpoint="/chat",
-                ):
+                )
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except BridgeError, CloopError:
+            raise
+
+        def event_stream() -> Iterator[str]:
+            try:
+                for event in primed_events:
                     if event.type == "text_delta":
                         yield format_sse_event("token", event.payload)
                     elif event.type == "tool_call":
@@ -56,10 +66,8 @@ def chat_endpoint(
                         yield format_sse_event("tool_result", event.payload)
                     elif event.type == "done":
                         yield format_sse_event("done", event.payload)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            except CloopError:
-                raise
+            except Exception as exc:
+                yield format_stream_error_event(exc)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 

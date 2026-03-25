@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cloop import db
+from cloop.ai_bridge.errors import BridgeUpstreamError
 from cloop.settings import get_settings
 
 
@@ -430,6 +431,35 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert recorded["context_summary"]["memory_context_applied"] in {True, False}
 
 
+def test_chat_streaming_preflight_failure_returns_http_error(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failing_stream_chat_request(*args: Any, **kwargs: Any):
+        def iterator():
+            raise BridgeUpstreamError(
+                "unsupported_selector",
+                "Unsupported pi model selector: broken/mock",
+                retryable=False,
+            )
+            yield None
+
+        return iterator()
+
+    monkeypatch.setattr("cloop.routes.chat.stream_chat_request", failing_stream_chat_request)
+
+    response = test_client.post(
+        "/chat?stream=true",
+        json={"messages": [{"role": "user", "content": "Hello"}], "tool_mode": "none"},
+    )
+
+    assert response.status_code == 502
+    payload = response.json()
+    assert payload["error"]["code"] == "unsupported_selector"
+    assert payload["error"]["message"] == "Unsupported pi model selector: broken/mock"
+
+
 def test_chat_response_exposes_effective_options_metadata_and_sources(
     test_client: TestClient, tmp_data_dir: Path
 ) -> None:
@@ -508,6 +538,35 @@ def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert recorded["answer"] == "".join(STREAM_TOKENS)
     assert recorded["context"]["vector_search_mode"] == get_settings().vector_search_mode.value
     assert recorded["rerun_action"]["rerun"]["kind"] == "recall_query"
+
+
+def test_rag_streaming_post_start_failure_emits_error_event(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cloop.rag_execution import StreamedRagAskEvent
+
+    def failing_stream_ask_request(*args: Any, **kwargs: Any):
+        yield StreamedRagAskEvent(type="text_delta", payload={"token": "partial"})
+        raise BridgeUpstreamError(
+            "selector_overloaded",
+            "Primary selector became unavailable during streaming.",
+            retryable=True,
+        )
+
+    monkeypatch.setattr("cloop.routes.rag.stream_ask_request", failing_stream_ask_request)
+
+    with test_client.stream("GET", "/ask", params={"q": "Stream?", "stream": "true"}) as response:
+        assert response.status_code == 200
+        events = _read_sse(response)
+
+    assert events[0] == ("token", {"token": "partial"})
+    assert events[-1][0] == "error"
+    assert events[-1][1]["error"]["code"] == "selector_overloaded"
+    assert (
+        events[-1][1]["error"]["message"] == "Primary selector became unavailable during streaming."
+    )
 
 
 def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:

@@ -20,6 +20,25 @@
  *   - Each data block is valid JSON.
  */
 
+function messageFromStreamErrorPayload(payload: unknown): string {
+  if (!payload || typeof payload !== "object") {
+    return "Streaming request failed.";
+  }
+  const directMessage = "message" in payload && typeof payload.message === "string"
+    ? payload.message.trim()
+    : "";
+  if (directMessage) {
+    return directMessage;
+  }
+  const nestedError = "error" in payload && payload.error && typeof payload.error === "object"
+    ? payload.error
+    : null;
+  if (nestedError && "message" in nestedError && typeof nestedError.message === "string" && nestedError.message.trim()) {
+    return nestedError.message.trim();
+  }
+  return "Streaming request failed.";
+}
+
 export async function consumeJsonEventStream<TPayload>(
   response: Response,
   onEvent: (eventName: string, payload: TPayload) => void,
@@ -31,6 +50,7 @@ export async function consumeJsonEventStream<TPayload>(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let sawDone = false;
 
   const flushBlock = (block: string): void => {
     if (!block.trim()) {
@@ -58,7 +78,14 @@ export async function consumeJsonEventStream<TPayload>(
       return;
     }
 
-    onEvent(eventName, JSON.parse(dataLines.join("\n")) as TPayload);
+    const payload = JSON.parse(dataLines.join("\n")) as TPayload;
+    if (eventName === "error") {
+      throw new Error(messageFromStreamErrorPayload(payload));
+    }
+    if (eventName === "done") {
+      sawDone = true;
+    }
+    onEvent(eventName, payload);
   };
 
   while (true) {
@@ -80,5 +107,8 @@ export async function consumeJsonEventStream<TPayload>(
 
   if (buffer.trim()) {
     flushBlock(buffer);
+  }
+  if (!sawDone) {
+    throw new Error("Streaming request ended before completion.");
   }
 }

@@ -32,6 +32,7 @@ from ..rag_execution import execute_ask_request, execute_ingest_request, stream_
 from ..schemas.rag import AskResponse, IngestMode, IngestRequest, IngestResponse
 from ..settings import Settings, get_settings
 from ..sse import format_sse_event
+from ._streaming import format_stream_error_event, prime_stream
 
 router = APIRouter(tags=["rag"])
 
@@ -75,19 +76,25 @@ def ask_endpoint(
 
     try:
         if stream_enabled:
-
-            def event_stream() -> Iterator[str]:
-                for event in stream_ask_request(
+            _, primed_events = prime_stream(
+                stream_ask_request(
                     question=q,
                     top_k=top_k,
                     scope=scope,
                     settings=settings,
                     endpoint="/ask",
-                ):
-                    if event.type == "text_delta":
-                        yield format_sse_event("token", event.payload)
-                    elif event.type == "done":
-                        yield format_sse_event("done", event.payload)
+                )
+            )
+
+            def event_stream() -> Iterator[str]:
+                try:
+                    for event in primed_events:
+                        if event.type == "text_delta":
+                            yield format_sse_event("token", event.payload)
+                        elif event.type == "done":
+                            yield format_sse_event("done", event.payload)
+                except Exception as exc:
+                    yield format_stream_error_event(exc)
 
             return StreamingResponse(event_stream(), media_type="text/event-stream")
 

@@ -30,11 +30,11 @@ Current product goals:
 
 ### Next — Continuity follow-through hard cutover
 
-Goal: remove `outcome_card.actions` as a continuity dependency once every live workflow has typed undo/rerun fields.
+Goal: delete continuity fallbacks that still infer undo or rerun from stored card-action blobs.
 
 Planned sequence:
 
-1. identify persisted outcomes that still rely on card-action fallbacks for rerun or undo
+1. identify persisted outcomes that still rely on card-action fallbacks
 2. backfill typed follow-through from canonical workflow data where a safe contract exists
 3. cut continuity readers to typed follow-through fields only and make irrecoverable history explicit
 
