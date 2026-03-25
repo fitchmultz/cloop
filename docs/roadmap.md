@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to remove continuity fallback debt, then slim stored outcome payloads after typed follow-through is the only execution path.
+The current priority is to cut continuity’s representative-card join, then slim stored outcome payloads.
 
 ## Direction
 
@@ -28,24 +28,24 @@ Current product goals:
 
 ## Execution order
 
-### Next — Continuity follow-through hard cutover
+### Next — Continuity display contract cutover
 
-Goal: delete continuity fallbacks that still infer undo or rerun from stored card-action blobs.
+Goal: stop continuity rendering from joining backend summaries to browser-local representative receipt cards.
 
 Planned sequence:
 
-1. identify persisted outcomes that still rely on card-action fallbacks
-2. backfill typed follow-through from canonical workflow data where a safe contract exists
-3. cut continuity readers to typed follow-through fields only and make irrecoverable history explicit
+1. define the minimal backend-authored display, trust, and handoff fields continuity cards still need
+2. backfill workflow summaries and landed outcomes so representative cards render without `RecentShellActionEntry.outcome.card`
+3. cut continuity readers to backend display payloads only and delete representative-card lookup joins
 
 ### Later — Outcome payload slimming
 
-Goal: shrink durable continuity payloads after typed follow-through is the only execution path.
+Goal: shrink durable continuity payloads after typed follow-through and display contracts are fully backend-authored.
 
 Planned sequence:
 
 1. keep only backend-owned trust, handoff, display, and typed follow-through fields needed for continuity rendering
-2. remove redundant action blobs from persisted `outcome_card` payloads
+2. remove redundant action blobs and transitional display copies from persisted outcome payloads
 3. delete parser fallbacks and metadata shims kept only for the cutover
 
 ## Delivery model

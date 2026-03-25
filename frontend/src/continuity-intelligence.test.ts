@@ -777,6 +777,67 @@ describe("continuity-intelligence", () => {
     expect(readRecentShellReceiptEntries()[0]?.outcome.card.title).toBe("Applied enrichment suggestion");
   });
 
+  it("does not infer typed follow-through from stored receipt card actions", () => {
+    window.localStorage.setItem("cloop.continuity.recent-actions.cache.v3", JSON.stringify([
+      {
+        kind: "planning",
+        label: "Refreshed weekly reset",
+        description: "The planning session was refreshed.",
+        location: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+        occurredAt: "2026-03-17T12:00:00Z",
+        outcome: {
+          card: {
+            id: "receipt-plan-rerun",
+            kind: "receipt",
+            tone: "progress",
+            eyebrow: "Planning receipt",
+            title: "Refreshed weekly reset",
+            summary: "The planning session was refreshed.",
+            rationale: "Receipt",
+            preview: [],
+            trust: {
+              contextSources: ["Planning session"],
+              assumptions: [],
+              confidenceLabel: "Recorded",
+              freshnessLabel: "Saved just now",
+              rollbackLabel: "Opening the plan is still safe.",
+            },
+            handoff: null,
+            actions: [
+              {
+                type: "rerun",
+                label: "Refresh plan",
+                variant: "secondary",
+                description: "Land back in the saved planning session.",
+                rerun: {
+                  kind: "planning_session",
+                  sessionId: 41,
+                  sessionName: "weekly-reset",
+                },
+                contract: {
+                  mode: "refresh",
+                  provenanceLabel: "Planning session: weekly-reset",
+                  freshnessLabel: "1 target changed",
+                  strategySummary: "Reuse the saved planning session and refresh it against current loop state.",
+                  strictInvariants: ["Same planning session identity"],
+                  mayVary: ["Checkpoint wording"],
+                  postRun: {
+                    summary: "Land back in the saved planning session.",
+                    location: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+                  },
+                },
+              },
+            ],
+          },
+          resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
+          rollbackLabel: "Opening the plan is still safe.",
+        },
+      },
+    ]));
+
+    expect(readRecentShellActions()[0]?.outcome?.rerunAction).toBeNull();
+  });
+
   it("keeps distinct receipts when the landed summaries differ", () => {
     recordRecentShellAction({
       kind: "working_set",

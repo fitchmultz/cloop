@@ -675,14 +675,6 @@ function parseContinuityNotificationRecord(value: unknown): ContinuityNotificati
   };
 }
 
-function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {
-  return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
-}
-
-function findRerunAction(card: OperatorActionCard): OperatorActionCardRerunAction | null {
-  return card.actions.find((action): action is OperatorActionCardRerunAction => action.type === "rerun") ?? null;
-}
-
 function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | null {
   if (!isRecord(value) || typeof value["kind"] !== "string" || typeof value["label"] !== "string" || typeof value["description"] !== "string" || typeof value["occurredAt"] !== "string") {
     return null;
@@ -714,8 +706,8 @@ function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | n
     card: cardValue,
     resumeLocation: normalizeLocation(outcome["resumeLocation"]),
     rollbackLabel: typeof outcome["rollbackLabel"] === "string" ? outcome["rollbackLabel"] : null,
-    undoAction: parseUndoAction(outcome["undoAction"]) ?? findUndoAction(cardValue),
-    rerunAction: parseRerunAction(outcome["rerunAction"]) ?? findRerunAction(cardValue),
+    undoAction: parseUndoAction(outcome["undoAction"]),
+    rerunAction: parseRerunAction(outcome["rerunAction"]),
     workflowThread: normalizeWorkflowThread(outcome["workflowThread"]),
     resolvedResume: normalizeResolvedTarget(outcome["resolvedResume"]),
   };
