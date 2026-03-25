@@ -219,6 +219,44 @@ describe("continuity-intelligence", () => {
               handoff: null,
               actions: [],
             },
+            undo_action: {
+              label: "Undo checkpoint",
+              description: "Undo the checkpoint execution.",
+              undo: {
+                kind: "planning_run",
+                session_id: 41,
+                run_id: 8,
+                checkpoint_index: 1,
+                checkpoint_title: "Create queue",
+                action_count: 2,
+                best_effort: false,
+              },
+              requires_confirmation: false,
+              confirm_title: null,
+              confirm_description: null,
+              success_location: null,
+            },
+            rerun_action: {
+              label: "Refresh plan",
+              description: "Refresh the saved planning session.",
+              rerun: {
+                kind: "planning_session",
+                session_id: 41,
+                session_name: "Weekly reset",
+              },
+              contract: {
+                mode: "refresh",
+                provenance_label: "Planning session: Weekly reset",
+                freshness_label: "1 target changed",
+                strategy_summary: "Reuse the saved planning session.",
+                strict_invariants: ["Same planning session identity"],
+                may_vary: ["Checkpoint wording"],
+                post_run: {
+                  summary: "Land back in the saved planning session.",
+                  location: null,
+                },
+              },
+            },
             resume_location: {
               state: "decide",
               recall_tool: "chat",
@@ -361,6 +399,44 @@ describe("continuity-intelligence", () => {
             },
             display_title: "Created launch review queue",
             display_summary: "The enrichment queue is ready to resume.",
+            undo_action: {
+              label: "Undo checkpoint",
+              description: "Undo the checkpoint execution.",
+              undo: {
+                kind: "planning_run",
+                session_id: 41,
+                run_id: 8,
+                checkpoint_index: 1,
+                checkpoint_title: "Create queue",
+                action_count: 2,
+                best_effort: false,
+              },
+              requires_confirmation: false,
+              confirm_title: null,
+              confirm_description: null,
+              success_location: null,
+            },
+            rerun_action: {
+              label: "Refresh plan",
+              description: "Refresh the saved planning session.",
+              rerun: {
+                kind: "planning_session",
+                session_id: 41,
+                session_name: "Weekly reset",
+              },
+              contract: {
+                mode: "refresh",
+                provenance_label: "Planning session: Weekly reset",
+                freshness_label: "1 target changed",
+                strategy_summary: "Reuse the saved planning session.",
+                strict_invariants: ["Same planning session identity"],
+                may_vary: ["Checkpoint wording"],
+                post_run: {
+                  summary: "Land back in the saved planning session.",
+                  location: null,
+                },
+              },
+            },
             working_set_id: 7,
             degraded: false,
             degraded_label: null,
@@ -411,8 +487,12 @@ describe("continuity-intelligence", () => {
 
     expect(readRecentShellActions()).toHaveLength(1);
     expect(readRecentShellActions()[0]?.outcome?.workflowThread?.id).toBe("planning:41:checkpoint:0");
+    expect(readRecentShellActions()[0]?.outcome?.undoAction?.undo.kind).toBe("planning_run");
+    expect(readRecentShellActions()[0]?.outcome?.rerunAction?.rerun.kind).toBe("planning_session");
     expect(readResumeAnchors().planning?.workflowThreadId).toBe("planning:41");
     expect(readContinuityWorkflowSummaries()[0]?.id).toBe("planning:41:checkpoint:0");
+    expect(readContinuityWorkflowSummaries()[0]?.undoAction?.undo.kind).toBe("planning_run");
+    expect(readContinuityWorkflowSummaries()[0]?.rerunAction?.rerun.kind).toBe("planning_session");
     expect(readContinuityNotificationRecords()[0]?.title).toBe("Created launch review queue is ready in your working set");
   });
 

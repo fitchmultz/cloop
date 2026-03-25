@@ -136,6 +136,121 @@ class ResolvedContinuityTargetResponse(BaseModel):
     successor: ContinuitySuccessorTargetResponse | None = None
 
 
+class ContinuityLoopEventUndoHandle(BaseModel):
+    """Exact handle for undoing one reversible loop event."""
+
+    kind: Literal["loop_event"] = "loop_event"
+    loop_id: int
+    expected_event_id: int
+    event_type: str | None = None
+    claim_token: str | None = None
+
+
+class ContinuityPlanningRunUndoHandle(BaseModel):
+    """Exact handle for rolling back one reversible planning run."""
+
+    kind: Literal["planning_run"] = "planning_run"
+    session_id: int
+    run_id: int
+    checkpoint_index: int
+    checkpoint_title: str
+    action_count: int = 0
+    best_effort: bool = False
+
+
+class ContinuityWorkingSetEventUndoHandle(BaseModel):
+    """Exact handle for undoing one reversible working-set event."""
+
+    kind: Literal["working_set_event"] = "working_set_event"
+    expected_event_id: int
+    event_type: str | None = None
+    working_set_id: int | None = None
+    working_set_name: str | None = None
+
+
+ContinuityExecutableUndoHandle = (
+    ContinuityLoopEventUndoHandle
+    | ContinuityPlanningRunUndoHandle
+    | ContinuityWorkingSetEventUndoHandle
+)
+
+
+class ContinuityUndoAction(BaseModel):
+    """Executable undo contract attached to one durable continuity outcome."""
+
+    label: str
+    description: str
+    undo: ContinuityExecutableUndoHandle
+    requires_confirmation: bool = False
+    confirm_title: str | None = None
+    confirm_description: str | None = None
+    success_location: ContinuityLocationResponse | None = None
+
+
+class ContinuityRerunPostRunBehavior(BaseModel):
+    """Post-rerun landing contract for one durable rerun action."""
+
+    summary: str
+    location: ContinuityLocationResponse | None = None
+
+
+class ContinuityPlanningSessionRerunHandle(BaseModel):
+    """Exact handle for rerunning one planning session."""
+
+    kind: Literal["planning_session"] = "planning_session"
+    session_id: int
+    session_name: str
+
+
+class ContinuityReviewSessionRerunHandle(BaseModel):
+    """Exact handle for refreshing one saved review session."""
+
+    kind: Literal["review_session"] = "review_session"
+    review_focus: Literal["relationship", "enrichment"]
+    session_id: int
+    session_name: str
+
+
+class ContinuityRecallQueryRerunHandle(BaseModel):
+    """Exact handle for rerunning one recall query."""
+
+    kind: Literal["recall_query"] = "recall_query"
+    recall_tool: Literal["chat", "rag"]
+    query: str
+    working_set_id: int | None = None
+    include_loop_context: bool | None = None
+    include_memory_context: bool | None = None
+    include_rag_context: bool | None = None
+
+
+ContinuityExecutableRerunHandle = (
+    ContinuityPlanningSessionRerunHandle
+    | ContinuityReviewSessionRerunHandle
+    | ContinuityRecallQueryRerunHandle
+)
+
+
+class ContinuityRerunAttemptContract(BaseModel):
+    """Deterministic rerun contract describing invariants and landing semantics."""
+
+    mode: Literal["refresh", "rerun"]
+    provenance_label: str
+    freshness_label: str | None = None
+    strategy_summary: str
+    strict_invariants: list[str] = Field(default_factory=list)
+    may_vary: list[str] = Field(default_factory=list)
+    post_run: ContinuityRerunPostRunBehavior
+
+
+class ContinuityRerunAction(BaseModel):
+    """Executable rerun contract attached to one durable continuity outcome."""
+
+    label: str
+    description: str
+    rerun: ContinuityExecutableRerunHandle
+    contract: ContinuityRerunAttemptContract
+
+
 class ContinuityOutcomeWriteRequest(BaseModel):
     """Request to persist one high-signal landed outcome."""
 
@@ -145,6 +260,8 @@ class ContinuityOutcomeWriteRequest(BaseModel):
     occurred_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
     outcome_card: dict[str, Any]
+    undo_action: ContinuityUndoAction | None = None
+    rerun_action: ContinuityRerunAction | None = None
     resume_location: ContinuityLocationResponse | None = None
     working_set_id: int | None = None
     workflow_thread: WorkflowThreadRefResponse
@@ -272,6 +389,8 @@ class ContinuityOutcomeRecordResponse(BaseModel):
     occurred_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
     outcome_card: dict[str, Any]
+    undo_action: ContinuityUndoAction | None = None
+    rerun_action: ContinuityRerunAction | None = None
     resume_location: ContinuityLocationResponse | None = None
     resolved_resume: ResolvedContinuityTargetResponse
     workflow_thread: WorkflowThreadRefResponse
@@ -317,6 +436,8 @@ class ContinuityWorkflowSummaryResponse(BaseModel):
     resolved_resume: ResolvedContinuityTargetResponse
     display_title: str
     display_summary: str
+    undo_action: ContinuityUndoAction | None = None
+    rerun_action: ContinuityRerunAction | None = None
     working_set_id: int | None = None
     working_set_name: str | None = None
     degraded: bool = False
@@ -410,8 +531,20 @@ __all__ = [
     "ContinuityDeliveryInspectionContinuationResponse",
     "ContinuityDeliveryInspectionResponse",
     "ContinuityDeliveryReason",
+    "ContinuityExecutableRerunHandle",
+    "ContinuityExecutableUndoHandle",
+    "ContinuityLoopEventUndoHandle",
+    "ContinuityPlanningRunUndoHandle",
+    "ContinuityPlanningSessionRerunHandle",
+    "ContinuityRecallQueryRerunHandle",
+    "ContinuityRerunAction",
+    "ContinuityRerunAttemptContract",
+    "ContinuityRerunPostRunBehavior",
+    "ContinuityReviewSessionRerunHandle",
     "ContinuitySchedulerPushDeliveryResponse",
     "ContinuitySchedulerPushDeliveryStatus",
+    "ContinuityUndoAction",
+    "ContinuityWorkingSetEventUndoHandle",
     "ContinuityLastSeenBatchUpsertRequest",
     "ContinuityLastSeenMarkerResponse",
     "ContinuityLastSeenMarkerUpsertRequest",

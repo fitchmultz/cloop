@@ -43,6 +43,50 @@ def _location_payload(
     }
 
 
+def _planning_undo_action_payload() -> dict[str, object]:
+    return {
+        "label": "Undo checkpoint",
+        "description": "Undo the checkpoint execution.",
+        "undo": {
+            "kind": "planning_run",
+            "session_id": 41,
+            "run_id": 8,
+            "checkpoint_index": 1,
+            "checkpoint_title": "Create queue",
+            "action_count": 2,
+            "best_effort": False,
+        },
+        "requires_confirmation": False,
+        "confirm_title": None,
+        "confirm_description": None,
+        "success_location": None,
+    }
+
+
+def _planning_rerun_action_payload() -> dict[str, object]:
+    return {
+        "label": "Refresh plan",
+        "description": "Refresh the saved planning session.",
+        "rerun": {
+            "kind": "planning_session",
+            "session_id": 41,
+            "session_name": "Weekly reset",
+        },
+        "contract": {
+            "mode": "refresh",
+            "provenance_label": "Planning session: Weekly reset",
+            "freshness_label": "1 target changed",
+            "strategy_summary": "Reuse the saved planning session.",
+            "strict_invariants": ["Same planning session identity"],
+            "may_vary": ["Checkpoint wording"],
+            "post_run": {
+                "summary": "Land back in the saved planning session.",
+                "location": None,
+            },
+        },
+    }
+
+
 def _planning_outcome_payload(
     *,
     label: str,
@@ -251,15 +295,24 @@ def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
                 "summary": "Planning checkpoint thread",
                 "parent_outcome_id": None,
             },
+            "undo_action": _planning_undo_action_payload(),
+            "rerun_action": _planning_rerun_action_payload(),
             "metadata": {"sessionId": 41},
         },
     )
     assert outcome_response.status_code == 200
     outcome_payload = outcome_response.json()
     assert outcome_payload["outcomes"][0]["label"] == "Created launch queue"
+    assert outcome_payload["outcomes"][0]["undo_action"]["undo"]["kind"] == "planning_run"
+    assert outcome_payload["outcomes"][0]["rerun_action"]["rerun"]["kind"] == "planning_session"
     assert (
         outcome_payload["workflow_summaries"][0]["workflow_thread"]["id"]
         == "planning:41:checkpoint:0"
+    )
+    assert outcome_payload["workflow_summaries"][0]["undo_action"]["undo"]["kind"] == "planning_run"
+    assert (
+        outcome_payload["workflow_summaries"][0]["rerun_action"]["rerun"]["kind"]
+        == "planning_session"
     )
     assert outcome_payload["notification_records"][0]["id"] == "planning:41:checkpoint:0"
     assert outcome_payload["notification_records"][0]["state"] == {

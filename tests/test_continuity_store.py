@@ -42,6 +42,8 @@ from cloop.schemas._loops.continuity import (
     ContinuityNotificationStateUpsertRequest,
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementUpsertRequest,
+    ContinuityRerunAction,
+    ContinuityUndoAction,
     WorkflowThreadRefResponse,
 )
 from cloop.settings import get_settings
@@ -74,6 +76,74 @@ def _insert_loop(tmp_data_dir: Path, loop_id: int = 11) -> None:
         conn.commit()
 
 
+def _planning_undo_action_payload() -> ContinuityUndoAction:
+    return ContinuityUndoAction.model_validate(
+        {
+            "label": "Undo checkpoint",
+            "description": "Undo the checkpoint execution.",
+            "undo": {
+                "kind": "planning_run",
+                "session_id": 41,
+                "run_id": 8,
+                "checkpoint_index": 1,
+                "checkpoint_title": "Create queue",
+                "action_count": 2,
+                "best_effort": False,
+            },
+            "requires_confirmation": False,
+            "confirm_title": None,
+            "confirm_description": None,
+            "success_location": {
+                "state": "plan",
+                "recall_tool": "chat",
+                "review_focus": "planning",
+                "session_id": 41,
+                "loop_id": None,
+                "view_id": None,
+                "memory_id": None,
+                "working_set_id": 7,
+                "query": None,
+            },
+        }
+    )
+
+
+def _planning_rerun_action_payload() -> ContinuityRerunAction:
+    return ContinuityRerunAction.model_validate(
+        {
+            "label": "Refresh plan",
+            "description": "Refresh the saved planning session.",
+            "rerun": {
+                "kind": "planning_session",
+                "session_id": 41,
+                "session_name": "Weekly reset",
+            },
+            "contract": {
+                "mode": "refresh",
+                "provenance_label": "Planning session: Weekly reset",
+                "freshness_label": "1 target changed",
+                "strategy_summary": "Reuse the saved planning session.",
+                "strict_invariants": ["Same planning session identity"],
+                "may_vary": ["Checkpoint wording"],
+                "post_run": {
+                    "summary": "Land back in the saved planning session.",
+                    "location": {
+                        "state": "plan",
+                        "recall_tool": "chat",
+                        "review_focus": "planning",
+                        "session_id": 41,
+                        "loop_id": None,
+                        "view_id": None,
+                        "memory_id": None,
+                        "working_set_id": 7,
+                        "query": None,
+                    },
+                },
+            },
+        }
+    )
+
+
 def _outcome_request(
     *,
     label: str = "Created review queue",
@@ -83,6 +153,8 @@ def _outcome_request(
     resume_location: ContinuityLocationResponse | None = None,
     dedupe_key: str = "planning::queue",
     workflow_thread_id: str = "planning:41:checkpoint:0",
+    undo_action: ContinuityUndoAction | None = None,
+    rerun_action: ContinuityRerunAction | None = None,
 ) -> ContinuityOutcomeWriteRequest:
     return ContinuityOutcomeWriteRequest(
         kind="planning",
@@ -109,6 +181,8 @@ def _outcome_request(
             "handoff": None,
             "actions": [],
         },
+        undo_action=undo_action,
+        rerun_action=rerun_action,
         resume_location=resume_location,
         working_set_id=resume_location.working_set_id if resume_location else None,
         workflow_thread=WorkflowThreadRefResponse(
@@ -187,6 +261,32 @@ def test_read_continuity_snapshot_builds_workflow_summaries(tmp_data_dir: Path) 
     assert snapshot.workflow_summaries[0].outcome_count == 2
     assert snapshot.workflow_summaries[0].outcome_preview_titles[0] == "Refreshed planning thread"
     assert snapshot.notification_records[0].id == "planning:41:checkpoint:0"
+
+
+def test_continuity_snapshot_round_trips_typed_follow_through_actions(tmp_data_dir: Path) -> None:
+    record_continuity_outcome(
+        _outcome_request(
+            undo_action=_planning_undo_action_payload(),
+            rerun_action=_planning_rerun_action_payload(),
+            resume_location=ContinuityLocationResponse(
+                state="decide",
+                recall_tool="chat",
+                review_focus="enrichment",
+                session_id=52,
+                working_set_id=7,
+            ),
+        )
+    )
+
+    snapshot = read_continuity_snapshot()
+    assert snapshot.outcomes[0].undo_action is not None
+    assert snapshot.outcomes[0].undo_action.undo.kind == "planning_run"
+    assert snapshot.outcomes[0].rerun_action is not None
+    assert snapshot.outcomes[0].rerun_action.rerun.kind == "planning_session"
+    assert snapshot.workflow_summaries[0].undo_action is not None
+    assert snapshot.workflow_summaries[0].undo_action.undo.kind == "planning_run"
+    assert snapshot.workflow_summaries[0].rerun_action is not None
+    assert snapshot.workflow_summaries[0].rerun_action.rerun.kind == "planning_session"
 
 
 def test_notification_state_round_trips_on_snapshot(tmp_data_dir: Path) -> None:

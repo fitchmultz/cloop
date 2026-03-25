@@ -63,11 +63,13 @@ from ..schemas._loops.continuity import (
     ContinuityOutcomeWriteRequest,
     ContinuityRecoveryAcknowledgementResponse,
     ContinuityRecoveryAcknowledgementUpsertRequest,
+    ContinuityRerunAction,
     ContinuitySchedulerPushDeliveryResponse,
     ContinuitySchedulerPushDeliveryStatus,
     ContinuitySnapshotResponse,
     ContinuitySuccessorTargetResponse,
     ContinuityTargetStatus,
+    ContinuityUndoAction,
     ContinuityWorkflowSummaryPriorStateResponse,
     ContinuityWorkflowSummaryResponse,
     ContinuityWorkflowSummarySignalsResponse,
@@ -94,6 +96,7 @@ _NotificationStateLifecycle = Literal[
 _PUSH_DELIVERY_SCAN_BATCH_SIZE = 24
 _PUSH_DELIVERY_MAX_SCAN_OUTCOMES = 96
 _DELIVERY_CURSOR_VERSION = 1
+_CONTINUITY_FOLLOW_THROUGH_METADATA_KEY = "_continuity_follow_through"
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +232,49 @@ def _load_json_map(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _sanitize_outcome_metadata(
+    metadata: Mapping[str, Any],
+) -> tuple[dict[str, Any], ContinuityUndoAction | None, ContinuityRerunAction | None]:
+    clean = dict(metadata)
+    follow_through = clean.pop(_CONTINUITY_FOLLOW_THROUGH_METADATA_KEY, None)
+    if not isinstance(follow_through, Mapping):
+        return clean, None, None
+    undo_payload = follow_through.get("undo_action")
+    rerun_payload = follow_through.get("rerun_action")
+    undo_action: ContinuityUndoAction | None = None
+    if isinstance(undo_payload, Mapping):
+        try:
+            undo_action = ContinuityUndoAction.model_validate(dict(undo_payload))
+        except Exception:
+            undo_action = None
+    rerun_action: ContinuityRerunAction | None = None
+    if isinstance(rerun_payload, Mapping):
+        try:
+            rerun_action = ContinuityRerunAction.model_validate(dict(rerun_payload))
+        except Exception:
+            rerun_action = None
+    return clean, undo_action, rerun_action
+
+
+def _pack_outcome_metadata(
+    metadata: Mapping[str, Any],
+    *,
+    undo_action: ContinuityUndoAction | None,
+    rerun_action: ContinuityRerunAction | None,
+) -> dict[str, Any]:
+    packed = dict(metadata)
+    if undo_action is None and rerun_action is None:
+        packed.pop(_CONTINUITY_FOLLOW_THROUGH_METADATA_KEY, None)
+        return packed
+    packed[_CONTINUITY_FOLLOW_THROUGH_METADATA_KEY] = {
+        "undo_action": undo_action.model_dump(mode="python") if undo_action is not None else None,
+        "rerun_action": rerun_action.model_dump(mode="python")
+        if rerun_action is not None
+        else None,
+    }
+    return packed
 
 
 def _parse_timestamp(value: str) -> datetime:
@@ -467,6 +513,9 @@ def _outcome_from_row(
     resume_location = _location_from_json(row["resume_location_json"])
     resolved_resume = _resolve_location(conn, resume_location, launch_location)
     degraded = resolved_resume.status != "ok"
+    metadata, undo_action, rerun_action = _sanitize_outcome_metadata(
+        _load_json_map(row["metadata_json"])
+    )
     return ContinuityOutcomeRecordResponse(
         id=int(row["id"]),
         kind=str(row["kind"]),
@@ -475,13 +524,15 @@ def _outcome_from_row(
         occurred_at_utc=str(row["occurred_at_utc"]),
         launch_location=launch_location,
         outcome_card=_load_json_map(row["outcome_json"]),
+        undo_action=undo_action,
+        rerun_action=rerun_action,
         resume_location=resume_location,
         resolved_resume=resolved_resume,
         workflow_thread=_workflow_thread_from_row(row),
         working_set_id=int(row["working_set_id"]) if row["working_set_id"] is not None else None,
         degraded=degraded,
         degraded_label=resolved_resume.message if degraded else None,
-        metadata=_load_json_map(row["metadata_json"]),
+        metadata=metadata,
     )
 
 
@@ -523,6 +574,8 @@ class _WorkflowSummaryCandidate:
     resolved_resume: ResolvedContinuityTargetResponse
     display_title: str
     display_summary: str
+    undo_action: ContinuityUndoAction | None
+    rerun_action: ContinuityRerunAction | None
     working_set_id: int | None
     degraded: bool
     degraded_label: str | None
@@ -730,6 +783,8 @@ def _candidate_from_outcome(
             resolved_resume=record.resolved_resume,
             display_title=_display_title(record),
             display_summary=_display_summary(record),
+            undo_action=record.undo_action,
+            rerun_action=record.rerun_action,
             working_set_id=record.working_set_id,
             degraded=record.degraded,
             degraded_label=record.degraded_label,
@@ -765,6 +820,8 @@ def _candidate_from_outcome(
         resolved_resume=record.resolved_resume,
         display_title=_display_title(record),
         display_summary=_display_summary(record),
+        undo_action=record.undo_action,
+        rerun_action=record.rerun_action,
         working_set_id=record.working_set_id,
         degraded=record.degraded,
         degraded_label=record.degraded_label,
@@ -809,6 +866,8 @@ def _candidate_from_anchor(
             resolved_resume=anchor.resolved_resume,
             display_title=_anchor_display_title(anchor),
             display_summary=_anchor_display_summary(anchor),
+            undo_action=None,
+            rerun_action=None,
             working_set_id=anchor.working_set_id,
             degraded=anchor.degraded,
             degraded_label=anchor.degraded_label,
@@ -842,6 +901,8 @@ def _candidate_from_anchor(
         resolved_resume=anchor.resolved_resume,
         display_title=_anchor_display_title(anchor),
         display_summary=_anchor_display_summary(anchor),
+        undo_action=None,
+        rerun_action=None,
         working_set_id=anchor.working_set_id,
         degraded=anchor.degraded,
         degraded_label=anchor.degraded_label,
@@ -1040,6 +1101,8 @@ def _build_workflow_summaries(
                 resolved_resume=representative.resolved_resume,
                 display_title=representative.display_title,
                 display_summary=representative.display_summary,
+                undo_action=representative.undo_action,
+                rerun_action=representative.rerun_action,
                 working_set_id=representative.working_set_id,
                 working_set_name=working_set_names.get(representative.working_set_id)
                 if representative.working_set_id is not None
@@ -1271,7 +1334,13 @@ def record_continuity_outcome(
         resume_json = (
             _dump_json(payload.resume_location) if payload.resume_location is not None else None
         )
-        metadata_json = _dump_json(payload.metadata)
+        metadata_json = _dump_json(
+            _pack_outcome_metadata(
+                payload.metadata,
+                undo_action=payload.undo_action,
+                rerun_action=payload.rerun_action,
+            )
+        )
 
         if latest is not None:
             age = abs(

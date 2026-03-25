@@ -8,7 +8,7 @@
  *
  * Responsibilities:
  *   - Read backend-authored workflow summaries from the durable continuity cache.
- *   - Reattach representative receipt cards, rerun actions, and undo actions when available.
+ *   - Reuse representative receipt cards while taking undo and rerun actions from the backend summary contract.
  *   - Build fallback summary cards when only anchor-style summary data exists.
  *   - Expose shared recovery lookup for shell and non-shell surfaces.
  *
@@ -20,8 +20,8 @@
  *     continuity-surface-recovery.ts.
  *
  * Invariants/Assumptions:
- *   - Backend workflow summaries are the canonical ranking and explanation source.
- *   - Durable recent actions remain the source of representative receipt cards.
+ *   - Backend workflow summaries are the canonical ranking, explanation, undo, and rerun source.
+ *   - Durable recent actions remain the source of representative receipt cards only.
  *   - Recovery plans continue to derive from backend-resolved targets and durable
  *     acknowledgement state.
  */
@@ -52,8 +52,6 @@ import { formatRelativeTime } from "./shell-core";
 export interface RankedWorkflowSummary extends ContinuityWorkflowSummary {
   card: OperatorActionCard;
   recovery: ContinuityRecoveryPlan | null;
-  undoAction: OperatorActionCardUndoAction | null;
-  rerunAction: OperatorActionCardRerunAction | null;
 }
 
 export interface ReadRankedWorkflowSummariesInput {
@@ -152,7 +150,12 @@ function normalizeOutcomeCard(
   return applyContinuityRecovery(normalizedCard, recovery);
 }
 
-function fallbackSummaryCard(summary: ContinuityWorkflowSummary, recovery: ContinuityRecoveryPlan | null): OperatorActionCard {
+function fallbackSummaryCard(
+  summary: ContinuityWorkflowSummary,
+  recovery: ContinuityRecoveryPlan | null,
+  undoAction: OperatorActionCardUndoAction | null,
+  rerunAction: OperatorActionCardRerunAction | null,
+): OperatorActionCard {
   const resumeLocation = summary.resolvedResume.resolvedLocation;
   const degradedLabel = summary.degraded ? summary.degradedLabel : null;
   const workingSet = summary.workingSetId != null && summary.workingSetName
@@ -205,6 +208,8 @@ function fallbackSummaryCard(summary: ContinuityWorkflowSummary, recovery: Conti
     recovery: null,
     actions: [
       buildResumeAction(resumeLocation, degradedLabel ?? summary.displaySummary),
+      ...(rerunAction ? [{ ...rerunAction, variant: "secondary" as const }] : []),
+      ...(undoAction ? [{ ...undoAction, variant: "secondary" as const }] : []),
       buildPinAction(resumeLocation, summary.displayTitle, degradedLabel ?? summary.displaySummary, `Outcome · ${summary.displayTitle}`),
     ],
   }, recovery);
@@ -216,17 +221,15 @@ function buildSummaryCard(
   recovery: ContinuityRecoveryPlan | null,
 ): { card: OperatorActionCard; undoAction: OperatorActionCardUndoAction | null; rerunAction: OperatorActionCardRerunAction | null } {
   const baseCard = entry?.outcome?.card ?? null;
-  const undoAction = entry?.outcome?.undoAction ?? null;
-  const rerunAction = baseCard?.actions.find(
-    (action): action is OperatorActionCardRerunAction => action.type === "rerun",
-  ) ?? null;
+  const undoAction = summary.undoAction ?? null;
+  const rerunAction = summary.rerunAction ?? null;
   const workingSet = baseCard?.handoff?.workingSet ?? null;
 
   if (!baseCard) {
     return {
-      card: fallbackSummaryCard(summary, recovery),
-      undoAction: null,
-      rerunAction: null,
+      card: fallbackSummaryCard(summary, recovery, undoAction, rerunAction),
+      undoAction,
+      rerunAction,
     };
   }
 

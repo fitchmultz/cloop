@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to roll executable rerun cues across workflow surfaces without breaking the landed-outcome continuity model.
+The current priority is to roll backend-authored rerun contracts across workflow surfaces without regressing the landed-outcome continuity model.
 
 ## Direction
 
@@ -28,15 +28,25 @@ Current product goals:
 
 ## Execution order
 
-### Next — Workflow rerun cue rollout
+### Next — Workflow rerun contract rollout
 
-Goal: make meaningful landed outcomes expose executable rerun/refresh cues across operator, HTTP, CLI, and MCP.
+Goal: make planning, saved review, and recall reruns share one backend-authored contract instead of frontend-only handle builders.
 
 Planned sequence:
 
-1. promote one shared rerun/handoff contract for refreshable workflow outcomes
-2. wire operator, CLI, HTTP, and MCP surfaces to expose that contract without transport-specific rerun logic
-3. preserve continuity receipts and follow-up state coherently after reruns execute
+1. define one transport-safe rerun handle + attempt contract for planning, review, and recall refresh flows
+2. expose that contract from shared orchestration payloads and continuity follow-through surfaces
+3. keep stale-target handling and post-rerun landing semantics consistent across operator, HTTP, CLI, and MCP
+
+### Later — Outcome payload slimming
+
+Goal: shrink durable continuity payloads after typed follow-through contracts land so storage and hydration stop depending on full UI-card action blobs.
+
+Planned sequence:
+
+1. keep only backend-owned trust, handoff, and action fields needed for continuity rendering
+2. remove redundant action data from persisted `outcome_card` payloads where typed fields already exist
+3. delete transitional card-action parsing once all first-party readers use the typed contract
 
 ## Delivery model
 

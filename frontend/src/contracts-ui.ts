@@ -227,6 +227,8 @@ export interface ContinuityWorkflowSummary {
   resolvedResume: ResolvedContinuityTarget;
   displayTitle: string;
   displaySummary: string;
+  undoAction?: OperatorActionCardUndoAction | null;
+  rerunAction?: OperatorActionCardRerunAction | null;
   workingSetId: number | null;
   workingSetName: string | null;
   degraded: boolean;
@@ -365,6 +367,7 @@ export interface RecentShellActionOutcome {
   resumeLocation: ShellLocationContract | null;
   rollbackLabel: string | null;
   undoAction: OperatorActionCardUndoAction | null;
+  rerunAction?: OperatorActionCardRerunAction | null;
   workflowThread?: WorkflowThreadRef | null;
   resolvedResume?: ResolvedContinuityTarget | null;
 }

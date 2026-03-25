@@ -123,56 +123,65 @@ function continuitySnapshot() {
               missingItemCount: 0,
             },
           },
-          actions: [
-            {
-              type: "undo",
-              label: "Undo checkpoint",
-              variant: "secondary",
-              description: "Undo the checkpoint execution.",
-              undo: {
-                kind: "planning_run",
-                sessionId: 41,
-                runId: 8,
-                checkpointIndex: 1,
-                checkpointTitle: "Create queue",
-                actionCount: 2,
-                bestEffort: false,
+          actions: [],
+        },
+        undo_action: {
+          label: "Undo checkpoint",
+          description: "Undo the checkpoint execution.",
+          undo: {
+            kind: "planning_run",
+            session_id: 41,
+            run_id: 8,
+            checkpoint_index: 1,
+            checkpoint_title: "Create queue",
+            action_count: 2,
+            best_effort: false,
+          },
+          requires_confirmation: false,
+          confirm_title: null,
+          confirm_description: null,
+          success_location: {
+            state: "plan",
+            recall_tool: "chat",
+            review_focus: "planning",
+            session_id: 41,
+            loop_id: null,
+            view_id: null,
+            memory_id: null,
+            working_set_id: 7,
+            query: null,
+          },
+        },
+        rerun_action: {
+          label: "Refresh plan",
+          description: "Refresh the saved planning session.",
+          rerun: {
+            kind: "planning_session",
+            session_id: 41,
+            session_name: "Weekly reset",
+          },
+          contract: {
+            mode: "refresh",
+            provenance_label: "Planning session: Weekly reset",
+            freshness_label: "1 target changed",
+            strategy_summary: "Reuse the saved planning session.",
+            strict_invariants: ["Same planning session identity"],
+            may_vary: ["Checkpoint wording"],
+            post_run: {
+              summary: "Land back in the saved planning session.",
+              location: {
+                state: "plan",
+                recall_tool: "chat",
+                review_focus: "planning",
+                session_id: 41,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: null,
               },
             },
-            {
-              type: "rerun",
-              label: "Refresh plan",
-              variant: "secondary",
-              description: "Refresh the saved planning session.",
-              rerun: {
-                kind: "planning_session",
-                sessionId: 41,
-                sessionName: "Weekly reset",
-              },
-              contract: {
-                mode: "refresh",
-                provenanceLabel: "Planning session: Weekly reset",
-                freshnessLabel: "1 target changed",
-                strategySummary: "Reuse the saved planning session.",
-                strictInvariants: ["Same planning session identity"],
-                mayVary: ["Checkpoint wording"],
-                postRun: {
-                  summary: "Land back in the saved planning session.",
-                  location: {
-                    state: "plan",
-                    recallTool: "chat",
-                    reviewFocus: "planning",
-                    sessionId: 41,
-                    loopId: null,
-                    viewId: null,
-                    memoryId: null,
-                    workingSetId: 7,
-                    query: null,
-                  },
-                },
-              },
-            },
-          ],
+          },
         },
         resume_location: {
           state: "decide",
@@ -294,6 +303,64 @@ function continuitySnapshot() {
         },
         display_title: "Created launch review queue",
         display_summary: "The enrichment queue is ready to resume.",
+        undo_action: {
+          label: "Undo checkpoint",
+          description: "Undo the checkpoint execution.",
+          undo: {
+            kind: "planning_run",
+            session_id: 41,
+            run_id: 8,
+            checkpoint_index: 1,
+            checkpoint_title: "Create queue",
+            action_count: 2,
+            best_effort: false,
+          },
+          requires_confirmation: false,
+          confirm_title: null,
+          confirm_description: null,
+          success_location: {
+            state: "plan",
+            recall_tool: "chat",
+            review_focus: "planning",
+            session_id: 41,
+            loop_id: null,
+            view_id: null,
+            memory_id: null,
+            working_set_id: 7,
+            query: null,
+          },
+        },
+        rerun_action: {
+          label: "Refresh plan",
+          description: "Refresh the saved planning session.",
+          rerun: {
+            kind: "planning_session",
+            session_id: 41,
+            session_name: "Weekly reset",
+          },
+          contract: {
+            mode: "refresh",
+            provenance_label: "Planning session: Weekly reset",
+            freshness_label: "1 target changed",
+            strategy_summary: "Reuse the saved planning session.",
+            strict_invariants: ["Same planning session identity"],
+            may_vary: ["Checkpoint wording"],
+            post_run: {
+              summary: "Land back in the saved planning session.",
+              location: {
+                state: "plan",
+                recall_tool: "chat",
+                review_focus: "planning",
+                session_id: 41,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: null,
+              },
+            },
+          },
+        },
         working_set_id: 7,
         degraded: false,
         degraded_label: null,
@@ -477,7 +544,7 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summaries[1]?.id).toBe("planning:99");
   });
 
-  it("reattaches representative receipt cards, rerun actions, and undo actions", async () => {
+  it("hydrates backend-owned undo and rerun actions onto representative receipt cards", async () => {
     await hydrateDurableContinuityState();
 
     const summary = readRankedWorkflowSummaries()[0]!;
@@ -485,6 +552,8 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summary.undoAction?.type).toBe("undo");
     expect(summary.rerunAction?.type).toBe("rerun");
     expect(summary.card.actions[0]?.type).toBe("open");
+    expect(summary.card.actions.some((action) => action.type === "rerun")).toBe(true);
+    expect(summary.card.actions.some((action) => action.type === "undo")).toBe(true);
   });
 
   it("finds recovery plans from backend summary targets and durable acknowledgements", async () => {

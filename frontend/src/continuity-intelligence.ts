@@ -69,8 +69,10 @@ import type {
   ExecutableRerunHandle,
   ExecutableUndoHandle,
   OperatorActionCard,
+  OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
   RecentShellActionEntry,
+  RerunAttemptContract,
   ResolvedContinuityTarget,
   ResumeAnchorState,
   ResumeAnchorTarget,
@@ -383,6 +385,179 @@ function normalizeResolvedTarget(value: unknown): ResolvedContinuityTarget | nul
   };
 }
 
+function parseUndoHandle(value: unknown): ExecutableUndoHandle | null {
+  if (!isRecord(value) || typeof value["kind"] !== "string") {
+    return null;
+  }
+  if (value["kind"] === "loop_event") {
+    const loopId = integerValue(value["loopId"]);
+    const expectedEventId = integerValue(value["expectedEventId"]);
+    if (loopId == null || expectedEventId == null) {
+      return null;
+    }
+    return {
+      kind: "loop_event",
+      loopId,
+      expectedEventId,
+      eventType: stringValue(value["eventType"]),
+      claimToken: stringValue(value["claimToken"]),
+    };
+  }
+  if (value["kind"] === "planning_run") {
+    const sessionId = integerValue(value["sessionId"]);
+    const runId = integerValue(value["runId"]);
+    const checkpointIndex = integerValue(value["checkpointIndex"]);
+    const checkpointTitle = stringValue(value["checkpointTitle"]);
+    const actionCount = integerValue(value["actionCount"]);
+    if (sessionId == null || runId == null || checkpointIndex == null || checkpointTitle == null || actionCount == null) {
+      return null;
+    }
+    return {
+      kind: "planning_run",
+      sessionId,
+      runId,
+      checkpointIndex,
+      checkpointTitle,
+      actionCount,
+      bestEffort: value["bestEffort"] === true,
+    };
+  }
+  if (value["kind"] === "working_set_event") {
+    const expectedEventId = integerValue(value["expectedEventId"]);
+    if (expectedEventId == null) {
+      return null;
+    }
+    return {
+      kind: "working_set_event",
+      expectedEventId,
+      eventType: stringValue(value["eventType"]),
+      workingSetId: integerValue(value["workingSetId"]),
+      workingSetName: stringValue(value["workingSetName"]),
+    };
+  }
+  return null;
+}
+
+function parseUndoAction(value: unknown): OperatorActionCardUndoAction | null {
+  if (!isRecord(value) || typeof value["label"] !== "string" || typeof value["description"] !== "string") {
+    return null;
+  }
+  const undo = parseUndoHandle(value["undo"]);
+  if (!undo) {
+    return null;
+  }
+  return {
+    type: "undo",
+    label: value["label"],
+    variant: value["variant"] === "primary" ? "primary" : "secondary",
+    description: value["description"],
+    disabledReason: stringValue(value["disabledReason"]),
+    undo,
+    requiresConfirmation: value["requiresConfirmation"] === true,
+    confirmTitle: stringValue(value["confirmTitle"]),
+    confirmDescription: stringValue(value["confirmDescription"]),
+    successLocation: normalizeLocation(value["successLocation"]),
+  };
+}
+
+function parseRerunHandle(value: unknown): ExecutableRerunHandle | null {
+  if (!isRecord(value) || typeof value["kind"] !== "string") {
+    return null;
+  }
+  if (value["kind"] === "planning_session") {
+    const sessionId = integerValue(value["sessionId"]);
+    const sessionName = stringValue(value["sessionName"]);
+    if (sessionId == null || sessionName == null) {
+      return null;
+    }
+    return {
+      kind: "planning_session",
+      sessionId,
+      sessionName,
+    };
+  }
+  if (value["kind"] === "review_session") {
+    const sessionId = integerValue(value["sessionId"]);
+    const sessionName = stringValue(value["sessionName"]);
+    const reviewFocus = value["reviewFocus"];
+    if (sessionId == null || sessionName == null || (reviewFocus !== "relationship" && reviewFocus !== "enrichment")) {
+      return null;
+    }
+    return {
+      kind: "review_session",
+      reviewFocus,
+      sessionId,
+      sessionName,
+    };
+  }
+  if (value["kind"] === "recall_query") {
+    const query = stringValue(value["query"]);
+    const recallTool = value["recallTool"];
+    if (query == null || (recallTool !== "chat" && recallTool !== "rag")) {
+      return null;
+    }
+    return {
+      kind: "recall_query",
+      recallTool,
+      query,
+      workingSetId: integerValue(value["workingSetId"]),
+      includeLoopContext: value["includeLoopContext"] === true ? true : undefined,
+      includeMemoryContext: value["includeMemoryContext"] === true ? true : undefined,
+      includeRagContext: value["includeRagContext"] === true ? true : undefined,
+    };
+  }
+  return null;
+}
+
+function parseRerunAttemptContract(value: unknown): RerunAttemptContract | null {
+  if (!isRecord(value) || typeof value["mode"] !== "string" || typeof value["provenanceLabel"] !== "string" || typeof value["strategySummary"] !== "string") {
+    return null;
+  }
+  if (value["mode"] !== "refresh" && value["mode"] !== "rerun") {
+    return null;
+  }
+  const postRunValue = value["postRun"];
+  if (!isRecord(postRunValue) || typeof postRunValue["summary"] !== "string") {
+    return null;
+  }
+  return {
+    mode: value["mode"],
+    provenanceLabel: value["provenanceLabel"],
+    freshnessLabel: stringValue(value["freshnessLabel"]),
+    strategySummary: value["strategySummary"],
+    strictInvariants: Array.isArray(value["strictInvariants"])
+      ? value["strictInvariants"].filter((item): item is string => typeof item === "string")
+      : [],
+    mayVary: Array.isArray(value["mayVary"])
+      ? value["mayVary"].filter((item): item is string => typeof item === "string")
+      : [],
+    postRun: {
+      summary: postRunValue["summary"],
+      location: normalizeLocation(postRunValue["location"]),
+    },
+  };
+}
+
+function parseRerunAction(value: unknown): OperatorActionCardRerunAction | null {
+  if (!isRecord(value) || typeof value["label"] !== "string" || typeof value["description"] !== "string") {
+    return null;
+  }
+  const rerun = parseRerunHandle(value["rerun"]);
+  const contract = parseRerunAttemptContract(value["contract"]);
+  if (!rerun || !contract) {
+    return null;
+  }
+  return {
+    type: "rerun",
+    label: value["label"],
+    variant: value["variant"] === "primary" ? "primary" : "secondary",
+    description: value["description"],
+    disabledReason: stringValue(value["disabledReason"]),
+    rerun,
+    contract,
+  };
+}
+
 function parseContinuityRankingSignals(value: unknown) {
   if (!isRecord(value) || typeof value["driftSeverity"] !== "string") {
     return null;
@@ -440,6 +615,8 @@ function parseContinuityWorkflowSummary(value: unknown): ContinuityWorkflowSumma
     resolvedResume,
     displayTitle: typeof value["displayTitle"] === "string" ? value["displayTitle"] : workflowThread.title,
     displaySummary: typeof value["displaySummary"] === "string" ? value["displaySummary"] : workflowThread.summary ?? "",
+    undoAction: parseUndoAction(value["undoAction"]),
+    rerunAction: parseRerunAction(value["rerunAction"]),
     workingSetId: integerValue(value["workingSetId"]),
     workingSetName: stringValue(value["workingSetName"]),
     degraded: value["degraded"] === true,
@@ -502,6 +679,10 @@ function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction 
   return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
 }
 
+function findRerunAction(card: OperatorActionCard): OperatorActionCardRerunAction | null {
+  return card.actions.find((action): action is OperatorActionCardRerunAction => action.type === "rerun") ?? null;
+}
+
 function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | null {
   if (!isRecord(value) || typeof value["kind"] !== "string" || typeof value["label"] !== "string" || typeof value["description"] !== "string" || typeof value["occurredAt"] !== "string") {
     return null;
@@ -533,7 +714,8 @@ function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | n
     card: cardValue,
     resumeLocation: normalizeLocation(outcome["resumeLocation"]),
     rollbackLabel: typeof outcome["rollbackLabel"] === "string" ? outcome["rollbackLabel"] : null,
-    undoAction: findUndoAction(cardValue),
+    undoAction: parseUndoAction(outcome["undoAction"]) ?? findUndoAction(cardValue),
+    rerunAction: parseRerunAction(outcome["rerunAction"]) ?? findRerunAction(cardValue),
     workflowThread: normalizeWorkflowThread(outcome["workflowThread"]),
     resolvedResume: normalizeResolvedTarget(outcome["resolvedResume"]),
   };
@@ -1005,6 +1187,141 @@ function mapWorkflowThreadToApi(thread: WorkflowThreadRef) {
   };
 }
 
+function mapUndoActionToApi(action: OperatorActionCardUndoAction | null | undefined) {
+  if (!action) {
+    return null;
+  }
+  if (action.undo.kind === "loop_event") {
+    return {
+      label: action.label,
+      description: action.description,
+      undo: {
+        kind: "loop_event" as const,
+        loop_id: action.undo.loopId,
+        expected_event_id: action.undo.expectedEventId,
+        event_type: action.undo.eventType ?? null,
+        claim_token: action.undo.claimToken ?? null,
+      },
+      requires_confirmation: action.requiresConfirmation ?? false,
+      confirm_title: action.confirmTitle ?? null,
+      confirm_description: action.confirmDescription ?? null,
+      success_location: mapLocationToApi(action.successLocation ?? null),
+    };
+  }
+  if (action.undo.kind === "planning_run") {
+    return {
+      label: action.label,
+      description: action.description,
+      undo: {
+        kind: "planning_run" as const,
+        session_id: action.undo.sessionId,
+        run_id: action.undo.runId,
+        checkpoint_index: action.undo.checkpointIndex,
+        checkpoint_title: action.undo.checkpointTitle,
+        action_count: action.undo.actionCount,
+        best_effort: action.undo.bestEffort,
+      },
+      requires_confirmation: action.requiresConfirmation ?? false,
+      confirm_title: action.confirmTitle ?? null,
+      confirm_description: action.confirmDescription ?? null,
+      success_location: mapLocationToApi(action.successLocation ?? null),
+    };
+  }
+  return {
+    label: action.label,
+    description: action.description,
+    undo: {
+      kind: "working_set_event" as const,
+      expected_event_id: action.undo.expectedEventId,
+      event_type: action.undo.eventType ?? null,
+      working_set_id: action.undo.workingSetId ?? null,
+      working_set_name: action.undo.workingSetName ?? null,
+    },
+    requires_confirmation: action.requiresConfirmation ?? false,
+    confirm_title: action.confirmTitle ?? null,
+    confirm_description: action.confirmDescription ?? null,
+    success_location: mapLocationToApi(action.successLocation ?? null),
+  };
+}
+
+function mapRerunActionToApi(action: OperatorActionCardRerunAction | null | undefined) {
+  if (!action) {
+    return null;
+  }
+  if (action.rerun.kind === "planning_session") {
+    return {
+      label: action.label,
+      description: action.description,
+      rerun: {
+        kind: "planning_session" as const,
+        session_id: action.rerun.sessionId,
+        session_name: action.rerun.sessionName,
+      },
+      contract: {
+        mode: action.contract.mode,
+        provenance_label: action.contract.provenanceLabel,
+        freshness_label: action.contract.freshnessLabel ?? null,
+        strategy_summary: action.contract.strategySummary,
+        strict_invariants: action.contract.strictInvariants,
+        may_vary: action.contract.mayVary,
+        post_run: {
+          summary: action.contract.postRun.summary,
+          location: mapLocationToApi(action.contract.postRun.location),
+        },
+      },
+    };
+  }
+  if (action.rerun.kind === "review_session") {
+    return {
+      label: action.label,
+      description: action.description,
+      rerun: {
+        kind: "review_session" as const,
+        review_focus: action.rerun.reviewFocus,
+        session_id: action.rerun.sessionId,
+        session_name: action.rerun.sessionName,
+      },
+      contract: {
+        mode: action.contract.mode,
+        provenance_label: action.contract.provenanceLabel,
+        freshness_label: action.contract.freshnessLabel ?? null,
+        strategy_summary: action.contract.strategySummary,
+        strict_invariants: action.contract.strictInvariants,
+        may_vary: action.contract.mayVary,
+        post_run: {
+          summary: action.contract.postRun.summary,
+          location: mapLocationToApi(action.contract.postRun.location),
+        },
+      },
+    };
+  }
+  return {
+    label: action.label,
+    description: action.description,
+    rerun: {
+      kind: "recall_query" as const,
+      recall_tool: action.rerun.recallTool,
+      query: action.rerun.query,
+      working_set_id: action.rerun.workingSetId ?? null,
+      include_loop_context: action.rerun.includeLoopContext ?? null,
+      include_memory_context: action.rerun.includeMemoryContext ?? null,
+      include_rag_context: action.rerun.includeRagContext ?? null,
+    },
+    contract: {
+      mode: action.contract.mode,
+      provenance_label: action.contract.provenanceLabel,
+      freshness_label: action.contract.freshnessLabel ?? null,
+      strategy_summary: action.contract.strategySummary,
+      strict_invariants: action.contract.strictInvariants,
+      may_vary: action.contract.mayVary,
+      post_run: {
+        summary: action.contract.postRun.summary,
+        location: mapLocationToApi(action.contract.postRun.location),
+      },
+    },
+  };
+}
+
 function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workflow_thread"]): WorkflowThreadRef {
   return {
     id: thread.id,
@@ -1054,6 +1371,111 @@ function mapResolvedTargetFromApi(
   };
 }
 
+function mapUndoActionFromApi(
+  action: ContinuityOutcomeRecordResponse["undo_action"] | ContinuityWorkflowSummaryResponse["undo_action"] | null | undefined,
+): OperatorActionCardUndoAction | null {
+  if (!action) {
+    return null;
+  }
+  let undo: ExecutableUndoHandle | null = null;
+  if (action.undo.kind === "loop_event") {
+    undo = {
+      kind: "loop_event",
+      loopId: action.undo.loop_id,
+      expectedEventId: action.undo.expected_event_id,
+      eventType: action.undo.event_type ?? null,
+      claimToken: action.undo.claim_token ?? null,
+    };
+  } else if (action.undo.kind === "planning_run") {
+    undo = {
+      kind: "planning_run",
+      sessionId: action.undo.session_id,
+      runId: action.undo.run_id,
+      checkpointIndex: action.undo.checkpoint_index,
+      checkpointTitle: action.undo.checkpoint_title,
+      actionCount: action.undo.action_count,
+      bestEffort: Boolean(action.undo.best_effort),
+    };
+  } else if (action.undo.kind === "working_set_event") {
+    undo = {
+      kind: "working_set_event",
+      expectedEventId: action.undo.expected_event_id,
+      eventType: action.undo.event_type ?? null,
+      workingSetId: action.undo.working_set_id ?? null,
+      workingSetName: action.undo.working_set_name ?? null,
+    };
+  }
+  if (!undo) {
+    return null;
+  }
+  return {
+    type: "undo",
+    label: action.label,
+    variant: "secondary",
+    description: action.description,
+    undo,
+    requiresConfirmation: Boolean(action.requires_confirmation),
+    confirmTitle: action.confirm_title ?? null,
+    confirmDescription: action.confirm_description ?? null,
+    successLocation: mapLocationFromApi(action.success_location),
+  };
+}
+
+function mapRerunActionFromApi(
+  action: ContinuityOutcomeRecordResponse["rerun_action"] | ContinuityWorkflowSummaryResponse["rerun_action"] | null | undefined,
+): OperatorActionCardRerunAction | null {
+  if (!action) {
+    return null;
+  }
+  let rerun: ExecutableRerunHandle | null = null;
+  if (action.rerun.kind === "planning_session") {
+    rerun = {
+      kind: "planning_session",
+      sessionId: action.rerun.session_id,
+      sessionName: action.rerun.session_name,
+    };
+  } else if (action.rerun.kind === "review_session") {
+    rerun = {
+      kind: "review_session",
+      reviewFocus: action.rerun.review_focus,
+      sessionId: action.rerun.session_id,
+      sessionName: action.rerun.session_name,
+    };
+  } else if (action.rerun.kind === "recall_query") {
+    rerun = {
+      kind: "recall_query",
+      recallTool: action.rerun.recall_tool,
+      query: action.rerun.query,
+      workingSetId: action.rerun.working_set_id ?? null,
+      includeLoopContext: action.rerun.include_loop_context ?? undefined,
+      includeMemoryContext: action.rerun.include_memory_context ?? undefined,
+      includeRagContext: action.rerun.include_rag_context ?? undefined,
+    };
+  }
+  if (!rerun) {
+    return null;
+  }
+  return {
+    type: "rerun",
+    label: action.label,
+    variant: "secondary",
+    description: action.description,
+    rerun,
+    contract: {
+      mode: action.contract.mode,
+      provenanceLabel: action.contract.provenance_label,
+      freshnessLabel: action.contract.freshness_label ?? null,
+      strategySummary: action.contract.strategy_summary,
+      strictInvariants: action.contract.strict_invariants ?? [],
+      mayVary: action.contract.may_vary ?? [],
+      postRun: {
+        summary: action.contract.post_run.summary,
+        location: mapLocationFromApi(action.contract.post_run.location),
+      },
+    },
+  };
+}
+
 function mapPersistedOutcomeToRecentEntry(response: ContinuityOutcomeRecordResponse): RecentShellActionEntry {
   const card = response.outcome_card as unknown as OperatorActionCard;
   return enrichRecentActionEntry({
@@ -1072,7 +1494,8 @@ function mapPersistedOutcomeToRecentEntry(response: ContinuityOutcomeRecordRespo
       card,
       resumeLocation: mapLocationFromApi(response.resume_location),
       rollbackLabel: card.trust.rollbackLabel ?? null,
-      undoAction: findUndoAction(card),
+      undoAction: mapUndoActionFromApi(response.undo_action),
+      rerunAction: mapRerunActionFromApi(response.rerun_action),
       workflowThread: mapWorkflowThreadFromApi(response.workflow_thread),
       resolvedResume: mapResolvedTargetFromApi(response.resolved_resume),
     },
@@ -1191,6 +1614,8 @@ function mapWorkflowSummaryResponse(
     resolvedResume: mapResolvedTargetFromApi(response.resolved_resume),
     displayTitle: response.display_title,
     displaySummary: response.display_summary,
+    undoAction: mapUndoActionFromApi(response.undo_action),
+    rerunAction: mapRerunActionFromApi(response.rerun_action),
     workingSetId: response.working_set_id ?? null,
     workingSetName: response.working_set_name ?? null,
     degraded: Boolean(response.degraded),
@@ -1309,6 +1734,8 @@ function buildOutcomeWriteRequest(entry: RecentShellActionEntry): ContinuityOutc
     occurred_at_utc: entry.occurredAt,
     launch_location: mapLocationToApi(entry.location),
     outcome_card: entry.outcome.card as unknown as Record<string, unknown>,
+    undo_action: mapUndoActionToApi(entry.outcome.undoAction),
+    rerun_action: mapRerunActionToApi(entry.outcome.rerunAction),
     resume_location: mapLocationToApi(entry.outcome.resumeLocation),
     working_set_id: resolveContinuityWorkingSetId(entry),
     workflow_thread: mapWorkflowThreadToApi(workflowThread),
@@ -1924,7 +2351,14 @@ export function markUndoActionUnavailable(handle: ExecutableUndoHandle, reason: 
       },
     });
   });
+  const updatedSummaries = readContinuityWorkflowSummaries().map((summary) => ({
+    ...summary,
+    undoAction: summary.undoAction && undoHandleIdentity(summary.undoAction.undo) === targetIdentity
+      ? { ...summary.undoAction, disabledReason: reason }
+      : summary.undoAction ?? null,
+  }));
   writeRecentActionsCache(updated);
+  writeContinuityWorkflowSummaries(updatedSummaries);
   emitRecentShellActionsUpdated();
 }
 
@@ -1960,9 +2394,19 @@ export function markRerunActionUnavailable(handle: ExecutableRerunHandle, reason
           ...outcome.card,
           actions: nextActions,
         },
+        rerunAction: outcome.rerunAction && rerunHandleIdentity(outcome.rerunAction.rerun) === targetIdentity
+          ? { ...outcome.rerunAction, disabledReason: reason }
+          : outcome.rerunAction ?? null,
       },
     });
   });
+  const updatedSummaries = readContinuityWorkflowSummaries().map((summary) => ({
+    ...summary,
+    rerunAction: summary.rerunAction && rerunHandleIdentity(summary.rerunAction.rerun) === targetIdentity
+      ? { ...summary.rerunAction, disabledReason: reason }
+      : summary.rerunAction ?? null,
+  }));
   writeRecentActionsCache(updated);
+  writeContinuityWorkflowSummaries(updatedSummaries);
   emitRecentShellActionsUpdated();
 }

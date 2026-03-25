@@ -25,6 +25,7 @@
 import type {
   OperatorActionCard,
   OperatorActionCardAction,
+  OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
   OperatorActionHandoff,
   OperatorActionPreviewItem,
@@ -134,6 +135,10 @@ function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction 
   return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
 }
 
+function findRerunAction(card: OperatorActionCard): OperatorActionCardRerunAction | null {
+  return card.actions.find((action): action is OperatorActionCardRerunAction => action.type === "rerun") ?? null;
+}
+
 export interface ReceiptOutcomeOptions {
   workflowThread?: WorkflowThreadRef | null;
 }
@@ -151,6 +156,7 @@ export function withReceiptOutcome(
       resumeLocation,
       rollbackLabel: card.trust.rollbackLabel ?? null,
       undoAction: findUndoAction(card),
+      rerunAction: findRerunAction(card),
       workflowThread: options.workflowThread ?? null,
       resolvedResume: null,
     },
