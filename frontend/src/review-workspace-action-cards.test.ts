@@ -239,6 +239,22 @@ describe("review-workspace-action-cards", () => {
         rollback_action_count: 1,
         operations: [],
       },
+      undo_action: {
+        label: "Undo checkpoint",
+        description: "Undo Create review queue and return the plan to its prior checkpoint state.",
+        undo: {
+          kind: "planning_run",
+          session_id: 19,
+          run_id: 44,
+          checkpoint_index: 1,
+          checkpoint_title: "Create review queue",
+          action_count: 1,
+          best_effort: false,
+        },
+        requires_confirmation: false,
+        confirm_title: null,
+        confirm_description: null,
+      },
       results: [
         {
           rollback_actions: [

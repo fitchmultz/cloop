@@ -54,6 +54,7 @@ from .inputs import (
 from .models import PlanningCheckpointModel
 from .snapshot import (
     _build_execution_summary,
+    _build_execution_undo_action,
     _build_follow_up_resources,
     _build_launch_surfaces,
     _build_planning_session_snapshot,
@@ -277,7 +278,8 @@ def execute_planning_session_checkpoint(
 
     follow_up_resources = _build_follow_up_resources(results)
     resource_change_summary = _build_resource_change_summary(results)
-    execution_payload = {
+    rollback_cues = _build_rollback_cues(results)
+    execution_payload: dict[str, Any] = {
         "session_id": session_id,
         "checkpoint_index": checkpoint_index,
         "checkpoint_title": checkpoint.title,
@@ -291,13 +293,28 @@ def execute_planning_session_checkpoint(
             results=results,
             follow_up_resources=follow_up_resources,
         ),
-        "rollback_cues": _build_rollback_cues(results),
+        "rollback_cues": rollback_cues,
     }
 
     with conn:
         run_row = repo.create_planning_session_run(
             session_id=session_id,
             checkpoint_index=checkpoint_index,
+            result_json=execution_payload,
+            conn=conn,
+        )
+        execution_payload["undo_action"] = _build_execution_undo_action(
+            session_id=session_id,
+            run_id=int(run_row["id"]),
+            checkpoint_index=checkpoint_index,
+            checkpoint_title=checkpoint.title,
+            results=results,
+            rollback_cues=rollback_cues,
+            rollback=None,
+            is_active=True,
+        )
+        repo.update_planning_session_run(
+            run_id=int(run_row["id"]),
             result_json=execution_payload,
             conn=conn,
         )
@@ -393,7 +410,7 @@ def rollback_planning_session_run(
             checkpoint_title=checkpoint_title,
             run_id=run_id,
         )
-        updated_payload = {**payload, "rollback": rollback_summary}
+        updated_payload = {**payload, "undo_action": None, "rollback": rollback_summary}
         repo.update_planning_session_run(
             run_id=run_id,
             result_json=updated_payload,

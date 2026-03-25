@@ -153,6 +153,8 @@ def test_planning_workflow_endpoints(
         first_execute_payload["execution"]["rollback_cues"]["rollback_supported_operation_count"]
         == 2
     )
+    assert first_execute_payload["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
+    assert first_execute_payload["execution"]["undo_action"]["undo"]["run_id"] > 0
     assert first_execute_payload["execution"]["follow_up_resources"] == []
     assert first_execute_payload["execution"]["launch_surfaces"] == []
     assert (

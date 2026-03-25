@@ -147,8 +147,9 @@ def plan_session_get(session_id: int) -> dict[str, Any]:
         Dict matching the shared planning-session snapshot contract, including
         the current checkpoint and all prior execution-history entries. Each
         execution-history entry preserves `summary`, `follow_up_resources`,
-        `launch_surfaces`, and `rollback_cues`, so MCP clients can resume from
-        a previously created saved review session without bespoke bookkeeping.
+        `launch_surfaces`, `rollback_cues`, and executable `undo_action`
+        metadata, so MCP clients can resume from a previously created saved
+        review session without bespoke bookkeeping.
 
     Raises:
         ToolError: If the planning session does not exist.
@@ -272,6 +273,8 @@ def plan_session_execute(
           args, and web-launch metadata.
         - `execution.rollback_cues`: per-operation undo/rollback hints so clients
           can surface reversible vs best-effort changes clearly
+        - `execution.undo_action`: exact rollback handle for the active run when
+          a safe checkpoint-level reversal is available
         - `snapshot`: updated planning-session snapshot after execution
 
     Raises:

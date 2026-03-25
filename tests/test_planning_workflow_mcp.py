@@ -159,6 +159,8 @@ def test_planning_workflow_tools(
     first_execution = plan_session_execute(session_id=session_id)
     assert first_execution["execution"]["summary"]["touched_loop_ids"] == [first_id, second_id]
     assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
+    assert first_execution["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
+    assert first_execution["execution"]["undo_action"]["undo"]["run_id"] > 0
     assert first_execution["execution"]["launch_surfaces"] == []
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert (

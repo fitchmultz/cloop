@@ -67,6 +67,7 @@ The executable undo model is now a first-class shared workflow contract.
   - body requires `run_id`
   - only the latest active run can be rolled back
   - fully rolled-back runs stay in history but are marked inactive for continuity and analytics
+- planning execution payloads now carry a shared executable `undo_action` contract across HTTP, CLI, MCP, and web, so clients stop re-deriving rollback handles from raw cue counts
 - working-set undo is now a public exact-handle contract:
   - `POST /loops/working-sets/undo`
   - body requires `expected_event_id`

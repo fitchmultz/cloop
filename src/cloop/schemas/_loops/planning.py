@@ -168,6 +168,29 @@ class PlanningExecutionRollbackCueResponse(BaseModel):
     operations: List[PlanningExecutionRollbackCueOperationResponse] = Field(default_factory=list)
 
 
+class PlanningExecutionUndoHandleResponse(BaseModel):
+    """Exact executable handle for one reversible planning checkpoint run."""
+
+    kind: Literal["planning_run"] = "planning_run"
+    session_id: int
+    run_id: int
+    checkpoint_index: int
+    checkpoint_title: str
+    action_count: int = 0
+    best_effort: bool = False
+
+
+class PlanningExecutionUndoActionResponse(BaseModel):
+    """Shared rollback action contract for one reversible planning execution."""
+
+    label: str
+    description: str
+    undo: PlanningExecutionUndoHandleResponse
+    requires_confirmation: bool = False
+    confirm_title: str | None = None
+    confirm_description: str | None = None
+
+
 class PlanningContextFreshnessTargetChangeResponse(BaseModel):
     """One target loop that changed after the plan was generated."""
 
@@ -260,6 +283,7 @@ class PlanningExecutionHistoryItemResponse(BaseModel):
     rollback_cues: PlanningExecutionRollbackCueResponse = Field(
         default_factory=PlanningExecutionRollbackCueResponse
     )
+    undo_action: PlanningExecutionUndoActionResponse | None = None
     rollback: PlanningExecutionRollbackResultResponse | None = None
     is_active: bool = True
 

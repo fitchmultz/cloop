@@ -581,6 +581,65 @@ def _build_rollback_cues(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]
     }
 
 
+def _rollback_is_best_effort(results: Sequence[Mapping[str, Any]]) -> bool:
+    return any(
+        action.get("kind") != "loop.undo"
+        for result in results
+        for action in list(result.get("rollback_actions") or [])
+    )
+
+
+def _build_execution_undo_action(
+    *,
+    session_id: int,
+    run_id: int | None,
+    checkpoint_index: int,
+    checkpoint_title: str,
+    results: Sequence[Mapping[str, Any]],
+    rollback_cues: Mapping[str, Any],
+    rollback: Mapping[str, Any] | None = None,
+    is_active: bool,
+) -> dict[str, Any] | None:
+    if not is_active or rollback:
+        return None
+    if run_id is None:
+        return None
+    action_count = int(rollback_cues.get("rollback_action_count") or 0)
+    if action_count < 1:
+        return None
+    best_effort = _rollback_is_best_effort(results)
+    label = "Rollback checkpoint" if best_effort else "Undo checkpoint"
+    description = (
+        f"Rollback {checkpoint_title}. Some changes may fail if downstream state drifted."
+        if best_effort
+        else f"Undo {checkpoint_title} and return the plan to its prior checkpoint state."
+    )
+    return {
+        "label": label,
+        "description": description,
+        "undo": {
+            "kind": "planning_run",
+            "session_id": session_id,
+            "run_id": run_id,
+            "checkpoint_index": checkpoint_index,
+            "checkpoint_title": checkpoint_title,
+            "action_count": action_count,
+            "best_effort": best_effort,
+        },
+        "requires_confirmation": best_effort,
+        "confirm_title": "Rollback checkpoint" if best_effort else None,
+        "confirm_description": (
+            (
+                f"Rollback will attempt {action_count} action"
+                f"{'s' if action_count != 1 else ''} in reverse order. "
+                "Continue only if you want a best-effort reversal."
+            )
+            if best_effort
+            else None
+        ),
+    }
+
+
 def _execution_row_payload(row: Mapping[str, Any]) -> dict[str, Any]:
     """Parse one planning execution row payload."""
     return json.loads(str(row.get("result_json") or "{}")) if row.get("result_json") else {}
@@ -672,6 +731,8 @@ def _build_execution_history(
         resource_change_summary = dict(
             payload.get("resource_change_summary") or _build_resource_change_summary(results)
         )
+        rollback = dict(payload.get("rollback") or {}) or None
+        is_active = not _row_has_complete_rollback(row)
 
         history.append(
             {
@@ -686,8 +747,19 @@ def _build_execution_history(
                 "follow_up_resources": [dict(item) for item in follow_up_resources],
                 "launch_surfaces": [dict(item) for item in launch_surfaces],
                 "rollback_cues": rollback_cues,
-                "rollback": dict(payload.get("rollback") or {}) or None,
-                "is_active": not _row_has_complete_rollback(row),
+                "undo_action": payload.get("undo_action")
+                or _build_execution_undo_action(
+                    session_id=int(row["session_id"]),
+                    run_id=int(row["id"]),
+                    checkpoint_index=checkpoint_index,
+                    checkpoint_title=checkpoint_title,
+                    results=results,
+                    rollback_cues=rollback_cues,
+                    rollback=rollback,
+                    is_active=is_active,
+                ),
+                "rollback": rollback,
+                "is_active": is_active,
             }
         )
     return history
@@ -936,6 +1008,7 @@ __all__ = [
     "_build_follow_up_resources",
     "_build_launch_surfaces",
     "_build_rollback_cues",
+    "_build_execution_undo_action",
     "_planning_session_payload",
     "_build_execution_history",
     "_build_context_freshness",

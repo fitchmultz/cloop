@@ -843,7 +843,7 @@ function buildPlanningExecutionCard(
         primarySurface?.label || latestExecution.checkpoint_title,
       ),
       ...[
-        buildPlanningRollbackAction(snapshot.session.id, latestExecution),
+        buildPlanningRollbackAction(latestExecution),
       ].filter(isUndoAction),
     ],
   } satisfies OperatorActionCard;
@@ -1203,8 +1203,8 @@ function buildFollowUpSinceLastCard(data: WorkspaceData): PrioritizedCard | null
       buildOpenAction("Open handoff", launchLocation, "Open the newest downstream planning handoff"),
       buildPinAction("Pin handoff recap", launchLocation, "Return to the latest plan-created handoff recap", "Resume · plan handoffs"),
       ...[
-        data.planningSnapshot?.session?.id != null && recentExecution.at(-1)
-          ? buildPlanningRollbackAction(data.planningSnapshot.session.id, recentExecution.at(-1)!)
+        recentExecution.at(-1)
+          ? buildPlanningRollbackAction(recentExecution.at(-1)!)
           : null,
       ].filter(isUndoAction),
     ],

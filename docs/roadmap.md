@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to roll executable undo cues across workflow surfaces without breaking the landed-outcome continuity model.
+The current priority is to roll executable rerun cues across workflow surfaces without breaking the landed-outcome continuity model.
 
 ## Direction
 
@@ -28,15 +28,15 @@ Current product goals:
 
 ## Execution order
 
-### Next — Workflow undo cue rollout
+### Next — Workflow rerun cue rollout
 
-Goal: make meaningful landed outcomes expose executable rollback cues across operator, HTTP, CLI, and MCP.
+Goal: make meaningful landed outcomes expose executable rerun/refresh cues across operator, HTTP, CLI, and MCP.
 
 Planned sequence:
 
-1. promote one shared undo/handoff contract for reversible workflow outcomes
-2. wire operator, CLI, HTTP, and MCP surfaces to expose that contract without transport-specific rollback logic
-3. preserve continuity receipts and follow-up state coherently after undo executes
+1. promote one shared rerun/handoff contract for refreshable workflow outcomes
+2. wire operator, CLI, HTTP, and MCP surfaces to expose that contract without transport-specific rerun logic
+3. preserve continuity receipts and follow-up state coherently after reruns execute
 
 ## Delivery model
 

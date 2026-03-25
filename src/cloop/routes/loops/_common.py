@@ -65,6 +65,7 @@ from ...schemas.loops import (
     PlanningExecutionLaunchSurfaceResponse,
     PlanningExecutionRollbackCueResponse,
     PlanningExecutionRollbackResultResponse,
+    PlanningExecutionUndoActionResponse,
     PlanningResourceChangeSummaryResponse,
     PlanningSessionExecuteResponse,
     PlanningSessionResponse,
@@ -477,6 +478,13 @@ def build_planning_execution_rollback_result_response(
     return PlanningExecutionRollbackResultResponse.model_validate(dict(rollback))
 
 
+def build_planning_execution_undo_action_response(
+    undo_action: Mapping[str, Any],
+) -> PlanningExecutionUndoActionResponse:
+    """Convert one planning undo-action payload into the response model."""
+    return PlanningExecutionUndoActionResponse.model_validate(dict(undo_action))
+
+
 def build_planning_execution_history_item_response(
     item: Mapping[str, Any],
 ) -> PlanningExecutionHistoryItemResponse:
@@ -505,6 +513,11 @@ def build_planning_execution_history_item_response(
         ],
         rollback_cues=build_planning_execution_rollback_cue_response(
             item.get("rollback_cues") or {}
+        ),
+        undo_action=(
+            build_planning_execution_undo_action_response(item["undo_action"])
+            if item.get("undo_action") is not None
+            else None
         ),
         rollback=(
             build_planning_execution_rollback_result_response(item["rollback"])

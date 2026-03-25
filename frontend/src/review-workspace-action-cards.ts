@@ -911,7 +911,7 @@ export function buildPlanningExecutionReceiptCard(options: {
         workingSetId: options.context.fallbackWorkingSetId,
       }),
       ...[
-        buildPlanningRollbackAction(options.snapshot.session.id, options.latestExecution),
+        buildPlanningRollbackAction(options.latestExecution),
       ].filter(isUndoAction),
     ],
   }), { recovery: options.recovery ?? null });

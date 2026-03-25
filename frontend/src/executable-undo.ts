@@ -117,50 +117,32 @@ export function buildLoopUndoAction(
   };
 }
 
-function planningRollbackIsBestEffort(execution: PlanningExecutionHistoryItemResponse): boolean {
-  const results = execution.results ?? [];
-  return results.some((result) =>
-    (result.rollback_actions ?? []).some((action) => action["kind"] !== "loop.undo")
-  );
-}
-
 export function buildPlanningRollbackAction(
-  sessionId: number,
   execution: PlanningExecutionHistoryItemResponse,
   options: { variant?: "primary" | "secondary"; successLocation?: ShellLocationContract | null } = {},
 ): OperatorActionCardUndoAction | null {
-  if (!execution.is_active || execution.rollback || typeof execution.run_id !== "number") {
+  const action = execution.undo_action;
+  if (!action) {
     return null;
   }
-  const actionCount = execution.rollback_cues?.rollback_action_count ?? 0;
-  if (actionCount < 1) {
-    return null;
-  }
-  const bestEffort = planningRollbackIsBestEffort(execution);
-  const label = bestEffort ? "Rollback checkpoint" : "Undo checkpoint";
-  const description = bestEffort
-    ? `Rollback ${execution.checkpoint_title}. Some changes may fail if downstream state drifted.`
-    : `Undo ${execution.checkpoint_title} and return the plan to its prior checkpoint state.`;
   return {
     type: "undo",
-    label,
+    label: action.label,
     variant: options.variant ?? "secondary",
-    description,
+    description: action.description,
     undo: {
       kind: "planning_run",
-      sessionId,
-      runId: execution.run_id,
-      checkpointIndex: execution.checkpoint_index,
-      checkpointTitle: execution.checkpoint_title,
-      actionCount,
-      bestEffort,
+      sessionId: action.undo.session_id,
+      runId: action.undo.run_id,
+      checkpointIndex: action.undo.checkpoint_index,
+      checkpointTitle: action.undo.checkpoint_title,
+      actionCount: action.undo.action_count,
+      bestEffort: action.undo.best_effort,
     },
-    requiresConfirmation: bestEffort,
-    confirmTitle: bestEffort ? "Rollback checkpoint" : null,
-    confirmDescription: bestEffort
-      ? `Rollback will attempt ${actionCount} action${actionCount === 1 ? "" : "s"} in reverse order. Continue only if you want a best-effort reversal.`
-      : null,
-    successLocation: options.successLocation ?? planResumeLocation(sessionId),
+    requiresConfirmation: action.requires_confirmation,
+    confirmTitle: action.confirm_title ?? null,
+    confirmDescription: action.confirm_description ?? null,
+    successLocation: options.successLocation ?? planResumeLocation(action.undo.session_id),
   };
 }
 

@@ -249,6 +249,8 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
             first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
         )
         assert first_execution["execution"]["rollback_cues"]["rollback_action_count"] == 2
+        assert first_execution["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
+        assert first_execution["execution"]["undo_action"]["undo"]["run_id"] > 0
         assert first_execution["execution"]["follow_up_resources"] == []
         assert first_execution["execution"]["launch_surfaces"] == []
         assert first_execution["execution"]["results"][0]["rollback_supported"] is True
