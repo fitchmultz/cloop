@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish continuity consumer convergence, then slim the durable outcome payload.
+The current priority is to finish continuity presentation convergence, then slim durable continuity payloads.
 
 ## Direction
 
@@ -28,21 +28,29 @@ Current product goals:
 
 ## Execution order
 
-### Next — Continuity consumer convergence
+### Next — Continuity presentation convergence
 
-Goal: remove frontend-side continuity display patching so shell, palette, notifications, and recovery all consume the same backend-authored summary contract.
+Goal: stop rewriting backend-authored continuity cards in frontend consumers.
 
-1. replace summary-card normalization that still mixes backend summaries with browser-local card fields
-2. align notification, recommendation, and recovery consumers to the same display and trust payload
-3. delete representative-card lookup joins and other display-only glue kept for the transition
+1. cut notification, recommendation, and recovery consumers to one shared continuity card adapter
+2. remove per-surface trust, handoff, and warning overrides that still patch `summary.card`
+3. keep backend-authored ranking and display fields as the only rendering input for continuity summaries
 
-### Later — Outcome payload slimming
+### Then — Outcome payload slimming
 
-Goal: shrink durable continuity storage after display and follow-through are fully backend-authored.
+Goal: remove transitional continuity payload duplication from storage and transport.
 
-1. keep only backend-owned display, trust, handoff, and typed follow-through fields needed for rendering and execution
-2. remove redundant action blobs and transitional display copies from persisted outcome payloads
-3. delete parser fallbacks and metadata shims kept only for cutover support
+1. keep only backend-owned display, typed action, resume, and workflow-thread fields needed for rendering and execution
+2. remove redundant `outcome_card` display copies and other duplicated presentation blobs from persisted outcomes
+3. trim snapshot/OpenAPI/frontend hydration to the slimmer contract in one cutover
+
+### Later — Continuity cache cleanup
+
+Goal: delete browser-side compatibility glue left by the display cutover.
+
+1. remove parser fallbacks and cache-version support kept only for pre-`display_card` shapes
+2. delete `outcome.card`-is-canonical assumptions in frontend continuity helpers
+3. drop unused representative/display-only wiring once payload slimming lands
 
 ## Delivery model
 
