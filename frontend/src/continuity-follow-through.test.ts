@@ -32,7 +32,6 @@ import {
 } from "./continuity-follow-through";
 import {
   buildPrimaryRecommendationDigestCard,
-  buildPrimaryRecommendationNotification,
   derivePrimaryRecommendation,
 } from "./continuity-recommendations";
 
@@ -696,7 +695,7 @@ describe("readRankedWorkflowSummaries", () => {
     const recommendation = derivePrimaryRecommendation(readRankedWorkflowSummaries());
     expect(recommendation).not.toBeNull();
 
-    const notification = buildPrimaryRecommendationNotification(recommendation!);
+    const notification = recommendation!.notification;
     expect(notification.resolvedLocation.state).toBe("decide");
     expect(notification.title).toBe("Created launch review queue is ready in your working set");
     expect(notification.body).toContain("This workflow has fresh unseen movement.");

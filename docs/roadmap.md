@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish continuity presentation convergence, then slim durable continuity payloads.
+The current priority is durable continuity payload slimming.
 
 ## Direction
 
@@ -28,15 +28,7 @@ Current product goals:
 
 ## Execution order
 
-### Next — Continuity presentation convergence
-
-Goal: stop rewriting backend-authored continuity cards in frontend consumers.
-
-1. cut notification, recommendation, and recovery consumers to one shared continuity card adapter
-2. remove per-surface trust, handoff, and warning overrides that still patch `summary.card`
-3. keep backend-authored ranking and display fields as the only rendering input for continuity summaries
-
-### Then — Outcome payload slimming
+### Next — Outcome payload slimming
 
 Goal: remove transitional continuity payload duplication from storage and transport.
 

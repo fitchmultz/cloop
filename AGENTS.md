@@ -44,7 +44,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 | Frontend operator shell + state navigation | `frontend/src/shell.ts`, `frontend/index.html`, `frontend/src/styles/operator.css` |
 | Frontend shared rerun/refresh affordances | `frontend/src/executable-rerun.ts`, `frontend/src/operator-action-cards.ts`, `frontend/src/continuity-follow-through.ts` |
 | Frontend continuity drift + last-seen markers | `frontend/src/continuity-intelligence.ts`, `frontend/src/continuity-drift.ts`, `frontend/src/shell-operator-cards.ts` |
-| Frontend primary continuity recommendation synthesis | `frontend/src/continuity-recommendations.ts`, `frontend/src/shell-operator-cards.ts`, `frontend/src/command-palette.ts` |
+| Frontend primary continuity recommendation synthesis | `frontend/src/continuity-follow-through.ts`, `frontend/src/continuity-recommendations.ts`, `frontend/src/shell-operator-cards.ts`, `frontend/src/command-palette.ts` |
 | Frontend continuity recovery synthesis + acknowledgement state | `frontend/src/continuity-recovery.ts`, `frontend/src/continuity-follow-through.ts`, `frontend/src/continuity-intelligence.ts` |
 | Frontend browser-global PWA runtime | `frontend/src/pwa.ts`, `frontend/public/sw.js` |
 | Built frontend assets served by FastAPI | `src/cloop/static/dist/`, `src/cloop/web.py` |

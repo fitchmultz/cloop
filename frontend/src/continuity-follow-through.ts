@@ -11,6 +11,7 @@
  *   - Materialize backend-authored display payloads into renderable operator cards.
  *   - Attach canonical resume, rerun, undo, pin, and recovery actions.
  *   - Expose shared recovery lookup for shell and non-shell surfaces.
+ *   - Merge shell-only card chrome onto ranked summary cards without rewriting backend display.
  *
  * Scope:
  *   - Frontend rendering/model helpers for backend continuity summaries only.
@@ -49,6 +50,39 @@ export interface RankedWorkflowSummary extends ContinuityWorkflowSummary {
 
 export interface ReadRankedWorkflowSummariesInput {
   summaries?: readonly ContinuityWorkflowSummary[];
+}
+
+export type ContinuitySurfaceCardPatch = {
+  id: string;
+  kind?: OperatorActionCard["kind"];
+  tone?: OperatorActionCard["tone"];
+  eyebrow?: string;
+  title?: string;
+  summary?: string;
+  rationale?: string;
+  emphasis?: OperatorActionCard["emphasis"];
+  preview?: OperatorActionCard["preview"];
+  actions?: OperatorActionCardAction[];
+  actionContextLabel?: string | null;
+  actionWarning?: string | null;
+  recovery?: ContinuityRecoveryPlan | null;
+};
+
+function stripUndefined(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, v]) => v !== undefined));
+}
+
+/** Shell chrome on top of `summary.card` (backend display + recovery). */
+export function continuitySurfaceCard(
+  summary: RankedWorkflowSummary,
+  patch: ContinuitySurfaceCardPatch,
+): OperatorActionCard {
+  const { id, ...optional } = patch;
+  return {
+    ...summary.card,
+    id,
+    ...stripUndefined(optional as Record<string, unknown>),
+  } as OperatorActionCard;
 }
 
 function buildResumeAction(location: ShellLocationContract, description: string): OperatorActionCardAction {
