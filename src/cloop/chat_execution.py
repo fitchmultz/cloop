@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .chat_orchestration import PreparedChatRequest, prepare_chat_request
+from .continuity_reruns import build_recall_query_rerun_action
 from .llm import ToolCallError, chat_completion, chat_with_tools, stream_events
 from .schemas.chat import (
     ChatContextResponse,
@@ -158,6 +159,66 @@ def _context_response(prepared: PreparedChatRequest) -> ChatContextResponse:
     return ChatContextResponse(**prepared.context_summary)
 
 
+def _latest_user_query(prepared: PreparedChatRequest) -> str | None:
+    for message in reversed(prepared.messages):
+        if message.get("role") == "user":
+            content = str(message.get("content") or "").strip()
+            if content:
+                return content
+    return None
+
+
+def _chat_rerun_freshness_label(prepared: PreparedChatRequest) -> str | None:
+    context_summary = prepared.context_summary
+    source_count = len(prepared.sources)
+    if source_count > 0:
+        suffix = "s" if source_count != 1 else ""
+        return f"{source_count} supporting source{suffix} in the prior answer"
+    if context_summary.get("loop_context_applied"):
+        return "loops applied in the prior answer"
+    if context_summary.get("memory_context_applied"):
+        memory_entries_used = context_summary.get("memory_entries_used")
+        if memory_entries_used:
+            return f"memory ({memory_entries_used}) applied in the prior answer"
+        return "memory applied in the prior answer"
+    if context_summary.get("rag_context_applied"):
+        rag_chunks_used = context_summary.get("rag_chunks_used")
+        if rag_chunks_used:
+            return f"documents ({rag_chunks_used}) applied in the prior answer"
+        return "documents applied in the prior answer"
+    return None
+
+
+def _chat_rerun_action(prepared: PreparedChatRequest):
+    query = _latest_user_query(prepared)
+    if not query:
+        return None
+    return build_recall_query_rerun_action(
+        recall_tool="chat",
+        query=query,
+        label="Rerun answer",
+        description="Land back in Recall with a fresh grounded answer.",
+        provenance_label="Grounded chat result",
+        freshness_label=_chat_rerun_freshness_label(prepared),
+        strategy_summary=(
+            "Reuse the same grounded question against current loop, memory, and document context."
+        ),
+        strict_invariants=[
+            "Same chat recall surface",
+            "Same query text",
+            "Same recall landing surface after the rerun",
+        ],
+        may_vary=[
+            "Retrieved evidence or grounded context mix",
+            "Answer wording and emphasis",
+            "Generation strategy path or alternate selector choice",
+        ],
+        include_loop_context=prepared.effective_options.include_loop_context,
+        include_memory_context=prepared.effective_options.include_memory_context,
+        include_rag_context=prepared.effective_options.include_rag_context,
+    )
+
+
 def _response_payload(
     *,
     prepared: PreparedChatRequest,
@@ -166,6 +227,7 @@ def _response_payload(
     tool_calls: list[dict[str, Any]],
     metadata: dict[str, Any],
 ) -> dict[str, Any]:
+    rerun_action = _chat_rerun_action(prepared)
     return {
         "message": message,
         "tool_results": tool_results,
@@ -175,6 +237,9 @@ def _response_payload(
         "context_summary": prepared.context_summary,
         "options": _options_payload(prepared),
         "sources": prepared.sources,
+        "rerun_action": rerun_action.model_dump(mode="python")
+        if rerun_action is not None
+        else None,
     }
 
 
@@ -196,6 +261,7 @@ def _chat_response(
         options=_options_response(prepared),
         context=_context_response(prepared),
         sources=prepared.sources,
+        rerun_action=_chat_rerun_action(prepared),
     )
 
 

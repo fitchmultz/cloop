@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 
 from ..constants import CHAT_MESSAGE_MAX
 from ..settings import ToolMode
+from ._loops.continuity import ContinuityRerunAction
 
 
 class _InteractionMetadata(TypedDict):
@@ -153,6 +154,7 @@ class ChatResponse(BaseModel):
     options: ChatOptionsResponse
     context: ChatContextResponse = Field(default_factory=ChatContextResponse)
     sources: list[dict[str, Any]] = Field(default_factory=list)
+    rerun_action: ContinuityRerunAction | None = None
 
     @computed_field
     @property

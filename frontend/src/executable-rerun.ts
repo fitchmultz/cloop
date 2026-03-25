@@ -7,13 +7,12 @@
  *
  * Responsibilities:
  *   - Map backend-authored rerun contracts into executable frontend actions.
- *   - Build recall rerun actions where the shell still authors the contract.
  *   - Execute rerun actions through shared HTTP or shell recall hooks.
  *   - Shape landed receipt outcomes after reruns complete.
  *   - Classify stale rerun failures so disabled follow-through actions stay truthful.
  *
  * Scope:
- *   - Frontend-only rerun contract building and execution helpers.
+ *   - Frontend-only rerun mapping and execution helpers.
  *
  * Usage:
  *   - Imported by action-card builders, shell event wiring, continuity, and the
@@ -28,6 +27,8 @@
 
 import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
 import type {
+  AskResponse,
+  ChatResponse,
   ContinuityOutcomeRecordResponse,
   ContinuityWorkflowSummaryResponse,
   EnrichmentReviewSessionSnapshotResponse,
@@ -88,6 +89,8 @@ type ApiRerunAction =
   | EnrichmentReviewSessionSnapshotResponse["rerun_action"]
   | ContinuityOutcomeRecordResponse["rerun_action"]
   | ContinuityWorkflowSummaryResponse["rerun_action"]
+  | ChatResponse["rerun_action"]
+  | AskResponse["rerun_action"]
   | null
   | undefined;
 
@@ -184,62 +187,6 @@ export function requireApiRerunAction(
     throw new Error(`${options.sourceLabel} is missing rerun_action.`);
   }
   return rerunAction;
-}
-
-export function buildRecallRerunAction(input: {
-  recallTool: "chat" | "rag";
-  query: string;
-  workingSetId: number | null;
-  provenanceLabel: string;
-  freshnessLabel: string | null;
-  strategySummary: string;
-  includeLoopContext?: boolean | undefined;
-  includeMemoryContext?: boolean | undefined;
-  includeRagContext?: boolean | undefined;
-  variant?: OperatorActionCardActionVariant;
-}): OperatorActionCardRerunAction {
-  const contract: RerunAttemptContract = {
-    mode: "rerun",
-    provenanceLabel: input.provenanceLabel,
-    freshnessLabel: input.freshnessLabel,
-    strategySummary: input.strategySummary,
-    strictInvariants: [
-      `Same ${input.recallTool} recall surface`,
-      "Same query text",
-      "Same working-set scope when it still exists",
-    ],
-    mayVary: [
-      "Retrieved evidence or grounded context mix",
-      "Answer wording and emphasis",
-      "Generation strategy path or alternate selector choice",
-    ],
-    postRun: {
-      summary: `Land back in Recall with a fresh ${input.recallTool === "chat" ? "grounded answer" : "evidence-backed result"}.`,
-      location: createLocation({
-        state: "recall",
-        recallTool: input.recallTool,
-        workingSetId: input.workingSetId,
-        query: input.query,
-      }),
-    },
-  };
-
-  return {
-    type: "rerun",
-    label: input.recallTool === "chat" ? "Rerun answer" : "Refresh evidence",
-    variant: input.variant ?? "secondary",
-    description: contract.postRun.summary,
-    rerun: {
-      kind: "recall_query",
-      recallTool: input.recallTool,
-      query: input.query,
-      workingSetId: input.workingSetId,
-      includeLoopContext: input.includeLoopContext,
-      includeMemoryContext: input.includeMemoryContext,
-      includeRagContext: input.includeRagContext,
-    },
-    contract,
-  };
 }
 
 export function rerunHandleIdentity(handle: ExecutableRerunHandle): string {

@@ -38,6 +38,7 @@ import {
 import { readRankedWorkflowSummaries } from "./continuity-follow-through";
 import { isLowSignalNavigationEntry } from "./continuity-outcomes";
 import { contractFromLocation } from "./surface-runtime";
+import { updateChatPreferences } from "./surfaces/state";
 import {
   displayElement,
   formatRelativeTime,
@@ -626,6 +627,16 @@ async function openDocumentAskWithQuery(query: string): Promise<void> {
 }
 
 async function rerunRecallQuery(handle: import("./contracts-ui").RecallQueryRerunHandle): Promise<void> {
+  if (handle.recallTool === "chat") {
+    const chatPreferenceOverrides = {
+      ...(handle.includeLoopContext != null ? { includeLoopContext: handle.includeLoopContext } : {}),
+      ...(handle.includeMemoryContext != null ? { includeMemoryContext: handle.includeMemoryContext } : {}),
+      ...(handle.includeRagContext != null ? { includeRagContext: handle.includeRagContext } : {}),
+    };
+    if (Object.keys(chatPreferenceOverrides).length > 0) {
+      updateChatPreferences(chatPreferenceOverrides);
+    }
+  }
   await applyLocation(
     createLocation({
       state: "recall",

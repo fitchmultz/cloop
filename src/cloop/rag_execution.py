@@ -24,6 +24,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
+from .continuity_reruns import build_recall_query_rerun_action
 from .db import get_vector_backend
 from .llm import stream_events
 from .rag import (
@@ -91,17 +92,48 @@ def _ask_request_payload(
     return payload
 
 
+def _ask_rerun_action(*, question: str, sources: list[dict[str, Any]]):
+    source_count = len(sources)
+    return build_recall_query_rerun_action(
+        recall_tool="rag",
+        query=question,
+        label="Refresh evidence",
+        description="Land back in Recall with a fresh evidence-backed result.",
+        provenance_label="Document-backed recall result",
+        freshness_label=(
+            f"{source_count} retrieved source{'s' if source_count != 1 else ''} in the prior answer"
+            if source_count > 0
+            else "Document-backed recall result"
+        ),
+        strategy_summary="Reuse the same document question against the current indexed evidence.",
+        strict_invariants=[
+            "Same document recall surface",
+            "Same query text",
+            "Same recall landing surface after the rerun",
+        ],
+        may_vary=[
+            "Retrieved source set or chunk ranking",
+            "Answer wording and evidence emphasis",
+            "Generation strategy path or alternate selector choice",
+        ],
+        include_rag_context=True,
+    )
+
+
 def _ask_response_payload(
     *,
     answer: str,
+    question: str,
     sources: list[dict[str, Any]],
     context: dict[str, str],
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    rerun_action = _ask_rerun_action(question=question, sources=sources)
     payload = {
         "answer": answer,
         "sources": sources,
         "context": context,
+        "rerun_action": rerun_action.model_dump(mode="python"),
     }
     if metadata:
         payload["metadata"] = metadata
@@ -159,6 +191,7 @@ def execute_ask_request(
     if not prepared.has_knowledge:
         response_payload = _ask_response_payload(
             answer=NO_KNOWLEDGE_MESSAGE,
+            question=question,
             sources=[],
             context=context_snapshot,
         )
@@ -171,7 +204,12 @@ def execute_ask_request(
             latency_ms=None,
             settings=settings,
         )
-        response = AskResponse(answer=NO_KNOWLEDGE_MESSAGE, chunks=[], metadata={})
+        response = AskResponse(
+            answer=NO_KNOWLEDGE_MESSAGE,
+            chunks=[],
+            metadata={},
+            rerun_action=_ask_rerun_action(question=question, sources=[]),
+        )
         return RagAskExecutionResult(
             response=response,
             request_payload=request_payload,
@@ -182,6 +220,7 @@ def execute_ask_request(
     answer = answer_prepared_question(prepared=prepared, settings=settings)
     response_payload = _ask_response_payload(
         answer=answer.answer,
+        question=question,
         sources=answer.sources,
         context=context_snapshot,
         metadata=answer.metadata,
@@ -201,6 +240,7 @@ def execute_ask_request(
         model=answer.model,
         sources=answer.sources,
         metadata=answer.metadata,
+        rerun_action=_ask_rerun_action(question=question, sources=answer.sources),
     )
     return RagAskExecutionResult(
         response=response,
@@ -232,6 +272,7 @@ def stream_ask_request(
     if not prepared.has_knowledge:
         response_payload = _ask_response_payload(
             answer=NO_KNOWLEDGE_MESSAGE,
+            question=question,
             sources=[],
             context=context_snapshot,
         )
@@ -250,6 +291,7 @@ def stream_ask_request(
                 answer=NO_KNOWLEDGE_MESSAGE,
                 chunks=[],
                 metadata={},
+                rerun_action=_ask_rerun_action(question=question, sources=[]),
             ).model_dump(mode="json"),
         )
         return
@@ -309,6 +351,7 @@ def stream_ask_request(
     final_answer = "".join(tokens)
     response_payload = _ask_response_payload(
         answer=final_answer,
+        question=question,
         sources=prepared.sources,
         context=context_snapshot,
         metadata=metadata,
@@ -330,6 +373,7 @@ def stream_ask_request(
             model=metadata.get("model"),
             sources=prepared.sources,
             metadata=metadata,
+            rerun_action=_ask_rerun_action(question=question, sources=prepared.sources),
         ).model_dump(mode="json"),
     )
 

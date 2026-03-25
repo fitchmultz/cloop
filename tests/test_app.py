@@ -75,6 +75,9 @@ def test_ingest_and_ask(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert answer_payload["chunks"]
     assert answer_payload["model"] == "mock-llm"
     assert answer_payload["sources"]
+    assert answer_payload["rerun_action"]["rerun"]["kind"] == "recall_query"
+    assert answer_payload["rerun_action"]["rerun"]["recall_tool"] == "rag"
+    assert answer_payload["rerun_action"]["rerun"]["query"] == "What does FastAPI help with?"
     for chunk in answer_payload["chunks"]:
         assert "embedding_blob" not in chunk
 
@@ -404,6 +407,8 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert final_payload["message"] == "".join(STREAM_TOKENS)
     assert final_payload["model"] == "mock-llm"
     assert final_payload["metadata"]["model"] == "mock-llm"
+    assert final_payload["rerun_action"]["rerun"]["kind"] == "recall_query"
+    assert final_payload["rerun_action"]["rerun"]["recall_tool"] == "chat"
     assert final_payload["options"]["tool_mode"] == "none"
     assert final_payload["options"]["include_loop_context"] is True
     assert final_payload["options"]["include_memory_context"] is True
@@ -421,6 +426,7 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert recorded["message"] == "".join(STREAM_TOKENS)
     assert recorded["context"]["embed_model"] == get_settings().embed_model
     assert recorded["options"]["tool_mode"] == "none"
+    assert recorded["rerun_action"]["rerun"]["kind"] == "recall_query"
     assert recorded["context_summary"]["memory_context_applied"] in {True, False}
 
 
@@ -460,6 +466,12 @@ def test_chat_response_exposes_effective_options_metadata_and_sources(
     assert payload["context"]["rag_context_applied"] is True
     assert payload["context"]["rag_chunks_used"] >= 1
     assert payload["sources"]
+    assert payload["rerun_action"]["rerun"]["kind"] == "recall_query"
+    assert payload["rerun_action"]["rerun"]["recall_tool"] == "chat"
+    assert payload["rerun_action"]["rerun"]["query"] == "Where is the launch checklist?"
+    assert payload["rerun_action"]["rerun"]["include_loop_context"] is True
+    assert payload["rerun_action"]["rerun"]["include_memory_context"] is True
+    assert payload["rerun_action"]["rerun"]["include_rag_context"] is True
     assert any(
         "playbook.txt" in (source.get("document_path") or "") for source in payload["sources"]
     )
@@ -483,6 +495,8 @@ def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert final_payload["answer"] == "".join(STREAM_TOKENS)
     assert final_payload["model"] == get_settings().llm_model
     assert final_payload["sources"]
+    assert final_payload["rerun_action"]["rerun"]["kind"] == "recall_query"
+    assert final_payload["rerun_action"]["rerun"]["recall_tool"] == "rag"
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
@@ -493,6 +507,7 @@ def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     recorded = json.loads(row["response_payload"])
     assert recorded["answer"] == "".join(STREAM_TOKENS)
     assert recorded["context"]["vector_search_mode"] == get_settings().vector_search_mode.value
+    assert recorded["rerun_action"]["rerun"]["kind"] == "recall_query"
 
 
 def test_health_endpoint(test_client: TestClient, tmp_data_dir: Path) -> None:

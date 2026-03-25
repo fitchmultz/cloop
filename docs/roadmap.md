@@ -2,7 +2,7 @@
 
 This is the canonical roadmap for Cloop.
 
-The current priority is to finish recall rerun contracts, then complete continuity normalization and payload cleanup without re-cutting the same surfaces twice.
+The current priority is to remove continuity fallback debt, then slim stored outcome payloads after typed follow-through is the only execution path.
 
 ## Direction
 
@@ -28,34 +28,24 @@ Current product goals:
 
 ## Execution order
 
-### Next — Recall rerun contract rollout
+### Next — Continuity follow-through hard cutover
 
-Goal: give recall follow-through one backend-owned rerun contract instead of shell-only reconstruction.
-
-Planned sequence:
-
-1. define a transport-safe rerun contract for recall queries and grounded-answer refreshes
-2. persist and expose that contract through receipt outcomes and continuity summaries
-3. reuse one execution/staleness path across cards, continuity, and command palette
-
-### Then — Legacy continuity follow-through normalization
-
-Goal: rewrite or normalize older persisted continuity outcomes so typed follow-through stays available after the final payload cleanup.
+Goal: remove `outcome_card.actions` as a continuity dependency once every live workflow has typed undo/rerun fields.
 
 Planned sequence:
 
-1. identify legacy outcomes that still depend on `outcome_card.actions` for undo or rerun
-2. backfill typed follow-through fields from canonical workflow data where a safe contract still exists
-3. leave irrecoverable legacy outcomes explicit instead of silently inventing actions
+1. identify persisted outcomes that still rely on card-action fallbacks for rerun or undo
+2. backfill typed follow-through from canonical workflow data where a safe contract exists
+3. cut continuity readers to typed follow-through fields only and make irrecoverable history explicit
 
 ### Later — Outcome payload slimming
 
-Goal: shrink durable continuity payloads after first-party readers stop depending on full UI-card action blobs.
+Goal: shrink durable continuity payloads after typed follow-through is the only execution path.
 
 Planned sequence:
 
-1. keep only backend-owned trust, handoff, and display fields needed for continuity rendering
-2. remove redundant action data from persisted `outcome_card` payloads once typed fields are complete
+1. keep only backend-owned trust, handoff, display, and typed follow-through fields needed for continuity rendering
+2. remove redundant action blobs from persisted `outcome_card` payloads
 3. delete parser fallbacks and metadata shims kept only for the cutover
 
 ## Delivery model

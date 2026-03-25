@@ -27,11 +27,11 @@ import type {
   ContinuityRecoveryPlan,
   OperatorActionCard,
   OperatorActionCardAction,
+  OperatorActionCardRerunAction,
   RecallTool,
   ShellLocationContract,
 } from "../contracts-ui";
 import { applyContinuityRecovery } from "../continuity-recovery";
-import { buildRecallRerunAction } from "../executable-rerun";
 import { renderActionCardDeck } from "../operator-action-cards";
 import { createLocation } from "../shell-routing";
 
@@ -51,6 +51,7 @@ export interface RecallResultActionCardContext extends RecallActionCardContext {
   answerSummary: string;
   sourceCount: number;
   sourceLabels: string[];
+  rerunAction?: OperatorActionCardRerunAction | null;
   loopContextApplied?: boolean | undefined;
   memoryContextApplied?: boolean | undefined;
   memoryEntriesUsed?: number | undefined;
@@ -226,34 +227,7 @@ export function buildRecallResultActionCards(
     workingSetId: context.workingSetId,
     query: stagedGroundedChatQuery,
   });
-  const chatRerun = context.tool === "chat" && chatPrompt
-    ? buildRecallRerunAction({
-        recallTool: "chat",
-        query: chatPrompt,
-        workingSetId: context.workingSetId,
-        provenanceLabel: "Grounded chat result",
-        freshnessLabel: context.sourceCount
-          ? `${context.sourceCount} supporting source${context.sourceCount === 1 ? "" : "s"} in the prior answer`
-          : `${groundingLabel} applied in the prior answer`,
-        strategySummary: "Reuse the same grounded question against current loop, memory, and document context.",
-        includeLoopContext: context.loopContextApplied,
-        includeMemoryContext: context.memoryContextApplied,
-        includeRagContext: context.ragContextApplied,
-      })
-    : null;
-  const ragRerun = context.tool === "rag" && documentQuestion
-    ? buildRecallRerunAction({
-        recallTool: "rag",
-        query: documentQuestion,
-        workingSetId: context.workingSetId,
-        provenanceLabel: "Document-backed recall result",
-        freshnessLabel: context.sourceCount
-          ? `${context.sourceCount} retrieved source${context.sourceCount === 1 ? "" : "s"} in the prior answer`
-          : "Document-backed recall result",
-        strategySummary: "Reuse the same document question against the current indexed evidence.",
-        includeRagContext: true,
-      })
-    : null;
+  const rerunAction = context.rerunAction ?? null;
 
   if (context.tool === "chat") {
     const cards: OperatorActionCard[] = [
@@ -301,7 +275,7 @@ export function buildRecallResultActionCards(
             groundedBriefDescription,
             groundedBriefLabel,
           ),
-          ...(chatRerun ? [chatRerun] : []),
+          ...(rerunAction ? [rerunAction] : []),
           ...(chatPrompt
             ? [editAction(
                 "Edit question",
@@ -478,7 +452,7 @@ export function buildRecallResultActionCards(
           `Grounded follow-up: ${truncateCopy(stagedGroundedChatQuery, 140)}`,
           "Recall · Grounded follow-up",
         ),
-        ...(ragRerun ? [ragRerun] : []),
+        ...(rerunAction ? [rerunAction] : []),
         editAction(
           "Edit document question",
           documentLocation,

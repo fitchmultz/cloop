@@ -22,6 +22,8 @@
  */
 
 import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
+import type { AskResponse } from "../domain";
+import { mapApiRerunAction } from "../executable-rerun";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
@@ -100,6 +102,10 @@ function renderActionCards(options: { hasKnowledge?: boolean } = {}): void {
   });
 }
 
+function mapRagRerunAction(action: AskResponse["rerun_action"] | undefined) {
+  return mapApiRerunAction(action, { workingSetId: currentWorkingSetId() });
+}
+
 function setIngestStatus(message: string, options: { isError?: boolean } = {}): void {
   if (!ragIngestStatus) {
     return;
@@ -123,7 +129,13 @@ function focusIngestPath(): void {
   ragIngestPath.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[], question: string): void {
+function renderAnswer(
+  answer: string,
+  sources: RagSource[],
+  chunks: RagChunk[],
+  question: string,
+  rerunAction: AskResponse["rerun_action"] | undefined,
+): void {
   if (!ragAnswerText) {
     return;
   }
@@ -145,6 +157,7 @@ function renderAnswer(answer: string, sources: RagSource[], chunks: RagChunk[], 
           answerSummary: normalizedAnswer,
           sourceCount: sourceLabels.length,
           sourceLabels,
+          rerunAction: mapRagRerunAction(rerunAction),
           ragContextApplied: true,
           ragChunksUsed: chunks.length || undefined,
           recovery: currentRecallRecovery(question || null),
@@ -198,6 +211,7 @@ export async function submitRagQuestion(question: string): Promise<void> {
     let finalAnswer = "";
     let sources: RagSource[] = [];
     let chunks: RagChunk[] = [];
+    let rerunAction: AskResponse["rerun_action"] | undefined;
 
     await consumeJsonEventStream<SurfaceChatEventPayload>(response, (eventName, payload) => {
       if (eventName === "token" && typeof payload.token === "string") {
@@ -212,10 +226,11 @@ export async function submitRagQuestion(question: string): Promise<void> {
         sources = Array.isArray(payload.sources) ? payload.sources : [];
         chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
         finalAnswer = typeof payload.answer === "string" ? payload.answer : "";
+        rerunAction = payload.rerun_action as AskResponse["rerun_action"] | undefined;
       }
     });
 
-    renderAnswer(finalAnswer || accumulated || ragAnswerText.textContent || "", sources, chunks, question);
+    renderAnswer(finalAnswer || accumulated || ragAnswerText.textContent || "", sources, chunks, question, rerunAction);
     ragAnswer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (error: unknown) {
     ragAnswer.classList.remove("hidden");

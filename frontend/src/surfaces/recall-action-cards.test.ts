@@ -21,11 +21,49 @@
  *   - Recall card copy remains deterministic for the same context.
  */
 
+import type { OperatorActionCardRerunAction } from "../contracts-ui";
 import {
   buildRecallActionCards,
   buildRecallResultActionCards,
   renderRecallResultActionCards,
 } from "./recall-action-cards";
+
+function makeRecallRerunAction(tool: "chat" | "rag", query: string): OperatorActionCardRerunAction {
+  return {
+    type: "rerun",
+    label: tool === "chat" ? "Rerun answer" : "Refresh evidence",
+    variant: "secondary",
+    description: "Land back in Recall with a fresh result.",
+    rerun: {
+      kind: "recall_query",
+      recallTool: tool,
+      query,
+      workingSetId: null,
+    },
+    contract: {
+      mode: "rerun",
+      provenanceLabel: tool === "chat" ? "Grounded chat result" : "Document-backed recall result",
+      freshnessLabel: null,
+      strategySummary: "Reuse the same recall query.",
+      strictInvariants: ["Same recall surface", "Same query text"],
+      mayVary: ["Answer wording"],
+      postRun: {
+        summary: "Land back in Recall with a fresh result.",
+        location: {
+          state: "recall",
+          recallTool: tool,
+          reviewFocus: null,
+          sessionId: null,
+          loopId: null,
+          viewId: null,
+          memoryId: null,
+          workingSetId: null,
+          query,
+        },
+      },
+    },
+  };
+}
 
 describe("buildRecallActionCards", () => {
   it("keeps working-set scope on chat recall actions", () => {
@@ -61,6 +99,7 @@ describe("buildRecallActionCards", () => {
       answerSummary: "Focus on the missing-next-action loops first, then reopen the duplicate review queue.",
       sourceCount: 2,
       sourceLabels: ["/notes/review.md", "/notes/qa.md"],
+      rerunAction: makeRecallRerunAction("chat", "What changed, what is blocked, and what should I do now?"),
       loopContextApplied: true,
       ragContextApplied: true,
       ragChunksUsed: 4,
@@ -83,6 +122,7 @@ describe("buildRecallActionCards", () => {
       answerSummary: "The operator workflow now surfaces clear queue health and decision-required cues.",
       sourceCount: 1,
       sourceLabels: ["/docs/operator.md"],
+      rerunAction: makeRecallRerunAction("rag", "What changed in the operator workflow?"),
       ragContextApplied: true,
       ragChunksUsed: 2,
     });
@@ -102,6 +142,7 @@ describe("buildRecallActionCards", () => {
       answerSummary: "Review the duplicate queue and then finish the top actionable loop.",
       sourceCount: 1,
       sourceLabels: ["/docs/review.md"],
+      rerunAction: makeRecallRerunAction("chat", "What should I do next?"),
       loopContextApplied: true,
       ragContextApplied: true,
     });

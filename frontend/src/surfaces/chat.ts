@@ -23,6 +23,8 @@
 
 import type { ChatMessage, ChatPreferences } from "../contracts-ui";
 import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
+import type { ChatResponse } from "../domain";
+import { mapApiRerunAction } from "../executable-rerun";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
@@ -297,6 +299,7 @@ function renderMessageActionCards(message: ChatMessage, prompt: string | null): 
     answerSummary,
     sourceCount: sourceLabels.length,
     sourceLabels,
+    rerunAction: message.rerunAction,
     loopContextApplied: message.context?.loop_context_applied,
     memoryContextApplied: message.context?.memory_context_applied,
     memoryEntriesUsed: message.context?.memory_entries_used,
@@ -469,6 +472,10 @@ function currentRecallRecovery(query: string | null = null) {
       query,
     }),
   });
+}
+
+function mapChatRerunAction(action: ChatResponse["rerun_action"] | undefined): ChatMessage["rerunAction"] {
+  return mapApiRerunAction(action, { workingSetId: currentWorkingSetId() });
 }
 
 function renderActionCards(): void {
@@ -658,6 +665,7 @@ export async function submitChat(text: string): Promise<void> {
           ? [resolvedPayload.tool_result]
           : pendingToolResults,
       sources: resolvedPayload?.sources ?? [],
+      rerunAction: mapChatRerunAction(resolvedPayload?.rerun_action as ChatResponse["rerun_action"] | undefined),
       error: null,
     });
   } catch (error: unknown) {

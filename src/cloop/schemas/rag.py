@@ -19,6 +19,8 @@ from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
+from ._loops.continuity import ContinuityRerunAction
+
 
 class IngestMode(StrEnum):
     """Document ingestion mode."""
@@ -67,3 +69,4 @@ class AskResponse(BaseModel):
     model: str | None = None
     sources: List[Dict[str, Any]] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    rerun_action: ContinuityRerunAction | None = None

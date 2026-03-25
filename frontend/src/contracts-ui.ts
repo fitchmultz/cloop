@@ -609,5 +609,6 @@ export interface ChatMessage {
   toolCalls: ChatToolCall[];
   toolResults: Record<string, unknown>[];
   sources: ChatSource[];
+  rerunAction: OperatorActionCardRerunAction | null;
   error: string | null;
 }

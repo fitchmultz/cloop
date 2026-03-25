@@ -190,6 +190,13 @@ function normalizeContext(context: unknown): ChatContext | null {
   };
 }
 
+function normalizeRerunAction(message: unknown): ChatMessage["rerunAction"] {
+  if (!isRecord(message) || typeof message["label"] !== "string" || typeof message["description"] !== "string") {
+    return null;
+  }
+  return message as unknown as ChatMessage["rerunAction"];
+}
+
 function normalizeChatMessage(message: unknown, index = 0): ChatMessage | null {
   if (!isRecord(message) || typeof message["role"] !== "string" || typeof message["content"] !== "string") {
     return null;
@@ -211,6 +218,7 @@ function normalizeChatMessage(message: unknown, index = 0): ChatMessage | null {
       message["toolResult"] ?? message["tool_result"],
     ),
     sources: normalizeSources(message["sources"]),
+    rerunAction: normalizeRerunAction(message["rerunAction"]),
     error: typeof message["error"] === "string" ? message["error"] : null,
   };
 }
