@@ -26,6 +26,7 @@ from cloop import db
 from cloop._scheduler.models import SchedulerPushResult
 from cloop.push_sender import PushPayload, send_scheduler_push
 from cloop.schemas._loops.continuity import (
+    ContinuityDisplayCardResponse,
     ContinuityLocationResponse,
     ContinuityNotificationStateUpsertRequest,
     ContinuityOutcomeWriteRequest,
@@ -357,25 +358,27 @@ class TestPushSender:
                         review_focus="enrichment",
                         session_id=52,
                     ),
-                    outcome_card={
-                        "id": f"receipt-scan-{index:02d}",
-                        "kind": "receipt",
-                        "tone": "progress",
-                        "eyebrow": "Planning receipt",
-                        "title": f"Scan {index:02d}",
-                        "summary": "The downstream queue is ready.",
-                        "rationale": "Receipt",
-                        "preview": [],
-                        "trust": {
-                            "contextSources": ["Planning session"],
-                            "assumptions": [],
-                            "confidenceLabel": "Recorded",
-                            "freshnessLabel": "Saved just now",
-                            "rollbackLabel": "Undo remains available.",
-                        },
-                        "handoff": None,
-                        "actions": [],
-                    },
+                    display_card=ContinuityDisplayCardResponse.model_validate(
+                        {
+                            "kind": "receipt",
+                            "tone": "progress",
+                            "eyebrow": "Planning receipt",
+                            "title": f"Scan {index:02d}",
+                            "summary": "The downstream queue is ready.",
+                            "rationale": "Receipt",
+                            "preview": [],
+                            "trust": {
+                                "context_sources": ["Planning session"],
+                                "assumptions": [],
+                                "confidence_label": "Recorded",
+                                "freshness_label": "Saved just now",
+                                "rollback_label": "Undo remains available.",
+                            },
+                            "handoff": None,
+                            "action_context_label": None,
+                            "action_warning": None,
+                        }
+                    ),
                     workflow_thread=WorkflowThreadRefResponse(
                         id=notification_id,
                         kind="planning_checkpoint",

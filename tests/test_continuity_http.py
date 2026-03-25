@@ -108,8 +108,7 @@ def _planning_outcome_payload(
             review_focus="planning",
             session_id=session_id,
         ),
-        "outcome_card": {
-            "id": f"receipt-{label.lower().replace(' ', '-')}",
+        "display_card": {
             "kind": "receipt",
             "tone": "progress",
             "eyebrow": "Planning receipt",
@@ -118,14 +117,15 @@ def _planning_outcome_payload(
             "rationale": "Receipt",
             "preview": [],
             "trust": {
-                "contextSources": ["Planning session"],
+                "context_sources": ["Planning session"],
                 "assumptions": [],
-                "confidenceLabel": "Recorded",
-                "freshnessLabel": "Saved just now",
-                "rollbackLabel": "Undo remains available.",
+                "confidence_label": "Recorded",
+                "freshness_label": "Saved just now",
+                "rollback_label": "Undo remains available.",
             },
             "handoff": None,
-            "actions": [],
+            "action_context_label": None,
+            "action_warning": None,
         },
         "resume_location": _location_payload(
             state=resume_state,

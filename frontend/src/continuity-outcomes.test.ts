@@ -18,7 +18,7 @@
  *
  * Invariants/Assumptions:
  *   - Continuity helpers remain pure and frontend-only.
- *   - Outcome cards are the canonical landed display payload when present.
+ *   - Outcome cards are the canonical local display payload hydrated from landed outcomes when present.
  */
 
 import type { RecentShellActionEntry, ShellLocationContract } from "./contracts-ui";

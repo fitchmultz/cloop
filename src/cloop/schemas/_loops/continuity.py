@@ -327,7 +327,7 @@ class ContinuityOutcomeWriteRequest(BaseModel):
     description: str
     occurred_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
-    outcome_card: dict[str, Any]
+    display_card: ContinuityDisplayCardResponse
     undo_action: ContinuityUndoAction | None = None
     rerun_action: ContinuityRerunAction | None = None
     resume_location: ContinuityLocationResponse | None = None
@@ -456,7 +456,6 @@ class ContinuityOutcomeRecordResponse(BaseModel):
     description: str
     occurred_at_utc: str
     launch_location: ContinuityLocationResponse | None = None
-    outcome_card: dict[str, Any]
     display_card: ContinuityDisplayCardResponse
     undo_action: ContinuityUndoAction | None = None
     rerun_action: ContinuityRerunAction | None = None

@@ -31,6 +31,187 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    48: """
+    ALTER TABLE continuity_outcomes RENAME TO continuity_outcomes_old;
+
+    CREATE TABLE continuity_outcomes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        label TEXT NOT NULL,
+        description TEXT NOT NULL,
+        occurred_at_utc TEXT NOT NULL,
+        launch_location_json TEXT,
+        display_card_json TEXT NOT NULL,
+        resume_location_json TEXT,
+        working_set_id INTEGER,
+        workflow_thread_id TEXT NOT NULL,
+        workflow_thread_kind TEXT NOT NULL,
+        workflow_thread_title TEXT NOT NULL,
+        workflow_thread_summary TEXT,
+        parent_outcome_id INTEGER REFERENCES continuity_outcomes(id) ON DELETE SET NULL,
+        dedupe_key TEXT NOT NULL,
+        source_surface TEXT NOT NULL,
+        signal_level TEXT NOT NULL CHECK (signal_level IN ('high', 'secondary')),
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO continuity_outcomes (
+        id,
+        kind,
+        label,
+        description,
+        occurred_at_utc,
+        launch_location_json,
+        display_card_json,
+        resume_location_json,
+        working_set_id,
+        workflow_thread_id,
+        workflow_thread_kind,
+        workflow_thread_title,
+        workflow_thread_summary,
+        parent_outcome_id,
+        dedupe_key,
+        source_surface,
+        signal_level,
+        metadata_json,
+        created_at,
+        updated_at
+    )
+    SELECT
+        id,
+        kind,
+        label,
+        description,
+        occurred_at_utc,
+        launch_location_json,
+        json_object(
+            'kind', COALESCE(json_extract(outcome_json, '$.kind'), 'receipt'),
+            'tone', COALESCE(json_extract(outcome_json, '$.tone'), 'neutral'),
+            'eyebrow', COALESCE(json_extract(outcome_json, '$.eyebrow'), 'Recent outcome'),
+            'title', COALESCE(json_extract(outcome_json, '$.title'), label),
+            'summary', COALESCE(json_extract(outcome_json, '$.summary'), description),
+            'rationale', COALESCE(
+                json_extract(outcome_json, '$.rationale'),
+                'This card summarizes a landed continuity outcome.'
+            ),
+            'preview', json(
+                CASE
+                    WHEN json_type(outcome_json, '$.preview') = 'array'
+                        THEN json_extract(outcome_json, '$.preview')
+                    ELSE '[]'
+                END
+            ),
+            'trust', json_object(
+                'generation_label', json_extract(outcome_json, '$.trust.generationLabel'),
+                'generation_tone', json_extract(outcome_json, '$.trust.generationTone'),
+                'context_sources', json(
+                    CASE
+                        WHEN json_type(outcome_json, '$.trust.contextSources') = 'array'
+                            THEN json_extract(outcome_json, '$.trust.contextSources')
+                        ELSE '["Durable continuity outcome"]'
+                    END
+                ),
+                'assumptions', json(
+                    CASE
+                        WHEN json_type(outcome_json, '$.trust.assumptions') = 'array'
+                            THEN json_extract(outcome_json, '$.trust.assumptions')
+                        ELSE '[]'
+                    END
+                ),
+                'confidence_label', COALESCE(
+                    json_extract(outcome_json, '$.trust.confidenceLabel'),
+                    'Persisted continuity state'
+                ),
+                'confidence_tone', json_extract(outcome_json, '$.trust.confidenceTone'),
+                'freshness_label', json_extract(outcome_json, '$.trust.freshnessLabel'),
+                'freshness_tone', json_extract(outcome_json, '$.trust.freshnessTone'),
+                'rollback_label', COALESCE(
+                    json_extract(outcome_json, '$.trust.rollbackLabel'),
+                    json_extract(metadata_json, '$.undo_action.label')
+                ),
+                'rollback_tone', json_extract(outcome_json, '$.trust.rollbackTone'),
+                'impact_summary', COALESCE(
+                    json_extract(outcome_json, '$.trust.impactSummary'),
+                    json_extract(outcome_json, '$.summary'),
+                    description
+                ),
+                'impact_tone', json_extract(outcome_json, '$.trust.impactTone')
+            ),
+            'handoff', CASE
+                WHEN json_type(outcome_json, '$.handoff') = 'object'
+                    THEN json_object(
+                        'change_summary', COALESCE(
+                            json_extract(outcome_json, '$.handoff.changeSummary'),
+                            'Continue from the landed workflow state.'
+                        ),
+                        'created_resources', json(
+                            CASE
+                                WHEN json_type(outcome_json, '$.handoff.createdResources') = 'array'
+                                    THEN json_extract(outcome_json, '$.handoff.createdResources')
+                                ELSE '[]'
+                            END
+                        ),
+                        'next_step', json_extract(outcome_json, '$.handoff.nextStep'),
+                        'breadcrumbs', json(
+                            CASE
+                                WHEN json_type(outcome_json, '$.handoff.breadcrumbs') = 'array'
+                                    THEN json_extract(outcome_json, '$.handoff.breadcrumbs')
+                                ELSE '[]'
+                            END
+                        ),
+                        'working_set', CASE
+                            WHEN json_type(outcome_json, '$.handoff.workingSet') = 'object'
+                                THEN json_object(
+                                    'working_set_id', json_extract(outcome_json, '$.handoff.workingSet.workingSetId'),
+                                    'working_set_name', json_extract(outcome_json, '$.handoff.workingSet.workingSetName'),
+                                    'item_count', COALESCE(
+                                        json_extract(outcome_json, '$.handoff.workingSet.itemCount'),
+                                        0
+                                    ),
+                                    'missing_item_count', COALESCE(
+                                        json_extract(outcome_json, '$.handoff.workingSet.missingItemCount'),
+                                        0
+                                    )
+                                )
+                            ELSE NULL
+                        END
+                    )
+                ELSE NULL
+            END,
+            'action_context_label', json_extract(outcome_json, '$.actionContextLabel'),
+            'action_warning', json_extract(outcome_json, '$.actionWarning')
+        ),
+        resume_location_json,
+        working_set_id,
+        workflow_thread_id,
+        workflow_thread_kind,
+        workflow_thread_title,
+        workflow_thread_summary,
+        parent_outcome_id,
+        dedupe_key,
+        source_surface,
+        signal_level,
+        metadata_json,
+        created_at,
+        updated_at
+    FROM continuity_outcomes_old;
+
+    DROP TABLE continuity_outcomes_old;
+
+    CREATE INDEX idx_continuity_outcomes_occurred_at
+        ON continuity_outcomes(occurred_at_utc DESC, id DESC);
+
+    CREATE INDEX idx_continuity_outcomes_thread
+        ON continuity_outcomes(workflow_thread_id, occurred_at_utc DESC, id DESC);
+
+    CREATE INDEX idx_continuity_outcomes_signal
+        ON continuity_outcomes(signal_level, occurred_at_utc DESC, id DESC);
+
+    CREATE INDEX idx_continuity_outcomes_working_set
+        ON continuity_outcomes(working_set_id, occurred_at_utc DESC, id DESC);
+    """,
     47: """
     ALTER TABLE scheduler_push_deliveries
         ADD COLUMN delivery_reason TEXT

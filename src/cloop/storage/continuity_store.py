@@ -521,6 +521,11 @@ def _outcome_from_row(
     metadata, undo_action, rerun_action = _sanitize_outcome_metadata(
         _load_json_map(row["metadata_json"])
     )
+    display_card = _normalize_outcome_display_card(
+        ContinuityDisplayCardResponse.model_validate(_load_json_map(row["display_card_json"])),
+        undo_action=undo_action,
+        degraded_label=resolved_resume.message if degraded else None,
+    )
     record = ContinuityOutcomeRecordResponse(
         id=int(row["id"]),
         kind=str(row["kind"]),
@@ -528,17 +533,7 @@ def _outcome_from_row(
         description=str(row["description"]),
         occurred_at_utc=str(row["occurred_at_utc"]),
         launch_location=launch_location,
-        outcome_card=_load_json_map(row["outcome_json"]),
-        display_card=ContinuityDisplayCardResponse(
-            kind="receipt",
-            tone="neutral",
-            eyebrow="Recent outcome",
-            title=str(row["label"]),
-            summary=str(row["description"]),
-            rationale="This card summarizes a landed continuity outcome.",
-            preview=[],
-            trust=ContinuityDisplayTrustResponse(context_sources=[]),
-        ),
+        display_card=display_card,
         undo_action=undo_action,
         rerun_action=rerun_action,
         resume_location=resume_location,
@@ -549,185 +544,54 @@ def _outcome_from_row(
         degraded_label=resolved_resume.message if degraded else None,
         metadata=metadata,
     )
-    return record.model_copy(update={"display_card": _outcome_display_card(record)})
+    return record
 
 
 def _display_title(record: ContinuityOutcomeRecordResponse) -> str:
-    if isinstance(record.outcome_card, dict):
-        title = record.outcome_card.get("title")
-        if isinstance(title, str) and title.strip():
-            return title
+    title = record.display_card.title.strip()
+    if title:
+        return title
     return record.label
 
 
 def _display_summary(record: ContinuityOutcomeRecordResponse) -> str:
-    if isinstance(record.outcome_card, dict):
-        summary = record.outcome_card.get("summary")
-        if isinstance(summary, str) and summary.strip():
-            return summary
+    summary = record.display_card.summary.strip()
+    if summary:
+        return summary
     return record.description
 
 
-_DISPLAY_CARD_KINDS = {"mutation", "decision", "handoff", "refresh", "context", "receipt"}
-_DISPLAY_CARD_TONES = {"neutral", "attention", "progress", "caution"}
 _DISPLAY_SUMMARY_RATIONALE = (
     "This card is rendered from the canonical backend continuity summary "
     "instead of client-side ranking heuristics."
 )
-_DisplayTone = Literal["neutral", "attention", "progress", "caution"]
-_DisplayKind = Literal["mutation", "decision", "handoff", "refresh", "context", "receipt"]
 
 
-def _optional_text(value: Any) -> str | None:
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped:
-            return stripped
-    return None
-
-
-def _display_tone(value: Any, default: _DisplayTone = "neutral") -> _DisplayTone:
-    if isinstance(value, str) and value in _DISPLAY_CARD_TONES:
-        return cast(_DisplayTone, value)
-    return default
-
-
-def _display_kind(value: Any, default: _DisplayKind = "context") -> _DisplayKind:
-    if isinstance(value, str) and value in _DISPLAY_CARD_KINDS:
-        return cast(_DisplayKind, value)
-    return default
-
-
-def _display_preview_items(value: Any) -> list[ContinuityDisplayPreviewItemResponse]:
-    if not isinstance(value, list):
-        return []
-    preview: list[ContinuityDisplayPreviewItemResponse] = []
-    for item in value:
-        if not isinstance(item, Mapping):
-            continue
-        label = _optional_text(item.get("label"))
-        preview_value = _optional_text(item.get("value"))
-        if label and preview_value:
-            preview.append(ContinuityDisplayPreviewItemResponse(label=label, value=preview_value))
-    return preview
-
-
-def _display_working_set(value: Any) -> ContinuityDisplayWorkingSetResponse | None:
-    if not isinstance(value, Mapping):
-        return None
-    working_set_id = value.get("workingSetId")
-    working_set_name = _optional_text(value.get("workingSetName"))
-    if not isinstance(working_set_id, int) or working_set_name is None:
-        return None
-    item_count = value.get("itemCount") if isinstance(value.get("itemCount"), int) else 0
-    missing_item_count = (
-        value.get("missingItemCount") if isinstance(value.get("missingItemCount"), int) else 0
-    )
-    return ContinuityDisplayWorkingSetResponse(
-        working_set_id=working_set_id,
-        working_set_name=working_set_name,
-        item_count=item_count,
-        missing_item_count=missing_item_count,
-    )
-
-
-def _display_handoff(value: Any) -> ContinuityDisplayHandoffResponse | None:
-    if not isinstance(value, Mapping):
-        return None
-    change_summary = _optional_text(value.get("changeSummary"))
-    created_resources = (
-        [
-            item.strip()
-            for item in value.get("createdResources", [])
-            if isinstance(item, str) and item.strip()
-        ]
-        if isinstance(value.get("createdResources"), list)
-        else []
-    )
-    breadcrumbs = (
-        [
-            item.strip()
-            for item in value.get("breadcrumbs", [])
-            if isinstance(item, str) and item.strip()
-        ]
-        if isinstance(value.get("breadcrumbs"), list)
-        else []
-    )
-    if change_summary is None and not created_resources and not breadcrumbs:
-        return None
-    return ContinuityDisplayHandoffResponse(
-        change_summary=change_summary or "Continue from the landed workflow state.",
-        created_resources=created_resources,
-        next_step=_optional_text(value.get("nextStep")),
-        breadcrumbs=breadcrumbs,
-        working_set=_display_working_set(value.get("workingSet")),
-    )
-
-
-def _display_trust(
-    value: Any,
+def _normalize_outcome_display_card(
+    display_card: ContinuityDisplayCardResponse,
     *,
-    default_context_source: str,
-    fallback_impact: str,
-    rollback_label: str | None,
-) -> ContinuityDisplayTrustResponse:
-    payload = value if isinstance(value, Mapping) else {}
-    context_sources = (
-        [
-            item.strip()
-            for item in payload.get("contextSources", [])
-            if isinstance(item, str) and item.strip()
-        ]
-        if isinstance(payload.get("contextSources"), list)
-        else []
-    )
-    assumptions = (
-        [
-            item.strip()
-            for item in payload.get("assumptions", [])
-            if isinstance(item, str) and item.strip()
-        ]
-        if isinstance(payload.get("assumptions"), list)
-        else []
-    )
-    return ContinuityDisplayTrustResponse(
-        generation_label=_optional_text(payload.get("generationLabel")),
-        generation_tone=_display_tone(payload.get("generationTone"), default="neutral"),
-        context_sources=context_sources or [default_context_source],
-        assumptions=assumptions,
-        confidence_label=_optional_text(payload.get("confidenceLabel"))
-        or "Persisted continuity state",
-        confidence_tone=_display_tone(payload.get("confidenceTone"), default="progress"),
-        freshness_label=_optional_text(payload.get("freshnessLabel")) or None,
-        freshness_tone=_display_tone(payload.get("freshnessTone"), default="neutral"),
-        rollback_label=_optional_text(payload.get("rollbackLabel")) or rollback_label,
-        rollback_tone=_display_tone(payload.get("rollbackTone"), default="neutral"),
-        impact_summary=_optional_text(payload.get("impactSummary")) or fallback_impact,
-        impact_tone=_display_tone(payload.get("impactTone"), default="neutral"),
-    )
-
-
-def _outcome_display_card(record: ContinuityOutcomeRecordResponse) -> ContinuityDisplayCardResponse:
-    card = record.outcome_card if isinstance(record.outcome_card, Mapping) else {}
-    return ContinuityDisplayCardResponse(
-        kind=cast(Any, _display_kind(card.get("kind"), default="receipt")),
-        tone=cast(Any, _display_tone(card.get("tone"), default="neutral")),
-        eyebrow=_optional_text(card.get("eyebrow")) or "Recent outcome",
-        title=_display_title(record),
-        summary=_display_summary(record),
-        rationale=_optional_text(card.get("rationale"))
-        or "This card summarizes a landed continuity outcome.",
-        preview=_display_preview_items(card.get("preview")),
-        trust=_display_trust(
-            card.get("trust"),
-            default_context_source="Durable continuity outcome",
-            fallback_impact=_display_summary(record),
-            rollback_label=record.undo_action.label if record.undo_action else None,
-        ),
-        handoff=_display_handoff(card.get("handoff")),
-        action_context_label=_optional_text(card.get("actionContextLabel")),
-        action_warning=(record.degraded_label if record.degraded else None)
-        or _optional_text(card.get("actionWarning")),
+    undo_action: ContinuityUndoAction | None,
+    degraded_label: str | None,
+) -> ContinuityDisplayCardResponse:
+    trust = display_card.trust
+    trust_updates: dict[str, Any] = {}
+    if not trust.context_sources:
+        trust_updates["context_sources"] = ["Durable continuity outcome"]
+    if trust.confidence_label is None:
+        trust_updates["confidence_label"] = "Persisted continuity state"
+    if trust.rollback_label is None and undo_action is not None:
+        trust_updates["rollback_label"] = undo_action.label
+    if trust.impact_summary is None:
+        trust_updates["impact_summary"] = display_card.summary
+    normalized_trust = trust.model_copy(update=trust_updates) if trust_updates else trust
+    action_warning = display_card.action_warning or degraded_label
+    if normalized_trust is trust and action_warning == display_card.action_warning:
+        return display_card
+    return display_card.model_copy(
+        update={
+            "trust": normalized_trust,
+            "action_warning": action_warning,
+        }
     )
 
 
@@ -957,9 +821,7 @@ def _candidate_from_outcome(
     marker = _workflow_marker(markers, thread.id)
     last_seen_outcome_id = int(marker.observed_state.get("latestOutcomeId", 0)) if marker else 0
     source: Literal["receipt", "recent", "anchor"] = (
-        "receipt"
-        if isinstance(record.outcome_card, dict) and record.outcome_card.get("kind") == "receipt"
-        else "recent"
+        "receipt" if record.display_card.kind == "receipt" else "recent"
     )
     if record.degraded:
         severity = "gone"
@@ -1662,7 +1524,7 @@ def record_continuity_outcome(
         launch_json = (
             _dump_json(payload.launch_location) if payload.launch_location is not None else None
         )
-        outcome_json = _dump_json(payload.outcome_card)
+        display_card_json = _dump_json(payload.display_card)
         resume_json = (
             _dump_json(payload.resume_location) if payload.resume_location is not None else None
         )
@@ -1691,7 +1553,7 @@ def record_continuity_outcome(
                         description = ?,
                         occurred_at_utc = ?,
                         launch_location_json = ?,
-                        outcome_json = ?,
+                        display_card_json = ?,
                         resume_location_json = ?,
                         working_set_id = ?,
                         workflow_thread_id = ?,
@@ -1711,7 +1573,7 @@ def record_continuity_outcome(
                         payload.description,
                         payload.occurred_at_utc,
                         launch_json,
-                        outcome_json,
+                        display_card_json,
                         resume_json,
                         payload.working_set_id,
                         payload.workflow_thread.id,
@@ -1736,7 +1598,7 @@ def record_continuity_outcome(
                 description,
                 occurred_at_utc,
                 launch_location_json,
-                outcome_json,
+                display_card_json,
                 resume_location_json,
                 working_set_id,
                 workflow_thread_id,
@@ -1756,7 +1618,7 @@ def record_continuity_outcome(
                 payload.description,
                 payload.occurred_at_utc,
                 launch_json,
-                outcome_json,
+                display_card_json,
                 resume_json,
                 payload.working_set_id,
                 payload.workflow_thread.id,

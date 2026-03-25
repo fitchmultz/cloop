@@ -1,3 +1,4 @@
+import json
 import logging
 import sqlite3
 from concurrent import futures
@@ -265,6 +266,117 @@ def test_migration_rollback_on_failure(tmp_path: Path, monkeypatch: pytest.Monke
             "SELECT name FROM sqlite_master WHERE type='table' AND name='test_rollback_marker'"
         ).fetchone()
     assert table_exists is None, "Migration data should have been rolled back"
+
+
+def test_continuity_outcomes_migration_rewrites_legacy_outcome_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migrating from schema 47 should replace outcome_json with display_card_json."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE continuity_outcomes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                label TEXT NOT NULL,
+                description TEXT NOT NULL,
+                occurred_at_utc TEXT NOT NULL,
+                launch_location_json TEXT,
+                outcome_json TEXT NOT NULL,
+                resume_location_json TEXT,
+                working_set_id INTEGER,
+                workflow_thread_id TEXT NOT NULL,
+                workflow_thread_kind TEXT NOT NULL,
+                workflow_thread_title TEXT NOT NULL,
+                workflow_thread_summary TEXT,
+                parent_outcome_id INTEGER REFERENCES continuity_outcomes(id) ON DELETE SET NULL,
+                dedupe_key TEXT NOT NULL,
+                source_surface TEXT NOT NULL,
+                signal_level TEXT NOT NULL CHECK (signal_level IN ('high', 'secondary')),
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO continuity_outcomes (
+                kind,
+                label,
+                description,
+                occurred_at_utc,
+                launch_location_json,
+                outcome_json,
+                resume_location_json,
+                working_set_id,
+                workflow_thread_id,
+                workflow_thread_kind,
+                workflow_thread_title,
+                workflow_thread_summary,
+                parent_outcome_id,
+                dedupe_key,
+                source_surface,
+                signal_level,
+                metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "planning",
+                "Legacy queue",
+                "The downstream queue is ready.",
+                "2026-03-21T12:00:00Z",
+                '{"state":"operator","recall_tool":"chat"}',
+                json.dumps(
+                    {
+                        "kind": "receipt",
+                        "tone": "progress",
+                        "eyebrow": "Planning receipt",
+                        "title": "Legacy queue",
+                        "summary": "The downstream queue is ready.",
+                        "rationale": "Receipt",
+                        "preview": [{"label": "Queue", "value": "Ready"}],
+                        "trust": {
+                            "contextSources": ["Planning session"],
+                            "confidenceLabel": "Recorded",
+                        },
+                    }
+                ),
+                '{"state":"operator","recall_tool":"chat"}',
+                None,
+                "planning:41:checkpoint:0",
+                "planning_checkpoint",
+                "Weekly reset",
+                "Planning checkpoint thread",
+                None,
+                "planning::queue",
+                "review-workspace",
+                "high",
+                "{}",
+            ),
+        )
+        conn.execute("PRAGMA user_version = 47")
+        conn.commit()
+
+        db.migrate_core_db(conn, from_version=47, to_version=48)
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info('continuity_outcomes')").fetchall()
+        }
+        display_card_json = conn.execute(
+            "SELECT display_card_json FROM continuity_outcomes WHERE dedupe_key = ?",
+            ("planning::queue",),
+        ).fetchone()[0]
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    display_card = json.loads(display_card_json)
+    assert "display_card_json" in columns
+    assert "outcome_json" not in columns
+    assert display_card["title"] == "Legacy queue"
+    assert display_card["summary"] == "The downstream queue is ready."
+    assert display_card["trust"]["context_sources"] == ["Planning session"]
+    assert version == 48
 
 
 def test_critical_performance_indexes_exist(

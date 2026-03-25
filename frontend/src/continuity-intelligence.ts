@@ -218,8 +218,8 @@ function readContinuityRecoveryAcks(): DurableRecoveryAcknowledgement[] {
   );
   return Array.isArray(parsed)
     ? parsed.filter((ack): ack is DurableRecoveryAcknowledgement => {
-        return typeof ack?.recoveryKey === "string" && typeof ack?.acknowledgedAtUtc === "string";
-      })
+      return typeof ack?.recoveryKey === "string" && typeof ack?.acknowledgedAtUtc === "string";
+    })
     : [];
 }
 
@@ -396,11 +396,11 @@ function normalizeContinuityCardDisplay(value: unknown): ContinuityCardDisplay |
   }
   const preview = Array.isArray(value["preview"])
     ? value["preview"].flatMap((item) => {
-        if (!isRecord(item) || typeof item["label"] !== "string" || typeof item["value"] !== "string") {
-          return [];
-        }
-        return [{ label: item["label"], value: item["value"] }];
-      })
+      if (!isRecord(item) || typeof item["label"] !== "string" || typeof item["value"] !== "string") {
+        return [];
+      }
+      return [{ label: item["label"], value: item["value"] }];
+    })
     : [];
   const handoffValue = value["handoff"];
   const workingSetValue = isRecord(handoffValue) && isRecord(handoffValue["workingSet"]) ? handoffValue["workingSet"] : null;
@@ -432,23 +432,23 @@ function normalizeContinuityCardDisplay(value: unknown): ContinuityCardDisplay |
     },
     handoff: isRecord(handoffValue)
       ? {
-          changeSummary: stringValue(handoffValue["changeSummary"]) ?? "Continue from the landed workflow state.",
-          createdResources: Array.isArray(handoffValue["createdResources"])
-            ? handoffValue["createdResources"].filter((item): item is string => typeof item === "string")
-            : [],
-          nextStep: stringValue(handoffValue["nextStep"]),
-          breadcrumbs: Array.isArray(handoffValue["breadcrumbs"])
-            ? handoffValue["breadcrumbs"].filter((item): item is string => typeof item === "string")
-            : [],
-          workingSet: workingSetValue && typeof workingSetValue["workingSetId"] === "number" && typeof workingSetValue["workingSetName"] === "string"
-            ? {
-                workingSetId: workingSetValue["workingSetId"],
-                workingSetName: workingSetValue["workingSetName"],
-                itemCount: typeof workingSetValue["itemCount"] === "number" ? workingSetValue["itemCount"] : 0,
-                missingItemCount: typeof workingSetValue["missingItemCount"] === "number" ? workingSetValue["missingItemCount"] : 0,
-              }
-            : null,
-        }
+        changeSummary: stringValue(handoffValue["changeSummary"]) ?? "Continue from the landed workflow state.",
+        createdResources: Array.isArray(handoffValue["createdResources"])
+          ? handoffValue["createdResources"].filter((item): item is string => typeof item === "string")
+          : [],
+        nextStep: stringValue(handoffValue["nextStep"]),
+        breadcrumbs: Array.isArray(handoffValue["breadcrumbs"])
+          ? handoffValue["breadcrumbs"].filter((item): item is string => typeof item === "string")
+          : [],
+        workingSet: workingSetValue && typeof workingSetValue["workingSetId"] === "number" && typeof workingSetValue["workingSetName"] === "string"
+          ? {
+            workingSetId: workingSetValue["workingSetId"],
+            workingSetName: workingSetValue["workingSetName"],
+            itemCount: typeof workingSetValue["itemCount"] === "number" ? workingSetValue["itemCount"] : 0,
+            missingItemCount: typeof workingSetValue["missingItemCount"] === "number" ? workingSetValue["missingItemCount"] : 0,
+          }
+          : null,
+      }
       : null,
     actionContextLabel: stringValue(value["actionContextLabel"]),
     actionWarning: stringValue(value["actionWarning"]),
@@ -763,10 +763,10 @@ function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | n
     occurredAt: value["occurredAt"],
     persistence: isRecord(value["persistence"])
       ? {
-          status: value["persistence"]["status"] as ContinuityPersistenceState["status"],
-          persistedOutcomeId: integerValue(value["persistence"]["persistedOutcomeId"]),
-          syncedAtUtc: stringValue(value["persistence"]["syncedAtUtc"]),
-        }
+        status: value["persistence"]["status"] as ContinuityPersistenceState["status"],
+        persistedOutcomeId: integerValue(value["persistence"]["persistedOutcomeId"]),
+        syncedAtUtc: stringValue(value["persistence"]["syncedAtUtc"]),
+      }
       : null,
   };
 
@@ -1426,31 +1426,31 @@ function mapContinuityCardDisplayFromApi(
     },
     handoff: response.handoff
       ? {
-          changeSummary: response.handoff.change_summary,
-          createdResources: response.handoff.created_resources ?? [],
-          nextStep: response.handoff.next_step ?? null,
-          breadcrumbs: response.handoff.breadcrumbs ?? [],
-          workingSet: response.handoff.working_set
-            ? {
-                workingSetId: response.handoff.working_set.working_set_id,
-                workingSetName: response.handoff.working_set.working_set_name,
-                itemCount: response.handoff.working_set.item_count,
-                missingItemCount: response.handoff.working_set.missing_item_count,
-              }
-            : null,
-        }
+        changeSummary: response.handoff.change_summary,
+        createdResources: response.handoff.created_resources ?? [],
+        nextStep: response.handoff.next_step ?? null,
+        breadcrumbs: response.handoff.breadcrumbs ?? [],
+        workingSet: response.handoff.working_set
+          ? {
+            workingSetId: response.handoff.working_set.working_set_id,
+            workingSetName: response.handoff.working_set.working_set_name,
+            itemCount: response.handoff.working_set.item_count,
+            missingItemCount: response.handoff.working_set.missing_item_count,
+          }
+          : null,
+      }
       : null,
     actionContextLabel: response.action_context_label ?? null,
     actionWarning: response.action_warning ?? null,
   };
 }
 
-function applyDisplayCardToOutcomeCard(
+function buildOutcomeCardFromDisplayCard(
   displayCard: ContinuityCardDisplay,
-  outcomeCard: OperatorActionCard,
+  outcomeId: number,
 ): OperatorActionCard {
   return {
-    ...outcomeCard,
+    id: `continuity-outcome-${outcomeId}`,
     kind: displayCard.kind,
     tone: displayCard.tone,
     eyebrow: displayCard.eyebrow,
@@ -1462,6 +1462,57 @@ function applyDisplayCardToOutcomeCard(
     handoff: displayCard.handoff,
     actionContextLabel: displayCard.actionContextLabel ?? null,
     actionWarning: displayCard.actionWarning ?? null,
+    recovery: null,
+    actions: [],
+  };
+}
+
+function mapDisplayCardToApi(
+  card: OperatorActionCard,
+): ContinuityOutcomeWriteRequest["display_card"] {
+  return {
+    kind: card.kind,
+    tone: card.tone,
+    eyebrow: card.eyebrow,
+    title: card.title,
+    summary: card.summary,
+    rationale: card.rationale,
+    preview: card.preview.map((item) => ({
+      label: item.label,
+      value: item.value,
+    })),
+    trust: {
+      generation_label: card.trust.generationLabel ?? null,
+      generation_tone: card.trust.generationTone ?? null,
+      context_sources: card.trust.contextSources ?? [],
+      assumptions: card.trust.assumptions ?? [],
+      confidence_label: card.trust.confidenceLabel ?? null,
+      confidence_tone: card.trust.confidenceTone ?? null,
+      freshness_label: card.trust.freshnessLabel ?? null,
+      freshness_tone: card.trust.freshnessTone ?? null,
+      rollback_label: card.trust.rollbackLabel ?? null,
+      rollback_tone: card.trust.rollbackTone ?? null,
+      impact_summary: card.trust.impactSummary ?? null,
+      impact_tone: card.trust.impactTone ?? null,
+    },
+    handoff: card.handoff
+      ? {
+        change_summary: card.handoff.changeSummary,
+        created_resources: card.handoff.createdResources ?? [],
+        next_step: card.handoff.nextStep ?? null,
+        breadcrumbs: card.handoff.breadcrumbs ?? [],
+        working_set: card.handoff.workingSet
+          ? {
+            working_set_id: card.handoff.workingSet.workingSetId,
+            working_set_name: card.handoff.workingSet.workingSetName,
+            item_count: card.handoff.workingSet.itemCount ?? 0,
+            missing_item_count: card.handoff.workingSet.missingItemCount ?? 0,
+          }
+          : null,
+      }
+      : null,
+    action_context_label: card.actionContextLabel ?? null,
+    action_warning: card.actionWarning ?? null,
   };
 }
 
@@ -1478,12 +1529,12 @@ function mapSuccessorFromApi(
     summary: successor.summary ?? null,
     workflowThread: successor.workflow_thread
       ? {
-          id: successor.workflow_thread.id,
-          kind: successor.workflow_thread.kind,
-          title: successor.workflow_thread.title,
-          summary: successor.workflow_thread.summary ?? null,
-          parentOutcomeId: successor.workflow_thread.parent_outcome_id ?? null,
-        }
+        id: successor.workflow_thread.id,
+        kind: successor.workflow_thread.kind,
+        title: successor.workflow_thread.title,
+        summary: successor.workflow_thread.summary ?? null,
+        parentOutcomeId: successor.workflow_thread.parent_outcome_id ?? null,
+      }
       : null,
     requestedLocation: mapLocationFromApi(successor.requested_location),
     resolvedLocation: mapLocationFromApi(successor.resolved_location)!,
@@ -1562,10 +1613,7 @@ function mapRerunActionFromApi(
 
 function mapPersistedOutcomeToRecentEntry(response: ContinuityOutcomeRecordResponse): RecentShellActionEntry {
   const displayCard = mapContinuityCardDisplayFromApi(response.display_card);
-  const card = applyDisplayCardToOutcomeCard(
-    displayCard,
-    response.outcome_card as unknown as OperatorActionCard,
-  );
+  const card = buildOutcomeCardFromDisplayCard(displayCard, response.id);
   return enrichRecentActionEntry({
     kind: response.kind as RecentShellActionEntry["kind"],
     label: response.label,
@@ -1822,7 +1870,7 @@ function buildOutcomeWriteRequest(entry: RecentShellActionEntry): ContinuityOutc
     description: entry.description,
     occurred_at_utc: entry.occurredAt,
     launch_location: mapLocationToApi(entry.location),
-    outcome_card: entry.outcome.card as unknown as Record<string, unknown>,
+    display_card: mapDisplayCardToApi(entry.outcome.card),
     undo_action: mapUndoActionToApi(entry.outcome.undoAction),
     rerun_action: mapRerunActionToApi(entry.outcome.rerunAction),
     resume_location: mapLocationToApi(entry.outcome.resumeLocation),

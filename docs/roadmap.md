@@ -1,8 +1,6 @@
 # Cloop Roadmap
 
-This is the canonical roadmap for Cloop.
-
-The current priority is durable continuity payload slimming.
+Execution focus: delete browser compatibility layers that only exist for duplicated continuity payloads.
 
 ## Direction
 
@@ -28,37 +26,28 @@ Current product goals:
 
 ## Execution order
 
-### Next — Outcome payload slimming
+### Next — Continuity browser cache cleanup
 
-Goal: remove transitional continuity payload duplication from storage and transport.
+Slimming landed; now remove glue that only supported pre-slimming or duplicated shapes.
 
-1. keep only backend-owned display, typed action, resume, and workflow-thread fields needed for rendering and execution
-2. remove redundant `outcome_card` display copies and other duplicated presentation blobs from persisted outcomes
-3. trim snapshot/OpenAPI/frontend hydration to the slimmer contract in one cutover
-
-### Later — Continuity cache cleanup
-
-Goal: delete browser-side compatibility glue left by the display cutover.
-
-1. remove parser fallbacks and cache-version support kept only for pre-`display_card` shapes
-2. delete `outcome.card`-is-canonical assumptions in frontend continuity helpers
-3. drop unused representative/display-only wiring once payload slimming lands
+1. Delete parser fallbacks and cache-version branches kept for legacy snapshot shapes.
+2. Remove `outcome.card`-style assumptions in continuity helpers where `display_card` / workflow summary is authoritative.
+3. Prune unused representative or display-only wiring once hydration is stable on the slim contract.
 
 ## Delivery model
 
-- Keep `docs/roadmap.md` concise and ordered.
-- Use linked UX specs for workflow detail and acceptance criteria.
-- Remove completed roadmap items instead of marking them done.
-- Update the relevant spec when implementation materially changes intended behavior.
-- Land UX changes as end-to-end workflow slices, not isolated visual polish.
+- Keep this file short; link UX specs for acceptance detail.
+- Remove finished work instead of marking it done.
+- Update the relevant UX spec when behavior changes materially.
+- Ship end-to-end slices (contract + storage + transport + UI), not isolated polish.
 
 ## Guardrails
 
 - Do not add UI polish without improving workflow clarity, confidence, or speed.
 - Prefer state-driven UX over feature-driven navigation.
 - Prefer action surfaces over narrative AI output.
-- Do not reintroduce legacy plain-JS frontend paths; all operator-shell and work-surface runtime work belongs in the TypeScript/Vite frontend.
-- Keep all AI recommendations grounded in real loops, memory, RAG, or explicit operator context.
+- Do not reintroduce legacy plain-JS frontend paths; operator shell and work surfaces stay strict TypeScript under `frontend/src/surfaces/*.ts` and shared shell modules.
+- Keep AI recommendations grounded in real loops, memory, RAG, or explicit operator context.
 - Preserve deterministic escape hatches and visible rollback cues for meaningful mutations.
-- Avoid transport-specific workflow drift; shared orchestration remains the source of truth.
+- Avoid transport-specific workflow drift; shared orchestration stays canonical.
 - Treat `make ci` as the release gate for every milestone.

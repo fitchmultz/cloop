@@ -612,7 +612,7 @@ CREATE TABLE continuity_outcomes (
     description TEXT NOT NULL,
     occurred_at_utc TEXT NOT NULL,
     launch_location_json TEXT,
-    outcome_json TEXT NOT NULL,
+    display_card_json TEXT NOT NULL,
     resume_location_json TEXT,
     working_set_id INTEGER,
     workflow_thread_id TEXT NOT NULL,

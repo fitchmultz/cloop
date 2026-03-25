@@ -30,6 +30,7 @@ from fastapi.testclient import TestClient
 from cloop import db
 from cloop.ai_bridge import shutdown_bridge_runtime
 from cloop.schemas._loops.continuity import (
+    ContinuityDisplayCardResponse,
     ContinuityLocationResponse,
     ContinuityOutcomeWriteRequest,
     WorkflowThreadRefResponse,
@@ -194,25 +195,27 @@ def record_continuity_delivery_outcome(
                 review_focus="enrichment",
                 session_id=52,
             ),
-            outcome_card={
-                "id": f"receipt-{label.lower().replace(' ', '-')}",
-                "kind": "receipt",
-                "tone": "progress",
-                "eyebrow": "Planning receipt",
-                "title": label,
-                "summary": description,
-                "rationale": "Receipt",
-                "preview": [],
-                "trust": {
-                    "contextSources": ["Planning session"],
-                    "assumptions": [],
-                    "confidenceLabel": "Recorded",
-                    "freshnessLabel": "Saved just now",
-                    "rollbackLabel": "Undo remains available.",
-                },
-                "handoff": None,
-                "actions": [],
-            },
+            display_card=ContinuityDisplayCardResponse.model_validate(
+                {
+                    "kind": "receipt",
+                    "tone": "progress",
+                    "eyebrow": "Planning receipt",
+                    "title": label,
+                    "summary": description,
+                    "rationale": "Receipt",
+                    "preview": [],
+                    "trust": {
+                        "context_sources": ["Planning session"],
+                        "assumptions": [],
+                        "confidence_label": "Recorded",
+                        "freshness_label": "Saved just now",
+                        "rollback_label": "Undo remains available.",
+                    },
+                    "handoff": None,
+                    "action_context_label": None,
+                    "action_warning": None,
+                }
+            ),
             workflow_thread=WorkflowThreadRefResponse(
                 id=workflow_thread_id,
                 kind="planning_checkpoint",
