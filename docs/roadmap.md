@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: finish durable reopen paths for planning and review handoffs before shell/runtime cleanup.
+Execution focus: finish the outcome-first continuity cutover before shell/runtime cleanup.
 
 ## Direction
 
@@ -26,20 +26,20 @@ Current product goals:
 
 ## Execution order
 
-### Next — Durable reopen paths for planning and review handoffs
+### Next — Cross-surface landed outcomes and recents
 
-Finish the cutover from browser-history guesses to durable reopen contracts.
+Finish the outcome-first continuity contract outside the core operator-home readers.
 
-1. Reopen saved planning and review queues correctly after cold load, refresh, or cross-surface launch.
-2. Reuse continuity anchors and ranked summaries instead of transport-local fallback logic.
-3. Keep shell, command palette, and review workspace launch behavior identical for the same durable target.
+1. Ensure planning, review, recall, working-set, and command-palette mutations emit landed outcomes with durable resume targets.
+2. Demote session-switch and navigation-only continuity writes so recent history reflects landed work instead of surface churn.
+3. Make palette recents, operator since-last cards, and receipt history read the same outcome-first continuity feed.
 
 ### Then — Frontend shell/runtime boundary cleanup
 
-Reduce frontend churn by cleaning up runtime boundaries after hydration and reopen behavior are stable.
+Clean up runtime boundaries only after continuity contracts stop moving.
 
-1. Remove ineffective dynamic imports and dead split points in the shell/surface runtime.
-2. Shrink the operator bundle by lazy-loading surface code only when a surface is activated.
+1. Remove ineffective dynamic imports and dead split points in the shell and surface runtime.
+2. Lazy-load surface code from the activation boundary so the operator bundle drops below the current warning path.
 3. Keep the shell bootstrap thin and avoid reintroducing secondary entrypoints.
 
 ## Delivery model

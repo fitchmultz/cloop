@@ -26,7 +26,7 @@
  */
 
 import { withReceiptOutcome } from "./action-receipts";
-import { requestJson } from "./http";
+import { HttpRequestError, requestJson } from "./http";
 import type {
   ClarificationSubmitRequest,
   EnrichmentReviewActionCreateRequest,
@@ -71,6 +71,7 @@ import type {
   TrustSurfaceMetadata,
 } from "./contracts-ui";
 import { applyContinuityRecovery } from "./continuity-recovery";
+import { resolveDurableReopenLocation } from "./continuity-follow-through";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
 import {
   recordRecentShellAction,
@@ -462,6 +463,90 @@ function toReviewHash(
 
 function toDoHash(loopId: number, workingSetId: number | null = currentWorkingSetId()): string {
   return locationToHash(createLocation({ state: "do", loopId, workingSetId }));
+}
+
+function operatorHomeHash(): string {
+  return locationToHash(createLocation({ state: "operator" }));
+}
+
+function requestedReviewLocation(
+  focus: ReviewFocus,
+  sessionId: number,
+  workingSetId: number | null = currentWorkingSetId(),
+) {
+  switch (focus) {
+    case "planning":
+      return createLocation({ state: "plan", reviewFocus: "planning", sessionId, workingSetId });
+    case "relationship":
+      return createLocation({ state: "decide", reviewFocus: "relationship", sessionId, workingSetId });
+    case "enrichment":
+      return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId, workingSetId });
+    case "cohorts":
+      return createLocation({ state: "review", reviewFocus: "cohorts", workingSetId });
+  }
+}
+
+function redirectToResolvedFocus(focus: ReviewFocus, sessionId: number | null): boolean {
+  if (sessionId == null || focus === "cohorts") {
+    return false;
+  }
+  const resolution = resolveDurableReopenLocation({
+    location: requestedReviewLocation(focus, sessionId),
+    allowSessionMatch: true,
+  });
+  const nextHash = locationToHash(createLocation(resolution.resolvedLocation));
+  if (nextHash === window.location.hash) {
+    return false;
+  }
+  window.location.hash = nextHash;
+  return true;
+}
+
+function missingSessionHomeFallback(): void {
+  window.location.hash = operatorHomeHash();
+}
+
+function isMissingSessionError(error: unknown): boolean {
+  return error instanceof HttpRequestError && error.status === 404;
+}
+
+const ABORT_SESSION_LOAD = Symbol("abort-session-load");
+
+function redirectRequestedSessionOrHome<T extends { id: number }>(
+  focus: Extract<ReviewFocus, "planning" | "relationship" | "enrichment">,
+  requestedSessionId: number | null,
+  sessions: readonly T[],
+): boolean {
+  if (requestedSessionId == null) {
+    return false;
+  }
+  if (redirectToResolvedFocus(focus, requestedSessionId)) {
+    return true;
+  }
+  if (!sessions.some((session) => session.id === requestedSessionId)) {
+    missingSessionHomeFallback();
+    return true;
+  }
+  return false;
+}
+
+async function fetchRequestedSnapshotOrAbort<T>(
+  requestedSessionId: number | null,
+  sessionId: number | null,
+  fetcher: (sessionId: number) => Promise<T>,
+): Promise<T | null | typeof ABORT_SESSION_LOAD> {
+  if (sessionId == null) {
+    return null;
+  }
+  try {
+    return await fetcher(sessionId);
+  } catch (error: unknown) {
+    if (requestedSessionId != null && isMissingSessionError(error)) {
+      missingSessionHomeFallback();
+      return ABORT_SESSION_LOAD;
+    }
+    throw error;
+  }
 }
 
 function parseHashToFocus(hash: string): ReviewFocusDetail | null {
@@ -2461,8 +2546,14 @@ function renderAll(): void {
 
 async function loadPlanningMode(requestedSessionId: number | null): Promise<void> {
   const sessions = await fetchPlanningSessions();
+  if (redirectRequestedSessionOrHome("planning", requestedSessionId, sessions)) {
+    return;
+  }
   const sessionId = requestedSessionId ?? choosePersistedId(sessions, state.planningSessionId);
-  const snapshot = sessionId != null ? await fetchPlanningSession(sessionId) : null;
+  const snapshot = await fetchRequestedSnapshotOrAbort(requestedSessionId, sessionId, fetchPlanningSession);
+  if (snapshot === ABORT_SESSION_LOAD) {
+    return;
+  }
   state = {
     ...state,
     activeMode: "planning",
@@ -2479,9 +2570,15 @@ async function loadPlanningMode(requestedSessionId: number | null): Promise<void
 
 async function loadRelationshipMode(requestedSessionId: number | null): Promise<void> {
   const [actions, sessions] = await Promise.all([fetchRelationshipActions(), fetchRelationshipSessions()]);
+  if (redirectRequestedSessionOrHome("relationship", requestedSessionId, sessions)) {
+    return;
+  }
   const sessionId = requestedSessionId ?? choosePersistedId(sessions, state.relationshipSessionId);
   const actionId = choosePersistedId(actions, state.relationshipActionId);
-  const snapshot = sessionId != null ? await fetchRelationshipSession(sessionId) : null;
+  const snapshot = await fetchRequestedSnapshotOrAbort(requestedSessionId, sessionId, fetchRelationshipSession);
+  if (snapshot === ABORT_SESSION_LOAD) {
+    return;
+  }
   state = {
     ...state,
     activeMode: "relationship",
@@ -2500,9 +2597,15 @@ async function loadRelationshipMode(requestedSessionId: number | null): Promise<
 
 async function loadEnrichmentMode(requestedSessionId: number | null): Promise<void> {
   const [actions, sessions] = await Promise.all([fetchEnrichmentActions(), fetchEnrichmentSessions()]);
+  if (redirectRequestedSessionOrHome("enrichment", requestedSessionId, sessions)) {
+    return;
+  }
   const sessionId = requestedSessionId ?? choosePersistedId(sessions, state.enrichmentSessionId);
   const actionId = choosePersistedId(actions, state.enrichmentActionId);
-  const snapshot = sessionId != null ? await fetchEnrichmentSession(sessionId) : null;
+  const snapshot = await fetchRequestedSnapshotOrAbort(requestedSessionId, sessionId, fetchEnrichmentSession);
+  if (snapshot === ABORT_SESSION_LOAD) {
+    return;
+  }
   state = {
     ...state,
     activeMode: "enrichment",

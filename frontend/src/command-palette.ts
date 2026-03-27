@@ -71,10 +71,10 @@ import {
 } from "./continuity-intelligence";
 import {
   readRankedWorkflowSummaries,
+  resolveDurableReopenLocation,
   type RankedWorkflowSummary,
 } from "./continuity-follow-through";
 import { derivePrimaryRecommendation } from "./continuity-recommendations";
-import { continuityLocationIdentity } from "./continuity-outcomes";
 import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
@@ -1725,139 +1725,155 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     summaries: readonly RankedWorkflowSummary[],
   ): CommandPaletteCommand[] {
     const commands: CommandPaletteCommand[] = [];
-    const activeWorkingSet = context.workingSetContext?.active_working_set ?? null;
     const activeWorkingSetId = context.workingSetContext?.active_working_set_id ?? null;
-    const activeWorkingSetName = activeWorkingSet?.name ?? null;
-    const followThroughLocations = new Set(
-      summaries.map((item) => continuityLocationIdentity(item.resolvedResume.resolvedLocation)),
-    );
+    const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
     const scopedSubtitle = (base: string): string => {
       return activeWorkingSetName ? `${base} · ${activeWorkingSetName}` : base;
     };
-
-    context.planningSessions.slice(0, 6).forEach((session) => {
-      const scopedLocation = createLocation({
-        state: "plan",
-        reviewFocus: "planning",
-        sessionId: session.id,
-        workingSetId: activeWorkingSetId,
+    const chooseSessionResolution = (
+      scopedLocation: ShellLocationContract,
+      unscopedLocation: ShellLocationContract,
+    ) => {
+      const scopedResolution = activeWorkingSetId != null
+        ? resolveDurableReopenLocation({
+            location: scopedLocation,
+            summaries,
+            allowSessionMatch: true,
+          })
+        : null;
+      if (scopedResolution?.matched) {
+        return scopedResolution;
+      }
+      return resolveDurableReopenLocation({
+        location: unscopedLocation,
+        summaries,
+        allowSessionMatch: true,
       });
-      const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && followThroughLocations.has(continuityLocationIdentity(scopedLocation));
-      const location = scopedToActiveWorkingSet
-        ? scopedLocation
-        : createLocation({
-            state: "plan",
-            reviewFocus: "planning",
-            sessionId: session.id,
-            workingSetId: null,
-          });
+    };
+    const pushSessionCommand = (input: {
+      id: string;
+      title: string;
+      badge: CommandPaletteCommand["badge"];
+      scopedLocation: ShellLocationContract;
+      unscopedLocation: ShellLocationContract;
+      baseSubtitle: string;
+      keywords: string[];
+      meta: string[];
+      scopedDescription: string;
+      unscopedDescription: string;
+      contextBoost: number;
+    }) => {
+      const resolution = chooseSessionResolution(input.scopedLocation, input.unscopedLocation);
+      const location = resolution.resolvedLocation;
+      const scopedToActiveWorkingSet = activeWorkingSetId != null && location.workingSetId === activeWorkingSetId;
       commands.push({
-        id: `planning-session-${session.id}`,
+        id: input.id,
         group: "review",
-        title: `Resume plan · ${session.name}`,
-        subtitle: scopedToActiveWorkingSet
-          ? scopedSubtitle(`${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed`)
-          : `${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed`,
-        keywords: ["plan", "planning", session.name, session.prompt, activeWorkingSetName ?? ""],
-        badge: "Plan",
+        title: input.title,
+        subtitle: resolution.recovery?.summary ?? (scopedToActiveWorkingSet ? scopedSubtitle(input.baseSubtitle) : input.baseSubtitle),
+        keywords: input.keywords,
+        badge: input.badge,
         location,
-        contextBoost: scopedToActiveWorkingSet ? 86 : 0,
+        contextBoost: scopedToActiveWorkingSet ? input.contextBoost : 0,
         detail: {
           eyebrow: "Review",
-          description: scopedToActiveWorkingSet
-            ? "Resume this saved planning session with the active working-set scope restored."
-            : "Resume this saved planning session at its current checkpointed state.",
-          meta: [
-            `Status: ${session.status.replaceAll("_", " ")}`,
-            session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
-            scopedToActiveWorkingSet && activeWorkingSetName ? `Working set: ${activeWorkingSetName}` : null,
-          ].filter((value): value is string => Boolean(value)),
+          description: resolution.recovery
+            ? resolution.recovery.nextStep
+            : scopedToActiveWorkingSet
+              ? input.scopedDescription
+              : input.unscopedDescription,
+          meta: input.meta.concat(
+            scopedToActiveWorkingSet && activeWorkingSetName ? [`Working set: ${activeWorkingSetName}`] : [],
+          ),
+          recovery: resolution.recovery ?? undefined,
         },
         recentAction: { kind: "open-location", location },
         execute: () => bindings.openLocation(location),
+      });
+    };
+
+    context.planningSessions.slice(0, 6).forEach((session) => {
+      pushSessionCommand({
+        id: `planning-session-${session.id}`,
+        title: `Resume plan · ${session.name}`,
+        badge: "Plan",
+        scopedLocation: createLocation({
+          state: "plan",
+          reviewFocus: "planning",
+          sessionId: session.id,
+          workingSetId: activeWorkingSetId,
+        }),
+        unscopedLocation: createLocation({
+          state: "plan",
+          reviewFocus: "planning",
+          sessionId: session.id,
+          workingSetId: null,
+        }),
+        baseSubtitle: `${session.executed_checkpoint_count}/${session.checkpoint_count} checkpoints executed`,
+        keywords: ["plan", "planning", session.name, session.prompt, activeWorkingSetName ?? ""],
+        meta: [
+          `Status: ${session.status.replaceAll("_", " ")}`,
+          session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
+        ],
+        scopedDescription: "Resume this saved planning session with the active working-set scope restored.",
+        unscopedDescription: "Resume this saved planning session at its current checkpointed state.",
+        contextBoost: 86,
       });
     });
     context.relationshipSessions.slice(0, 6).forEach((session) => {
-      const scopedLocation = createLocation({
-        state: "decide",
-        reviewFocus: "relationship",
-        sessionId: session.id,
-        workingSetId: activeWorkingSetId,
-      });
-      const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && followThroughLocations.has(continuityLocationIdentity(scopedLocation));
-      const location = scopedToActiveWorkingSet
-        ? scopedLocation
-        : createLocation({
-            state: "decide",
-            reviewFocus: "relationship",
-            sessionId: session.id,
-            workingSetId: null,
-          });
-      commands.push({
+      pushSessionCommand({
         id: `relationship-session-${session.id}`,
-        group: "review",
         title: `Open relationship queue · ${session.name}`,
-        subtitle: scopedToActiveWorkingSet ? scopedSubtitle(session.query) : session.query,
-        keywords: ["relationship", "duplicates", "review", session.name, session.query, activeWorkingSetName ?? ""],
         badge: "Decide",
-        location,
-        contextBoost: scopedToActiveWorkingSet ? 84 : 0,
-        detail: {
-          eyebrow: "Review",
-          description: scopedToActiveWorkingSet
-            ? "Open this saved relationship-review queue with the active working-set scope restored."
-            : "Open this saved relationship-review queue at its preserved cursor.",
-          meta: [
-            `Relationship kind: ${session.relationship_kind}`,
-            session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
-            scopedToActiveWorkingSet && activeWorkingSetName ? `Working set: ${activeWorkingSetName}` : null,
-          ].filter((value): value is string => Boolean(value)),
-        },
-        recentAction: { kind: "open-location", location },
-        execute: () => bindings.openLocation(location),
+        scopedLocation: createLocation({
+          state: "decide",
+          reviewFocus: "relationship",
+          sessionId: session.id,
+          workingSetId: activeWorkingSetId,
+        }),
+        unscopedLocation: createLocation({
+          state: "decide",
+          reviewFocus: "relationship",
+          sessionId: session.id,
+          workingSetId: null,
+        }),
+        baseSubtitle: session.query,
+        keywords: ["relationship", "duplicates", "review", session.name, session.query, activeWorkingSetName ?? ""],
+        meta: [
+          `Relationship kind: ${session.relationship_kind}`,
+          session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
+        ],
+        scopedDescription: "Open this saved relationship-review queue with the active working-set scope restored.",
+        unscopedDescription: "Open this saved relationship-review queue at its preserved cursor.",
+        contextBoost: 84,
       });
     });
     context.enrichmentSessions.slice(0, 6).forEach((session) => {
-      const scopedLocation = createLocation({
-        state: "decide",
-        reviewFocus: "enrichment",
-        sessionId: session.id,
-        workingSetId: activeWorkingSetId,
-      });
-      const scopedToActiveWorkingSet = activeWorkingSetId != null
-        && followThroughLocations.has(continuityLocationIdentity(scopedLocation));
-      const location = scopedToActiveWorkingSet
-        ? scopedLocation
-        : createLocation({
-            state: "decide",
-            reviewFocus: "enrichment",
-            sessionId: session.id,
-            workingSetId: null,
-          });
-      commands.push({
+      pushSessionCommand({
         id: `enrichment-session-${session.id}`,
-        group: "review",
         title: `Open enrichment queue · ${session.name}`,
-        subtitle: scopedToActiveWorkingSet ? scopedSubtitle(session.query) : session.query,
-        keywords: ["enrichment", "clarifications", "review", session.name, session.query, activeWorkingSetName ?? ""],
         badge: "Decide",
-        location,
-        contextBoost: scopedToActiveWorkingSet ? 84 : 0,
-        detail: {
-          eyebrow: "Review",
-          description: scopedToActiveWorkingSet
-            ? "Open this saved enrichment queue with the active working-set scope restored."
-            : "Open this saved enrichment queue at its preserved cursor.",
-          meta: [
-            `Pending kind: ${session.pending_kind}`,
-            session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
-            scopedToActiveWorkingSet && activeWorkingSetName ? `Working set: ${activeWorkingSetName}` : null,
-          ].filter((value): value is string => Boolean(value)),
-        },
-        recentAction: { kind: "open-location", location },
-        execute: () => bindings.openLocation(location),
+        scopedLocation: createLocation({
+          state: "decide",
+          reviewFocus: "enrichment",
+          sessionId: session.id,
+          workingSetId: activeWorkingSetId,
+        }),
+        unscopedLocation: createLocation({
+          state: "decide",
+          reviewFocus: "enrichment",
+          sessionId: session.id,
+          workingSetId: null,
+        }),
+        baseSubtitle: session.query,
+        keywords: ["enrichment", "clarifications", "review", session.name, session.query, activeWorkingSetName ?? ""],
+        meta: [
+          `Pending kind: ${session.pending_kind}`,
+          session.updated_at_utc ? `Updated ${formatRelativeTime(session.updated_at_utc)}` : "No update timestamp",
+        ],
+        scopedDescription: "Open this saved enrichment queue with the active working-set scope restored.",
+        unscopedDescription: "Open this saved enrichment queue at its preserved cursor.",
+        contextBoost: 84,
       });
     });
     return commands;

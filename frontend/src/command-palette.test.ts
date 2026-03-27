@@ -10,9 +10,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bootstrapCommandPalette } from "./command-palette";
-import type { ContinuityNotificationRecord, ShellLocationContract } from "./contracts-ui";
+import type { ContinuityNotificationRecord, ResumeAnchorState, ShellLocationContract } from "./contracts-ui";
 
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
+const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -62,6 +63,10 @@ function seedNotifications(records: ContinuityNotificationRecord[]): void {
   window.localStorage.setItem(NOTIFICATION_RECORDS_CACHE_KEY, JSON.stringify(records));
 }
 
+function seedAnchors(anchors: ResumeAnchorState): void {
+  window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(anchors));
+}
+
 function readNotifications(): ContinuityNotificationRecord[] {
   return JSON.parse(window.localStorage.getItem(NOTIFICATION_RECORDS_CACHE_KEY) ?? "[]") as ContinuityNotificationRecord[];
 }
@@ -100,9 +105,10 @@ async function settle(): Promise<void> {
 function createController(overrides: {
   openLocation?: (location: ShellLocationContract) => Promise<void>;
   refreshWorkspace?: () => Promise<void>;
+  getContext?: () => Parameters<typeof bootstrapCommandPalette>[0]["getContext"] extends () => infer T ? T : never;
 } = {}) {
   return bootstrapCommandPalette({
-    getContext: () => ({
+    getContext: overrides.getContext ?? (() => ({
       currentLocation: location({ state: "operator" }),
       loops: [],
       workingSets: [],
@@ -110,7 +116,7 @@ function createController(overrides: {
       planningSessions: [],
       relationshipSessions: [],
       enrichmentSessions: [],
-    }),
+    })),
     openLocation: overrides.openLocation ?? vi.fn(async () => undefined),
     refreshWorkspace: overrides.refreshWorkspace ?? vi.fn(async () => undefined),
     createWorkingSet: vi.fn(async () => null),
@@ -212,5 +218,87 @@ describe("command-palette notification commands", () => {
     expect(stored?.suppressedUntilUtc).not.toBeNull();
     expect(Date.parse(stored?.suppressedUntilUtc ?? "") - Date.parse(stored?.inboxedAtUtc ?? "")).toBe(24 * 60 * 60 * 1000);
     expect(refreshWorkspace).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens saved review queues through the durable anchor target instead of the active working-set guess", async () => {
+    buildPaletteDom();
+    seedAnchors({
+      planning: null,
+      review: {
+        kind: "review",
+        reviewFocus: "relationship",
+        sessionId: 91,
+        visitedAtUtc: "2026-03-27T12:00:00Z",
+        launchLocation: null,
+        resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 91, workingSetId: 7 }),
+        resolvedResume: {
+          requestedLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 91, workingSetId: 7 }),
+          resolvedLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 91 }),
+          status: "working_set_scope_removed",
+          message: "The original working-set scope is gone, so the queue reopens unscoped.",
+          successor: null,
+        },
+        outcomeTitle: "Resume relationship queue · Launch duplicates",
+        outcomeSummary: "Return to the saved relationship queue.",
+        workingSetId: 7,
+        workflowThreadId: "review:relationship:91",
+        degraded: true,
+        degradedLabel: "The original working-set scope is gone, so the queue reopens unscoped.",
+      },
+    });
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const controller = createController({
+      openLocation,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [],
+        workingSetContext: {
+          active_working_set_id: 3,
+          focus_mode_enabled: false,
+          active_working_set: {
+            id: 3,
+            name: "Today",
+            description: null,
+            item_count: 0,
+            missing_item_count: 0,
+            created_at_utc: "2026-03-27T10:00:00Z",
+            updated_at_utc: "2026-03-27T10:00:00Z",
+            items: [],
+            launch: location({ state: "working_set", workingSetId: 3 }),
+          } as never,
+        } as never,
+        planningSessions: [],
+        relationshipSessions: [{
+          id: 91,
+          name: "Launch duplicates",
+          query: "project:launch status:open",
+          relationship_kind: "all",
+          review_kind: "relationship",
+          candidate_limit: 25,
+          item_limit: 100,
+          created_at_utc: "2026-03-27T10:00:00Z",
+          updated_at_utc: "2026-03-27T11:00:00Z",
+        }],
+        enrichmentSessions: [],
+      }),
+    });
+
+    controller.open();
+    await settle();
+
+    const input = document.getElementById("command-palette-input") as HTMLInputElement;
+    input.value = "Launch duplicates";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+
+    findCommandButton("Open relationship queue · Launch duplicates").click();
+    await settle();
+
+    expect(openLocation).toHaveBeenCalledWith(location({
+      state: "decide",
+      reviewFocus: "relationship",
+      sessionId: 91,
+    }));
   });
 });

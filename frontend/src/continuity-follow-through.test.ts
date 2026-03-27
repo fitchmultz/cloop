@@ -29,6 +29,7 @@ import {
 import {
   findRecoveryPlanForLocation,
   readRankedWorkflowSummaries,
+  resolveDurableReopenLocation,
 } from "./continuity-follow-through";
 import {
   buildPrimaryRecommendationDigestCard,
@@ -657,6 +658,19 @@ describe("readRankedWorkflowSummaries", () => {
       workflowThreadId: "planning:99",
     });
     expect(recovery?.acknowledged).toBe(true);
+  });
+
+  it("resolves stale planning reopen requests through the backend continuity summary", async () => {
+    await hydrateDurableContinuityState();
+
+    const resolution = resolveDurableReopenLocation({
+      location: location({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
+      allowSessionMatch: true,
+    });
+
+    expect(resolution.matched).toBe(true);
+    expect(resolution.resolvedLocation).toEqual(location({ state: "operator" }));
+    expect(resolution.recovery?.kind).toBe("home_fallback");
   });
 
   it("builds one canonical notification and digest from the primary recommendation", async () => {
