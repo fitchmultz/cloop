@@ -26,13 +26,7 @@ Current product goals:
 
 ## Execution order
 
-### Next — Continuity browser cache cleanup
-
-Slimming landed; now remove glue that only supported pre-slimming or duplicated shapes.
-
-1. Delete parser fallbacks and cache-version branches kept for legacy snapshot shapes.
-2. Remove `outcome.card`-style assumptions in continuity helpers where `display_card` / workflow summary is authoritative.
-3. Prune unused representative or display-only wiring once hydration is stable on the slim contract.
+_No active roadmap slice queued. Add the next end-to-end slice here before implementation._
 
 ## Delivery model
 

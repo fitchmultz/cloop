@@ -18,7 +18,7 @@
  *
  * Invariants/Assumptions:
  *   - `outcome.resumeLocation` is the canonical landed resume target when present.
- *   - `outcome.card` is the canonical local display payload hydrated from landed outcomes when present.
+ *   - `outcome.card` is only a local receipt display payload; durable workflow summaries own ranked continuity follow-through.
  *   - Launch locations remain useful only as degraded fallback context.
  */
 

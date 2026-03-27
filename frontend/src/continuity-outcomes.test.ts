@@ -18,7 +18,7 @@
  *
  * Invariants/Assumptions:
  *   - Continuity helpers remain pure and frontend-only.
- *   - Outcome cards are the canonical local display payload hydrated from landed outcomes when present.
+ *   - Outcome cards only preserve local receipt display while durable workflow summaries stay authoritative for ranked follow-through.
  */
 
 import type { RecentShellActionEntry, ShellLocationContract } from "./contracts-ui";

@@ -70,6 +70,7 @@ import type {
   ExecutableRerunHandle,
   ExecutableUndoHandle,
   OperatorActionCard,
+  OperatorActionCardAction,
   OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
   RecentShellActionEntry,
@@ -90,6 +91,7 @@ import {
   upsertContinuityNotificationState,
   upsertContinuityRecoveryAcknowledgement,
 } from "./continuity-api";
+import { findRerunAction, findUndoAction } from "./action-receipts";
 import { mapApiRerunAction, rerunHandleIdentity } from "./executable-rerun";
 import { undoHandleIdentity } from "./executable-undo";
 import {
@@ -100,11 +102,11 @@ import {
 
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
-const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v3";
+const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v4";
 const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v2";
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
 const LAST_SEEN_MARKERS_CACHE_KEY = "cloop.continuity.last-seen.cache.v1";
-const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v1";
+const PENDING_CONTINUITY_SYNC_KEY = "cloop.continuity.pending-sync.v2";
 const CONTINUITY_RECOVERY_ACKS_KEY = "cloop.continuity.recovery-acks.cache.v2";
 const MAX_RECENT_ACTIONS = 24;
 const DEDUPE_WINDOW_MS = 15_000;
@@ -753,7 +755,9 @@ function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | n
   }
 
   const outcome = isRecord(value["outcome"]) ? value["outcome"] : null;
-  const cardValue = outcome && isRecord(outcome["card"]) ? outcome["card"] as unknown as OperatorActionCard : null;
+  const displayCard = outcome ? normalizeContinuityCardDisplay(outcome["card"]) : null;
+  const undoAction = outcome ? parseUndoAction(outcome["undoAction"]) : null;
+  const rerunAction = outcome ? parseRerunAction(outcome["rerunAction"]) : null;
   const entry: RecentShellActionEntry = {
     kind: value["kind"] as RecentShellActionEntry["kind"],
     label: value["label"],
@@ -770,16 +774,20 @@ function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | n
       : null,
   };
 
-  if (!outcome || !cardValue) {
+  if (!outcome || !displayCard) {
     return entry;
   }
 
+  const rawCardId = stringValue(isRecord(outcome["card"]) ? outcome["card"]["id"] : null);
   entry.outcome = {
-    card: cardValue,
+    card: buildOutcomeCardFromDisplayCard(displayCard, null, {
+      ...(rawCardId ? { id: rawCardId } : {}),
+      actions: outcomeCardFollowThroughActions({ undoAction, rerunAction }),
+    }),
     resumeLocation: normalizeLocation(outcome["resumeLocation"]),
     rollbackLabel: typeof outcome["rollbackLabel"] === "string" ? outcome["rollbackLabel"] : null,
-    undoAction: parseUndoAction(outcome["undoAction"]),
-    rerunAction: parseRerunAction(outcome["rerunAction"]),
+    undoAction,
+    rerunAction,
     workflowThread: normalizeWorkflowThread(outcome["workflowThread"]),
     resolvedResume: normalizeResolvedTarget(outcome["resolvedResume"]),
   };
@@ -1193,10 +1201,18 @@ function enrichRecentActionEntry(entry: RecentShellActionEntry): RecentShellActi
   if (!entry.outcome) {
     return entry;
   }
+  const undoAction = entry.outcome.undoAction ?? findUndoAction(entry.outcome.card);
+  const rerunAction = entry.outcome.rerunAction ?? findRerunAction(entry.outcome.card);
   return {
     ...entry,
     outcome: {
       ...entry.outcome,
+      card: {
+        ...entry.outcome.card,
+        actions: outcomeCardFollowThroughActions({ undoAction, rerunAction }),
+      },
+      undoAction,
+      rerunAction,
       workflowThread: entry.outcome.workflowThread ?? deriveWorkflowThread(entry),
       resolvedResume: entry.outcome.resolvedResume ?? null,
     },
@@ -1445,12 +1461,27 @@ function mapContinuityCardDisplayFromApi(
   };
 }
 
+function outcomeCardFollowThroughActions(input: {
+  undoAction: OperatorActionCardUndoAction | null | undefined;
+  rerunAction: OperatorActionCardRerunAction | null | undefined;
+}): OperatorActionCardAction[] {
+  const actions: OperatorActionCardAction[] = [];
+  if (input.rerunAction) {
+    actions.push(input.rerunAction);
+  }
+  if (input.undoAction) {
+    actions.push(input.undoAction);
+  }
+  return actions;
+}
+
 function buildOutcomeCardFromDisplayCard(
   displayCard: ContinuityCardDisplay,
-  outcomeId: number,
+  outcomeId: number | null,
+  options: { id?: string; actions?: readonly OperatorActionCardAction[] } = {},
 ): OperatorActionCard {
   return {
-    id: `continuity-outcome-${outcomeId}`,
+    id: options.id ?? (outcomeId != null ? `continuity-outcome-${outcomeId}` : "continuity-outcome"),
     kind: displayCard.kind,
     tone: displayCard.tone,
     eyebrow: displayCard.eyebrow,
@@ -1463,7 +1494,7 @@ function buildOutcomeCardFromDisplayCard(
     actionContextLabel: displayCard.actionContextLabel ?? null,
     actionWarning: displayCard.actionWarning ?? null,
     recovery: null,
-    actions: [],
+    actions: [...(options.actions ?? [])],
   };
 }
 
@@ -2413,19 +2444,6 @@ export function rememberReviewAnchor(input: RememberReviewAnchorInput): void {
 
 export function readRecentShellActions(): RecentShellActionEntry[] {
   return readRecentActionsCache();
-}
-
-export function readRecentShellReceiptEntries(
-  limit = MAX_RECENT_ACTIONS,
-): Array<RecentShellActionEntry & { outcome: NonNullable<RecentShellActionEntry["outcome"]> }> {
-  return readRecentShellActions()
-    .filter(
-      (
-        entry,
-      ): entry is RecentShellActionEntry & { outcome: NonNullable<RecentShellActionEntry["outcome"]> } =>
-        entry.outcome?.card.kind === "receipt",
-    )
-    .slice(0, limit);
 }
 
 export function recordRecentShellAction(

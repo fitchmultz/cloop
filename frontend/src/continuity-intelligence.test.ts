@@ -40,7 +40,6 @@ import {
   readContinuityNotificationRecords,
   readContinuityWorkflowSummaries,
   readRecentShellActions,
-  readRecentShellReceiptEntries,
   readResumeAnchors,
   recordRecentShellAction,
   rememberPlanningAnchor,
@@ -806,12 +805,12 @@ describe("continuity-intelligence", () => {
       },
     });
 
-    expect(readRecentShellReceiptEntries()).toHaveLength(1);
-    expect(readRecentShellReceiptEntries()[0]?.outcome.card.title).toBe("Applied enrichment suggestion");
+    expect(readRecentShellActions()).toHaveLength(1);
+    expect(readRecentShellActions()[0]?.outcome?.card.title).toBe("Applied enrichment suggestion");
   });
 
   it("does not infer typed follow-through from stored receipt card actions", () => {
-    window.localStorage.setItem("cloop.continuity.recent-actions.cache.v3", JSON.stringify([
+    window.localStorage.setItem("cloop.continuity.recent-actions.cache.v4", JSON.stringify([
       {
         kind: "planning",
         label: "Refreshed weekly reset",

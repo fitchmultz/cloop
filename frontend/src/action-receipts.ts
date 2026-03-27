@@ -131,11 +131,11 @@ export function createReceiptCard(input: CreateReceiptCardInput): OperatorAction
   };
 }
 
-function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {
+export function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {
   return card.actions.find((action): action is OperatorActionCardUndoAction => action.type === "undo") ?? null;
 }
 
-function findRerunAction(card: OperatorActionCard): OperatorActionCardRerunAction | null {
+export function findRerunAction(card: OperatorActionCard): OperatorActionCardRerunAction | null {
   return card.actions.find((action): action is OperatorActionCardRerunAction => action.type === "rerun") ?? null;
 }
 
