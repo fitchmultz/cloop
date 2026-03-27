@@ -635,7 +635,8 @@ describe("readRankedWorkflowSummaries", () => {
   it("hydrates backend-owned display, undo, and rerun actions onto ranked workflow cards", async () => {
     await hydrateDurableContinuityState();
 
-    const summary = readRankedWorkflowSummaries()[0]!;
+    const summaries = readRankedWorkflowSummaries();
+    const summary = summaries[0]!;
     expect(summary.card.title).toBe("Created launch review queue");
     expect(summary.card.rationale).toBe("Receipt");
     expect(summary.undoAction?.type).toBe("undo");
@@ -643,6 +644,11 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summary.card.actions[0]?.type).toBe("open");
     expect(summary.card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(summary.card.actions.some((action) => action.type === "undo")).toBe(true);
+
+    const fallbackSummary = summaries[1]!;
+    expect(fallbackSummary.source).toBe("anchor");
+    expect(fallbackSummary.card.kind).toBe("context");
+    expect(fallbackSummary.card.eyebrow).toBe("Workflow thread");
   });
 
   it("prepends fresh local receipts before durable summaries catch up", async () => {

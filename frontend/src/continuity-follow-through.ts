@@ -142,6 +142,11 @@ function buildSummaryCard(
 ): { card: OperatorActionCard; undoAction: OperatorActionCardUndoAction | null; rerunAction: OperatorActionCardRerunAction | null } {
   const undoAction = summary.undoAction ?? null;
   const rerunAction = summary.rerunAction ?? null;
+  const displayCard = {
+    ...summary.displayCard,
+    kind: summary.displayCard.kind === "handoff" ? "context" : summary.displayCard.kind,
+    eyebrow: summary.displayCard.kind === "handoff" ? "Workflow thread" : summary.displayCard.eyebrow,
+  };
   const description = (summary.degraded ? summary.degradedLabel : null) ?? summary.displaySummary;
   const actions: OperatorActionCardAction[] = [
     buildResumeAction(summary.resolvedResume.resolvedLocation, description),
@@ -154,24 +159,24 @@ function buildSummaryCard(
     actions.push({ ...undoAction, variant: "secondary" });
   }
   actions.push(
-    buildPinAction(summary.resolvedResume.resolvedLocation, summary.displayCard.title, description),
+    buildPinAction(summary.resolvedResume.resolvedLocation, displayCard.title, description),
   );
 
   return {
     card: applyContinuityRecovery(
       {
         id: `continuity-summary-${summary.id}`,
-        kind: summary.displayCard.kind,
-        tone: summary.displayCard.tone,
-        eyebrow: summary.displayCard.eyebrow,
-        title: summary.displayCard.title,
-        summary: summary.displayCard.summary,
-        rationale: summary.displayCard.rationale,
-        preview: summary.displayCard.preview,
-        trust: summary.displayCard.trust,
-        handoff: summary.displayCard.handoff,
-        actionContextLabel: summary.displayCard.actionContextLabel ?? (actions.length ? "Continue from here" : null),
-        actionWarning: summary.displayCard.actionWarning ?? null,
+        kind: displayCard.kind,
+        tone: displayCard.tone,
+        eyebrow: displayCard.eyebrow,
+        title: displayCard.title,
+        summary: displayCard.summary,
+        rationale: displayCard.rationale,
+        preview: displayCard.preview,
+        trust: displayCard.trust,
+        handoff: displayCard.handoff,
+        actionContextLabel: displayCard.actionContextLabel ?? (actions.length ? "Continue from here" : null),
+        actionWarning: displayCard.actionWarning ?? null,
         recovery: null,
         actions,
       },

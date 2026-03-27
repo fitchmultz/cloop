@@ -512,9 +512,9 @@ function summaryRecord(input: {
     displayTitle: input.displayTitle,
     displaySummary: input.displaySummary,
     displayCard: {
-      kind: input.source === "anchor" ? "handoff" : "context",
+      kind: "context",
       tone: input.degraded ? "attention" : "neutral",
-      eyebrow: input.source === "anchor" ? "Resume anchor" : "Workflow summary",
+      eyebrow: "Workflow summary",
       title: input.displayTitle,
       summary: input.displaySummary,
       rationale: "Backend continuity summary",

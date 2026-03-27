@@ -2477,7 +2477,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           workingSetName,
           activeWorkingSetName ?? "",
         ],
-        badge: item.source === "anchor" ? "Resume" : "Thread",
+        badge: "Thread",
         location: item.resolvedResume.resolvedLocation,
         continuityRank: item.rank,
         continuitySignals: {
@@ -2488,7 +2488,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
         },
         detail: {
-          eyebrow: item.source === "anchor" ? "Resume anchor" : "Workflow thread",
+          eyebrow: "Workflow thread",
           description: item.degradedLabel
             ? item.degradedLabel
             : "Reopen the ranked workflow using the canonical backend continuity summary.",

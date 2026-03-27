@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: collapse the continuity selector split, then remove the now-unused anchor transport before runtime chunking work.
+Execution focus: delete the unused anchor transport, then fix runtime chunking once continuity contracts stop moving.
 
 ## Direction
 
@@ -26,20 +26,12 @@ Current product goals:
 
 ## Execution order
 
-### Next — Collapse the continuity selector split
-
-Tighten the continuity model now that reopen is summary-only.
-
-1. Keep one shared display-feed selector for fresh receipts plus durable summaries.
-2. Keep one durable-only reopen/recovery selector, and remove any extra overlap between the two paths.
-3. Delete dead `source === "anchor"` or other continuity-branching code that no longer survives the cutover.
-
-### Then — Remove unused anchor transport
+### Next — Remove unused anchor transport
 
 Delete the backend/storage/API leftovers now that the browser no longer reads or writes anchors.
 
 1. Remove unused continuity anchor writes, snapshot payload plumbing, and storage helpers that no longer feed any frontend path.
-2. Trim frontend continuity API/domain exports that only existed for anchor transport.
+2. Trim frontend continuity API/domain exports and generated contract references that only existed for anchor transport.
 3. Regenerate/update tests after the contract removal so continuity stays outcome-first end to end.
 
 ### Then — Frontend shell/runtime boundary cleanup
