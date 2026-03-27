@@ -379,6 +379,44 @@ def test_continuity_outcomes_migration_rewrites_legacy_outcome_json(
     assert version == 48
 
 
+def test_migrate_core_db_drops_unused_continuity_anchor_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE continuity_resume_anchors (
+                anchor_kind TEXT PRIMARY KEY,
+                review_focus TEXT NOT NULL,
+                session_id INTEGER NOT NULL,
+                visited_at_utc TEXT NOT NULL,
+                launch_location_json TEXT,
+                resume_location_json TEXT,
+                outcome_title TEXT,
+                outcome_summary TEXT,
+                working_set_id INTEGER,
+                workflow_thread_id TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute("PRAGMA user_version = 48")
+        conn.commit()
+
+        db.migrate_core_db(conn, from_version=48, to_version=49)
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='continuity_resume_anchors'"
+        ).fetchone()
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    assert table is None
+    assert version == 49
+
+
 def test_critical_performance_indexes_exist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

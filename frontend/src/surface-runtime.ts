@@ -23,11 +23,8 @@
  */
 
 import type { RecallTool, ShellState } from "./contracts-ui";
-import {
-  activateSurface as activateSurfaceRuntime,
-  bootstrapSurfaceRuntime as bootstrapSurfaceRuntimeImpl,
-  refreshSurface as refreshSurfaceRuntime,
-} from "./surfaces/bootstrap";
+
+type SurfaceRuntimeModule = typeof import("./surfaces/bootstrap");
 
 export interface CaptureSurfaceContract {
   state: "capture";
@@ -77,6 +74,18 @@ function surfaceKeyFromContract(contract: SurfaceLaunchContract): "inbox" | "nex
   return null;
 }
 
+let surfaceRuntimeModulePromise: Promise<SurfaceRuntimeModule> | null = null;
+
+async function loadSurfaceRuntimeModule(): Promise<SurfaceRuntimeModule> {
+  if (!surfaceRuntimeModulePromise) {
+    surfaceRuntimeModulePromise = import("./surfaces/bootstrap").then((module) => {
+      module.bootstrapSurfaceRuntime();
+      return module;
+    });
+  }
+  return surfaceRuntimeModulePromise;
+}
+
 export function contractFromLocation(location: ShellSurfaceLocation): SurfaceLaunchContract | null {
   if (location.state === "capture") {
     return { state: "capture" };
@@ -100,22 +109,22 @@ export function contractFromLocation(location: ShellSurfaceLocation): SurfaceLau
 }
 
 export function bootstrapFrontendSurfaceRegistry(): FrontendSurfaceRegistry {
-  bootstrapSurfaceRuntimeImpl();
-
   return {
     async activate(contract: SurfaceLaunchContract): Promise<void> {
       const key = surfaceKeyFromContract(contract);
       if (!key) {
         return;
       }
-      await activateSurfaceRuntime(key);
+      const module = await loadSurfaceRuntimeModule();
+      await module.activateSurface(key);
     },
     async refresh(contract: SurfaceLaunchContract): Promise<void> {
       const key = surfaceKeyFromContract(contract);
       if (!key) {
         return;
       }
-      await refreshSurfaceRuntime(key);
+      const module = await loadSurfaceRuntimeModule();
+      await module.refreshSurface(key);
     },
   };
 }

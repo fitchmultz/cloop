@@ -209,10 +209,9 @@ def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
         table_names = {
             row[0]
             for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?, ?)",
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN (?, ?, ?)",
                 (
                     "continuity_outcomes",
-                    "continuity_resume_anchors",
                     "continuity_notification_states",
                     "continuity_recovery_acknowledgements",
                 ),
@@ -220,7 +219,6 @@ def test_continuity_tables_exist(tmp_data_dir: Path) -> None:
         }
     assert table_names == {
         "continuity_outcomes",
-        "continuity_resume_anchors",
         "continuity_notification_states",
         "continuity_recovery_acknowledgements",
     }

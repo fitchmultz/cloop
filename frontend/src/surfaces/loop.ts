@@ -26,6 +26,7 @@ import { createReceiptCard, withReceiptOutcome } from "../action-receipts";
 import { recordRecentShellAction } from "../continuity-intelligence";
 import { createLocation } from "../shell-routing";
 import * as api from "./api";
+import * as next from "./next";
 import * as render from "./render";
 import * as timer from "./timer";
 import type { QueryMode, SurfaceLoop } from "./contracts";
@@ -155,8 +156,7 @@ function queueNextRefresh(): void {
     if (!nextBuckets) {
       return;
     }
-    const nextModule = await import("./next");
-    await nextModule.loadNext();
+    await next.loadNext();
   });
 }
 

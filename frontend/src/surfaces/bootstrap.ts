@@ -35,6 +35,7 @@ import * as memory from "./memory";
 import * as modals from "./modals";
 import * as next from "./next";
 import * as rag from "./rag";
+import * as render from "./render";
 import * as sse from "./sse";
 import * as state from "./state";
 import * as suggestions from "./suggestions";
@@ -819,12 +820,10 @@ function setupLoopCardHandlers(container: HTMLElement): void {
       if (shouldClose === false) {
         return;
       }
-      void import("./render").then((module) => {
-        const card = target.closest(".loop-card");
-        if (card instanceof HTMLElement) {
-          module.setDueEditorExpanded(card, false);
-        }
-      });
+      const card = target.closest(".loop-card");
+      if (card instanceof HTMLElement) {
+        render.setDueEditorExpanded(card, false);
+      }
       if (blurTarget) {
         target.blur();
       }
@@ -918,12 +917,10 @@ function setupLoopCardHandlers(container: HTMLElement): void {
       } else if (action === "toggle-compact") {
         loop.toggleCompactCard(button.closest(".loop-card")?.getAttribute("data-loop-id"));
       } else if (action === "edit-due") {
-        void import("./render").then((module) => {
-          const card = button.closest(".loop-card");
-          if (card instanceof HTMLElement) {
-            module.setDueEditorExpanded(card, true);
-          }
-        });
+        const card = button.closest(".loop-card");
+        if (card instanceof HTMLElement) {
+          render.setDueEditorExpanded(card, true);
+        }
         event.preventDefault();
       } else if (action === "toggle-card-body") {
         loop.toggleMobileCardText(button.closest(".loop-card")?.getAttribute("data-loop-id"));
@@ -1052,7 +1049,7 @@ function setupLoopCardHandlers(container: HTMLElement): void {
       return;
     }
     if (target instanceof HTMLTextAreaElement && target.dataset["field"] === "next_action") {
-      void import("./render").then((module) => module.autoResizeTextarea(target));
+      render.autoResizeTextarea(target);
     } else if (target.dataset["field"] === "due_date") {
       const formattedValue = formatDateInputValue(target.value);
       if (target.value !== formattedValue) {
@@ -1065,7 +1062,7 @@ function setupLoopCardHandlers(container: HTMLElement): void {
   container.addEventListener("focus", (event: FocusEvent) => {
     const target = event.target;
     if (target instanceof HTMLTextAreaElement && target.dataset["field"] === "next_action") {
-      void import("./render").then((module) => module.autoResizeTextarea(target));
+      render.autoResizeTextarea(target);
     }
   }, true);
 
@@ -1139,11 +1136,9 @@ function setupLoopCardHandlers(container: HTMLElement): void {
         if (dueTimeInput) {
           dueTimeInput.value = dueTimeInput.dataset["initialTime"] || "";
         }
-        void import("./render").then((module) => {
-          if (card instanceof HTMLElement) {
-            module.setDueEditorExpanded(card, false);
-          }
-        });
+        if (card instanceof HTMLElement) {
+          render.setDueEditorExpanded(card, false);
+        }
         target.blur();
       }
     }

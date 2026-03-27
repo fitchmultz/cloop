@@ -31,6 +31,9 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    49: """
+    DROP TABLE IF EXISTS continuity_resume_anchors;
+    """,
     48: """
     ALTER TABLE continuity_outcomes RENAME TO continuity_outcomes_old;
 
@@ -380,21 +383,6 @@ _CORE_MIGRATIONS: dict[int, str] = {
 
     CREATE INDEX idx_continuity_outcomes_working_set
         ON continuity_outcomes(working_set_id, occurred_at_utc DESC, id DESC);
-
-    CREATE TABLE continuity_resume_anchors (
-        anchor_kind TEXT PRIMARY KEY CHECK (anchor_kind IN ('planning', 'review')),
-        review_focus TEXT NOT NULL CHECK (review_focus IN ('planning', 'relationship', 'enrichment')),
-        session_id INTEGER NOT NULL,
-        visited_at_utc TEXT NOT NULL,
-        launch_location_json TEXT,
-        resume_location_json TEXT,
-        outcome_title TEXT,
-        outcome_summary TEXT,
-        working_set_id INTEGER,
-        workflow_thread_id TEXT,
-        metadata_json TEXT NOT NULL DEFAULT '{}',
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
     """,
     41: """
     ALTER TABLE interactions ADD COLUMN tool_results TEXT NOT NULL DEFAULT '[]';

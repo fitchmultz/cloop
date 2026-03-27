@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: drop the now-unused continuity anchor table, then fix runtime chunking.
+Execution focus: verify working-set shell copy still matches the post-anchor contract.
 
 ## Direction
 
@@ -26,21 +26,13 @@ Current product goals:
 
 ## Execution order
 
-### Next — Drop the unused continuity anchor table
+### Next — Verify working-set shell copy after runtime cleanup
 
-Finish the anchor cutover by removing the orphaned DB/schema remnants.
+Clean up wording that still implies obsolete anchor behavior.
 
-1. Remove `continuity_resume_anchors` from core schema, migrations, and backend table assertions.
-2. Delete any dead data-access code or diagnostics that only existed to support that table.
-3. Keep the continuity snapshot outcome-first and last-seen-driven while the schema cleanup lands.
-
-### Then — Frontend shell/runtime boundary cleanup
-
-Fix the current chunking warnings after continuity contracts settle.
-
-1. Remove the ineffective dynamic imports around `frontend/src/surfaces/bootstrap.ts`, `loop.ts`, `next.ts`, `timer.ts`, and `render.ts`.
-2. Lazy-load surfaces from real activation boundaries so the main operator bundle drops below the current warning path.
-3. Keep the shell bootstrap thin and avoid reintroducing secondary entrypoints.
+1. Recheck operator/home and working-set copy for “anchors” wording that should now be “locations”, “sessions”, or “items”.
+2. Trim stale tests or helper copy that only survived the continuity cutover.
+3. Keep the wording aligned with the actual working-set contract before further UX slices.
 
 ## Delivery model
 
