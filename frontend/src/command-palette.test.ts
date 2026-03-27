@@ -10,6 +10,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bootstrapCommandPalette } from "./command-palette";
+import {
+  recordRecentShellAction,
+} from "./continuity-intelligence";
 import type { ContinuityNotificationRecord, ResumeAnchorState, ShellLocationContract } from "./contracts-ui";
 
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
@@ -204,6 +207,63 @@ describe("command-palette notification commands", () => {
 
     expect(openLocation).toHaveBeenCalledWith(location({ state: "operator" }));
     expect(readRecentActions()).toEqual([]);
+  });
+
+  it("surfaces fresh local receipts in recent commands before durable sync", async () => {
+    buildPaletteDom();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    recordRecentShellAction({
+      kind: "recall",
+      label: "Indexed launch notes",
+      description: "Indexed 3 files into 18 chunks.",
+      location: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+      outcome: {
+        card: {
+          id: "receipt-rag-local",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Recall receipt",
+          title: "Indexed launch notes",
+          summary: "Indexed 3 files into 18 chunks.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Recall surface contract"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Reindex with a corrected path if needed.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+        rollbackLabel: "Reindex with a corrected path if needed.",
+        undoAction: null,
+        workflowThread: {
+          id: "recall:rag:launch-notes",
+          kind: "recall",
+          title: "Indexed launch notes",
+          summary: "Indexed 3 files into 18 chunks.",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+          resolvedLocation: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+    const controller = createController({ openLocation });
+
+    controller.open();
+    await settle();
+    findCommandButton("Indexed launch notes").click();
+    await settle();
+
+    expect(openLocation).toHaveBeenCalledWith(location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }));
   });
 
   it("persists acknowledge and suppress notification controls through shared state writes", async () => {

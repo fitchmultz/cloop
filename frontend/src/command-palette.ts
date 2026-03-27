@@ -70,7 +70,7 @@ import {
   suppressContinuityNotification,
 } from "./continuity-intelligence";
 import {
-  readRankedWorkflowSummaries,
+  readMergedRankedWorkflowSummaries,
   resolveDurableReopenLocation,
   type RankedWorkflowSummary,
 } from "./continuity-follow-through";
@@ -935,7 +935,7 @@ function rankingContext(
 }
 
 function rankedFollowThrough(_context: CommandPaletteContext): RankedWorkflowSummary[] {
-  return readRankedWorkflowSummaries();
+  return readMergedRankedWorkflowSummaries();
 }
 
 function primaryRecommendationForContext(

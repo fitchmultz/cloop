@@ -1,29 +1,31 @@
 /**
- * continuity-follow-through.ts - Backend-authored continuity summary hydration helpers.
+ * continuity-follow-through.ts - Shared continuity feed and durable reopen helpers.
  *
  * Purpose:
- *   Turn durable backend workflow summaries into one canonical frontend follow-through
- *   feed so operator home, the receipt rail, the command palette, and downstream
- *   recovery consumers render the same ranked continuity model.
+ *   Turn durable backend workflow summaries plus fresh local receipts into one shared
+ *   frontend continuity feed so operator home, the receipt rail, and the command
+ *   palette render the same ranked follow-through model.
  *
  * Responsibilities:
  *   - Read backend-authored workflow summaries from the durable continuity cache.
- *   - Materialize backend-authored display payloads into renderable operator cards.
+ *   - Merge fresh local receipt outcomes until durable summaries catch up.
+ *   - Materialize continuity summaries into renderable operator cards.
  *   - Attach canonical resume, rerun, undo, pin, and recovery actions.
- *   - Resolve saved planning/review reopen targets through shared summaries and anchors.
+ *   - Resolve saved planning/review reopen targets through durable summaries and anchors.
  *   - Expose shared recovery lookup for shell and non-shell surfaces.
  *   - Merge shell-only card chrome onto ranked summary cards without rewriting backend display.
  *
  * Scope:
- *   - Frontend rendering/model helpers for backend continuity summaries only.
+ *   - Frontend rendering/model helpers for shared continuity summaries and durable reopen.
  *
  * Usage:
  *   - Imported by shell-operator-cards.ts, shell.ts, command-palette.ts, and
  *     continuity-surface-recovery.ts.
  *
  * Invariants/Assumptions:
- *   - Backend workflow summaries are the canonical ranking, display, explanation,
- *     undo, and rerun source.
+ *   - Backend workflow summaries remain the canonical durable ranking, display,
+ *     explanation, undo, and rerun source.
+ *   - Fresh local receipt outcomes only bridge the feed until durable continuity sync lands.
  *   - Recovery plans continue to derive from backend-resolved targets and durable
  *     acknowledgement state.
  */
@@ -35,12 +37,26 @@ import type {
   OperatorActionCardAction,
   OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
+  RecentShellActionEntry,
   ResumeAnchorState,
   ResumeAnchorTarget,
+  ResolvedContinuityTarget,
   ShellLocationContract,
+  WorkflowThreadRef,
 } from "./contracts-ui";
-import { readContinuityWorkflowSummaries, readResumeAnchors } from "./continuity-intelligence";
-import { continuityLocationIdentity } from "./continuity-outcomes";
+import {
+  readContinuityWorkflowSummaries,
+  readRecentShellActions,
+  readResumeAnchors,
+} from "./continuity-intelligence";
+import {
+  continuityLocationIdentity,
+  resolveContinuityEntry,
+} from "./continuity-outcomes";
+import {
+  scoreRankingSignals,
+  totalRankingScore,
+} from "./continuity-drift";
 import {
   applyContinuityRecovery,
   buildContinuityRecoveryPlan,
@@ -53,6 +69,10 @@ export interface RankedWorkflowSummary extends ContinuityWorkflowSummary {
 
 export interface ReadRankedWorkflowSummariesInput {
   summaries?: readonly ContinuityWorkflowSummary[];
+}
+
+export interface ReadMergedRankedWorkflowSummariesInput extends ReadRankedWorkflowSummariesInput {
+  recentActions?: readonly RecentShellActionEntry[];
 }
 
 export interface DurableReopenResolution {
@@ -165,26 +185,175 @@ function buildSummaryCard(
   };
 }
 
+function rankWorkflowSummary(summary: ContinuityWorkflowSummary): RankedWorkflowSummary {
+  const recovery = buildContinuityRecoveryPlan({
+    displayTitle: summary.displayTitle,
+    resolvedTarget: summary.resolvedResume,
+    workflowThread: summary.workflowThread,
+  });
+  const cardState = buildSummaryCard(summary, recovery);
+  return {
+    ...summary,
+    card: cardState.card,
+    recovery,
+    undoAction: cardState.undoAction,
+    rerunAction: cardState.rerunAction,
+  } satisfies RankedWorkflowSummary;
+}
+
+function summaryLocationIdentities(summary: ContinuityWorkflowSummary): string[] {
+  return [summary.requestedResumeLocation, summary.resolvedResume.resolvedLocation]
+    .filter((value): value is ShellLocationContract => value != null)
+    .map((value) => continuityLocationIdentity(value));
+}
+
+function recentWorkflowThread(
+  entry: RecentShellActionEntry,
+  title: string,
+  summary: string,
+  resumeLocation: ShellLocationContract,
+): WorkflowThreadRef {
+  return entry.outcome?.workflowThread ?? {
+    id: `recent:${entry.kind}:${continuityLocationIdentity(resumeLocation)}`,
+    kind: "ad_hoc",
+    title,
+    summary,
+    parentOutcomeId: null,
+  };
+}
+
+function recentResolvedResume(entry: RecentShellActionEntry): ResolvedContinuityTarget | null {
+  const resolved = resolveContinuityEntry(entry);
+  if (!resolved.resumeLocation) {
+    return null;
+  }
+  if (entry.outcome?.resolvedResume) {
+    return entry.outcome.resolvedResume;
+  }
+  const usedLaunchFallback = entry.outcome?.resumeLocation == null;
+  return {
+    requestedLocation: entry.outcome?.resumeLocation ?? entry.location ?? null,
+    resolvedLocation: resolved.resumeLocation,
+    status: usedLaunchFallback ? "launch_fallback" : "ok",
+    message: usedLaunchFallback
+      ? "Receipt missing a landed resume target, so continuity falls back to the launch surface."
+      : null,
+    successor: null,
+  };
+}
+
+function buildFreshOutcomeSummary(
+  entry: RecentShellActionEntry,
+  maxDurableRank: number,
+  index: number,
+): ContinuityWorkflowSummary | null {
+  if (entry.outcome?.card.kind !== "receipt" || entry.persistence?.status === "synced") {
+    return null;
+  }
+
+  const resolved = resolveContinuityEntry(entry);
+  const resolvedResume = recentResolvedResume(entry);
+  const card = resolved.card;
+  if (!card || !resolvedResume) {
+    return null;
+  }
+
+  const degraded = resolvedResume.status !== "ok" || resolved.degradedReason !== "none";
+  const ageMinutes = Math.max(0, (Date.now() - Date.parse(entry.occurredAt)) / 60000);
+  const rankingSignals = scoreRankingSignals({
+    severity: "moderate",
+    workingSetRelevant: resolved.workingSetId != null,
+    downstreamReady: resolvedResume.resolvedLocation.state !== "operator",
+    degraded,
+    ageMinutes,
+  });
+  const title = resolved.displayTitle.trim();
+  const summary = resolved.displaySummary.trim();
+  const workflowThread = recentWorkflowThread(entry, title, summary, resolvedResume.resolvedLocation);
+  const statusNote = entry.persistence?.status === "failed"
+    ? "Durable continuity sync failed, so this local receipt remains the latest continuity record until retry."
+    : "Fresh landed outcome was recorded locally and is waiting for durable continuity sync.";
+
+  return {
+    id: workflowThread.id,
+    source: "recent",
+    rank: maxDurableRank + totalRankingScore(rankingSignals, "recent") + Math.max(0, 12 - index),
+    rankingSignals,
+    workflowThread,
+    representativeOutcomeId: entry.persistence?.persistedOutcomeId ?? null,
+    latestOutcomeId: entry.persistence?.persistedOutcomeId ?? null,
+    occurredAt: entry.occurredAt,
+    outcomeCount: 1,
+    outcomePreviewTitles: title ? [title] : [],
+    requestedResumeLocation: entry.outcome?.resumeLocation ?? entry.location ?? null,
+    resolvedResume,
+    displayTitle: title,
+    displaySummary: summary,
+    displayCard: {
+      kind: card.kind,
+      tone: card.tone,
+      eyebrow: card.eyebrow,
+      title: card.title,
+      summary: card.summary,
+      rationale: card.rationale,
+      preview: card.preview,
+      trust: card.trust,
+      handoff: card.handoff,
+      actionContextLabel: card.actionContextLabel ?? null,
+      actionWarning: card.actionWarning ?? null,
+    },
+    undoAction: entry.outcome?.undoAction ?? null,
+    rerunAction: entry.outcome?.rerunAction ?? null,
+    workingSetId: resolved.workingSetId,
+    workingSetName: resolved.workingSet?.workingSetName ?? null,
+    degraded,
+    degradedLabel: card.actionWarning ?? resolvedResume.message ?? null,
+    whyNow: [statusNote],
+    changedSinceLastSeen: summary ? [summary] : [],
+    priorState: null,
+  } satisfies ContinuityWorkflowSummary;
+}
+
+function freshOutcomeSummaries(
+  recentActions: readonly RecentShellActionEntry[],
+  durableSummaries: readonly ContinuityWorkflowSummary[],
+): ContinuityWorkflowSummary[] {
+  const durableThreadIds = new Set(durableSummaries.map((summary) => summary.workflowThread.id));
+  const durableLocationIdentities = new Set(durableSummaries.flatMap((summary) => summaryLocationIdentities(summary)));
+  const maxDurableRank = durableSummaries.reduce((max, summary) => Math.max(max, summary.rank), 0);
+
+  return recentActions
+    .filter((entry) => entry.outcome?.card.kind === "receipt" && entry.persistence?.status !== "synced")
+    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt))
+    .map((entry, index) => buildFreshOutcomeSummary(entry, maxDurableRank, index))
+    .filter((summary): summary is ContinuityWorkflowSummary => summary != null)
+    .filter((summary) => {
+      if (durableThreadIds.has(summary.workflowThread.id)) {
+        return false;
+      }
+      return !summaryLocationIdentities(summary).some((identity) => durableLocationIdentities.has(identity));
+    });
+}
+
 export function readRankedWorkflowSummaries(
   input: ReadRankedWorkflowSummariesInput = {},
 ): RankedWorkflowSummary[] {
   const summaries = input.summaries ?? readContinuityWorkflowSummaries();
+  return summaries.map((summary) => rankWorkflowSummary(summary));
+}
 
-  return summaries.map((summary) => {
-    const recovery = buildContinuityRecoveryPlan({
-      displayTitle: summary.displayTitle,
-      resolvedTarget: summary.resolvedResume,
-      workflowThread: summary.workflowThread,
-    });
-    const cardState = buildSummaryCard(summary, recovery);
-    return {
-      ...summary,
-      card: cardState.card,
-      recovery,
-      undoAction: cardState.undoAction,
-      rerunAction: cardState.rerunAction,
-    } satisfies RankedWorkflowSummary;
-  });
+export function readMergedRankedWorkflowSummaries(
+  input: ReadMergedRankedWorkflowSummariesInput = {},
+): RankedWorkflowSummary[] {
+  const durableSummaries = input.summaries ?? readContinuityWorkflowSummaries();
+  const recentActions = input.recentActions ?? readRecentShellActions();
+  const summaries = [
+    ...freshOutcomeSummaries(recentActions, durableSummaries),
+    ...durableSummaries,
+  ];
+  return summaries
+    .map((summary) => rankWorkflowSummary(summary))
+    .sort((left, right) => right.rank - left.rank || Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
 }
 
 function isPlanningOrReviewSessionLocation(location: ShellLocationContract | null | undefined): boolean {

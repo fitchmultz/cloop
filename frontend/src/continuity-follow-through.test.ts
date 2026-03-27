@@ -1,33 +1,36 @@
 /**
- * continuity-follow-through.test.ts - Regression tests for backend-authored continuity summaries.
+ * continuity-follow-through.test.ts - Regression tests for shared continuity feed helpers.
  *
  * Purpose:
- *   Verify the shared frontend follow-through helpers consume the canonical
- *   backend workflow-summary feed without re-ranking it locally.
+ *   Verify the frontend continuity feed preserves backend-authored durable summaries
+ *   while bridging fresh local receipts until sync catches up.
  *
  * Responsibilities:
  *   - Assert hydrated workflow summaries stay ordered by backend rank.
+ *   - Assert fresh local receipts merge ahead of durable summaries without duplicating landed targets.
  *   - Assert representative receipt cards, rerun actions, and undo actions reattach.
  *   - Assert recovery lookup reads from backend-authored summary targets.
  *
  * Scope:
- *   - Frontend continuity-summary hydration and lookup helpers only.
+ *   - Frontend continuity-summary hydration, merge, and lookup helpers only.
  *
  * Usage:
  *   - Run with `pnpm --dir frontend test`.
  *
  * Invariants/Assumptions:
- *   - Backend workflow summaries are the only ranking truth.
- *   - Durable recent actions remain the source of representative receipt cards.
+ *   - Backend workflow summaries remain the durable ranking truth.
+ *   - Fresh local receipts are a temporary bridge, not a permanent second ranking system.
  */
 
 import type { ShellLocationContract } from "./contracts-ui";
 import {
   hydrateDurableContinuityState,
   markContinuityRecoveryAcknowledged,
+  recordRecentShellAction,
 } from "./continuity-intelligence";
 import {
   findRecoveryPlanForLocation,
+  readMergedRankedWorkflowSummaries,
   readRankedWorkflowSummaries,
   resolveDurableReopenLocation,
 } from "./continuity-follow-through";
@@ -640,6 +643,119 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summary.card.actions[0]?.type).toBe("open");
     expect(summary.card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(summary.card.actions.some((action) => action.type === "undo")).toBe(true);
+  });
+
+  it("prepends fresh local receipts before durable summaries catch up", async () => {
+    await hydrateDurableContinuityState();
+
+    recordRecentShellAction({
+      kind: "recall",
+      label: "Indexed launch notes",
+      description: "Indexed 3 files into 18 chunks.",
+      location: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+      outcome: {
+        card: {
+          id: "receipt-rag-local",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Recall receipt",
+          title: "Indexed launch notes",
+          summary: "Indexed 3 files into 18 chunks.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Recall surface contract"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Reindex with a corrected path if needed.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+        rollbackLabel: "Reindex with a corrected path if needed.",
+        undoAction: null,
+        workflowThread: {
+          id: "recall:rag:launch-notes",
+          kind: "recall",
+          title: "Indexed launch notes",
+          summary: "Indexed 3 files into 18 chunks.",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+          resolvedLocation: location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+
+    const summaries = readMergedRankedWorkflowSummaries();
+    expect(summaries).toHaveLength(3);
+    expect(summaries[0]?.id).toBe("recall:rag:launch-notes");
+    expect(summaries[0]?.source).toBe("recent");
+    expect(summaries[0]?.card.title).toBe("Indexed launch notes");
+  });
+
+  it("dedupes fresh local receipts once a durable summary owns the same landed target", async () => {
+    await hydrateDurableContinuityState();
+
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Created launch review queue locally",
+      description: "The enrichment queue is ready to resume.",
+      location: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 7 }),
+      outcome: {
+        card: {
+          id: "receipt-plan-local",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Created launch review queue locally",
+          summary: "The enrichment queue is ready to resume.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo remains available.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+        rollbackLabel: "Undo remains available.",
+        undoAction: null,
+        workflowThread: {
+          id: "local:planning:launch-review",
+          kind: "planning_checkpoint",
+          title: "Local launch review",
+          summary: "Temporary local receipt",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+          resolvedLocation: location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+
+    const summaries = readMergedRankedWorkflowSummaries();
+    expect(summaries).toHaveLength(2);
+    expect(summaries.some((summary) => summary.id === "local:planning:launch-review")).toBe(false);
+    expect(summaries.filter((summary) => {
+      return summary.resolvedResume.resolvedLocation.state === "decide"
+        && summary.resolvedResume.resolvedLocation.reviewFocus === "enrichment"
+        && summary.resolvedResume.resolvedLocation.sessionId === 52;
+    })).toHaveLength(1);
   });
 
   it("finds recovery plans from backend summary targets and durable acknowledgements", async () => {

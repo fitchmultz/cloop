@@ -34,7 +34,7 @@ import {
   RECENT_SHELL_ACTIONS_UPDATED_EVENT,
   recordRecentShellAction,
 } from "./continuity-intelligence";
-import { readRankedWorkflowSummaries } from "./continuity-follow-through";
+import { readMergedRankedWorkflowSummaries } from "./continuity-follow-through";
 import { contractFromLocation } from "./surface-runtime";
 import { updateChatPreferences } from "./surfaces/state";
 import {
@@ -477,7 +477,7 @@ function renderShellReceiptRail(): void {
     return;
   }
 
-  const cards: OperatorActionCard[] = readRankedWorkflowSummaries()
+  const cards: OperatorActionCard[] = readMergedRankedWorkflowSummaries()
     .slice(0, 1)
     .map((item) => item.card);
 

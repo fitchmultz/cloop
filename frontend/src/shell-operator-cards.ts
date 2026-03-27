@@ -62,7 +62,7 @@ import {
   readRecentShellActions,
   rememberContinuityObservation,
 } from "./continuity-intelligence";
-import { continuitySurfaceCard, readRankedWorkflowSummaries } from "./continuity-follow-through";
+import { continuitySurfaceCard, readMergedRankedWorkflowSummaries } from "./continuity-follow-through";
 import {
   buildPrimaryRecommendationDigestCard,
   derivePrimaryRecommendation,
@@ -1851,12 +1851,12 @@ export function createShellOperatorCardRenderer(
   }
 
   interface FollowThroughModel {
-    summaries: ReturnType<typeof readRankedWorkflowSummaries>;
+    summaries: ReturnType<typeof readMergedRankedWorkflowSummaries>;
     recommendation: ReturnType<typeof derivePrimaryRecommendation>;
   }
 
   function followThroughModel(_data: WorkspaceData): FollowThroughModel {
-    const summaries = readRankedWorkflowSummaries();
+    const summaries = readMergedRankedWorkflowSummaries();
     const recommendation = derivePrimaryRecommendation(summaries);
 
     return {
@@ -1870,7 +1870,7 @@ export function createShellOperatorCardRenderer(
   }
 
   function buildFollowThroughCards(
-    summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+    summaries: readonly ReturnType<typeof readMergedRankedWorkflowSummaries>[number][],
     excludedSummaryId: string | null,
   ): PrioritizedCard[] {
     return summaries
@@ -1883,7 +1883,7 @@ export function createShellOperatorCardRenderer(
   }
 
   function buildRecoveryCards(
-    summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+    summaries: readonly ReturnType<typeof readMergedRankedWorkflowSummaries>[number][],
     excludedSummaryId: string | null,
   ): PrioritizedCard[] {
     return summaries
@@ -1901,7 +1901,7 @@ export function createShellOperatorCardRenderer(
   }
 
   function buildNotificationInboxCards(
-    summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+    summaries: readonly ReturnType<typeof readMergedRankedWorkflowSummaries>[number][],
   ): PrioritizedCard[] {
     const summaryById = new Map(summaries.map((summary) => [summary.id, summary]));
     return readActiveContinuityNotificationRecords()
@@ -1963,7 +1963,7 @@ export function createShellOperatorCardRenderer(
   }
 
   function buildWorkflowThreadRollupCards(
-    summaries: readonly ReturnType<typeof readRankedWorkflowSummaries>[number][],
+    summaries: readonly ReturnType<typeof readMergedRankedWorkflowSummaries>[number][],
     excludedSummaryId: string | null,
   ): PrioritizedCard[] {
     return summaries
