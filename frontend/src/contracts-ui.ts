@@ -204,7 +204,7 @@ export interface ContinuityRankingSignals {
   recencyTieBreaker: number;
 }
 
-export type ContinuityWorkflowSummarySource = "receipt" | "recent" | "anchor";
+export type ContinuityWorkflowSummarySource = "receipt" | "recent";
 
 export interface ContinuityWorkflowSummaryPriorState {
   kind: "replaced" | "gone";

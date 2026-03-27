@@ -1,14 +1,13 @@
 """Durable continuity storage.
 
 Purpose:
-    Persist and read backend-backed landed continuity outcomes, resume anchors,
+    Persist and read backend-backed landed continuity outcomes,
     backend-authored workflow summaries, durable notification delivery
     state, recovery provenance, and durable recovery acknowledgements for
     cross-device operator continuity.
 
 Responsibilities:
     - Record high-signal landed outcomes with deduplication.
-    - Upsert durable planning and review resume anchors.
     - Resolve persisted resume targets against current durable resources.
     - Build backend-authored workflow summaries for frontend hydration.
     - Attach explicit successor provenance for stale or superseded resumable paths.
@@ -45,18 +44,12 @@ from typing import Any, Literal, cast
 from .. import db
 from ..loops.errors import ValidationError
 from ..schemas._loops.continuity import (
-    ContinuityAnchorResponse,
-    ContinuityAnchorsResponse,
-    ContinuityAnchorUpsertRequest,
     ContinuityDeliveryDecisionResponse,
     ContinuityDeliveryInspectionChannel,
     ContinuityDeliveryInspectionContinuationResponse,
     ContinuityDeliveryInspectionResponse,
     ContinuityDeliveryReason,
     ContinuityDisplayCardResponse,
-    ContinuityDisplayHandoffResponse,
-    ContinuityDisplayPreviewItemResponse,
-    ContinuityDisplayTrustResponse,
     ContinuityDisplayWorkingSetResponse,
     ContinuityLastSeenBatchUpsertRequest,
     ContinuityLastSeenMarkerResponse,
@@ -75,7 +68,6 @@ from ..schemas._loops.continuity import (
     ContinuitySuccessorTargetResponse,
     ContinuityTargetStatus,
     ContinuityUndoAction,
-    ContinuityWorkflowSummaryPriorStateResponse,
     ContinuityWorkflowSummaryResponse,
     ContinuityWorkflowSummarySignalsResponse,
     ContinuityWorkflowThreadKind,
@@ -147,7 +139,6 @@ class _ContinuityDeliveryContract:
 @dataclass(frozen=True, slots=True)
 class _ContinuitySnapshotState:
     outcomes: list[ContinuityOutcomeRecordResponse]
-    anchors: ContinuityAnchorsResponse
     workflow_summaries: list[ContinuityWorkflowSummaryResponse]
     last_seen_markers: list[ContinuityLastSeenMarkerResponse]
     recovery_acknowledgements: list[ContinuityRecoveryAcknowledgementResponse]
@@ -453,27 +444,6 @@ def _resolve_location(
     )
 
 
-def _anchor_from_row(row: Mapping[str, Any]) -> ContinuityAnchorResponse:
-    return ContinuityAnchorResponse(
-        kind=cast(Any, str(row["anchor_kind"])),
-        review_focus=cast(Any, str(row["review_focus"])),
-        session_id=int(row["session_id"]),
-        visited_at_utc=str(row["visited_at_utc"]),
-        launch_location=_location_from_json(row["launch_location_json"]),
-        resume_location=_location_from_json(row["resume_location_json"]),
-        resolved_resume=None,
-        outcome_title=str(row["outcome_title"]) if row["outcome_title"] is not None else None,
-        outcome_summary=str(row["outcome_summary"]) if row["outcome_summary"] is not None else None,
-        working_set_id=int(row["working_set_id"]) if row["working_set_id"] is not None else None,
-        workflow_thread_id=str(row["workflow_thread_id"])
-        if row["workflow_thread_id"] is not None
-        else None,
-        degraded=False,
-        degraded_label=None,
-        metadata=_load_json_map(row["metadata_json"]),
-    )
-
-
 def _last_seen_marker_from_row(row: Mapping[str, Any]) -> ContinuityLastSeenMarkerResponse:
     return ContinuityLastSeenMarkerResponse(
         entity_kind=cast(Any, str(row["entity_kind"])),
@@ -561,12 +531,6 @@ def _display_summary(record: ContinuityOutcomeRecordResponse) -> str:
     return record.description
 
 
-_DISPLAY_SUMMARY_RATIONALE = (
-    "This card is rendered from the canonical backend continuity summary "
-    "instead of client-side ranking heuristics."
-)
-
-
 def _normalize_outcome_display_card(
     display_card: ContinuityDisplayCardResponse,
     *,
@@ -607,7 +571,7 @@ _DRIFT_SCORE: dict[str, int] = {
 
 @dataclass(frozen=True, slots=True)
 class _WorkflowSummaryCandidate:
-    source: Literal["receipt", "recent", "anchor"]
+    source: Literal["receipt", "recent"]
     rank: int
     ranking_signals: ContinuityWorkflowSummarySignalsResponse
     representative_outcome_id: int | None
@@ -662,38 +626,6 @@ def _workflow_thread_or_ad_hoc(
     )
 
 
-def _anchor_label(anchor: ContinuityAnchorResponse) -> str:
-    if anchor.kind == "planning":
-        return f"Planning session #{anchor.session_id}"
-    return f"{anchor.review_focus} queue #{anchor.session_id}"
-
-
-def _anchor_display_title(anchor: ContinuityAnchorResponse) -> str:
-    return anchor.outcome_title or _anchor_label(anchor)
-
-
-def _anchor_display_summary(anchor: ContinuityAnchorResponse) -> str:
-    return anchor.outcome_summary or "Resume the last saved landed workflow state."
-
-
-def _anchor_display_card(anchor: ContinuityAnchorResponse) -> ContinuityDisplayCardResponse:
-    return ContinuityDisplayCardResponse(
-        kind="handoff",
-        tone="attention" if anchor.degraded else "neutral",
-        eyebrow="Resume anchor",
-        title=_anchor_display_title(anchor),
-        summary=_anchor_display_summary(anchor),
-        rationale=_DISPLAY_SUMMARY_RATIONALE,
-        preview=[],
-        trust=ContinuityDisplayTrustResponse(
-            context_sources=["Durable continuity workflow summary"]
-        ),
-        handoff=None,
-        action_context_label="Continue from here",
-        action_warning=anchor.degraded_label if anchor.degraded else None,
-    )
-
-
 def _active_working_set_id(conn: sqlite3.Connection) -> int | None:
     row = conn.execute(
         "SELECT active_working_set_id FROM working_set_context WHERE singleton_id = 1"
@@ -724,52 +656,6 @@ def _workflow_marker(
     )
 
 
-def _outcome_family(
-    workflow_thread: WorkflowThreadRefResponse | None,
-    resolved_location: ContinuityLocationResponse,
-) -> Literal["planning", "review"] | None:
-    if workflow_thread and workflow_thread.kind == "planning_checkpoint":
-        return "planning"
-    if workflow_thread and workflow_thread.kind == "review_session":
-        return "review"
-    if resolved_location.state == "plan":
-        return "planning"
-    if resolved_location.state == "decide" and resolved_location.review_focus in {
-        "relationship",
-        "enrichment",
-    }:
-        return "review"
-    return None
-
-
-def _prior_anchor_for_candidate(
-    candidate: _WorkflowSummaryCandidate,
-    anchors: ContinuityAnchorsResponse,
-) -> ContinuityAnchorResponse | None:
-    family = _outcome_family(candidate.workflow_thread, candidate.resolved_resume.resolved_location)
-    if family == "planning":
-        return anchors.planning
-    if family == "review":
-        return anchors.review
-    return None
-
-
-def _supersedes_durable_anchor(
-    candidate: _WorkflowSummaryCandidate,
-    anchors: ContinuityAnchorsResponse,
-) -> bool:
-    anchor = _prior_anchor_for_candidate(candidate, anchors)
-    if anchor is None:
-        return False
-    if _parse_timestamp(candidate.occurred_at_utc) < _parse_timestamp(anchor.visited_at_utc):
-        return False
-    if anchor.workflow_thread_id and candidate.workflow_thread.id:
-        return anchor.workflow_thread_id != candidate.workflow_thread.id
-    return _location_identity(
-        anchor.resume_location or anchor.launch_location
-    ) != _location_identity(candidate.resolved_resume.resolved_location)
-
-
 def _score_ranking_signals(
     *,
     severity: str,
@@ -791,9 +677,9 @@ def _score_ranking_signals(
 
 def _total_ranking_score(
     signals: ContinuityWorkflowSummarySignalsResponse,
-    source: Literal["receipt", "recent", "anchor"],
+    source: Literal["receipt", "recent"],
 ) -> int:
-    source_score = 18 if source == "receipt" else 10 if source == "recent" else 4
+    source_score = 18 if source == "receipt" else 10
     return (
         signals.drift_score * 100
         + (240 if signals.working_set_relevant else 0)
@@ -808,7 +694,6 @@ def _candidate_from_outcome(
     record: ContinuityOutcomeRecordResponse,
     *,
     active_working_set_id: int | None,
-    anchors: ContinuityAnchorsResponse,
     markers: list[ContinuityLastSeenMarkerResponse],
     now: datetime,
 ) -> _WorkflowSummaryCandidate:
@@ -820,40 +705,11 @@ def _candidate_from_outcome(
     )
     marker = _workflow_marker(markers, thread.id)
     last_seen_outcome_id = int(marker.observed_state.get("latestOutcomeId", 0)) if marker else 0
-    source: Literal["receipt", "recent", "anchor"] = (
+    source: Literal["receipt", "recent"] = (
         "receipt" if record.display_card.kind == "receipt" else "recent"
     )
     if record.degraded:
         severity = "gone"
-    elif _supersedes_durable_anchor(
-        _WorkflowSummaryCandidate(
-            source=source,
-            rank=0,
-            ranking_signals=_score_ranking_signals(
-                severity="none",
-                working_set_relevant=False,
-                downstream_ready=True,
-                degraded=False,
-                age_minutes=0,
-            ),
-            representative_outcome_id=record.id,
-            latest_outcome_id=record.id,
-            occurred_at_utc=record.occurred_at_utc,
-            requested_resume_location=record.resolved_resume.requested_location,
-            resolved_resume=record.resolved_resume,
-            display_title=_display_title(record),
-            display_summary=_display_summary(record),
-            display_card=record.display_card,
-            undo_action=record.undo_action,
-            rerun_action=record.rerun_action,
-            working_set_id=record.working_set_id,
-            degraded=record.degraded,
-            degraded_label=record.degraded_label,
-            workflow_thread=thread,
-        ),
-        anchors,
-    ):
-        severity = "replaced"
     elif marker is None:
         severity = "moderate"
     elif record.id > last_seen_outcome_id:
@@ -891,89 +747,6 @@ def _candidate_from_outcome(
     )
 
 
-def _candidate_from_anchor(
-    anchor: ContinuityAnchorResponse,
-    *,
-    active_working_set_id: int | None,
-    anchors: ContinuityAnchorsResponse,
-    markers: list[ContinuityLastSeenMarkerResponse],
-    now: datetime,
-) -> _WorkflowSummaryCandidate:
-    if anchor.resolved_resume is None:
-        raise RuntimeError("Resolved continuity anchors are required before building summaries.")
-    thread = _workflow_thread_or_ad_hoc(
-        _anchor_thread_ref(anchor),
-        anchor.resolved_resume,
-        title=_anchor_display_title(anchor),
-        summary=_anchor_display_summary(anchor),
-    )
-    marker = _workflow_marker(markers, thread.id)
-    if anchor.degraded:
-        severity = "gone"
-    elif _supersedes_durable_anchor(
-        _WorkflowSummaryCandidate(
-            source="anchor",
-            rank=0,
-            ranking_signals=_score_ranking_signals(
-                severity="none",
-                working_set_relevant=False,
-                downstream_ready=True,
-                degraded=False,
-                age_minutes=0,
-            ),
-            representative_outcome_id=None,
-            latest_outcome_id=None,
-            occurred_at_utc=anchor.visited_at_utc,
-            requested_resume_location=anchor.resolved_resume.requested_location,
-            resolved_resume=anchor.resolved_resume,
-            display_title=_anchor_display_title(anchor),
-            display_summary=_anchor_display_summary(anchor),
-            display_card=_anchor_display_card(anchor),
-            undo_action=None,
-            rerun_action=None,
-            working_set_id=anchor.working_set_id,
-            degraded=anchor.degraded,
-            degraded_label=anchor.degraded_label,
-            workflow_thread=thread,
-        ),
-        anchors,
-    ):
-        severity = "replaced"
-    elif marker is None:
-        severity = "minor"
-    else:
-        severity = "none"
-    age_minutes = max(0.0, (now - _parse_timestamp(anchor.visited_at_utc)).total_seconds() / 60.0)
-    ranking_signals = _score_ranking_signals(
-        severity=severity,
-        working_set_relevant=(
-            active_working_set_id is not None and anchor.working_set_id == active_working_set_id
-        ),
-        downstream_ready=not anchor.degraded,
-        degraded=anchor.degraded,
-        age_minutes=age_minutes,
-    )
-    return _WorkflowSummaryCandidate(
-        source="anchor",
-        rank=_total_ranking_score(ranking_signals, "anchor"),
-        ranking_signals=ranking_signals,
-        representative_outcome_id=None,
-        latest_outcome_id=None,
-        occurred_at_utc=anchor.visited_at_utc,
-        requested_resume_location=anchor.resolved_resume.requested_location,
-        resolved_resume=anchor.resolved_resume,
-        display_title=_anchor_display_title(anchor),
-        display_summary=_anchor_display_summary(anchor),
-        display_card=_anchor_display_card(anchor),
-        undo_action=None,
-        rerun_action=None,
-        working_set_id=anchor.working_set_id,
-        degraded=anchor.degraded,
-        degraded_label=anchor.degraded_label,
-        workflow_thread=thread,
-    )
-
-
 def _dedupe_candidates(
     candidates: list[_WorkflowSummaryCandidate],
 ) -> list[_WorkflowSummaryCandidate]:
@@ -995,39 +768,6 @@ def _dedupe_candidates(
         ):
             deduped[key] = candidate
     return list(deduped.values())
-
-
-def _build_prior_state(
-    candidate: _WorkflowSummaryCandidate,
-    anchors: ContinuityAnchorsResponse,
-) -> ContinuityWorkflowSummaryPriorStateResponse | None:
-    anchor = _prior_anchor_for_candidate(candidate, anchors)
-    if anchor is None:
-        return None
-    anchor_thread_id = anchor.workflow_thread_id
-    same_thread = anchor_thread_id is not None and anchor_thread_id == candidate.workflow_thread.id
-    same_location = _location_identity(
-        anchor.resume_location or anchor.launch_location
-    ) == _location_identity(candidate.resolved_resume.resolved_location)
-    if same_thread or same_location:
-        return None
-    if anchor.resolved_resume and anchor.resolved_resume.successor is not None:
-        return ContinuityWorkflowSummaryPriorStateResponse(
-            kind="gone" if anchor.degraded else "replaced",
-            title=anchor.outcome_title or "Prior path",
-            summary=anchor.resolved_resume.successor.message
-            or (
-                f"{anchor.outcome_title or 'Prior path'} was superseded by "
-                f"{anchor.resolved_resume.successor.title}."
-            ),
-        )
-    if anchor.degraded:
-        return ContinuityWorkflowSummaryPriorStateResponse(
-            kind="gone",
-            title=anchor.outcome_title or "Prior path",
-            summary=anchor.degraded_label or "The prior primary path is no longer available.",
-        )
-    return None
 
 
 def _build_why_now(
@@ -1113,75 +853,6 @@ def _summary_display_card(
     changed_since_last_seen: list[str],
 ) -> ContinuityDisplayCardResponse:
     working_set = _summary_working_set(candidate, working_set_name=working_set_name)
-    if candidate.source == "anchor":
-        preview = [
-            *(
-                [ContinuityDisplayPreviewItemResponse(label="Why now", value=why_now[0])]
-                if why_now
-                else []
-            ),
-            *(
-                [
-                    ContinuityDisplayPreviewItemResponse(
-                        label="Changed", value=changed_since_last_seen[0]
-                    )
-                ]
-                if changed_since_last_seen
-                else []
-            ),
-            *(
-                [
-                    ContinuityDisplayPreviewItemResponse(
-                        label="Working set", value=working_set.working_set_name
-                    )
-                ]
-                if working_set
-                else []
-            ),
-            *(
-                [
-                    ContinuityDisplayPreviewItemResponse(
-                        label="Outcomes", value=str(len(outcome_preview_titles))
-                    )
-                ]
-                if len(outcome_preview_titles) > 1
-                else []
-            ),
-        ]
-        return ContinuityDisplayCardResponse(
-            kind="handoff",
-            tone="attention" if candidate.degraded else "neutral",
-            eyebrow="Resume anchor",
-            title=candidate.display_title,
-            summary=candidate.display_summary,
-            rationale=_DISPLAY_SUMMARY_RATIONALE,
-            preview=preview,
-            trust=ContinuityDisplayTrustResponse(
-                generation_label="Backend continuity summary",
-                generation_tone="neutral",
-                context_sources=["Durable continuity workflow summary"],
-                assumptions=[],
-                confidence_label="Deterministic continuity ranking",
-                confidence_tone="progress",
-                freshness_label=f"Updated {candidate.occurred_at_utc}",
-                freshness_tone="neutral",
-                rollback_label=None,
-                rollback_tone="neutral",
-                impact_summary=" · ".join([*why_now, *changed_since_last_seen])
-                or candidate.display_summary,
-                impact_tone="neutral",
-            ),
-            handoff=ContinuityDisplayHandoffResponse(
-                change_summary=" · ".join(changed_since_last_seen) or candidate.display_summary,
-                created_resources=outcome_preview_titles[:3],
-                next_step="Open the ranked workflow and continue from the durable landed state.",
-                breadcrumbs=["Home", "Since last visit", candidate.workflow_thread.title],
-                working_set=working_set,
-            ),
-            action_context_label="Continue from here",
-            action_warning=candidate.degraded_label,
-        )
-
     base = candidate.display_card
     handoff = None
     if base.handoff is not None:
@@ -1205,9 +876,7 @@ def _build_workflow_summaries(
     *,
     conn: sqlite3.Connection,
     outcomes: list[ContinuityOutcomeRecordResponse],
-    anchors: ContinuityAnchorsResponse,
     markers: list[ContinuityLastSeenMarkerResponse],
-    include_anchor_candidates: bool = True,
 ) -> list[ContinuityWorkflowSummaryResponse]:
     now = datetime.now(UTC)
     active_working_set_id = _active_working_set_id(conn)
@@ -1217,38 +886,14 @@ def _build_workflow_summaries(
             _candidate_from_outcome(
                 outcome,
                 active_working_set_id=active_working_set_id,
-                anchors=anchors,
                 markers=markers,
                 now=now,
             )
             for outcome in outcomes
         ]
     )
-    recent_location_keys = {
-        _location_identity(candidate.resolved_resume.resolved_location)
-        for candidate in recent_candidates
-    }
-    anchor_candidates: list[_WorkflowSummaryCandidate] = []
-    if include_anchor_candidates:
-        anchor_candidates = [
-            _candidate_from_anchor(
-                anchor,
-                active_working_set_id=active_working_set_id,
-                anchors=anchors,
-                markers=markers,
-                now=now,
-            )
-            for anchor in (anchors.planning, anchors.review)
-            if anchor is not None and anchor.resolved_resume is not None
-        ]
-    combined = recent_candidates + [
-        candidate
-        for candidate in anchor_candidates
-        if _location_identity(candidate.resolved_resume.resolved_location)
-        not in recent_location_keys
-    ]
     buckets: dict[str, list[_WorkflowSummaryCandidate]] = defaultdict(list)
-    for candidate in combined:
+    for candidate in recent_candidates:
         buckets[candidate.workflow_thread.id].append(candidate)
     summaries: list[ContinuityWorkflowSummaryResponse] = []
     for items in buckets.values():
@@ -1263,7 +908,6 @@ def _build_workflow_summaries(
             key=lambda item: (_parse_timestamp(item.occurred_at_utc), item.latest_outcome_id or 0),
         )
         marker = _workflow_marker(markers, representative.workflow_thread.id)
-        prior_state = _build_prior_state(representative, anchors)
         outcome_count = len(items)
         summary_rank = representative.rank + min(outcome_count, 4) * 8
         outcome_preview_titles = [item.display_title for item in sorted_items[:3]]
@@ -1310,7 +954,7 @@ def _build_workflow_summaries(
                 degraded_label=representative.degraded_label,
                 why_now=why_now,
                 changed_since_last_seen=changed_since_last_seen,
-                prior_state=prior_state,
+                prior_state=None,
             )
         )
     return sorted(
@@ -1452,56 +1096,6 @@ def _attach_successors(
     return enriched
 
 
-def _anchor_thread_ref(anchor: ContinuityAnchorResponse) -> WorkflowThreadRefResponse | None:
-    if not anchor.workflow_thread_id:
-        return None
-    kind: ContinuityWorkflowThreadKind = (
-        "planning_checkpoint" if anchor.kind == "planning" else "review_session"
-    )
-    return WorkflowThreadRefResponse(
-        id=anchor.workflow_thread_id,
-        kind=kind,
-        title=anchor.outcome_title or f"{anchor.kind.title()} #{anchor.session_id}",
-        summary=anchor.outcome_summary,
-        parent_outcome_id=None,
-    )
-
-
-def _resolve_anchor(
-    conn: sqlite3.Connection,
-    anchor: ContinuityAnchorResponse,
-    outcomes: list[ContinuityOutcomeRecordResponse],
-) -> ContinuityAnchorResponse:
-    resolved_resume = _resolve_location(conn, anchor.resume_location, anchor.launch_location)
-    thread_ref = _anchor_thread_ref(anchor)
-    successor_source = _successor_source(
-        outcomes,
-        workflow_thread=thread_ref,
-        requested_location=resolved_resume.requested_location,
-        resolved_location=resolved_resume.resolved_location,
-        visited_at_utc=anchor.visited_at_utc,
-    )
-    resolved_resume = resolved_resume.model_copy(
-        update={
-            "successor": _build_successor(
-                successor_source,
-                anchor.outcome_title or f"{anchor.kind.title()} #{anchor.session_id}",
-            )
-            if successor_source is not None
-            else None
-        }
-    )
-    degraded = resolved_resume.status != "ok"
-
-    return anchor.model_copy(
-        update={
-            "resolved_resume": resolved_resume,
-            "degraded": degraded,
-            "degraded_label": resolved_resume.message if degraded else None,
-        }
-    )
-
-
 def record_continuity_outcome(
     payload: ContinuityOutcomeWriteRequest,
     *,
@@ -1636,64 +1230,6 @@ def record_continuity_outcome(
         if cursor.lastrowid is None:
             raise RuntimeError("continuity_outcomes insert did not return a row id")
         return int(cursor.lastrowid)
-
-
-def upsert_continuity_anchor(
-    payload: ContinuityAnchorUpsertRequest,
-    *,
-    settings: Settings | None = None,
-) -> None:
-    """Upsert one durable planning or review resume anchor."""
-    settings = settings or get_settings()
-    with db.core_connection(settings) as conn:
-        conn.execute(
-            """
-            INSERT INTO continuity_resume_anchors (
-                anchor_kind,
-                review_focus,
-                session_id,
-                visited_at_utc,
-                launch_location_json,
-                resume_location_json,
-                outcome_title,
-                outcome_summary,
-                working_set_id,
-                workflow_thread_id,
-                metadata_json,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(anchor_kind) DO UPDATE SET
-                review_focus = excluded.review_focus,
-                session_id = excluded.session_id,
-                visited_at_utc = excluded.visited_at_utc,
-                launch_location_json = excluded.launch_location_json,
-                resume_location_json = excluded.resume_location_json,
-                outcome_title = excluded.outcome_title,
-                outcome_summary = excluded.outcome_summary,
-                working_set_id = excluded.working_set_id,
-                workflow_thread_id = excluded.workflow_thread_id,
-                metadata_json = excluded.metadata_json,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (
-                payload.anchor_kind,
-                payload.review_focus,
-                payload.session_id,
-                payload.visited_at_utc,
-                _dump_json(payload.launch_location)
-                if payload.launch_location is not None
-                else None,
-                _dump_json(payload.resume_location)
-                if payload.resume_location is not None
-                else None,
-                payload.outcome_title,
-                payload.outcome_summary,
-                payload.working_set_id,
-                payload.workflow_thread_id,
-                _dump_json(payload.metadata),
-            ),
-        )
-        conn.commit()
 
 
 def upsert_continuity_last_seen_markers(
@@ -1964,33 +1500,6 @@ def _read_high_signal_outcome_rows(
     return conn.execute(sql, tuple(params)).fetchall()
 
 
-def _read_anchor_rows(conn: sqlite3.Connection) -> list[Mapping[str, Any]]:
-    return conn.execute(
-        """
-        SELECT *
-        FROM continuity_resume_anchors
-        ORDER BY updated_at DESC, anchor_kind ASC
-        """
-    ).fetchall()
-
-
-def _resolve_anchors(
-    conn: sqlite3.Connection,
-    *,
-    outcomes: list[ContinuityOutcomeRecordResponse],
-    anchor_rows: list[Mapping[str, Any]],
-) -> ContinuityAnchorsResponse:
-    anchors = ContinuityAnchorsResponse()
-    for row in anchor_rows:
-        unresolved = _anchor_from_row(row)
-        resolved = _resolve_anchor(conn, unresolved, outcomes)
-        if resolved.kind == "planning":
-            anchors.planning = resolved
-        elif resolved.kind == "review":
-            anchors.review = resolved
-    return anchors
-
-
 def _read_last_seen_marker_rows(
     conn: sqlite3.Connection,
     *,
@@ -2052,7 +1561,6 @@ def _read_continuity_snapshot_state(
     after_outcome_id: int | None = None,
 ) -> _ContinuitySnapshotState:
     outcome_rows = _read_high_signal_outcome_rows(conn)
-    anchor_rows = _read_anchor_rows(conn)
     marker_rows = _read_last_seen_marker_rows(conn)
     acknowledgement_rows = conn.execute(
         """
@@ -2075,19 +1583,16 @@ def _read_continuity_snapshot_state(
     outcomes = all_outcomes[start_index:end_index]
     next_outcome_id = all_outcomes[end_index - 1].id if end_index < len(all_outcomes) else None
 
-    anchors = _resolve_anchors(conn, outcomes=all_outcomes, anchor_rows=anchor_rows)
     last_seen_markers = [_last_seen_marker_from_row(row) for row in marker_rows]
     workflow_summaries = _build_workflow_summaries(
         conn=conn,
         outcomes=outcomes,
-        anchors=anchors,
         markers=last_seen_markers,
     )
     recovery_acknowledgements = [_recovery_ack_from_row(row) for row in acknowledgement_rows]
 
     return _ContinuitySnapshotState(
         outcomes=outcomes,
-        anchors=anchors,
         workflow_summaries=workflow_summaries,
         last_seen_markers=last_seen_markers,
         recovery_acknowledgements=recovery_acknowledgements,
@@ -2386,26 +1891,17 @@ def _build_continuity_delivery_inputs(
     conn: sqlite3.Connection,
     *,
     outcome_rows: list[Mapping[str, Any]],
-    include_anchor_candidates: bool,
 ) -> tuple[
     list[ContinuityWorkflowSummaryResponse],
     list[Mapping[str, Any]],
 ]:
     outcomes = [_outcome_from_row(conn, row) for row in outcome_rows]
-    anchors = _resolve_anchors(conn, outcomes=outcomes, anchor_rows=_read_anchor_rows(conn))
     workflow_thread_ids = {
         outcome.workflow_thread.id for outcome in outcomes if outcome.workflow_thread is not None
     }
-    if include_anchor_candidates:
-        workflow_thread_ids.update(
-            anchor.workflow_thread_id
-            for anchor in (anchors.planning, anchors.review)
-            if anchor is not None and anchor.workflow_thread_id is not None
-        )
     workflow_summaries = _build_workflow_summaries(
         conn=conn,
         outcomes=outcomes,
-        anchors=anchors,
         markers=[
             _last_seen_marker_from_row(row)
             for row in _read_last_seen_marker_rows(
@@ -2413,7 +1909,6 @@ def _build_continuity_delivery_inputs(
                 workflow_thread_ids=workflow_thread_ids,
             )
         ],
-        include_anchor_candidates=include_anchor_candidates,
     )
     notification_state_rows = _read_notification_state_rows(
         conn,
@@ -2545,7 +2040,6 @@ def _read_continuity_delivery_contract(
             channel=read_window.channel,
             cursor=read_window.cursor,
         )
-        include_anchor_candidates = read_window.cursor is None
         scanned_rows: list[Mapping[str, Any]] = []
         page_anchor = cursor_state.page_anchor
         remaining_budget = read_window.scan_budget
@@ -2568,7 +2062,6 @@ def _read_continuity_delivery_contract(
             workflow_summaries, notification_state_rows = _build_continuity_delivery_inputs(
                 conn,
                 outcome_rows=scanned_rows,
-                include_anchor_candidates=include_anchor_candidates,
             )
             latest_contract = _evaluate_notification_delivery_contract(
                 conn,
@@ -2620,7 +2113,6 @@ def read_continuity_snapshot(
         return ContinuitySnapshotResponse(
             recorded_at_utc=_utc_now_iso(),
             outcomes=snapshot_state.outcomes,
-            anchors=snapshot_state.anchors,
             workflow_summaries=snapshot_state.workflow_summaries,
             notification_records=delivery_contract.notification_records,
             last_seen_markers=snapshot_state.last_seen_markers,
@@ -2691,7 +2183,6 @@ __all__ = [
     "read_continuity_notification_records",
     "read_continuity_snapshot",
     "record_continuity_outcome",
-    "upsert_continuity_anchor",
     "upsert_continuity_last_seen_markers",
     "upsert_continuity_notification_state",
     "upsert_continuity_recovery_acknowledgement",

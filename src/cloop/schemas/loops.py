@@ -59,9 +59,6 @@ from ._loops.comments import (
     LoopCommentUpdateRequest,
 )
 from ._loops.continuity import (
-    ContinuityAnchorResponse,
-    ContinuityAnchorsResponse,
-    ContinuityAnchorUpsertRequest,
     ContinuityExecutableRerunHandle,
     ContinuityExecutableUndoHandle,
     ContinuityLastSeenBatchUpsertRequest,
@@ -252,9 +249,6 @@ ClarificationRefinementResponse.model_rebuild(_types_namespace=globals())
 EnrichmentReviewSessionClarificationResponse.model_rebuild(_types_namespace=globals())
 
 __all__ = [
-    "ContinuityAnchorResponse",
-    "ContinuityAnchorUpsertRequest",
-    "ContinuityAnchorsResponse",
     "ContinuityExecutableRerunHandle",
     "ContinuityExecutableUndoHandle",
     "ContinuityLastSeenBatchUpsertRequest",

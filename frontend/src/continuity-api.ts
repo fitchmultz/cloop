@@ -2,13 +2,14 @@
  * continuity-api.ts - Durable backend continuity transport.
  *
  * Purpose:
- *   Centralize HTTP reads and writes for backend-backed continuity outcomes and
- *   resume anchors.
+ *   Centralize HTTP reads and writes for backend-backed continuity outcomes,
+ *   notification state, and durable observations.
  *
  * Responsibilities:
  *   - Fetch the durable continuity snapshot used for hydration.
  *   - Persist high-signal landed outcomes.
- *   - Upsert durable planning/review anchors and notification delivery state.
+ *   - Upsert durable notification delivery state, recovery acknowledgements,
+ *     and last-seen markers.
  *
  * Scope:
  *   - Frontend HTTP helpers for continuity routes only.
@@ -22,7 +23,6 @@
  */
 
 import type {
-  ContinuityAnchorUpsertRequest,
   ContinuityLastSeenBatchUpsertRequest,
   ContinuityNotificationStateUpsertRequest,
   ContinuityRecoveryAcknowledgementUpsertRequest,
@@ -49,20 +49,6 @@ export function persistContinuityOutcome(
       body: payload,
     },
     "Failed to persist durable continuity outcome",
-  );
-}
-
-export function upsertContinuityAnchor(
-  anchorKind: "planning" | "review",
-  payload: ContinuityAnchorUpsertRequest,
-): Promise<ContinuitySnapshotResponse> {
-  return requestJson<ContinuitySnapshotResponse, ContinuityAnchorUpsertRequest>(
-    `/loops/continuity/anchors/${anchorKind}`,
-    {
-      method: "PUT",
-      body: payload,
-    },
-    "Failed to persist durable continuity anchor",
   );
 }
 

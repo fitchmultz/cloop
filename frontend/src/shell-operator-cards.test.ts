@@ -464,7 +464,7 @@ function summaryRecord(input: {
   displayTitle: string;
   displaySummary: string;
   workingSetName?: string | null;
-  source?: "receipt" | "recent" | "anchor";
+  source?: "receipt" | "recent";
   outcomeCount?: number;
   outcomePreviewTitles?: string[];
   driftSeverity?: "none" | "minor" | "moderate" | "major" | "replaced" | "gone";
@@ -786,7 +786,7 @@ describe("shell-operator-cards", () => {
           workflowThreadId: "planning:41",
           workflowThreadTitle: "Old launch plan",
           workflowThreadSummary: "Prior planning path",
-          source: "anchor",
+          source: "recent",
           resolvedLocation: createLocation({ state: "operator" }),
           requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
           displayTitle: "Old launch plan",
@@ -949,7 +949,7 @@ describe("shell-operator-cards", () => {
         workflowThreadId: "review:enrichment:27",
         workflowThreadTitle: "Resume enrichment queue · Review Prep",
         workflowThreadSummary: "Return to the saved enrichment queue.",
-        source: "anchor",
+        source: "recent",
         resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
         displayTitle: "Resume enrichment queue · Review Prep",
         displaySummary: "Return to the saved enrichment queue.",
@@ -963,7 +963,7 @@ describe("shell-operator-cards", () => {
         workflowThreadId: "planning:41",
         workflowThreadTitle: "Resume plan · Weekly reset",
         workflowThreadSummary: "Return to the saved planning session.",
-        source: "anchor",
+        source: "recent",
         resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
         displayTitle: "Resume plan · Weekly reset",
         displaySummary: "Return to the saved planning session.",
@@ -1040,7 +1040,7 @@ describe("shell-operator-cards", () => {
         workflowThreadId: "planning:41",
         workflowThreadTitle: "Resume plan · Weekly reset",
         workflowThreadSummary: "Return to the saved planning session.",
-        source: "anchor",
+        source: "recent",
         resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
         displayTitle: "Resume plan · Weekly reset",
         displaySummary: "Return to the saved planning session.",

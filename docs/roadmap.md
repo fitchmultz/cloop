@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: delete the unused anchor transport, then fix runtime chunking once continuity contracts stop moving.
+Execution focus: drop the now-unused continuity anchor table, then fix runtime chunking.
 
 ## Direction
 
@@ -26,13 +26,13 @@ Current product goals:
 
 ## Execution order
 
-### Next — Remove unused anchor transport
+### Next — Drop the unused continuity anchor table
 
-Delete the backend/storage/API leftovers now that the browser no longer reads or writes anchors.
+Finish the anchor cutover by removing the orphaned DB/schema remnants.
 
-1. Remove unused continuity anchor writes, snapshot payload plumbing, and storage helpers that no longer feed any frontend path.
-2. Trim frontend continuity API/domain exports and generated contract references that only existed for anchor transport.
-3. Regenerate/update tests after the contract removal so continuity stays outcome-first end to end.
+1. Remove `continuity_resume_anchors` from core schema, migrations, and backend table assertions.
+2. Delete any dead data-access code or diagnostics that only existed to support that table.
+3. Keep the continuity snapshot outcome-first and last-seen-driven while the schema cleanup lands.
 
 ### Then — Frontend shell/runtime boundary cleanup
 

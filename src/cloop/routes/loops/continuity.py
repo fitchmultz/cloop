@@ -1,14 +1,13 @@
 """Durable continuity HTTP routes.
 
 Purpose:
-    Expose backend-backed continuity outcomes and resume anchors for the
-    operator shell's cross-device hydration and write-through persistence.
+    Expose backend-backed continuity outcomes for the operator shell's
+    cross-device hydration and write-through persistence.
 
 Responsibilities:
     - Return the current durable continuity snapshot.
     - Expose debug-first continuity delivery-decision inspection.
     - Persist high-signal landed outcomes.
-    - Upsert durable planning and review resume anchors.
     - Upsert durable notification delivery state and recovery acknowledgements.
 
 Non-scope:
@@ -30,7 +29,6 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from ...schemas._loops.continuity import (
-    ContinuityAnchorUpsertRequest,
     ContinuityDeliveryInspectionChannel,
     ContinuityDeliveryInspectionResponse,
     ContinuityLastSeenBatchUpsertRequest,
@@ -43,7 +41,6 @@ from ...storage import (
     read_continuity_delivery_inspection,
     read_continuity_snapshot,
     record_continuity_outcome,
-    upsert_continuity_anchor,
     upsert_continuity_last_seen_markers,
     upsert_continuity_notification_state,
     upsert_continuity_recovery_acknowledgement,
@@ -88,22 +85,6 @@ def create_continuity_outcome_endpoint(
     """Persist one high-signal landed continuity outcome and return the refreshed snapshot."""
     if request.signal_level == "high":
         record_continuity_outcome(request, settings=settings)
-    return read_continuity_snapshot(settings=settings)
-
-
-@router.put("/continuity/anchors/{anchor_kind}", response_model=ContinuitySnapshotResponse)
-def upsert_continuity_anchor_endpoint(
-    anchor_kind: str,
-    request: ContinuityAnchorUpsertRequest,
-    settings: SettingsDep,
-) -> ContinuitySnapshotResponse:
-    """Upsert one durable continuity anchor and return the refreshed snapshot."""
-    payload = (
-        request
-        if request.anchor_kind == anchor_kind
-        else request.model_copy(update={"anchor_kind": anchor_kind})
-    )
-    upsert_continuity_anchor(payload, settings=settings)
     return read_continuity_snapshot(settings=settings)
 
 

@@ -423,7 +423,7 @@ function continuitySnapshot() {
       },
       {
         id: "planning:99",
-        source: "anchor",
+        source: "recent",
         rank: 3300,
         ranking_signals: {
           drift_severity: "gone",
@@ -486,9 +486,9 @@ function continuitySnapshot() {
         display_title: "Replacement plan",
         display_summary: "Return to the surviving workflow.",
         display_card: {
-          kind: "handoff",
+          kind: "context",
           tone: "attention",
-          eyebrow: "Resume anchor",
+          eyebrow: "Workflow summary",
           title: "Replacement plan",
           summary: "Return to the surviving workflow.",
           rationale: "This card is rendered from the canonical backend continuity summary instead of client-side ranking heuristics.",
@@ -646,9 +646,9 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summary.card.actions.some((action) => action.type === "undo")).toBe(true);
 
     const fallbackSummary = summaries[1]!;
-    expect(fallbackSummary.source).toBe("anchor");
+    expect(fallbackSummary.source).toBe("recent");
     expect(fallbackSummary.card.kind).toBe("context");
-    expect(fallbackSummary.card.eyebrow).toBe("Workflow thread");
+    expect(fallbackSummary.card.eyebrow).toBe("Workflow summary");
   });
 
   it("prepends fresh local receipts before durable summaries catch up", async () => {

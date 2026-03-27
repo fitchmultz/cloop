@@ -2,11 +2,11 @@
 
 Purpose:
     Define request and response models for backend-backed continuity outcomes,
-    durable resume anchors, backend-authored workflow summaries, recovery
-    provenance, durable notification delivery state, and durable recovery acknowledgements.
+    backend-authored workflow summaries, recovery provenance, durable
+    notification delivery state, and durable recovery acknowledgements.
 
 Responsibilities:
-    - Validate continuity outcome, anchor, last-seen, notification-state, and recovery-ack writes.
+    - Validate continuity outcome, last-seen, notification-state, and recovery-ack writes.
     - Shape continuity snapshot and delivery-inspection responses for cross-device hydration.
     - Model explicit fallback and replacement states when persisted targets drift
       or disappear.
@@ -20,7 +20,7 @@ Usage:
 
 Invariants/Assumptions:
     - Location payloads remain transport-neutral and map to shell navigation.
-    - Durable continuity stores only high-signal landed outcomes, anchors, and observations.
+    - Durable continuity stores only high-signal landed outcomes and observations.
     - Replacement provenance is emitted by the backend and consumed as the
       canonical recovery contract.
 """
@@ -43,7 +43,6 @@ ContinuityShellState = Literal[
 ]
 ContinuityRecallTool = Literal["chat", "memory", "rag"]
 ContinuityReviewFocus = Literal["planning", "relationship", "enrichment", "cohorts"]
-ContinuityObservedReviewFocus = Literal["planning", "relationship", "enrichment"]
 ContinuityWorkflowThreadKind = Literal[
     "planning_checkpoint",
     "review_session",
@@ -60,7 +59,7 @@ ContinuityTargetStatus = Literal[
     "home_fallback",
 ]
 ContinuitySuccessorKind = Literal["replacement"]
-ContinuityWorkflowSummarySource = Literal["receipt", "recent", "anchor"]
+ContinuityWorkflowSummarySource = Literal["receipt", "recent"]
 ContinuityWorkflowSummaryPriorStateKind = Literal["replaced", "gone"]
 ContinuityDisplayCardKind = Literal[
     "mutation",
@@ -339,48 +338,6 @@ class ContinuityOutcomeWriteRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ContinuityAnchorUpsertRequest(BaseModel):
-    """Request to upsert one durable continuity resume anchor."""
-
-    anchor_kind: Literal["planning", "review"]
-    review_focus: ContinuityObservedReviewFocus
-    session_id: int
-    visited_at_utc: str
-    launch_location: ContinuityLocationResponse | None = None
-    resume_location: ContinuityLocationResponse | None = None
-    outcome_title: str | None = None
-    outcome_summary: str | None = None
-    working_set_id: int | None = None
-    workflow_thread_id: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ContinuityAnchorResponse(BaseModel):
-    """Durable continuity resume anchor response."""
-
-    kind: Literal["planning", "review"]
-    review_focus: ContinuityObservedReviewFocus
-    session_id: int
-    visited_at_utc: str
-    launch_location: ContinuityLocationResponse | None = None
-    resume_location: ContinuityLocationResponse | None = None
-    resolved_resume: ResolvedContinuityTargetResponse | None = None
-    outcome_title: str | None = None
-    outcome_summary: str | None = None
-    working_set_id: int | None = None
-    workflow_thread_id: str | None = None
-    degraded: bool = False
-    degraded_label: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ContinuityAnchorsResponse(BaseModel):
-    """Grouped durable continuity anchors."""
-
-    planning: ContinuityAnchorResponse | None = None
-    review: ContinuityAnchorResponse | None = None
-
-
 class ContinuityLastSeenMarkerUpsertRequest(BaseModel):
     """One durable operator observation for a continuity-relevant entity."""
 
@@ -582,7 +539,6 @@ class ContinuitySnapshotResponse(BaseModel):
 
     recorded_at_utc: str
     outcomes: list[ContinuityOutcomeRecordResponse] = Field(default_factory=list)
-    anchors: ContinuityAnchorsResponse = Field(default_factory=ContinuityAnchorsResponse)
     workflow_summaries: list[ContinuityWorkflowSummaryResponse] = Field(default_factory=list)
     notification_records: list[ContinuityNotificationRecordResponse] = Field(default_factory=list)
     last_seen_markers: list[ContinuityLastSeenMarkerResponse] = Field(default_factory=list)
@@ -592,9 +548,6 @@ class ContinuitySnapshotResponse(BaseModel):
 
 
 __all__ = [
-    "ContinuityAnchorResponse",
-    "ContinuityAnchorUpsertRequest",
-    "ContinuityAnchorsResponse",
     "ContinuityDeliveryDecisionResponse",
     "ContinuityDeliveryInspectionChannel",
     "ContinuityDeliveryInspectionContinuationResponse",

@@ -64,8 +64,8 @@ export function scoreRankingSignals(input: {
   };
 }
 
-export function totalRankingScore(signals: ContinuityRankingSignals, source: "receipt" | "recent" | "anchor"): number {
-  const sourceScore = source === "receipt" ? 18 : source === "recent" ? 10 : 4;
+export function totalRankingScore(signals: ContinuityRankingSignals, source: "receipt" | "recent"): number {
+  const sourceScore = source === "receipt" ? 18 : 10;
   return (
     signals.driftScore * 100
     + (signals.workingSetRelevant ? 240 : 0)

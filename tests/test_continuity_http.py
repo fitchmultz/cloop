@@ -154,7 +154,6 @@ def test_get_continuity_snapshot_returns_empty_payload(
     assert response.status_code == 200
     payload = response.json()
     assert payload["outcomes"] == []
-    assert payload["anchors"] == {"planning": None, "review": None}
     assert payload["workflow_summaries"] == []
     assert payload["notification_records"] == []
     assert payload["recovery_acknowledgements"] == []
@@ -271,7 +270,7 @@ def test_get_continuity_delivery_decisions_uses_cursor_pagination(
     assert second_payload["decisions"][0]["record"]["id"] == "planning:41:older-queue"
 
 
-def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
+def test_post_outcome_and_put_last_seen_return_refreshed_snapshot(
     test_client: TestClient,
     tmp_data_dir: Path,
 ) -> None:
@@ -339,47 +338,6 @@ def test_post_outcome_and_put_anchor_return_refreshed_snapshot(
         notification_payload["notification_records"][0]["state"]["seen_at_utc"]
         == "2026-03-21T12:02:00Z"
     )
-
-    anchor_response = test_client.put(
-        "/loops/continuity/anchors/planning",
-        json={
-            "anchor_kind": "planning",
-            "review_focus": "planning",
-            "session_id": 41,
-            "visited_at_utc": "2026-03-21T12:05:00Z",
-            "launch_location": {
-                "state": "plan",
-                "recall_tool": "chat",
-                "review_focus": "planning",
-                "session_id": 41,
-                "loop_id": None,
-                "view_id": None,
-                "memory_id": None,
-                "working_set_id": None,
-                "query": None,
-            },
-            "resume_location": {
-                "state": "plan",
-                "recall_tool": "chat",
-                "review_focus": "planning",
-                "session_id": 41,
-                "loop_id": None,
-                "view_id": None,
-                "memory_id": None,
-                "working_set_id": None,
-                "query": None,
-            },
-            "outcome_title": "Resume weekly reset",
-            "outcome_summary": "Continue the saved planning session.",
-            "working_set_id": None,
-            "workflow_thread_id": "planning:41",
-            "metadata": {},
-        },
-    )
-    assert anchor_response.status_code == 200
-    anchor_payload = anchor_response.json()
-    assert anchor_payload["anchors"]["planning"]["session_id"] == 41
-    assert anchor_payload["anchors"]["planning"]["workflow_thread_id"] == "planning:41"
 
     marker_response = test_client.put(
         "/loops/continuity/last-seen",
