@@ -816,7 +816,7 @@ describe("continuity-intelligence", () => {
     recordRecentShellAction({
       kind: "working_set",
       label: "Pinned evidence",
-      description: "Saved a resume anchor.",
+      description: "Saved a resumable item.",
       location: location({ state: "recall", recallTool: "rag", query: "evidence" }),
       outcome: {
         card: {
@@ -833,13 +833,13 @@ describe("continuity-intelligence", () => {
             assumptions: [],
             confidenceLabel: "Recorded",
             freshnessLabel: "Saved just now",
-            rollbackLabel: "Remove the anchor to undo this.",
+            rollbackLabel: "Remove the item to undo this.",
           },
           handoff: null,
           actions: [],
         },
         resumeLocation: location({ state: "recall", recallTool: "rag", query: "evidence" }),
-        rollbackLabel: "Remove the anchor to undo this.",
+        rollbackLabel: "Remove the item to undo this.",
         undoAction: null,
       },
     });
@@ -847,7 +847,7 @@ describe("continuity-intelligence", () => {
     recordRecentShellAction({
       kind: "working_set",
       label: "Pinned evidence",
-      description: "Saved a resume anchor.",
+      description: "Saved a resumable item.",
       location: location({ state: "recall", recallTool: "rag", query: "evidence" }),
       outcome: {
         card: {
@@ -864,13 +864,13 @@ describe("continuity-intelligence", () => {
             assumptions: [],
             confidenceLabel: "Recorded",
             freshnessLabel: "Saved just now",
-            rollbackLabel: "Remove the anchor to undo this.",
+            rollbackLabel: "Remove the item to undo this.",
           },
           handoff: null,
           actions: [],
         },
         resumeLocation: location({ state: "recall", recallTool: "rag", query: "evidence" }),
-        rollbackLabel: "Remove the anchor to undo this.",
+        rollbackLabel: "Remove the item to undo this.",
         undoAction: null,
       },
     });

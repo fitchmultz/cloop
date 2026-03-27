@@ -412,7 +412,7 @@ function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {
 function defaultCommandContextSources(command: CommandPaletteCommand, selectedCount: number): string[] {
   const sources: string[] = [command.detail.eyebrow];
   if (command.detail.recovery) {
-    sources.push("Recovery evidence from continuity outcomes and durable anchors");
+    sources.push("Recovery evidence from continuity outcomes and working-set context");
   }
   if (command.location?.sessionId != null) {
     sources.push(`Saved session #${command.location.sessionId}`);
@@ -1375,7 +1375,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         contextBoost: 88,
         detail: {
           eyebrow: "Navigate",
-          description: "Restore the full working-set context as a dedicated shell session, not as a single anchor item.",
+          description: "Restore the full working-set context as a dedicated shell session, not as a single saved item.",
           meta: [
             `${activeSet.item_count} item${activeSet.item_count === 1 ? "" : "s"}`,
             context.workingSetContext?.focus_mode_enabled ? "Focus mode already enabled" : "Focus mode currently paused",
@@ -1408,7 +1408,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           description: "Open this working set as its own session surface and restore the full bounded context.",
           meta: [
             `${workingSet.item_count} item${workingSet.item_count === 1 ? "" : "s"}`,
-            workingSet.missing_item_count ? `${workingSet.missing_item_count} missing anchor${workingSet.missing_item_count === 1 ? "" : "s"}` : "No missing anchors",
+            workingSet.missing_item_count ? `${workingSet.missing_item_count} missing item${workingSet.missing_item_count === 1 ? "" : "s"}` : "No missing items",
           ],
         },
         recentAction: {
@@ -1513,8 +1513,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         id: "act-pin-current-location",
         group: "act",
         title: "Pin current surface to working set",
-        subtitle: "Save the current location as a durable resume anchor",
-        keywords: ["pin", "working set", "anchor", "resume"],
+        subtitle: "Save the current location in the active working set",
+        keywords: ["pin", "working set", "location", "resume"],
         badge: "Act",
         detail: {
           eyebrow: "Act",
@@ -1854,7 +1854,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         location,
         detail: {
           eyebrow: "Navigate",
-          description: "Open this saved view as a typed query anchor inside the capture/inbox surface.",
+          description: "Open this saved view as a typed query inside the capture/inbox surface.",
           meta: [`Query: ${view.query}`, `Updated ${formatRelativeTime(view.updated_at_utc)}`],
         },
         recentAction: { kind: "open-location", location },
@@ -1919,14 +1919,14 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         id: `query-do:${query}`,
         group: "navigate",
         title: `Open Do filtered by · “${query}”`,
-        subtitle: "Use this query as a launch anchor in the Do surface",
+        subtitle: "Use this query as the starting filter in the Do surface",
         keywords: ["query", "filter", "do", query],
         badge: "Search",
         location: createLocation({ state: "do", query }),
         detail: {
           eyebrow: "Search",
-          description: "Open the Do surface with this query anchor applied so execution stays scoped.",
-          meta: ["Action: opens Do with query anchor", "Best for: bounded execution slices"],
+          description: "Open the Do surface with this query applied so execution stays scoped.",
+          meta: ["Action: opens Do with query filter", "Best for: bounded execution slices"],
         },
         recentAction: { kind: "open-location", location: createLocation({ state: "do", query }) },
         execute: () => bindings.openLocation(createLocation({ state: "do", query })),
@@ -1935,14 +1935,14 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         id: `query-review:${query}`,
         group: "navigate",
         title: `Open Review filtered by · “${query}”`,
-        subtitle: "Use this query as a hygiene/review anchor",
+        subtitle: "Use this query as the starting filter for Review",
         keywords: ["query", "filter", "review", query],
         badge: "Search",
         location: createLocation({ state: "review", reviewFocus: "cohorts", query }),
         detail: {
           eyebrow: "Search",
-          description: "Open the Review surface with this query anchor applied so the hygiene pass starts from the right slice.",
-          meta: ["Action: opens Review with query anchor", "Best for: targeted cleanup"],
+          description: "Open the Review surface with this query applied so the hygiene pass starts from the right slice.",
+          meta: ["Action: opens Review with query filter", "Best for: targeted cleanup"],
         },
         recentAction: {
           kind: "open-location",

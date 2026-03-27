@@ -1120,7 +1120,7 @@ def test_ui_contains_operator_workspace_and_state_navigation(
     assert "Current surface" in html
     assert "Decision queues with action cards" in html
     assert "Recall suggestions and context handoffs" in html
-    assert "Durable focus sets and resume anchors" in html
+    assert "Durable focus sets and saved items" in html
     assert 'id="review-redesign-shell"' in html
     assert 'id="review-shell-title"' in html
     assert 'id="review-shell-description"' in html

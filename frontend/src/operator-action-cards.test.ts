@@ -170,10 +170,10 @@ describe("renderActionCardDeck", () => {
           assumptions: ["Execution still remains explicit once the destination surface opens."],
           confidenceLabel: "Follow-through ready",
           freshnessLabel: null,
-          rollbackLabel: "Stage and defer only save durable resume anchors.",
+          rollbackLabel: "Stage and defer only save durable follow-through items.",
         },
         handoff: {
-          changeSummary: "This answer can become a durable follow-through anchor.",
+          changeSummary: "This answer can become a durable follow-through item.",
           createdResources: [],
           nextStep: "Stage it now, refine the query, or defer it for later.",
           breadcrumbs: ["Home", "Recall", "Answer result"],

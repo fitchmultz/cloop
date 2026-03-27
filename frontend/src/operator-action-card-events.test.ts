@@ -6,9 +6,9 @@
  *   stage, edit, and defer flows outside review-local handlers.
  *
  * Responsibilities:
- *   - Assert stage pins a durable anchor and optionally opens the destination.
+ *   - Assert stage saves a durable working-set item and optionally opens the destination.
  *   - Assert edit replays the encoded query through shell navigation.
- *   - Assert defer only saves the anchor without forcing navigation.
+ *   - Assert defer only saves the item without forcing navigation.
  *   - Assert recovery actions acknowledge drift and launch the surviving path.
  *
  * Scope:
@@ -27,7 +27,7 @@ import { describe, expect, it, vi } from "vitest";
 import { handleOperatorActionCardClick } from "./operator-action-card-events";
 
 describe("handleOperatorActionCardClick", () => {
-  it("stages a durable anchor and opens the destination when requested", async () => {
+  it("stages a durable working-set item and opens the destination when requested", async () => {
     document.body.innerHTML = `
       <button
         id="stage"
@@ -138,7 +138,7 @@ describe("handleOperatorActionCardClick", () => {
     }));
   });
 
-  it("defers a durable anchor without opening the destination", async () => {
+  it("defers a durable working-set item without opening the destination", async () => {
     document.body.innerHTML = `
       <button
         id="defer"

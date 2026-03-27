@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: verify working-set shell copy still matches the post-anchor contract.
+Execution focus: no active cleanup slice; continue from new requirements.
 
 ## Direction
 
@@ -23,16 +23,6 @@ Current product goals:
 - Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
 - Continuity intelligence: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - Undo actions: [`docs/ux/undo-actions.md`](ux/undo-actions.md)
-
-## Execution order
-
-### Next — Verify working-set shell copy after runtime cleanup
-
-Clean up wording that still implies obsolete anchor behavior.
-
-1. Recheck operator/home and working-set copy for “anchors” wording that should now be “locations”, “sessions”, or “items”.
-2. Trim stale tests or helper copy that only survived the continuity cutover.
-3. Keep the wording aligned with the actual working-set contract before further UX slices.
 
 ## Delivery model
 

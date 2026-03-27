@@ -104,7 +104,7 @@ export function createShellWorkingSetController(
       eyebrow: "Working set",
       title: defaults.name ? "Update working set" : "Create a working set",
       description:
-        "Save a bounded cross-surface context so you can resume the exact loops, sessions, and anchors that matter later.",
+        "Save a bounded cross-surface context so you can resume the exact loops, sessions, and saved items that matter later.",
       confirmLabel: defaults.name ? "Save changes" : "Create set",
       fields: [
         {
@@ -412,7 +412,7 @@ export function createShellWorkingSetController(
         <div class="working-set-card-header">
           <div>
             <p class="support-eyebrow">Ordered context</p>
-            <h3>All anchors</h3>
+            <h3>All saved items</h3>
             <p>Launch any member without losing the rest of the working set.</p>
           </div>
         </div>
@@ -420,7 +420,7 @@ export function createShellWorkingSetController(
           ${
             (workingSet.items ?? []).length
               ? (workingSet.items ?? []).map((item) => renderWorkingSetItemCard(workingSet.id, item)).join("")
-              : '<p class="operator-empty">This working set is empty. Pin loops, sessions, views, or anchors to make it resumable.</p>'
+              : '<p class="operator-empty">This working set is empty. Pin loops, sessions, views, or locations to make it resumable.</p>'
           }
         </div>
       </section>
@@ -445,7 +445,7 @@ export function createShellWorkingSetController(
       <div>
         <p class="support-eyebrow">${focusEnabled ? "Focus mode" : "Active working set"}</p>
         <h2>${escapeHtml(activeSet.name)}</h2>
-        <p>${escapeHtml(activeSet.description ?? "A saved bounded slice of loops, sessions, and anchors.")}</p>
+        <p>${escapeHtml(activeSet.description ?? "A saved bounded slice of loops, sessions, and saved items.")}</p>
       </div>
       <div class="working-set-focus-meta">
         <span class="operator-chip">${activeSet.item_count} item${activeSet.item_count === 1 ? "" : "s"}</span>
@@ -456,7 +456,7 @@ export function createShellWorkingSetController(
     const activeItems = activeSet.items ?? [];
     elements.workingSetFocusItems.innerHTML = activeItems.length
       ? activeItems.slice(0, 4).map((item) => renderWorkingSetItemCard(activeSet.id, item)).join("")
-      : '<p class="operator-empty">This working set is empty. Pin a loop, session, or anchor to make focus mode useful.</p>';
+      : '<p class="operator-empty">This working set is empty. Pin a loop, session, or location to make focus mode useful.</p>';
   }
 
   function syncFocusModeClass(): void {
@@ -472,7 +472,7 @@ export function createShellWorkingSetController(
 
     if (!latestWorkingSets.length) {
       elements.operatorWorkingSet.innerHTML = `
-        <p class="operator-empty">Save a bounded slice of loops, sessions, and anchors so you can resume the exact operational context later.</p>
+        <p class="operator-empty">Save a bounded slice of loops, sessions, and saved items so you can resume the exact operational context later.</p>
         <div class="operator-inline-actions">
           <button type="button" id="operator-working-set-empty-create" data-working-set-create>Build your first working set</button>
         </div>
@@ -502,7 +502,7 @@ export function createShellWorkingSetController(
             <div class="working-set-item-grid">
               ${setItems.length
                 ? setItems.slice(0, 3).map((item) => renderWorkingSetItemCard(set.id, item)).join("")
-                : '<p class="operator-empty">This set is empty. Add a loop, session, or anchor from the operator workspace.</p>'}
+                : '<p class="operator-empty">This set is empty. Add a loop, session, or location from the operator workspace.</p>'}
             </div>
             <div class="operator-card-actions">
               <button type="button" ${openLocationAttributes(workingSetSessionLocation(set.id))}>${isActive ? "Resume set" : "Open session"}</button>
@@ -621,7 +621,7 @@ export function createShellWorkingSetController(
       location: workingSetSessionLocation(hydrated.id),
       workingSet: hydrated,
       rollbackLabel: "Delete the working set if you do not want to keep this bounded context.",
-      nextStep: "Add loops or anchors, then reopen the session from the landed outcome.",
+      nextStep: "Add loops or locations, then reopen the session from the landed outcome.",
       preview: [
         { label: "Working set", value: hydrated.name },
         { label: "Description", value: hydrated.description ?? "No description" },
@@ -714,8 +714,8 @@ export function createShellWorkingSetController(
       historyDescription: existing?.description ?? "Removed a saved bounded context.",
       title: existing ? `Deleted working set · ${existing.name}` : "Deleted working set",
       summary: existing
-        ? `${existing.name} and its saved anchors were removed.`
-        : `Working set #${workingSetId} and its saved anchors were removed.`,
+        ? `${existing.name} and its saved items were removed.`
+        : `Working set #${workingSetId} and its saved items were removed.`, 
       tone: "caution",
       location: createLocation({ state: "operator" }),
       workingSet: null,
@@ -731,7 +731,7 @@ export function createShellWorkingSetController(
         undefined,
         buildWorkingSetUndoAction(deleted, {
           description: existing != null
-            ? `Restore ${existing.name} and its saved anchors.`
+            ? `Restore ${existing.name} and its saved items.`
             : `Restore deleted working set #${workingSetId}.`,
           workingSetId: deleted.deleted_working_set_id,
           workingSetName: deleted.deleted_working_set_name ?? existing?.name ?? null,
@@ -755,30 +755,30 @@ export function createShellWorkingSetController(
     const refreshed = latestWorkingSets.find((set) => set.id === workingSetId) ?? workingSet;
     recordWorkingSetReceipt({
       kind: "working_set",
-      historyLabel: refreshed ? `Reordered anchors · ${refreshed.name}` : `Reordered working set #${workingSetId}`,
-      historyDescription: "Updated the saved anchor ordering.",
-      title: refreshed ? `Reordered anchors · ${refreshed.name}` : "Reordered working-set anchors",
+      historyLabel: refreshed ? `Reordered items · ${refreshed.name}` : `Reordered working set #${workingSetId}`,
+      historyDescription: "Updated the saved item order.",
+      title: refreshed ? `Reordered items · ${refreshed.name}` : "Reordered working-set items",
       summary: refreshed
         ? `${refreshed.name} now reflects the new priority order.`
-        : "The saved anchor order was updated.",
+        : "The saved item order was updated.",
       tone: "progress",
       location: refreshed ? workingSetSessionLocation(refreshed.id) : createLocation({ state: "operator" }),
       workingSet: refreshed,
-      rollbackLabel: "Reorder the saved anchors again if you want a different sequence.",
+      rollbackLabel: "Reorder the saved items again if you want a different sequence.",
       nextStep: "Open the working set to continue from the new top-of-stack order.",
       preview: refreshed
         ? [
             { label: "Working set", value: refreshed.name },
-            { label: "Anchors", value: `${orderedItemIds.length}` },
+            { label: "Items", value: `${orderedItemIds.length}` },
           ]
-        : [{ label: "Anchors", value: `${orderedItemIds.length}` }],
+        : [{ label: "Items", value: `${orderedItemIds.length}` }],
       actions: appendUndoAction(
         undefined,
         workingSetUndoAction(
           refreshed,
           refreshed != null
-            ? `Restore the previous anchor order for ${refreshed.name}.`
-            : "Restore the previous working-set anchor order.",
+            ? `Restore the previous item order for ${refreshed.name}.`
+            : "Restore the previous working-set item order.",
         ),
       ),
     });
@@ -796,19 +796,19 @@ export function createShellWorkingSetController(
     const refreshed = latestWorkingSets.find((set) => set.id === workingSetId) ?? workingSet;
     recordWorkingSetReceipt({
       kind: "working_set",
-      historyLabel: removedItem ? `Removed anchor · ${removedItem.label}` : `Removed working-set item #${itemId}`,
-      historyDescription: removedItem?.description ?? "Removed a saved anchor from the working set.",
-      title: removedItem ? `Removed anchor · ${removedItem.label}` : "Removed working-set anchor",
+      historyLabel: removedItem ? `Removed item · ${removedItem.label}` : `Removed working-set item #${itemId}`,
+      historyDescription: removedItem?.description ?? "Removed a saved item from the working set.",
+      title: removedItem ? `Removed item · ${removedItem.label}` : "Removed working-set item",
       summary: removedItem
         ? `${removedItem.label} is no longer pinned in this working set.`
-        : `Removed anchor #${itemId} from the working set.`,
+        : `Removed item #${itemId} from the working set.`,
       tone: "caution",
       location: refreshed ? workingSetSessionLocation(refreshed.id) : createLocation({ state: "operator" }),
       workingSet: refreshed,
-      rollbackLabel: "Pin the same location or loop again if you want to restore this anchor.",
-      nextStep: "Resume the working set to continue with the remaining anchors.",
+      rollbackLabel: "Pin the same location or loop again if you want to restore this item.",
+      nextStep: "Resume the working set to continue with the remaining items.",
       preview: [
-        ...(removedItem ? [{ label: "Removed anchor", value: removedItem.label }] : []),
+        ...(removedItem ? [{ label: "Removed item", value: removedItem.label }] : []),
         ...(refreshed ? [{ label: "Working set", value: refreshed.name }] : []),
       ],
       actions: appendUndoAction(
@@ -817,7 +817,7 @@ export function createShellWorkingSetController(
           refreshed,
           removedItem != null
             ? `Restore ${removedItem.label} to this working set.`
-            : "Restore the removed working-set anchor.",
+            : "Restore the removed working-set item.",
         ),
       ),
     });
@@ -930,24 +930,24 @@ export function createShellWorkingSetController(
     recordWorkingSetReceipt({
       kind: "working_set",
       historyLabel: `${pastTense} ${label}`,
-      historyDescription: description ?? "Added a resume anchor to the active working set.",
+      historyDescription: description ?? "Added a saved location to the active working set.",
       title: `${pastTense} in working set${activeSet ? ` · ${activeSet.name}` : ""}`,
       summary: variant === "stage"
         ? `${label} is now staged as a resumable handoff.`
         : variant === "defer"
           ? `${label} is now saved for later without losing the landing context.`
-          : `${label} is now saved as a resumable anchor.`,
+          : `${label} is now saved as a resumable location.`,
       tone: "progress",
       location: pinnedLocation,
       workingSet: activeSet,
       rollbackLabel: variant === "pin"
-        ? "Remove this item from the working set to undo the saved anchor."
+        ? "Remove this item from the working set to undo the saved location."
         : "Remove this item from the working set to cancel the staged handoff.",
       nextStep: activeSet != null
         ? "Open the working set to continue from the landed outcome."
         : "Resume from the landed outcome or reopen the active working set.",
       preview: [
-        { label: "Anchor", value: label },
+        { label: "Saved item", value: label },
         { label: "Surface", value: pinnedLocation.state.replaceAll("_", " ") },
         ...(activeSet ? [{ label: "Working set", value: activeSet.name }] : []),
       ],
@@ -1022,11 +1022,11 @@ export function createShellWorkingSetController(
       historyLabel: `Added ${addedLabels.length} loop${addedLabels.length === 1 ? "" : "s"} to working set`,
       historyDescription: `Saved ${addedLabels.join(", ")} for later resume.`,
       title: activeSet ? `Expanded working set · ${activeSet.name}` : "Expanded working set",
-      summary: `${addedLabels.length} loop${addedLabels.length === 1 ? "" : "s"} were added as resumable anchors.`,
+      summary: `${addedLabels.length} loop${addedLabels.length === 1 ? "" : "s"} were added to the working set.`,
       tone: "progress",
       location: activeSet ? workingSetSessionLocation(activeSet.id) : createLocation({ state: "operator" }),
       workingSet: activeSet,
-      rollbackLabel: "Remove the added loop anchors if you do not want to keep them in this working set.",
+      rollbackLabel: "Remove the added loops if you do not want to keep them in this working set.",
       nextStep: "Open the working set to continue from the expanded bounded context.",
       preview: [
         ...(activeSet ? [{ label: "Working set", value: activeSet.name }] : []),
@@ -1037,7 +1037,7 @@ export function createShellWorkingSetController(
         undefined,
         workingSetUndoAction(
           activeSet,
-          `Remove the ${addedLabels.length} loop anchor${addedLabels.length === 1 ? "" : "s"} added in this step.`,
+          `Remove the ${addedLabels.length} loop item${addedLabels.length === 1 ? "" : "s"} added in this step.`,
         ),
       ),
     });
