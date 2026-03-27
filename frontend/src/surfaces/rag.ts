@@ -21,11 +21,13 @@
  *   - Streaming responses use the shared SSE-like event stream parser.
  */
 
+import { recordRecentShellAction } from "../continuity-intelligence";
 import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
 import type { AskResponse } from "../domain";
 import { mapApiRerunAction } from "../executable-rerun";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
+import { buildRecallIngestReceiptEntry } from "./recall-receipts";
 import * as api from "./api";
 import type { RagChunk, RagSource, SurfaceChatEventPayload } from "./contracts";
 import { consumeJsonEventStream } from "./stream";
@@ -262,6 +264,14 @@ export async function submitIngestPath(): Promise<void> {
     const summary = failedCount > 0
       ? `Indexed ${result.files} files into ${result.chunks} chunks with ${failedCount} failures.`
       : `Indexed ${result.files} files into ${result.chunks} chunks.`;
+    recordRecentShellAction(buildRecallIngestReceiptEntry({
+      path,
+      mode: ragIngestMode.value,
+      recursive: ragIngestRecursive.checked,
+      result,
+      workingSetId: currentWorkingSetId(),
+      query: ragInput?.value.trim() || null,
+    }));
     setIngestStatus(summary);
     ragAnswer.classList.remove("hidden", "rag-answer-error");
     ragAnswerText.textContent = "Knowledge indexed. Ask a question when you're ready.";

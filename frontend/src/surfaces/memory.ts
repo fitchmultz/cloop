@@ -20,9 +20,11 @@
  *   - Cursor pagination is opaque and stored as a string token.
  */
 
+import { recordRecentShellAction } from "../continuity-intelligence";
 import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards } from "./recall-action-cards";
+import { buildRecallMemoryReceiptEntry } from "./recall-receipts";
 import * as api from "./api";
 import * as modals from "./modals";
 import type { SurfaceMemoryEntry, SurfaceMemoryListResponse, SurfaceMemoryQueryOptions } from "./contracts";
@@ -334,6 +336,12 @@ async function handleCreateMemory(event: SubmitEvent): Promise<void> {
   setMemoryStatus("Creating memory entry…");
   try {
     const created = await api.createMemoryEntry(payload);
+    recordRecentShellAction(buildRecallMemoryReceiptEntry({
+      action: "created",
+      entry: created,
+      workingSetId: currentWorkingSetId(),
+      query: currentQuery() || null,
+    }));
     resetCreateForm();
     setMemoryStatus(`Created memory ${created.id}.`);
     await loadMemories();
@@ -444,6 +452,12 @@ async function editMemoryEntry(entryId: number): Promise<void> {
   setMemoryStatus(`Saving memory ${entryId}…`);
   try {
     const updated = await api.updateMemoryEntry(entryId, payload);
+    recordRecentShellAction(buildRecallMemoryReceiptEntry({
+      action: "updated",
+      entry: updated,
+      workingSetId: currentWorkingSetId(),
+      query: currentQuery() || null,
+    }));
     entriesById.set(updated.id, updated);
     setMemoryStatus(`Updated memory ${entryId}.`);
     await loadMemories();
@@ -453,6 +467,7 @@ async function editMemoryEntry(entryId: number): Promise<void> {
 }
 
 async function deleteMemoryEntryById(entryId: number): Promise<void> {
+  const entry = entriesById.get(entryId) ?? await api.fetchMemoryEntry(entryId);
   const confirmed = await modals.confirmDialog({
     eyebrow: "Memory",
     title: `Delete memory ${entryId}?`,
@@ -467,6 +482,12 @@ async function deleteMemoryEntryById(entryId: number): Promise<void> {
   setMemoryStatus(`Deleting memory ${entryId}…`);
   try {
     await api.deleteMemoryEntry(entryId);
+    recordRecentShellAction(buildRecallMemoryReceiptEntry({
+      action: "deleted",
+      entry,
+      workingSetId: currentWorkingSetId(),
+      query: currentQuery() || null,
+    }));
     entriesById.delete(entryId);
     setMemoryStatus(`Deleted memory ${entryId}.`);
     await loadMemories();

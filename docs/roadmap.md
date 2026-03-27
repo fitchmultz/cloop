@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: finish the remaining landed-outcome emitters before shell/runtime cleanup.
+Execution focus: resolve the orphaned resume-anchor path before shell/runtime cleanup.
 
 ## Direction
 
@@ -26,13 +26,13 @@ Current product goals:
 
 ## Execution order
 
-### Next — Finish remaining landed-outcome emitters
+### Next — Resolve the orphaned resume-anchor path
 
-Fill the real continuity gaps now that low-signal writes are gone.
+Either make resume anchors explicit or delete the unused path.
 
-1. Add outcome writes for recall-side follow-through and any remaining mutation paths that still only launch or pin state.
-2. Ensure every continuity-worthy emitter supplies a durable resume target plus working-set context when present.
-3. Add an explicit saved-anchor path only if planning/review still need durable resume without a landed outcome.
+1. Confirm whether planning/review still need durable resume without a landed outcome.
+2. If yes, add one explicit saved-anchor flow and keep it separate from passive navigation.
+3. If no, remove unused anchor-writing assumptions and trim dead continuity plumbing.
 
 ### Then — Frontend shell/runtime boundary cleanup
 
