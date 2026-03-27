@@ -2,12 +2,13 @@
  * shell-workspace.ts - Operator workspace data loading and refresh orchestration.
  *
  * Purpose:
- *   Centralize the shell's workspace fetch and render pipeline so operator-zone
- *   refreshes stay separate from routing and event wiring concerns.
+ *   Centralize the shell's workspace fetch and continuity-hydration pipeline so
+ *   operator-zone refreshes stay separate from routing and event wiring concerns.
  *
  * Responsibilities:
  *   - Load operator workspace API data and primary session snapshots.
- *   - Manage the shell's latest workspace cache and loading guard.
+ *   - Coordinate durable continuity hydration with workspace refreshes.
+ *   - Manage the shell's latest workspace cache and queued refresh loop.
  *   - Render operator zones together with working-set state refresh.
  *   - Persist continuity baselines after a successful workspace render.
  *
@@ -26,12 +27,12 @@
 import { requestJson } from "./http";
 import {
   buildContinuityBaseline,
+  hydrateDurableContinuityState,
   readContinuityBaseline,
+  readContinuityWorkflowSummaries,
   writeContinuityBaseline,
 } from "./continuity-intelligence";
-import type {
-  ContinuityBaselineSnapshot,
-} from "./contracts-ui";
+import type { ContinuityBaselineSnapshot } from "./contracts-ui";
 import type {
   EnrichmentReviewSessionResponse,
   EnrichmentReviewSessionSnapshotResponse,
@@ -66,13 +67,20 @@ interface CreateShellWorkspaceControllerOptions {
   renderWorkingSetFocusBanner: () => void;
   syncFocusModeClass: () => void;
   renderWorkingSetSessionSurface: () => void;
+  onWorkspaceSettled: () => void;
 }
+
+const WORKSPACE_RECOVERABLE_ERROR_HTML =
+  '<p class="operator-empty">Operator home could not finish refreshing. Use Refresh workspace to try again.</p>';
+const CONTINUITY_RECOVERABLE_ERROR_HTML =
+  '<p class="operator-empty">Continuity could not refresh right now. Current resume history may be stale. Use Refresh workspace to try again.</p>';
 
 export function createShellWorkspaceController(
   options: CreateShellWorkspaceControllerOptions,
 ): ShellWorkspaceController {
   let latestWorkspaceData: WorkspaceData | null = null;
-  let workspaceLoading = false;
+  let refreshPromise: Promise<void> | null = null;
+  let refreshQueued = false;
 
   async function safeRequest<T>(factory: () => Promise<T>, fallback: T): Promise<T> {
     try {
@@ -239,32 +247,111 @@ export function createShellWorkspaceController(
     options.setVisitStatePersisted(true);
   }
 
-  async function renderOperatorWorkspace(): Promise<void> {
+  function setWorkspaceBusy(isBusy: boolean): void {
     const elements = options.getElements();
-    if (!elements || workspaceLoading) {
+    if (!elements) {
       return;
     }
-    workspaceLoading = true;
-    elements.operatorNow.innerHTML = '<p class="operator-empty">Loading prioritized work…</p>';
-    elements.operatorDecisions.innerHTML = '<p class="operator-empty">Loading decision surfaces…</p>';
-    elements.operatorPlan.innerHTML = '<p class="operator-empty">Loading planning sessions…</p>';
-    elements.operatorRecall.innerHTML = '<p class="operator-empty">Preparing recall suggestions…</p>';
-    elements.operatorSinceLast.innerHTML = '<p class="operator-empty">Comparing recent activity…</p>';
+    elements.operatorMain.setAttribute("aria-busy", isBusy ? "true" : "false");
+  }
+
+  function renderOperatorRecoverableState(): void {
+    const elements = options.getElements();
+    if (!elements) {
+      return;
+    }
+    elements.operatorNow.innerHTML = WORKSPACE_RECOVERABLE_ERROR_HTML;
+    elements.operatorDecisions.innerHTML = WORKSPACE_RECOVERABLE_ERROR_HTML;
+    elements.operatorPlan.innerHTML = WORKSPACE_RECOVERABLE_ERROR_HTML;
+    elements.operatorRecall.innerHTML = WORKSPACE_RECOVERABLE_ERROR_HTML;
+    elements.operatorSinceLast.innerHTML = WORKSPACE_RECOVERABLE_ERROR_HTML;
+  }
+
+  function renderContinuityRecoverableState(): void {
+    const elements = options.getElements();
+    if (!elements) {
+      return;
+    }
+    elements.operatorSinceLast.innerHTML = CONTINUITY_RECOVERABLE_ERROR_HTML;
+  }
+
+  function renderWithLatestWorkspace(): void {
+    if (!latestWorkspaceData) {
+      return;
+    }
+    options.renderOperatorZones(latestWorkspaceData);
+    options.renderWorkingSet(latestWorkspaceData);
+    options.renderWorkingSetFocusBanner();
+    options.syncFocusModeClass();
+    if (options.getCurrentLocation().state === "working_set") {
+      options.renderWorkingSetSessionSurface();
+    }
+    persistVisitStateOnce();
+  }
+
+  async function refreshOperatorWorkspaceOnce(): Promise<void> {
+    const elements = options.getElements();
+    if (!elements) {
+      return;
+    }
+
+    const hadSettledWorkspace = latestWorkspaceData != null;
+    setWorkspaceBusy(true);
 
     try {
-      const [workspaceData] = await Promise.all([loadWorkspaceData(), options.loadWorkingSetState()]);
-      latestWorkspaceData = workspaceData;
-      options.renderOperatorZones(latestWorkspaceData);
-      options.renderWorkingSet(latestWorkspaceData);
-      options.renderWorkingSetFocusBanner();
-      options.syncFocusModeClass();
-      if (options.getCurrentLocation().state === "working_set") {
-        options.renderWorkingSetSessionSurface();
+      const [workspaceResult, continuityResult] = await Promise.allSettled([
+        loadWorkspaceData(),
+        hydrateDurableContinuityState(),
+        options.loadWorkingSetState(),
+      ]);
+
+      if (workspaceResult.status !== "fulfilled") {
+        if (!hadSettledWorkspace) {
+          latestWorkspaceData = null;
+          renderOperatorRecoverableState();
+          options.renderWorkingSet(null);
+          options.renderWorkingSetFocusBanner();
+          options.syncFocusModeClass();
+          if (options.getCurrentLocation().state === "working_set") {
+            options.renderWorkingSetSessionSurface();
+          }
+        }
+        return;
       }
-      persistVisitStateOnce();
+
+      latestWorkspaceData = workspaceResult.value;
+      renderWithLatestWorkspace();
+
+      if (continuityResult.status === "rejected" && readContinuityWorkflowSummaries().length === 0) {
+        renderContinuityRecoverableState();
+      }
+    } catch {
+      if (!hadSettledWorkspace) {
+        latestWorkspaceData = null;
+        renderOperatorRecoverableState();
+      }
     } finally {
-      workspaceLoading = false;
+      setWorkspaceBusy(false);
+      options.onWorkspaceSettled();
     }
+  }
+
+  async function renderOperatorWorkspace(): Promise<void> {
+    if (refreshPromise) {
+      refreshQueued = true;
+      return refreshPromise;
+    }
+
+    refreshPromise = (async () => {
+      do {
+        refreshQueued = false;
+        await refreshOperatorWorkspaceOnce();
+      } while (refreshQueued);
+    })().finally(() => {
+      refreshPromise = null;
+    });
+
+    return refreshPromise;
   }
 
   return {

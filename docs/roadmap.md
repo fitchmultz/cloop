@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: delete browser compatibility layers that only exist for duplicated continuity payloads.
+Execution focus: finish durable reopen paths for planning and review handoffs before shell/runtime cleanup.
 
 ## Direction
 
@@ -26,7 +26,21 @@ Current product goals:
 
 ## Execution order
 
-_No active roadmap slice queued. Add the next end-to-end slice here before implementation._
+### Next — Durable reopen paths for planning and review handoffs
+
+Finish the cutover from browser-history guesses to durable reopen contracts.
+
+1. Reopen saved planning and review queues correctly after cold load, refresh, or cross-surface launch.
+2. Reuse continuity anchors and ranked summaries instead of transport-local fallback logic.
+3. Keep shell, command palette, and review workspace launch behavior identical for the same durable target.
+
+### Then — Frontend shell/runtime boundary cleanup
+
+Reduce frontend churn by cleaning up runtime boundaries after hydration and reopen behavior are stable.
+
+1. Remove ineffective dynamic imports and dead split points in the shell/surface runtime.
+2. Shrink the operator bundle by lazy-loading surface code only when a surface is activated.
+3. Keep the shell bootstrap thin and avoid reintroducing secondary entrypoints.
 
 ## Delivery model
 

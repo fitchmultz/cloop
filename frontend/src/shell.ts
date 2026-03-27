@@ -26,7 +26,6 @@
 
 import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
 import {
-  hydrateDurableContinuityState,
   markContinuityNotificationSeen,
   markRerunActionUnavailable,
   markUndoActionUnavailable,
@@ -692,6 +691,9 @@ function ensureControllers(): void {
     renderWorkingSetFocusBanner: () => workingSetController!.renderWorkingSetFocusBanner(),
     syncFocusModeClass: () => workingSetController!.syncFocusModeClass(),
     renderWorkingSetSessionSurface: () => workingSetController!.renderWorkingSetSessionSurface(),
+    onWorkspaceSettled: () => {
+      renderShellReceiptRail();
+    },
   });
 }
 
@@ -764,10 +766,6 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
       try {
         const result = await runExecutableUndoAction(action);
         recordRecentShellAction(result.entry);
-        renderShellReceiptRail();
-        if (currentLocation.state === "operator") {
-          await workspaceController?.renderOperatorWorkspace();
-        }
       } catch (error: unknown) {
         const reason = staleUndoReason(error) ?? "Undo is no longer available.";
         button.disabled = true;
@@ -782,10 +780,6 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
           rerunRecallQuery,
         });
         recordRecentShellAction(result.entry);
-        renderShellReceiptRail();
-        if (currentLocation.state === "operator") {
-          await workspaceController?.renderOperatorWorkspace();
-        }
         if (result.resumeLocation && action.rerun.kind !== "recall_query") {
           await applyLocation(result.resumeLocation, { recordHistory: false });
         }
@@ -809,14 +803,6 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
 
   const initializeShell = (): void => {
     eventController.initializeShell();
-    void hydrateDurableContinuityState().then(async () => {
-      renderShellReceiptRail();
-      if (currentLocation.state === "operator") {
-        await workspaceController?.renderOperatorWorkspace();
-      }
-    }).catch(() => {
-      // Durable continuity is additive; keep the shell usable if hydration fails.
-    });
   };
 
   if (document.readyState === "loading") {

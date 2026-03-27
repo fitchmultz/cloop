@@ -238,6 +238,7 @@
 .operator-grid {
   display: grid;
   gap: var(--space-4);
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -274,6 +275,8 @@
 .operator-inline-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
+  align-self: start;
   gap: var(--space-2);
 }
 
