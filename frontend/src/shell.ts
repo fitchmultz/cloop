@@ -35,7 +35,6 @@ import {
   recordRecentShellAction,
 } from "./continuity-intelligence";
 import { readRankedWorkflowSummaries } from "./continuity-follow-through";
-import { isLowSignalNavigationEntry } from "./continuity-outcomes";
 import { contractFromLocation } from "./surface-runtime";
 import { updateChatPreferences } from "./surfaces/state";
 import {
@@ -499,7 +498,7 @@ function markCurrentNotificationSeen(location: ShellLocation): void {
 
 async function applyLocation(
   input: Partial<ShellLocation>,
-  options: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean } = {},
+  options: { syncHash?: boolean; refreshWorkspace?: boolean } = {},
 ): Promise<void> {
   currentLocation = normalizeLocation(input);
   markCurrentNotificationSeen(currentLocation);
@@ -523,14 +522,6 @@ async function applyLocation(
   syncVisiblePanels(currentLocation);
   await activateOwnedSurface(currentLocation);
   persistLocation(currentLocation);
-
-  if (options.recordHistory ?? true) {
-    operatorCards?.rememberLocationAnchor(currentLocation);
-    const action = operatorCards?.buildLocationAction(currentLocation);
-    if (action && !isLowSignalNavigationEntry(action)) {
-      recordRecentShellAction(action);
-    }
-  }
 
   if (options.syncHash ?? true) {
     suppressHashChange = true;
@@ -643,7 +634,6 @@ async function rerunRecallQuery(handle: import("./contracts-ui").RecallQueryReru
       workingSetId: handle.workingSetId,
       query: handle.query,
     }),
-    { recordHistory: false },
   );
 }
 
@@ -781,7 +771,7 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
         });
         recordRecentShellAction(result.entry);
         if (result.resumeLocation && action.rerun.kind !== "recall_query") {
-          await applyLocation(result.resumeLocation, { recordHistory: false });
+          await applyLocation(result.resumeLocation);
         }
       } catch (error: unknown) {
         const reason = staleRerunReason(error) ?? "Rerun is no longer available.";

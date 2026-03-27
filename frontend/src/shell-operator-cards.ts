@@ -9,7 +9,6 @@
  *   - Build operator action cards for now, decide, plan, recall, and since-last.
  *   - Attach continuity and working-set metadata to rendered card decks.
  *   - Render the operator workspace zones into the shared shell DOM.
- *   - Produce shell history/location summaries used during navigation.
  *
  * Scope:
  *   - Operator card assembly and operator-zone rendering only.
@@ -50,7 +49,6 @@ import type {
   OperatorActionCard,
   OperatorActionCardAction,
   OperatorActionCardUndoAction,
-  RecentShellActionEntry,
   ReviewFocus,
   WorkingSetSessionMetadata,
 } from "./contracts-ui";
@@ -63,8 +61,6 @@ import {
   readContinuityLastSeenMarkers,
   readRecentShellActions,
   rememberContinuityObservation,
-  rememberPlanningAnchor,
-  rememberReviewAnchor,
 } from "./continuity-intelligence";
 import { continuitySurfaceCard, readRankedWorkflowSummaries } from "./continuity-follow-through";
 import {
@@ -87,8 +83,6 @@ import { createLocation, locationsMatch } from "./shell-routing";
 import type { DecisionSessionSnapshot, PrioritizedCard, ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
 
 export interface ShellOperatorCardRenderer {
-  buildLocationAction(location: ShellLocation): Omit<RecentShellActionEntry, "occurredAt">;
-  rememberLocationAnchor(location: ShellLocation): void;
   renderNowZone(data: WorkspaceData): void;
   renderDecisionsZone(data: WorkspaceData): void;
   renderPlanZone(data: WorkspaceData): void;
@@ -288,82 +282,6 @@ export function createShellOperatorCardRenderer(
 
   function isUndoAction(value: OperatorActionCardUndoAction | null): value is OperatorActionCardUndoAction {
     return value != null;
-  }
-
-  function buildLocationAction(location: ShellLocation): Omit<RecentShellActionEntry, "occurredAt"> {
-    if (location.state === "working_set" && location.workingSetId != null) {
-      const workingSet = latestWorkingSets.find((set) => set.id === location.workingSetId)
-        ?? (workingSetContext?.active_working_set_id === location.workingSetId ? workingSetContext.active_working_set : null)
-        ?? null;
-      return {
-        kind: "working_set_session",
-        label: `Opened working set · ${workingSet?.name ?? `#${location.workingSetId}`}`,
-        description: "Opened the dedicated working-set session surface.",
-        location,
-      };
-    }
-    if (location.state === "plan" && location.sessionId != null) {
-      return {
-        kind: "planning",
-        label: `Resumed plan #${location.sessionId}`,
-        description: "Opened a saved planning session from the shell.",
-        location,
-      };
-    }
-    if (location.state === "decide" && location.sessionId != null) {
-      return {
-        kind: "review",
-        label: `Opened ${location.reviewFocus ?? "review"} queue #${location.sessionId}`,
-        description: "Opened a saved review session from the shell.",
-        location,
-      };
-    }
-    if (location.state === "recall") {
-      return {
-        kind: "recall",
-        label: `Opened recall · ${location.recallTool}`,
-        description: "Moved into a recall surface.",
-        location,
-      };
-    }
-    return {
-      kind: "navigation",
-      label: `Opened ${location.state}`,
-      description: "Navigated within the operator shell.",
-      location,
-    };
-  }
-
-  function rememberLocationAnchor(location: ShellLocation): void {
-    const anchorLocation = createLocation(location);
-    const action = buildLocationAction(anchorLocation);
-
-    if (location.state === "plan" && location.sessionId != null) {
-      rememberPlanningAnchor({
-        sessionId: location.sessionId,
-        launchLocation: anchorLocation,
-        resumeLocation: anchorLocation,
-        outcomeTitle: action.label,
-        outcomeSummary: action.description,
-        workingSetId: location.workingSetId ?? null,
-      });
-      return;
-    }
-    if (
-      location.state === "decide"
-      && location.sessionId != null
-      && (location.reviewFocus === "relationship" || location.reviewFocus === "enrichment")
-    ) {
-      rememberReviewAnchor({
-        reviewFocus: location.reviewFocus,
-        sessionId: location.sessionId,
-        launchLocation: anchorLocation,
-        resumeLocation: anchorLocation,
-        outcomeTitle: action.label,
-        outcomeSummary: action.description,
-        workingSetId: location.workingSetId ?? null,
-      });
-    }
   }
 
   function summarizeFollowUpResources(resources: PlanningExecutionFollowUpResourceResponse[] | undefined): string[] {
@@ -2259,13 +2177,6 @@ export function createShellOperatorCardRenderer(
 
 
   return {
-    buildLocationAction(location): Omit<RecentShellActionEntry, "occurredAt"> {
-      syncContext();
-      return buildLocationAction(location);
-    },
-    rememberLocationAnchor(location): void {
-      rememberLocationAnchor(location);
-    },
     renderNowZone(data): void {
       syncContext();
       renderNowZone(data);

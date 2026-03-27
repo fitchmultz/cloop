@@ -344,70 +344,18 @@ function commandHistoryKind(command: CommandPaletteCommand): RecentShellActionKi
   if (action?.kind === "bulk-close" || action?.kind === "bulk-status" || action?.kind === "bulk-enrich") {
     return "bulk";
   }
-  if (action?.kind === "working-set-context") {
-    return action.workingSetId != null ? "working_set_session" : "working_set";
-  }
-  if (action?.kind === "pin-current-location" || action?.kind === "pin-selected-loops") {
-    return "working_set";
-  }
   if (action?.kind === "create-planning-session") {
     return "planning";
-  }
-  if (action?.kind === "ask-chat" || action?.kind === "memory-search" || action?.kind === "document-ask") {
-    return "recall";
-  }
-  if (action?.kind === "open-location") {
-    if (action.location.state === "plan") {
-      return "planning";
-    }
-    if (action.location.state === "decide") {
-      return "review";
-    }
-    if (action.location.state === "recall") {
-      return "recall";
-    }
-    if (action.location.state === "working_set") {
-      return "working_set_session";
-    }
-    return "navigation";
   }
   return "command";
 }
 
 function commandHistoryLocation(command: CommandPaletteCommand, currentLocation: ShellLocationContract): ShellLocationContract | null {
-  const action = command.recentAction;
-  if (command.location) {
-    return command.location;
-  }
-  if (action?.kind === "open-location") {
-    return action.location;
-  }
-  if (action?.kind === "working-set-context") {
-    return action.workingSetId != null
-      ? workingSetSessionLocation(action.workingSetId)
-      : createLocation({ state: "operator" });
-  }
-  if (action?.kind === "ask-chat") {
-    return createLocation({ state: "recall", recallTool: "chat" });
-  }
-  if (action?.kind === "memory-search") {
-    return createLocation({ state: "recall", recallTool: "memory", query: action.query });
-  }
-  if (action?.kind === "document-ask") {
-    return createLocation({ state: "recall", recallTool: "rag", query: action.query });
-  }
-  return currentLocation;
+  return command.location ?? currentLocation;
 }
 
 function commandHistoryLabel(command: CommandPaletteCommand, location: ShellLocationContract | null): string {
-  const action = command.recentAction;
-  const usesLocationLabel = action?.kind === "open-location"
-    || action?.kind === "ask-chat"
-    || action?.kind === "memory-search"
-    || action?.kind === "document-ask"
-    || action?.kind === "create-planning-session"
-    || action?.kind === "working-set-context";
-  if (!usesLocationLabel || !location) {
+  if (command.recentAction?.kind !== "create-planning-session" || !location) {
     return command.title;
   }
   if (location.state === "working_set" && location.workingSetId != null) {
@@ -657,6 +605,20 @@ function workingSetMetadataFromContext(context: CommandPaletteContext) {
     itemCount: active.item_count,
     missingItemCount: active.missing_item_count,
   };
+}
+
+function shouldRecordCommandReceipt(command: CommandPaletteCommand): boolean {
+  const action = command.recentAction;
+  if (!action) {
+    return false;
+  }
+  return action.kind === "capture-loop"
+    || action.kind === "create-memory"
+    || action.kind === "create-planning-session"
+    || action.kind === "bulk-close"
+    || action.kind === "bulk-status"
+    || action.kind === "bulk-snooze"
+    || action.kind === "bulk-enrich";
 }
 
 function buildCommandReceipt(
@@ -2677,7 +2639,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     try {
       await command.execute();
       storeRecentCommand(command);
-      if (!command.skipAutomaticReceipt) {
+      if (!command.skipAutomaticReceipt && shouldRecordCommandReceipt(command)) {
         const currentContext = bindings.getContext();
         const historyLocation = commandHistoryLocation(command, currentContext.currentLocation);
         const receiptCard = buildCommandReceipt(command, currentContext, historyLocation);

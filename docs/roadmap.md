@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: finish the outcome-first continuity cutover before shell/runtime cleanup.
+Execution focus: finish the remaining landed-outcome emitters before shell/runtime cleanup.
 
 ## Direction
 
@@ -26,13 +26,13 @@ Current product goals:
 
 ## Execution order
 
-### Next — Cross-surface landed outcomes and recents
+### Next — Finish remaining landed-outcome emitters
 
-Finish the outcome-first continuity contract outside the core operator-home readers.
+Fill the real continuity gaps now that low-signal writes are gone.
 
-1. Ensure planning, review, recall, working-set, and command-palette mutations emit landed outcomes with durable resume targets.
-2. Demote session-switch and navigation-only continuity writes so recent history reflects landed work instead of surface churn.
-3. Make palette recents, operator since-last cards, and receipt history read the same outcome-first continuity feed.
+1. Add outcome writes for recall-side follow-through and any remaining mutation paths that still only launch or pin state.
+2. Ensure every continuity-worthy emitter supplies a durable resume target plus working-set context when present.
+3. Add an explicit saved-anchor path only if planning/review still need durable resume without a landed outcome.
 
 ### Then — Frontend shell/runtime boundary cleanup
 

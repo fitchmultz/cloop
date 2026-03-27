@@ -73,11 +73,7 @@ import type {
 import { applyContinuityRecovery } from "./continuity-recovery";
 import { resolveDurableReopenLocation } from "./continuity-follow-through";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
-import {
-  recordRecentShellAction,
-  rememberPlanningAnchor,
-  rememberReviewAnchor,
-} from "./continuity-intelligence";
+import { recordRecentShellAction } from "./continuity-intelligence";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { renderTrustSurface } from "./trust-surface";
@@ -570,82 +566,6 @@ function parseHashToFocus(hash: string): ReviewFocusDetail | null {
     return { focus: "cohorts", sessionId: null };
   }
   return null;
-}
-
-function planningSessionLabel(sessionId: number): string {
-  return state.planningSnapshot?.session.id === sessionId
-    ? state.planningSnapshot.session.name
-    : (state.planningSessions.find((session) => session.id === sessionId)?.name ?? `Plan #${sessionId}`);
-}
-
-function reviewSessionLabel(
-  focus: Extract<ReviewFocus, "relationship" | "enrichment">,
-  sessionId: number,
-): string {
-  if (focus === "relationship") {
-    return state.relationshipSnapshot?.session.id === sessionId
-      ? state.relationshipSnapshot.session.name
-      : (state.relationshipSessions.find((session) => session.id === sessionId)?.name ?? `Relationship queue #${sessionId}`);
-  }
-  return state.enrichmentSnapshot?.session.id === sessionId
-    ? state.enrichmentSnapshot.session.name
-    : (state.enrichmentSessions.find((session) => session.id === sessionId)?.name ?? `Enrichment queue #${sessionId}`);
-}
-
-function noteActiveReviewSession(focus: ReviewFocus, sessionId: number | null): void {
-  if (sessionId == null) {
-    return;
-  }
-
-  const workingSetId = currentWorkingSetId();
-
-  if (focus === "planning") {
-    if (state.planningSessionId === sessionId) {
-      return;
-    }
-    const location = createLocation({
-      state: "plan",
-      reviewFocus: "planning",
-      sessionId,
-      workingSetId,
-    });
-    const sessionLabel = planningSessionLabel(sessionId);
-    rememberPlanningAnchor({
-      sessionId,
-      launchLocation: location,
-      resumeLocation: location,
-      outcomeTitle: `Resume plan · ${sessionLabel}`,
-      outcomeSummary: "Return to the last planning session you opened inside the review workspace.",
-      workingSetId,
-    });
-    return;
-  }
-
-  if (focus !== "relationship" && focus !== "enrichment") {
-    return;
-  }
-
-  const previousSessionId = focus === "relationship" ? state.relationshipSessionId : state.enrichmentSessionId;
-  if (previousSessionId === sessionId) {
-    return;
-  }
-
-  const location = createLocation({
-    state: "decide",
-    reviewFocus: focus,
-    sessionId,
-    workingSetId,
-  });
-  const sessionLabel = reviewSessionLabel(focus, sessionId);
-  rememberReviewAnchor({
-    reviewFocus: focus,
-    sessionId,
-    launchLocation: location,
-    resumeLocation: location,
-    outcomeTitle: `Resume ${focus} queue · ${sessionLabel}`,
-    outcomeSummary: "Return to the last saved review queue you opened inside the review workspace.",
-    workingSetId,
-  });
 }
 
 function setStatus(message: string, isError = false): void {
@@ -3651,13 +3571,11 @@ async function handleControlChange(event: Event): Promise<void> {
 
   if (target.id === "review-shell-planning-session-select") {
     const sessionId = parseOptionalInteger(target.value);
-    noteActiveReviewSession("planning", sessionId);
     window.location.hash = toReviewHash("planning", sessionId);
     return;
   }
   if (target.id === "review-shell-relationship-session-select") {
     const sessionId = parseOptionalInteger(target.value);
-    noteActiveReviewSession("relationship", sessionId);
     window.location.hash = toReviewHash("relationship", sessionId);
     return;
   }
@@ -3668,7 +3586,6 @@ async function handleControlChange(event: Event): Promise<void> {
   }
   if (target.id === "review-shell-enrichment-session-select") {
     const sessionId = parseOptionalInteger(target.value);
-    noteActiveReviewSession("enrichment", sessionId);
     window.location.hash = toReviewHash("enrichment", sessionId);
     return;
   }

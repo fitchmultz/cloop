@@ -58,7 +58,7 @@ interface CreateShellEventControllerOptions {
   updateLastVisitStatus: () => void;
   applyLocation: (
     input: Partial<ShellLocation>,
-    options?: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean },
+    options?: { syncHash?: boolean; refreshWorkspace?: boolean },
   ) => Promise<void>;
   renderOperatorWorkspace: () => Promise<void>;
   getLatestWorkspaceData: () => WorkspaceData | null;
@@ -405,7 +405,6 @@ export function createShellEventController(
       void options.applyLocation(initialLocation, {
         syncHash: !window.location.hash,
         refreshWorkspace: true,
-        recordHistory: false,
       });
     }, 0);
   }

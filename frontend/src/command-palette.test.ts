@@ -1,8 +1,8 @@
 /**
- * command-palette.test.ts - Notification command regression tests.
- * Purpose: verify durable continuity notification commands in the palette.
- * Responsibilities: cover render, open, acknowledge, and suppress behavior.
- * Scope: command-palette notification commands only.
+ * command-palette.test.ts - Command-palette continuity regression tests.
+ * Purpose: verify palette notification controls and low-signal navigation behavior stay stable.
+ * Responsibilities: cover notification state writes, durable reopen commands, and navigation commands that should not emit continuity receipts.
+ * Scope: command-palette continuity behavior only.
  * Usage: run with `pnpm --dir frontend test`.
  * Invariants/Assumptions: commands read shared local continuity cache and local state updates land before background sync.
  */
@@ -14,6 +14,7 @@ import type { ContinuityNotificationRecord, ResumeAnchorState, ShellLocationCont
 
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
 const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
+const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v4";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();
@@ -69,6 +70,10 @@ function seedAnchors(anchors: ResumeAnchorState): void {
 
 function readNotifications(): ContinuityNotificationRecord[] {
   return JSON.parse(window.localStorage.getItem(NOTIFICATION_RECORDS_CACHE_KEY) ?? "[]") as ContinuityNotificationRecord[];
+}
+
+function readRecentActions(): unknown[] {
+  return JSON.parse(window.localStorage.getItem(RECENT_ACTIONS_CACHE_KEY) ?? "[]") as unknown[];
 }
 
 function buildPaletteDom(): void {
@@ -185,6 +190,20 @@ describe("command-palette notification commands", () => {
       sessionId: 41,
       workingSetId: 7,
     }));
+  });
+
+  it("does not create continuity receipts for pure navigation commands", async () => {
+    buildPaletteDom();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const controller = createController({ openLocation });
+
+    controller.open();
+    await settle();
+    findCommandButton("Open home workspace").click();
+    await settle();
+
+    expect(openLocation).toHaveBeenCalledWith(location({ state: "operator" }));
+    expect(readRecentActions()).toEqual([]);
   });
 
   it("persists acknowledge and suppress notification controls through shared state writes", async () => {

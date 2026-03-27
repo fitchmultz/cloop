@@ -38,7 +38,7 @@ import type { ShellLocation } from "./shell-types";
 export interface OperatorActionCardDispatchOptions {
   applyLocation: (
     input: Partial<ShellLocation>,
-    options?: { syncHash?: boolean; refreshWorkspace?: boolean; recordHistory?: boolean },
+    options?: { syncHash?: boolean; refreshWorkspace?: boolean },
   ) => Promise<void>;
   pinLocationToWorkingSet: (
     location: ShellLocation,
