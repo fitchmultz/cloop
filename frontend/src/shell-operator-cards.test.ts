@@ -8,7 +8,7 @@
  * Responsibilities:
  *   - Assert planning execution and launch cards keep propagated working-set metadata.
  *   - Assert primary-next-move and since-last digest cards render from durable continuity.
- *   - Assert since-last handoff and resume-anchor cards expose working-set context.
+ *   - Assert since-last handoff cards expose working-set context.
  *   - Assert focus-mode filtering still keeps matching handoff cards when legacy launches omit working-set ids.
  *
  * Scope:
@@ -23,8 +23,7 @@
  *   - Working-set propagation stays frontend-only in this slice.
  */
 
-import { recordRecentShellAction, rememberPlanningAnchor, rememberReviewAnchor } from "./continuity-intelligence";
-import type { ResumeAnchorState } from "./contracts-ui";
+import { recordRecentShellAction } from "./continuity-intelligence";
 import type {
   PlanningExecutionHistoryItemResponse,
   PlanningSessionSnapshotResponse,
@@ -392,13 +391,8 @@ function createMemoryStorage(): Storage {
   } satisfies Storage;
 }
 
-const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v2";
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
-
-function seedResumeAnchors(anchors: ResumeAnchorState): void {
-  window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(anchors));
-}
 
 function seedWorkflowSummaries(summaries: unknown[]): void {
   window.localStorage.setItem(WORKFLOW_SUMMARIES_CACHE_KEY, JSON.stringify(summaries));
@@ -714,46 +708,6 @@ describe("shell-operator-cards", () => {
   });
 
   it("surfaces explicit recovery cards near the top of since-last", () => {
-    seedResumeAnchors({
-      planning: {
-        kind: "planning",
-        reviewFocus: "planning",
-        sessionId: 41,
-        visitedAtUtc: "2026-03-18T18:09:00Z",
-        launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
-        resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
-        resolvedResume: {
-          requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
-          resolvedLocation: createLocation({ state: "operator" }),
-          status: "home_fallback",
-          message: "Original landed target is unavailable, so continuity falls back to home.",
-          successor: {
-            kind: "replacement",
-            outcomeId: 12,
-            title: "Launch review queue is ready",
-            summary: "Open the prepared queue.",
-            workflowThread: {
-              id: "planning:99",
-              kind: "planning_checkpoint",
-              title: "Replacement plan",
-              summary: "New planning thread",
-              parentOutcomeId: null,
-            },
-            requestedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
-            resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 99 }),
-            status: "ok",
-            message: "Old launch plan was superseded by Launch review queue is ready.",
-          },
-        },
-        outcomeTitle: "Old launch plan",
-        outcomeSummary: "Prior planning path",
-        workingSetId: null,
-        workflowThreadId: "planning:41",
-        degraded: true,
-        degradedLabel: "Original landed target is unavailable, so continuity falls back to home.",
-      },
-      review: null,
-    });
     recordRecentShellAction({
       kind: "planning",
       label: "Created launch review queue",
@@ -986,24 +940,7 @@ describe("shell-operator-cards", () => {
 
   it("renders the next-ranked follow-through card with propagated working-set context after the top outcome is reserved for the rail", () => {
     const propagatedSet = makeWorkingSet(2, "Review Prep");
-    rememberPlanningAnchor({
-      sessionId: 41,
-      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
-      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
-      outcomeTitle: "Resume plan · Weekly reset",
-      outcomeSummary: "Return to the saved planning session.",
-      workingSetId: 2,
-    });
     vi.setSystemTime(new Date("2026-03-18T18:11:00Z"));
-    rememberReviewAnchor({
-      reviewFocus: "enrichment",
-      sessionId: 27,
-      launchLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
-      resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 27, workingSetId: 2 }),
-      outcomeTitle: "Resume enrichment queue · Review Prep",
-      outcomeSummary: "Return to the saved enrichment queue.",
-      workingSetId: 2,
-    });
     seedWorkflowSummaries([
       summaryRecord({
         id: "review:enrichment:27",
@@ -1081,14 +1018,6 @@ describe("shell-operator-cards", () => {
         rollbackLabel: "Rejecting is no longer available after apply.",
         undoAction: null,
       },
-    });
-    rememberPlanningAnchor({
-      sessionId: 41,
-      launchLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
-      resumeLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 2 }),
-      outcomeTitle: "Resume plan · Weekly reset",
-      outcomeSummary: "Return to the saved planning session.",
-      workingSetId: 2,
     });
     seedWorkflowSummaries([
       summaryRecord({

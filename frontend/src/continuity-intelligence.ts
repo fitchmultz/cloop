@@ -8,8 +8,8 @@
  *
  * Responsibilities:
  *   - Read and write browser-local continuity baseline snapshots.
- *   - Hydrate durable recent outcomes, notification records, and resume anchors from the backend.
- *   - Queue high-signal landed outcomes, notification-state writes, and anchors for backend persistence.
+ *   - Hydrate durable recent outcomes and notification records from the backend.
+ *   - Queue high-signal landed outcomes and notification-state writes for backend persistence.
  *   - Keep local cache state deterministic for receipts, reruns, undo state,
  *     notification delivery state, and recovery acknowledgements.
  *
@@ -20,15 +20,12 @@
  *   - Imported by shell, review-workspace, command-palette, and surface modules.
  *
  * Invariants/Assumptions:
- *   - Backend continuity is the durable authority for recent landed outcomes and anchors.
+ *   - Backend continuity is the durable authority for recent landed outcomes.
  *   - Continuity baseline snapshots remain browser-local and are not synced.
  *   - Pending unsynced writes must survive hydration and refresh attempts.
  */
 
 import type {
-  ContinuityAnchorResponse,
-  ContinuityAnchorUpsertRequest,
-  ContinuityAnchorsResponse,
   ContinuityLastSeenBatchUpsertRequest,
   ContinuityLastSeenMarkerResponse,
   ContinuityLocationResponse,
@@ -76,8 +73,6 @@ import type {
   RecentShellActionEntry,
   RerunAttemptContract,
   ResolvedContinuityTarget,
-  ResumeAnchorState,
-  ResumeAnchorTarget,
   ReviewFocus,
   ShellLocationContract,
   WorkflowThreadKind,
@@ -86,7 +81,6 @@ import type {
 import {
   fetchContinuitySnapshot,
   persistContinuityOutcome,
-  upsertContinuityAnchor,
   upsertContinuityLastSeen,
   upsertContinuityNotificationState,
   upsertContinuityRecoveryAcknowledgement,
@@ -101,7 +95,6 @@ import {
 } from "./continuity-outcomes";
 
 const CONTINUITY_BASELINE_STORAGE_KEY = "cloop.continuity.baseline.v2";
-const RESUME_ANCHORS_CACHE_KEY = "cloop.continuity.resume-anchors.cache.v3";
 const RECENT_ACTIONS_CACHE_KEY = "cloop.continuity.recent-actions.cache.v4";
 const WORKFLOW_SUMMARIES_CACHE_KEY = "cloop.continuity.workflow-summaries.cache.v2";
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
@@ -113,20 +106,9 @@ const DEDUPE_WINDOW_MS = 15_000;
 
 export const RECENT_SHELL_ACTIONS_UPDATED_EVENT = "cloop:recent-shell-actions-updated";
 
-const DEFAULT_RESUME_ANCHORS: ResumeAnchorState = {
-  planning: null,
-  review: null,
-};
-
 interface PendingOutcomeWrite {
   kind: "outcome";
   entry: RecentShellActionEntry;
-}
-
-interface PendingAnchorWrite {
-  kind: "anchor";
-  anchorKind: "planning" | "review";
-  anchor: ResumeAnchorTarget;
 }
 
 interface PendingLastSeenWrite {
@@ -147,7 +129,6 @@ interface PendingRecoveryAckWrite {
 
 type PendingContinuityWrite =
   | PendingOutcomeWrite
-  | PendingAnchorWrite
   | PendingLastSeenWrite
   | PendingNotificationStateWrite
   | PendingRecoveryAckWrite;
@@ -160,29 +141,6 @@ export interface ContinuitySnapshotInput {
   enrichmentSnapshot: EnrichmentReviewSessionSnapshotResponse | null;
   allLoops: LoopResponse[];
   workingSetContext: WorkingSetContextResponse | null;
-}
-
-export interface RememberPlanningAnchorInput {
-  sessionId: number;
-  launchLocation?: ShellLocationContract | null;
-  resumeLocation?: ShellLocationContract | null;
-  outcomeTitle?: string | null;
-  outcomeSummary?: string | null;
-  workingSetId?: number | null;
-  workflowThreadId?: string | null;
-  visitedAtUtc?: string;
-}
-
-export interface RememberReviewAnchorInput {
-  reviewFocus: Extract<ReviewFocus, "relationship" | "enrichment">;
-  sessionId: number;
-  launchLocation?: ShellLocationContract | null;
-  resumeLocation?: ShellLocationContract | null;
-  outcomeTitle?: string | null;
-  outcomeSummary?: string | null;
-  workingSetId?: number | null;
-  workflowThreadId?: string | null;
-  visitedAtUtc?: string;
 }
 
 let hydrationPromise: Promise<void> | null = null;
@@ -794,76 +752,6 @@ function parseRecentShellActionEntry(value: unknown): RecentShellActionEntry | n
   return entry;
 }
 
-function parseResumeAnchorTarget(
-  raw: unknown,
-  expectedKind: ResumeAnchorTarget["kind"],
-): ResumeAnchorTarget | null {
-  if (!isRecord(raw) || typeof raw["sessionId"] !== "number" || typeof raw["visitedAtUtc"] !== "string") {
-    return null;
-  }
-
-  const reviewFocus = raw["reviewFocus"];
-  if (expectedKind === "planning") {
-    if (reviewFocus !== "planning") {
-      return null;
-    }
-  } else if (reviewFocus !== "relationship" && reviewFocus !== "enrichment") {
-    return null;
-  }
-
-  return {
-    kind: expectedKind,
-    reviewFocus,
-    sessionId: raw["sessionId"],
-    visitedAtUtc: raw["visitedAtUtc"],
-    launchLocation: normalizeLocation(raw["launchLocation"]),
-    resumeLocation: normalizeLocation(raw["resumeLocation"]),
-    resolvedResume: normalizeResolvedTarget(raw["resolvedResume"]),
-    outcomeTitle: typeof raw["outcomeTitle"] === "string" ? raw["outcomeTitle"] : null,
-    outcomeSummary: typeof raw["outcomeSummary"] === "string" ? raw["outcomeSummary"] : null,
-    workingSetId: typeof raw["workingSetId"] === "number" ? raw["workingSetId"] : null,
-    workflowThreadId: typeof raw["workflowThreadId"] === "string" ? raw["workflowThreadId"] : null,
-    degraded: raw["degraded"] === true,
-    degradedLabel: typeof raw["degradedLabel"] === "string" ? raw["degradedLabel"] : null,
-  };
-}
-
-function buildPlanningAnchor(input: RememberPlanningAnchorInput): ResumeAnchorTarget {
-  return {
-    kind: "planning",
-    reviewFocus: "planning",
-    sessionId: input.sessionId,
-    visitedAtUtc: input.visitedAtUtc ?? new Date().toISOString(),
-    launchLocation: input.launchLocation ?? null,
-    resumeLocation: input.resumeLocation ?? null,
-    resolvedResume: null,
-    outcomeTitle: input.outcomeTitle ?? null,
-    outcomeSummary: input.outcomeSummary ?? null,
-    workingSetId: input.workingSetId ?? null,
-    workflowThreadId: input.workflowThreadId ?? `planning:${input.sessionId}`,
-    degraded: false,
-    degradedLabel: null,
-  };
-}
-
-function buildReviewAnchor(input: RememberReviewAnchorInput): ResumeAnchorTarget {
-  return {
-    kind: "review",
-    reviewFocus: input.reviewFocus,
-    sessionId: input.sessionId,
-    visitedAtUtc: input.visitedAtUtc ?? new Date().toISOString(),
-    launchLocation: input.launchLocation ?? null,
-    resumeLocation: input.resumeLocation ?? null,
-    resolvedResume: null,
-    outcomeTitle: input.outcomeTitle ?? null,
-    outcomeSummary: input.outcomeSummary ?? null,
-    workingSetId: input.workingSetId ?? null,
-    workflowThreadId: input.workflowThreadId ?? `review:${input.reviewFocus}:${input.sessionId}`,
-    degraded: false,
-    degradedLabel: null,
-  };
-}
-
 function cacheKeyForOutcome(entry: RecentShellActionEntry): string {
   return `${recentShellActionDedupKey(entry)}::${entry.occurredAt}`;
 }
@@ -885,17 +773,6 @@ function readPendingContinuityWrites(): PendingContinuityWrite[] {
       const entry = parseRecentShellActionEntry(item["entry"]);
       if (entry) {
         writes.push({ kind: "outcome", entry });
-      }
-      return;
-    }
-    if (item["kind"] === "anchor") {
-      const anchorKind = item["anchorKind"];
-      if (anchorKind !== "planning" && anchorKind !== "review") {
-        return;
-      }
-      const anchor = parseResumeAnchorTarget(item["anchor"], anchorKind);
-      if (anchor) {
-        writes.push({ kind: "anchor", anchorKind, anchor });
       }
       return;
     }
@@ -1012,26 +889,6 @@ function writeContinuityNotificationRecords(records: readonly ContinuityNotifica
     return;
   }
   window.localStorage.setItem(NOTIFICATION_RECORDS_CACHE_KEY, JSON.stringify(records));
-}
-
-function readResumeAnchorsCache(): ResumeAnchorState {
-  if (!canUseLocalStorage()) {
-    return { ...DEFAULT_RESUME_ANCHORS };
-  }
-  const parsed = safeJsonParse<unknown>(window.localStorage.getItem(RESUME_ANCHORS_CACHE_KEY), DEFAULT_RESUME_ANCHORS);
-  const planning = isRecord(parsed) ? parseResumeAnchorTarget(parsed["planning"], "planning") : null;
-  const review = isRecord(parsed) ? parseResumeAnchorTarget(parsed["review"], "review") : null;
-  return {
-    planning,
-    review,
-  };
-}
-
-function writeResumeAnchorsCache(value: ResumeAnchorState): void {
-  if (!canUseLocalStorage()) {
-    return;
-  }
-  window.localStorage.setItem(RESUME_ANCHORS_CACHE_KEY, JSON.stringify(value));
 }
 
 export function readContinuityLastSeenMarkers(): ContinuityLastSeenMarker[] {
@@ -1669,34 +1526,6 @@ function mapPersistedOutcomeToRecentEntry(response: ContinuityOutcomeRecordRespo
   });
 }
 
-function mapAnchorResponse(anchor: ContinuityAnchorResponse | null | undefined): ResumeAnchorTarget | null {
-  if (!anchor) {
-    return null;
-  }
-  return {
-    kind: anchor.kind,
-    reviewFocus: anchor.review_focus,
-    sessionId: anchor.session_id,
-    visitedAtUtc: anchor.visited_at_utc,
-    launchLocation: mapLocationFromApi(anchor.launch_location),
-    resumeLocation: mapLocationFromApi(anchor.resume_location),
-    resolvedResume: anchor.resolved_resume ? mapResolvedTargetFromApi(anchor.resolved_resume) : null,
-    outcomeTitle: anchor.outcome_title ?? null,
-    outcomeSummary: anchor.outcome_summary ?? null,
-    workingSetId: anchor.working_set_id ?? null,
-    workflowThreadId: anchor.workflow_thread_id ?? null,
-    degraded: Boolean(anchor.degraded),
-    degradedLabel: anchor.degraded_label ?? null,
-  };
-}
-
-function mapPersistedAnchors(anchors: ContinuityAnchorsResponse): ResumeAnchorState {
-  return {
-    planning: mapAnchorResponse(anchors.planning),
-    review: mapAnchorResponse(anchors.review),
-  };
-}
-
 function mapLastSeenMarkerResponse(marker: ContinuityLastSeenMarkerResponse): ContinuityLastSeenMarker {
   return {
     entityKind: marker.entity_kind,
@@ -1821,18 +1650,6 @@ function mergePendingEntries(snapshotEntries: readonly RecentShellActionEntry[])
   return dedupeRecentActions([...pendingEntries, ...snapshotEntries]);
 }
 
-function mergePendingAnchors(snapshotAnchors: ResumeAnchorState): ResumeAnchorState {
-  return readPendingContinuityWrites().reduce((state, write) => {
-    if (write.kind !== "anchor") {
-      return state;
-    }
-    return {
-      ...state,
-      [write.anchorKind]: write.anchor,
-    } satisfies ResumeAnchorState;
-  }, snapshotAnchors);
-}
-
 function mergePendingLastSeenMarkers(
   snapshotMarkers: readonly ContinuityLastSeenMarker[],
 ): ContinuityLastSeenMarker[] {
@@ -1870,7 +1687,6 @@ function mergePendingNotificationRecords(
 
 function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
   const snapshotEntries = (snapshot.outcomes ?? []).map((item) => mapPersistedOutcomeToRecentEntry(item));
-  const anchors = snapshot.anchors ?? { planning: null, review: null };
   const workflowSummaries = (snapshot.workflow_summaries ?? []).map((item) =>
     mapWorkflowSummaryResponse(item),
   );
@@ -1882,7 +1698,6 @@ function applyContinuitySnapshot(snapshot: ContinuitySnapshotResponse): void {
     mapRecoveryAcknowledgementResponse(item),
   );
   writeRecentActionsCache(mergePendingEntries(snapshotEntries));
-  writeResumeAnchorsCache(mergePendingAnchors(mapPersistedAnchors(anchors)));
   writeContinuityWorkflowSummaries(workflowSummaries);
   writeContinuityNotificationRecords(mergePendingNotificationRecords(notificationRecords));
   writeContinuityLastSeenMarkers(mergePendingLastSeenMarkers(lastSeenMarkers));
@@ -1911,25 +1726,6 @@ function buildOutcomeWriteRequest(entry: RecentShellActionEntry): ContinuityOutc
     source_surface: stringValue(isRecord(entry.metadata) ? entry.metadata["source"] : null) ?? entry.kind,
     signal_level: "high",
     metadata: isRecord(entry.metadata) ? entry.metadata : {},
-  };
-}
-
-function buildAnchorWriteRequest(
-  anchorKind: "planning" | "review",
-  anchor: ResumeAnchorTarget,
-): ContinuityAnchorUpsertRequest {
-  return {
-    anchor_kind: anchorKind,
-    review_focus: anchor.reviewFocus,
-    session_id: anchor.sessionId,
-    visited_at_utc: anchor.visitedAtUtc,
-    launch_location: mapLocationToApi(anchor.launchLocation),
-    resume_location: mapLocationToApi(anchor.resumeLocation),
-    outcome_title: anchor.outcomeTitle,
-    outcome_summary: anchor.outcomeSummary,
-    working_set_id: anchor.workingSetId,
-    workflow_thread_id: anchor.workflowThreadId ?? null,
-    metadata: {},
   };
 }
 
@@ -1984,17 +1780,9 @@ function writePendingOutcome(entry: RecentShellActionEntry): void {
   writePendingContinuityWrites(writes);
 }
 
-function writePendingAnchor(anchorKind: "planning" | "review", anchor: ResumeAnchorTarget): void {
-  const writes = readPendingContinuityWrites().filter((write) => {
-    return write.kind !== "anchor" || write.anchorKind !== anchorKind;
-  });
-  writes.unshift({ kind: "anchor", anchorKind, anchor });
-  writePendingContinuityWrites(writes);
-}
-
 function writePendingLastSeen(markers: readonly ContinuityLastSeenMarker[]): void {
   const writes = readPendingContinuityWrites().filter(
-    (write): write is PendingOutcomeWrite | PendingAnchorWrite | PendingNotificationStateWrite | PendingRecoveryAckWrite => write.kind !== "last_seen",
+    (write): write is PendingOutcomeWrite | PendingNotificationStateWrite | PendingRecoveryAckWrite => write.kind !== "last_seen",
   );
   writePendingContinuityWrites([{ kind: "last_seen", markers: [...markers] }, ...writes]);
 }
@@ -2105,9 +1893,6 @@ function markOutcomePersistenceStatus(
 async function persistOneWrite(write: PendingContinuityWrite): Promise<ContinuitySnapshotResponse> {
   if (write.kind === "outcome") {
     return persistContinuityOutcome(buildOutcomeWriteRequest(write.entry));
-  }
-  if (write.kind === "anchor") {
-    return upsertContinuityAnchor(write.anchorKind, buildAnchorWriteRequest(write.anchorKind, write.anchor));
   }
   if (write.kind === "last_seen") {
     return upsertContinuityLastSeen(buildLastSeenBatchWriteRequest(write.markers));
@@ -2414,32 +2199,6 @@ export function writeContinuityBaseline(snapshot: ContinuityBaselineSnapshot): v
     return;
   }
   window.localStorage.setItem(CONTINUITY_BASELINE_STORAGE_KEY, JSON.stringify(snapshot));
-}
-
-export function readResumeAnchors(): ResumeAnchorState {
-  return readResumeAnchorsCache();
-}
-
-export function rememberPlanningAnchor(input: RememberPlanningAnchorInput): void {
-  const current = readResumeAnchorsCache();
-  const planning = buildPlanningAnchor(input);
-  writeResumeAnchorsCache({
-    ...current,
-    planning,
-  });
-  writePendingAnchor("planning", planning);
-  void flushPendingContinuityWrites();
-}
-
-export function rememberReviewAnchor(input: RememberReviewAnchorInput): void {
-  const current = readResumeAnchorsCache();
-  const review = buildReviewAnchor(input);
-  writeResumeAnchorsCache({
-    ...current,
-    review,
-  });
-  writePendingAnchor("review", review);
-  void flushPendingContinuityWrites();
 }
 
 export function readRecentShellActions(): RecentShellActionEntry[] {

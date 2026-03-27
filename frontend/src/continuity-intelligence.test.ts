@@ -2,13 +2,13 @@
  * continuity-intelligence.test.ts - Regression tests for browser-local continuity helpers.
  *
  * Purpose:
- *   Verify deterministic continuity storage stays stable for resume anchors and
- *   recent shell action history.
+ *   Verify deterministic continuity storage stays stable for recent shell action
+ *   history and durable continuity hydration.
  *
  * Responsibilities:
- *   - Assert planning and review resume anchors persist to localStorage.
  *   - Assert recent shell actions remain newest-first.
  *   - Guard duplicate action deduplication for immediate repeats.
+ *   - Assert durable continuity hydration preserves receipt metadata.
  *
  * Scope:
  *   - Pure browser-local continuity helper behavior under jsdom.
@@ -40,10 +40,7 @@ import {
   readContinuityNotificationRecords,
   readContinuityWorkflowSummaries,
   readRecentShellActions,
-  readResumeAnchors,
   recordRecentShellAction,
-  rememberPlanningAnchor,
-  rememberReviewAnchor,
   suppressContinuityNotification,
 } from "./continuity-intelligence";
 
@@ -121,60 +118,6 @@ describe("continuity-intelligence", () => {
     expect(isContinuityRecoveryAcknowledged("replacement::planning:99")).toBe(false);
     markContinuityRecoveryAcknowledged("replacement::planning:99");
     expect(isContinuityRecoveryAcknowledged("replacement::planning:99")).toBe(true);
-  });
-
-  it("persists planning and review resume anchors", () => {
-    rememberPlanningAnchor({
-      sessionId: 41,
-      launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
-      resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
-      outcomeTitle: "Resume plan · Weekly reset",
-      outcomeSummary: "Return to the saved planning session.",
-      workingSetId: 3,
-    });
-    vi.setSystemTime(new Date("2026-03-17T12:05:00Z"));
-    rememberReviewAnchor({
-      reviewFocus: "relationship",
-      sessionId: 7,
-      launchLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
-      resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
-      outcomeTitle: "Resume relationship queue · Launch duplicates",
-      outcomeSummary: "Return to the saved relationship queue.",
-      workingSetId: 5,
-    });
-
-    expect(readResumeAnchors()).toEqual({
-      planning: {
-        kind: "planning",
-        reviewFocus: "planning",
-        sessionId: 41,
-        visitedAtUtc: "2026-03-17T12:00:00.000Z",
-        launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
-        resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 3 }),
-        outcomeTitle: "Resume plan · Weekly reset",
-        outcomeSummary: "Return to the saved planning session.",
-        workingSetId: 3,
-        workflowThreadId: "planning:41",
-        resolvedResume: null,
-        degraded: false,
-        degradedLabel: null,
-      },
-      review: {
-        kind: "review",
-        reviewFocus: "relationship",
-        sessionId: 7,
-        visitedAtUtc: "2026-03-17T12:05:00.000Z",
-        launchLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
-        resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 7, workingSetId: 5 }),
-        outcomeTitle: "Resume relationship queue · Launch duplicates",
-        outcomeSummary: "Return to the saved relationship queue.",
-        workingSetId: 5,
-        workflowThreadId: "review:relationship:7",
-        resolvedResume: null,
-        degraded: false,
-        degradedLabel: null,
-      },
-    });
   });
 
   it("hydrates durable continuity state into the local cache", async () => {
@@ -521,7 +464,6 @@ describe("continuity-intelligence", () => {
     expect(readRecentShellActions()[0]?.outcome?.workflowThread?.id).toBe("planning:41:checkpoint:0");
     expect(readRecentShellActions()[0]?.outcome?.undoAction?.undo.kind).toBe("planning_run");
     expect(readRecentShellActions()[0]?.outcome?.rerunAction?.rerun.kind).toBe("planning_session");
-    expect(readResumeAnchors().planning?.workflowThreadId).toBe("planning:41");
     expect(readContinuityWorkflowSummaries()[0]?.id).toBe("planning:41:checkpoint:0");
     expect(readContinuityWorkflowSummaries()[0]?.undoAction?.undo.kind).toBe("planning_run");
     expect(readContinuityWorkflowSummaries()[0]?.rerunAction?.rerun.kind).toBe("planning_session");

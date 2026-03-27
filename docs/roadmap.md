@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: resolve the orphaned resume-anchor path before shell/runtime cleanup.
+Execution focus: collapse the continuity selector split, then remove the now-unused anchor transport before runtime chunking work.
 
 ## Direction
 
@@ -26,20 +26,28 @@ Current product goals:
 
 ## Execution order
 
-### Next — Resolve the orphaned resume-anchor path
+### Next — Collapse the continuity selector split
 
-Either make resume anchors explicit or delete the unused path.
+Tighten the continuity model now that reopen is summary-only.
 
-1. Confirm whether planning/review still need durable resume without a landed outcome.
-2. If yes, add one explicit saved-anchor flow and keep it separate from passive navigation.
-3. If no, remove unused anchor-writing assumptions and trim dead continuity plumbing.
+1. Keep one shared display-feed selector for fresh receipts plus durable summaries.
+2. Keep one durable-only reopen/recovery selector, and remove any extra overlap between the two paths.
+3. Delete dead `source === "anchor"` or other continuity-branching code that no longer survives the cutover.
+
+### Then — Remove unused anchor transport
+
+Delete the backend/storage/API leftovers now that the browser no longer reads or writes anchors.
+
+1. Remove unused continuity anchor writes, snapshot payload plumbing, and storage helpers that no longer feed any frontend path.
+2. Trim frontend continuity API/domain exports that only existed for anchor transport.
+3. Regenerate/update tests after the contract removal so continuity stays outcome-first end to end.
 
 ### Then — Frontend shell/runtime boundary cleanup
 
-Clean up runtime boundaries only after continuity contracts stop moving.
+Fix the current chunking warnings after continuity contracts settle.
 
-1. Remove ineffective dynamic imports and dead split points in the shell and surface runtime.
-2. Lazy-load surface code from the activation boundary so the operator bundle drops below the current warning path.
+1. Remove the ineffective dynamic imports around `frontend/src/surfaces/bootstrap.ts`, `loop.ts`, `next.ts`, `timer.ts`, and `render.ts`.
+2. Lazy-load surfaces from real activation boundaries so the main operator bundle drops below the current warning path.
 3. Keep the shell bootstrap thin and avoid reintroducing secondary entrypoints.
 
 ## Delivery model

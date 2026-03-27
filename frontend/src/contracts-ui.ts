@@ -285,27 +285,6 @@ export interface ContinuityDriftSignal {
   downstreamReady: boolean;
 }
 
-export interface ResumeAnchorTarget {
-  kind: "planning" | "review";
-  reviewFocus: "planning" | "relationship" | "enrichment";
-  sessionId: number;
-  visitedAtUtc: string;
-  launchLocation: ShellLocationContract | null;
-  resumeLocation: ShellLocationContract | null;
-  resolvedResume: ResolvedContinuityTarget | null;
-  outcomeTitle: string | null;
-  outcomeSummary: string | null;
-  workingSetId: number | null;
-  workflowThreadId?: string | null;
-  degraded: boolean;
-  degradedLabel: string | null;
-}
-
-export interface ResumeAnchorState {
-  planning: ResumeAnchorTarget | null;
-  review: ResumeAnchorTarget | null;
-}
-
 export interface LoopEventUndoHandle {
   kind: "loop_event";
   loopId: number;
