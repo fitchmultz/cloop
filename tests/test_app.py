@@ -12,6 +12,10 @@ from cloop.ai_bridge.errors import BridgeUpstreamError
 from cloop.settings import get_settings
 
 
+def _first_tool_result(payload: dict[str, Any]) -> dict[str, Any]:
+    return payload["tool_results"][0]
+
+
 def _mock_semantic_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
         inputs = kwargs.get("input") or []
@@ -95,7 +99,6 @@ def test_chat_manual_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> N
     assert write_response.status_code == 200
     write_data = write_response.json()
     assert write_data["tool_results"][0]["action"] == "write_note"
-    assert write_data["tool_result"] == write_data["tool_results"][0]
     assert write_data["tool_calls"] == []
     assert write_data["model"] == "mock-llm"
     note_id = write_data["tool_results"][0]["note"]["id"]
@@ -164,7 +167,6 @@ def test_chat_llm_tool_mode_preserves_multiple_tool_results(
     assert response.status_code == 200
     data = response.json()
     assert [item["action"] for item in data["tool_results"]] == ["write_note", "loop_list"]
-    assert data["tool_result"] == data["tool_results"][0]
 
     from cloop import db
     from cloop.settings import get_settings
@@ -193,9 +195,9 @@ def test_chat_manual_loop_create(test_client: TestClient, tmp_data_dir: Path) ->
     response = test_client.post("/chat", json=payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["tool_result"]["action"] == "loop_create"
-    assert data["tool_result"]["loop"]["raw_text"] == "Pay rent"
-    assert data["tool_result"]["loop"]["status"] == "inbox"
+    assert _first_tool_result(data)["action"] == "loop_create"
+    assert _first_tool_result(data)["loop"]["raw_text"] == "Pay rent"
+    assert _first_tool_result(data)["loop"]["status"] == "inbox"
 
 
 def test_chat_manual_loop_update(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -209,7 +211,7 @@ def test_chat_manual_loop_update(test_client: TestClient, tmp_data_dir: Path) ->
         },
     }
     create_resp = test_client.post("/chat", json=create_payload)
-    loop_id = create_resp.json()["tool_result"]["loop"]["id"]
+    loop_id = create_resp.json()["tool_results"][0]["loop"]["id"]
 
     # Update the loop
     update_payload = {
@@ -225,9 +227,9 @@ def test_chat_manual_loop_update(test_client: TestClient, tmp_data_dir: Path) ->
     response = test_client.post("/chat", json=update_payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["tool_result"]["action"] == "loop_update"
-    assert data["tool_result"]["loop"]["title"] == "Updated Title"
-    assert data["tool_result"]["loop"]["time_minutes"] == 30
+    assert _first_tool_result(data)["action"] == "loop_update"
+    assert _first_tool_result(data)["loop"]["title"] == "Updated Title"
+    assert _first_tool_result(data)["loop"]["time_minutes"] == 30
 
 
 def test_chat_manual_loop_list(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -256,8 +258,8 @@ def test_chat_manual_loop_list(test_client: TestClient, tmp_data_dir: Path) -> N
     response = test_client.post("/chat", json=list_payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["tool_result"]["action"] == "loop_list"
-    assert len(data["tool_result"]["items"]) >= 3
+    assert _first_tool_result(data)["action"] == "loop_list"
+    assert len(_first_tool_result(data)["items"]) >= 3
 
 
 def test_chat_manual_loop_close(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -270,7 +272,7 @@ def test_chat_manual_loop_close(test_client: TestClient, tmp_data_dir: Path) -> 
             "tool_call": {"name": "loop_create", "arguments": {"raw_text": "Done task"}},
         },
     )
-    loop_id = create_resp.json()["tool_result"]["loop"]["id"]
+    loop_id = create_resp.json()["tool_results"][0]["loop"]["id"]
 
     # Close the loop
     close_payload = {
@@ -283,8 +285,8 @@ def test_chat_manual_loop_close(test_client: TestClient, tmp_data_dir: Path) -> 
     response = test_client.post("/chat", json=close_payload)
     assert response.status_code == 200
     data = response.json()
-    assert data["tool_result"]["action"] == "loop_close"
-    assert data["tool_result"]["loop"]["status"] == "completed"
+    assert _first_tool_result(data)["action"] == "loop_close"
+    assert _first_tool_result(data)["loop"]["status"] == "completed"
 
 
 def test_chat_manual_invalid_tool_arguments(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -329,7 +331,7 @@ def test_chat_manual_backward_compat_note_tools(
     }
     write_resp = test_client.post("/chat", json=write_payload)
     assert write_resp.status_code == 200
-    note_id = write_resp.json()["tool_result"]["note"]["id"]
+    note_id = write_resp.json()["tool_results"][0]["note"]["id"]
 
     # read_note with new schema
     read_payload = {
@@ -341,7 +343,7 @@ def test_chat_manual_backward_compat_note_tools(
     }
     read_resp = test_client.post("/chat", json=read_payload)
     assert read_resp.status_code == 200
-    assert read_resp.json()["tool_result"]["note"]["title"] == "Test"
+    assert read_resp.json()["tool_results"][0]["note"]["title"] == "Test"
 
 
 def test_chat_llm_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> None:
@@ -357,7 +359,7 @@ def test_chat_llm_tool_mode(test_client: TestClient, tmp_data_dir: Path) -> None
     assert data["tool_calls"] == [
         {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}
     ]
-    assert data["tool_result"]["action"] == "write_note"
+    assert data["tool_results"][0]["action"] == "write_note"
     assert data["model"] == "mock-llm-tool"
 
     with db.core_connection(get_settings()) as conn:

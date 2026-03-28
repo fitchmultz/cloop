@@ -661,9 +661,7 @@ export async function submitChat(text: string): Promise<void> {
       toolCalls: resolvedPayload?.tool_calls ?? pendingToolCalls,
       toolResults: Array.isArray(resolvedPayload?.tool_results)
         ? resolvedPayload.tool_results.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
-        : resolvedPayload?.tool_result && typeof resolvedPayload.tool_result === "object"
-          ? [resolvedPayload.tool_result]
-          : pendingToolResults,
+        : pendingToolResults,
       sources: resolvedPayload?.sources ?? [],
       rerunAction: mapChatRerunAction(resolvedPayload?.rerun_action as ChatResponse["rerun_action"] | undefined),
       error: null,

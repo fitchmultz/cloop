@@ -4012,7 +4012,6 @@ def test_chat_complete_manual_tool_mode_runs_shared_manual_tool_execution(
     assert result["message"] == "mock-response"
     assert result["tool_calls"] == []
     assert result["tool_results"][0]["action"] == "write_note"
-    assert result["tool_result"] == result["tool_results"][0]
     assert result["tool_results"][0]["note"]["title"] == "todo"
     assert result["options"]["tool_mode"] == "manual"
 
@@ -4044,7 +4043,6 @@ def test_chat_complete_llm_tool_mode_returns_shared_tool_call_payload(
         {"name": "write_note", "arguments": {"title": "auto", "body": "generated"}}
     ]
     assert result["tool_results"] == [{"action": "write_note", "ok": True}]
-    assert result["tool_result"] == result["tool_results"][0]
     assert result["model"] == "mock-llm-tool"
     assert result["metadata"]["api"] == "responses"
     assert result["options"]["tool_mode"] == "llm"
@@ -4094,7 +4092,6 @@ def test_chat_complete_llm_tool_mode_preserves_multiple_tool_results(
     )
 
     assert [item["action"] for item in result["tool_results"]] == ["write_note", "loop_list"]
-    assert result["tool_result"] == result["tool_results"][0]
 
 
 def test_chat_complete_rejects_unsupported_manual_tool(

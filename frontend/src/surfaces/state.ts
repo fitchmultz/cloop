@@ -114,17 +114,11 @@ function normalizeToolCalls(toolCalls: unknown): ChatToolCall[] {
   });
 }
 
-function normalizeToolResults(
-  toolResults: unknown,
-  legacyToolResult?: unknown,
-): Record<string, unknown>[] {
-  if (Array.isArray(toolResults)) {
-    return toolResults.flatMap((toolResult) => (isRecord(toolResult) ? [toolResult] : []));
+function normalizeToolResults(toolResults: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(toolResults)) {
+    return [];
   }
-  if (isRecord(legacyToolResult)) {
-    return [legacyToolResult];
-  }
-  return [];
+  return toolResults.flatMap((toolResult) => (isRecord(toolResult) ? [toolResult] : []));
 }
 
 function normalizeSources(sources: unknown): ChatSource[] {
@@ -213,10 +207,7 @@ function normalizeChatMessage(message: unknown, index = 0): ChatMessage | null {
     options: normalizeOptions(message["options"]),
     context: normalizeContext(message["context"]),
     toolCalls: normalizeToolCalls(message["toolCalls"] ?? message["tool_calls"]),
-    toolResults: normalizeToolResults(
-      message["toolResults"] ?? message["tool_results"],
-      message["toolResult"] ?? message["tool_result"],
-    ),
+    toolResults: normalizeToolResults(message["toolResults"] ?? message["tool_results"]),
     sources: normalizeSources(message["sources"]),
     rerunAction: normalizeRerunAction(message["rerunAction"]),
     error: typeof message["error"] === "string" ? message["error"] : null,

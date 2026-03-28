@@ -180,7 +180,6 @@ export interface SurfaceChatEventPayload {
   context?: Record<string, unknown> | null;
   tool_calls?: Array<{ name: string; arguments: Record<string, unknown> }>;
   tool_results?: Record<string, unknown>[];
-  tool_result?: Record<string, unknown> | null;
   rerun_action?: Record<string, unknown> | null;
 }
 

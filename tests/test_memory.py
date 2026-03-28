@@ -228,8 +228,8 @@ class TestMemoryTools:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["tool_result"]["action"] == "memory_create"
-        assert data["tool_result"]["memory"]["content"] == "User prefers dark mode"
+        assert data["tool_results"][0]["action"] == "memory_create"
+        assert data["tool_results"][0]["memory"]["content"] == "User prefers dark mode"
 
     def test_memory_search_tool(self, test_client: TestClient) -> None:
         """memory_search tool finds entries."""
@@ -256,8 +256,8 @@ class TestMemoryTools:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["tool_result"]["action"] == "memory_search"
-        assert len(data["tool_result"]["memories"]) >= 1
+        assert data["tool_results"][0]["action"] == "memory_search"
+        assert len(data["tool_results"][0]["memories"]) >= 1
 
     def test_memory_update_tool(self, test_client: TestClient) -> None:
         """memory_update tool updates entry."""
@@ -271,7 +271,7 @@ class TestMemoryTools:
                 },
             },
         )
-        entry_id = create_resp.json()["tool_result"]["memory"]["id"]
+        entry_id = create_resp.json()["tool_results"][0]["memory"]["id"]
 
         response = test_client.post(
             "/chat",
@@ -285,8 +285,8 @@ class TestMemoryTools:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["tool_result"]["action"] == "memory_update"
-        assert data["tool_result"]["memory"]["content"] == "Updated content"
+        assert data["tool_results"][0]["action"] == "memory_update"
+        assert data["tool_results"][0]["memory"]["content"] == "Updated content"
 
     def test_memory_delete_tool(self, test_client: TestClient) -> None:
         """memory_delete tool removes entry."""
@@ -300,7 +300,7 @@ class TestMemoryTools:
                 },
             },
         )
-        entry_id = create_resp.json()["tool_result"]["memory"]["id"]
+        entry_id = create_resp.json()["tool_results"][0]["memory"]["id"]
 
         response = test_client.post(
             "/chat",
@@ -314,8 +314,8 @@ class TestMemoryTools:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["tool_result"]["action"] == "memory_delete"
-        assert data["tool_result"]["deleted"] is True
+        assert data["tool_results"][0]["action"] == "memory_delete"
+        assert data["tool_results"][0]["deleted"] is True
 
     def test_memory_update_nonexistent_tool(self, test_client: TestClient) -> None:
         """memory_update tool raises error for non-existent entry."""

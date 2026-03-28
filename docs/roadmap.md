@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: remove the remaining chat tool-output alias, then normalize steady-state runtime docs.
+Execution focus: normalize steady-state contract docs.
 
 ## Direction
 
@@ -35,17 +35,16 @@ Current product goals:
 
 ## Execution order
 
-### Next — Hard-cut `tool_results` as the only chat tool-output contract
+### Next — Normalize steady-state runtime docs
 
-1. Remove the `tool_result` first-item alias from HTTP, CLI, MCP, frontend contracts, and generated OpenAPI.
-2. Delete alias-only parsing, docs, and tests once every surface reads ordered `tool_results` directly.
-3. Keep bridge events, stored interactions, and frontend chat state aligned on one naming model.
+1. Rewrite `README.md` and `docs/ai_runtime.md` around the steady-state selector, tool-budget, replay, and embedding contracts.
+2. Keep public terminology aligned with the UX specs and transport contracts.
 
-### Then — Normalize steady-state runtime docs
+### Then — Trim residual time-bound wording outside the runtime docs
 
-1. Strip phase/cutover/current-state narration from `README.md` and `docs/ai_runtime.md`.
-2. Prefer contract-oriented headings and steady-state wording over rollout history.
-3. Keep selector, tool-budget, and continuity/recovery terminology aligned across public docs.
+1. Remove remaining current-state and rollout wording from `docs/architecture.md` and `docs/verification_checklist.md`.
+2. Keep architecture and verification docs contract-focused instead of timeline-focused.
+3. Avoid reintroducing rollout history outside the UX spec set.
 
 ## Guardrails
 
