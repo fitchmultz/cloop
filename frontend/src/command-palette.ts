@@ -430,7 +430,7 @@ function defaultCommandContextSources(command: CommandPaletteCommand, selectedCo
     sources.push(`Working set #${command.location.workingSetId}`);
   }
   if (command.location?.query) {
-    sources.push(`Query anchor: ${command.location.query}`);
+    sources.push(`Query filter: ${command.location.query}`);
   }
   if (selectedCount > 0 && command.group === "act") {
     sources.push(`${selectedCount} selected loop${selectedCount === 1 ? "" : "s"}`);

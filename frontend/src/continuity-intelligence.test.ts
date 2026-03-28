@@ -95,7 +95,7 @@ describe("continuity-intelligence", () => {
       writable: true,
     });
     globalThis.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], anchors: { planning: null, review: null }, workflow_summaries: [], notification_records: [] }), {
+      new Response(JSON.stringify({ recorded_at_utc: "2026-03-17T12:00:00Z", outcomes: [], workflow_summaries: [], notification_records: [], last_seen_markers: [], recovery_acknowledgements: [] }), {
         status: 200,
         headers: { "content-type": "application/json" },
       }),
@@ -257,32 +257,8 @@ describe("continuity-intelligence", () => {
             metadata: { sessionId: 41 },
           },
         ],
-        anchors: {
-          planning: {
-            kind: "planning",
-            review_focus: "planning",
-            session_id: 41,
-            visited_at_utc: "2026-03-17T11:56:00Z",
-            launch_location: null,
-            resume_location: {
-              state: "plan",
-              recall_tool: "chat",
-              review_focus: "planning",
-              session_id: 41,
-              loop_id: null,
-              view_id: null,
-              memory_id: null,
-              working_set_id: 7,
-              query: null,
-            },
-            outcome_title: "Resume weekly reset",
-            outcome_summary: "Continue the saved planning session.",
-            working_set_id: 7,
-            workflow_thread_id: "planning:41",
-            metadata: {},
-          },
-          review: null,
-        },
+        last_seen_markers: [],
+        recovery_acknowledgements: [],
         workflow_summaries: [
           {
             id: "planning:41:checkpoint:0",
@@ -475,7 +451,8 @@ describe("continuity-intelligence", () => {
       new Response(JSON.stringify({
         recorded_at_utc: "2026-03-17T12:00:00Z",
         outcomes: [],
-        anchors: { planning: null, review: null },
+        last_seen_markers: [],
+        recovery_acknowledgements: [],
         workflow_summaries: [],
         notification_records: [
           {
@@ -530,7 +507,8 @@ describe("continuity-intelligence", () => {
       new Response(JSON.stringify({
         recorded_at_utc: "2026-03-17T12:00:00Z",
         outcomes: [],
-        anchors: { planning: null, review: null },
+        last_seen_markers: [],
+        recovery_acknowledgements: [],
         workflow_summaries: [],
         notification_records: [
           {

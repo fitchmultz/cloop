@@ -6,7 +6,7 @@ Purpose:
 
 Responsibilities:
     - Assert snapshot and debug delivery-inspection reads succeed from a clean database.
-    - Assert outcome writes and anchor upserts return refreshed snapshots.
+    - Assert outcome writes return refreshed snapshots.
 
 Non-scope:
     - Frontend ranking or browser-local cache behavior.

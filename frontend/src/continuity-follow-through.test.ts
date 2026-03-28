@@ -244,10 +244,6 @@ function continuitySnapshot() {
         metadata: { sessionId: 41 },
       },
     ],
-    anchors: {
-      planning: null,
-      review: null,
-    },
     workflow_summaries: [
       {
         id: "planning:41:checkpoint:0",

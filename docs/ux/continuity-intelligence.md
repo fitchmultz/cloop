@@ -93,9 +93,9 @@ The system should surface when:
 
 ## Contract implications
 
-- Durable landed outcomes and resume anchors now live in backend continuity storage, while visit baselines and local last-visit timestamps remain browser-local.
-- The next continuity-intelligence slice should add durable “last seen” markers or equivalent session-level comparison points for drift-aware summaries.
-- Continuity views should compose durable outcome history, saved session metadata, and planning execution outputs before adding new intelligence layers.
+- Durable continuity snapshots now persist landed outcomes, workflow summaries, last-seen markers, notification state, and recovery acknowledgements, while visit baselines and local last-visit timestamps remain browser-local.
+- Frontend display readers may merge fresh unsynced receipts with durable summaries, but durable reopen and recovery resolution should stay backend-authored and summary-driven.
+- Working-set `state_anchor` and `query_anchor` items remain valid shell launch helpers, but they are not part of the continuity snapshot contract.
 - Drift detection should begin with deterministic comparisons, not speculative scoring.
 
 ## Acceptance criteria

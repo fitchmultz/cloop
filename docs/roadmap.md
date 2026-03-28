@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: no active cleanup slice; continue from new requirements.
+Execution focus: no active continuity cleanup slice; continue from new requirements.
 
 ## Direction
 
