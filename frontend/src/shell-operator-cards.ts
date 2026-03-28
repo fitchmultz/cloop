@@ -32,10 +32,8 @@ import type {
   LoopReviewCohortResponse,
   LoopReviewResponse,
   PlanningContextFreshnessTargetChangeResponse,
-  PlanningExecutionFollowUpResourceResponse,
   PlanningExecutionHistoryItemResponse,
   PlanningExecutionLaunchSurfaceResponse,
-  PlanningExecutionRollbackCueResponse,
   PlanningSessionSnapshotResponse,
   RelationshipReviewCandidateResponse,
   RelationshipReviewSessionSnapshotResponse,
@@ -69,6 +67,13 @@ import {
 } from "./continuity-recommendations";
 import { requireApiRerunAction } from "./executable-rerun";
 import { buildPlanningRollbackAction } from "./executable-undo";
+import {
+  describePlanningRollbackCue,
+  planningExecutionChangeSummary,
+  planningExecutionCreatedResources,
+  planningExecutionNextStep,
+  planningExecutionSummary,
+} from "./review-workspace-action-cards";
 import {
   buildChangedCountPreviewItems,
   buildGroupedChangePreviewItems,
@@ -283,25 +288,6 @@ export function createShellOperatorCardRenderer(
 
   function isUndoAction(value: OperatorActionCardUndoAction | null): value is OperatorActionCardUndoAction {
     return value != null;
-  }
-
-  function summarizeFollowUpResources(resources: PlanningExecutionFollowUpResourceResponse[] | undefined): string[] {
-    return (resources ?? []).slice(0, 3).map((resource) => {
-      return `${resource.label || `${resource.resource_type} #${resource.resource_id}`}: ${resource.operation_summary}`;
-    });
-  }
-
-  function summarizeRollbackCue(cues: PlanningExecutionRollbackCueResponse | null | undefined): string {
-    if (!cues) {
-      return "Rollback information is not available.";
-    }
-    if (cues.undoable_operation_count > 0) {
-      return `${cues.undoable_operation_count} operation${cues.undoable_operation_count === 1 ? "" : "s"} are directly undoable.`;
-    }
-    if (cues.rollback_supported_operation_count > 0) {
-      return `${cues.rollback_supported_operation_count} operation${cues.rollback_supported_operation_count === 1 ? "" : "s"} include guided rollback cues.`;
-    }
-    return "No explicit rollback path was captured for this execution.";
   }
 
   function formatChangedFieldLabel(field: string): string {
@@ -706,14 +692,14 @@ export function createShellOperatorCardRenderer(
       : createLocation({ state: "plan", reviewFocus: "planning", sessionId: snapshot.session.id });
     const propagatedWorkingSetId = launchSurfaceWorkingSetId(primarySurface);
     const propagatedWorkingSetLabel = workingSetLabel(propagatedWorkingSetId);
-    const followUpBits = summarizeFollowUpResources(latestExecution.follow_up_resources);
+    const followUpBits = planningExecutionCreatedResources(latestExecution).slice(0, 3);
     const card = {
       id: `plan-execution-${snapshot.session.id}-${latestExecution.checkpoint_index}`,
       kind: "handoff",
       tone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
       eyebrow: "Latest execution",
       title: latestExecution.checkpoint_title,
-      summary: `${latestExecution.operation_count} deterministic result${latestExecution.operation_count === 1 ? "" : "s"} were executed ${formatRelativeTime(latestExecution.executed_at_utc)}.`,
+      summary: planningExecutionSummary(latestExecution),
       rationale:
         "Execution cards make downstream consequences explicit so you can move into the next queue without reverse-engineering what changed.",
       preview: [
@@ -734,22 +720,20 @@ export function createShellOperatorCardRenderer(
         ],
         assumptions: ["Execution results reflect the latest stored checkpoint payload."],
         confidenceLabel: latestExecution.launch_surfaces?.length ? "A next surface was prepared for immediate launch" : "Execution completed without a downstream queue",
-        rollbackLabel: summarizeRollbackCue(latestExecution.rollback_cues),
+        rollbackLabel: describePlanningRollbackCue(latestExecution.rollback_cues),
         freshnessLabel: `Executed ${formatRelativeTime(latestExecution.executed_at_utc)}`,
       },
       handoff: {
-        changeSummary: latestExecution.launch_surfaces?.length
-          ? "This checkpoint produced downstream work you can launch immediately."
-          : "This checkpoint changed state but did not emit a dedicated downstream surface.",
+        changeSummary: planningExecutionChangeSummary(latestExecution),
         createdResources: followUpBits,
-        nextStep: primarySurface?.reason || "Inspect the execution history or continue in the plan workspace.",
+        nextStep: planningExecutionNextStep(latestExecution, "Inspect the execution history or continue in the plan workspace."),
         breadcrumbs: ["Home", "Plan", snapshot.session.name, latestExecution.checkpoint_title],
       },
       actions: [
         buildOpenAction(
           latestExecution.launch_surfaces?.length ? "Open next surface" : "Resume plan",
           primaryLocation,
-          followUpBits[0] ?? latestExecution.checkpoint_title,
+          planningExecutionNextStep(latestExecution, followUpBits[0] ?? latestExecution.checkpoint_title),
         ),
         requireApiRerunAction(snapshot.rerun_action, {
           sourceLabel: `Planning session ${snapshot.session.name}`,
@@ -803,7 +787,7 @@ export function createShellOperatorCardRenderer(
         ],
         assumptions: ["The downstream saved session still exists and is ready to open."],
         confidenceLabel: "Primary next-step recommendation",
-        rollbackLabel: summarizeRollbackCue(latestExecution.rollback_cues),
+        rollbackLabel: describePlanningRollbackCue(latestExecution.rollback_cues),
         freshnessLabel: `Prepared ${formatRelativeTime(latestExecution.executed_at_utc)}`,
       },
       handoff: {
@@ -1106,7 +1090,7 @@ export function createShellOperatorCardRenderer(
         ],
         assumptions: ["The downstream resources still exist and remain valid resume targets."],
         confidenceLabel: "Prepared resume handoff",
-        rollbackLabel: summarizeRollbackCue(recentExecution.at(-1)?.rollback_cues),
+        rollbackLabel: describePlanningRollbackCue(recentExecution.at(-1)?.rollback_cues),
         freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
       },
       handoff: {
@@ -1442,7 +1426,7 @@ export function createShellOperatorCardRenderer(
             "Planning execution history still reflects the canonical durable mutations created after your last visit.",
           ],
           confidenceLabel: "Grouped planning change rollup",
-          rollbackLabel: summarizeRollbackCue(recentExecution.at(-1)?.rollback_cues),
+          rollbackLabel: describePlanningRollbackCue(recentExecution.at(-1)?.rollback_cues),
           freshnessLabel: `Compared to ${formatTimestamp(visitBaseline.toISOString())}`,
           impactSummary: groupedChanges.map((group) => group.display_label).join(" · "),
         },

@@ -36,16 +36,18 @@ Any meaningful system action should answer:
 
 ## Handoff model
 
-Every handoff-capable workflow result should render:
+Every handoff-capable workflow result should render one structured follow-through payload:
 
 1. **Change summary**
-   - what succeeded, failed, or partially completed
+   - `summary` plus grouped `resource_change_summary` when available
 2. **Created resources**
-   - loops, sessions, views, templates, or other durable follow-ups
+   - `follow_up_resources` for loops, sessions, views, templates, or other durable follow-ups
 3. **Next operator surface**
-   - the recommended downstream queue or object to open now
-4. **Rollback / replay cues**
-   - what can be undone or safely retried
+   - `launch_surfaces` for the recommended downstream queue or object to open now
+4. **Reversible / repeatable actions**
+   - `undo_action` when the backend exposes a safe inverse
+   - `rollback_cues` when only advisory rollback guidance exists
+   - `rerun_action` when the workflow can be safely refreshed or rerun
 5. **Breadcrumbs**
    - how to return to the prior workflow state
 
@@ -77,9 +79,9 @@ Every handoff-capable workflow result should render:
 
 ## Contract implications
 
-- Existing planning execution metadata (`summary`, `follow_up_resources`, `launch_surfaces`, `rollback_cues`) should become the pattern for other AI-backed workflows.
-- Saved review sessions, planning sessions, and other durable resources should remain transport-neutral identifiers.
-- Frontend components should consume structured handoff payloads rather than reverse-engineering them from prose.
+- Existing planning execution metadata (`summary`, `resource_change_summary`, `follow_up_resources`, `launch_surfaces`, `rollback_cues`, `undo_action`) is the shared pattern for other AI-backed workflows.
+- Saved review sessions, planning sessions, working sets, and other durable resources should remain transport-neutral identifiers.
+- Frontend components should consume structured handoff payloads rather than reverse-engineering them from prose or cue counts.
 
 ## Acceptance criteria
 

@@ -48,7 +48,6 @@ import type {
   PlanningExecutionFollowUpResourceResponse,
   PlanningExecutionHistoryItemResponse,
   PlanningExecutionLaunchSurfaceResponse,
-  PlanningExecutionRollbackCueResponse,
   PlanningSessionCreateRequest,
   PlanningSessionExecuteResponse,
   PlanningSessionResponse,
@@ -87,6 +86,7 @@ import {
   buildPlanningExecutionSummaryCard,
   buildPlanningFollowUpResourceCard,
   buildPlanningLaunchSurfaceCard,
+  describePlanningRollbackCue,
   buildRelationshipDecisionReceiptCard,
   buildRelationshipImpactCard,
 } from "./review-workspace-action-cards";
@@ -1153,19 +1153,6 @@ function parseTimestampMs(value: string | null | undefined): number | null {
   }
   const timestamp = Date.parse(normalizedTimestampValue(value));
   return Number.isNaN(timestamp) ? null : timestamp;
-}
-
-function describeRollbackCue(cues: PlanningExecutionRollbackCueResponse | null | undefined): string {
-  if (!cues) {
-    return "Rollback information is not available.";
-  }
-  if (cues.undoable_operation_count > 0) {
-    return `${cues.undoable_operation_count} operation${cues.undoable_operation_count === 1 ? "" : "s"} are directly undoable.`;
-  }
-  if (cues.rollback_supported_operation_count > 0) {
-    return `${cues.rollback_supported_operation_count} operation${cues.rollback_supported_operation_count === 1 ? "" : "s"} include rollback guidance.`;
-  }
-  return "No explicit rollback path was captured for this execution.";
 }
 
 function planningTrustMetadata(snapshot: PlanningSessionSnapshotResponse | null): TrustSurfaceMetadata {
@@ -2293,7 +2280,7 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
           confidenceTone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
           freshnessLabel: `Executed ${formatRelativeTime(latestExecution.executed_at_utc)}`,
           freshnessTone: "progress",
-          rollbackLabel: describeRollbackCue(latestExecution.rollback_cues),
+          rollbackLabel: describePlanningRollbackCue(latestExecution.rollback_cues),
           rollbackTone: latestExecution.rollback_cues?.rollback_supported_operation_count ? "caution" : "neutral",
           impactSummary: latestExecution.summary && typeof latestExecution.summary === "object" && typeof latestExecution.summary["summary"] === "string"
             ? String(latestExecution.summary["summary"])
@@ -2909,7 +2896,6 @@ async function handlePlanningExecute(): Promise<void> {
   const receiptCard = buildPlanningExecutionReceiptCard({
     snapshot: payload.snapshot,
     latestExecution: payload.execution,
-    rollbackSummary: describeRollbackCue(payload.execution.rollback_cues),
     context: planningImpactHandoffContext(payload.snapshot.session.name),
     recovery: surfaceRecoveryForLocation(planLocation, `planning:${sessionId}`),
   });

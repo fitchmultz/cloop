@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: keep this file limited to unfinished end-to-end slices; the runtime and operator contract docs are aligned.
+Execution focus: eliminate remaining client-side follow-through reconstruction first, then close the highest-value transport parity gaps.
 
 ## Direction
 
@@ -9,7 +9,7 @@ Cloop should feel like a local-first execution OS for human + AI operational wor
 Current product goals:
 
 - Replace subsystem-first navigation with state-driven workflows.
-- Make the default experience answer: what should I do now, what needs a decision, and what changed.
+- Make the default experience answer: what should I do next, what needs a decision, and what changed.
 - Keep planning, review, chat, and enrichment outputs grounded in explicit action surfaces with previews, rationale, and rollback cues.
 - Preserve deterministic local control while letting AI accelerate preparation, synthesis, handoff, and rerun.
 - Reuse shared service and execution contracts across HTTP, web, CLI, and MCP instead of inventing per-surface workflow logic.
@@ -35,7 +35,23 @@ Current product goals:
 
 ## Execution order
 
-- No queued slices.
+### Next — Backend-author shared review follow-through payloads
+
+1. Emit one shared follow-through payload for relationship and enrichment mutations instead of forcing web/MCP/CLI clients to reconstruct receipts from `result` + `snapshot`.
+2. Reuse the existing planning vocabulary where it fits: explicit summary, next surface, `rerun_action`, and `undo_action` when the backend has a safe inverse.
+3. Keep irreversibility explicit when no exact-handle undo exists.
+
+### Then — Add safe relationship undo handles
+
+1. Expose exact reversible handles for relationship decisions when the backend can identify the landed loop event safely.
+2. Reuse the continuity undo contract instead of inferring reversibility from stale review snapshots.
+3. Keep duplicate/merge paths explicit when they remain irreversible.
+
+### Later — Close working-set CLI parity gaps
+
+1. Expose durable working-set list/get/context/mutation flows to the CLI with the same launch and exact-handle semantics already used by HTTP, web, and MCP.
+2. Reuse `loops/working_sets.py` plus the shared CLI runtime helpers instead of forking transport-local logic.
+3. Keep `#working-set/:id` and the returned `launch` payload as the shared resume contract across surfaces.
 
 ## Guardrails
 

@@ -17,7 +17,8 @@ Whenever Cloop already has real backend reversal support, the user gets a first-
 
 Reversible outcomes should behave consistently across planning, review, enrichment, working-set, and command-palette flows:
 
-- reversible work gets an executable undo control
+- reversible work gets an executable `undo_action`
+- rerunnable work gets an explicit `rerun_action`
 - irreversible work is labeled clearly as irreversible
 - stale or no-longer-safe undo paths are disabled with explicit reasons
 - successful undo creates its own landed receipt and resume target
@@ -67,7 +68,7 @@ The executable undo model is a first-class shared workflow contract.
   - body requires `run_id`
   - only the latest active run can be rolled back
   - fully rolled-back runs stay in history but are marked inactive for continuity and analytics
-- planning execution payloads carry a shared executable `undo_action` contract across HTTP, CLI, MCP, and web, so clients stop re-deriving rollback handles from raw cue counts
+- planning execution payloads carry a shared executable `undo_action` contract plus advisory `rollback_cues` across HTTP, CLI, MCP, and web, so clients stop re-deriving rollback handles from raw cue counts or prose
 - working-set undo is a public exact-handle contract:
   - `POST /loops/working-sets/undo`
   - body requires `expected_event_id`
@@ -153,7 +154,7 @@ Executable undo should appear in the same follow-through surfaces that already s
 - working-set follow-through receipts
 - command-palette recent actions and quick undo commands
 
-The interaction model should stay consistent across surfaces: the same outcome should not be undoable in one place and text-only in another.
+The interaction model should stay consistent across surfaces: the same outcome should not be undoable in one place, rerunnable in another, and text-only somewhere else.
 
 ## Surface-specific behavior
 

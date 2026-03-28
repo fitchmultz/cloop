@@ -289,10 +289,11 @@ describe("review-workspace-action-cards", () => {
     expect(card.summary).toContain("Applied suggestion #41");
     expect(card.actions.some((action) => action.type === "open" && action.label === "Resume queue")).toBe(true);
     expect(card.actions.some((action) => action.type === "rerun")).toBe(true);
-    expect(card.actions.some((action) => action.type === "undo")).toBe(true);
+    expect(card.actions.some((action) => action.type === "undo" && action.label === "Undo apply")).toBe(true);
+    expect(card.trust.rollbackLabel).toBe("Undo apply is available for this loop change.");
   });
 
-  it("builds planning execution receipts with rollback cues", () => {
+  it("builds planning execution receipts from the shared follow-through fields", () => {
     const snapshot = {
       session: {
         id: 19,
@@ -308,6 +309,27 @@ describe("review-workspace-action-cards", () => {
       executed_at_utc: "2026-03-19T16:30:00Z",
       launch_surfaces: [],
       follow_up_resources: [],
+      resource_change_summary: {
+        total_change_count: 2,
+        summary_label: "Created the downstream review queue.",
+        downstream_summary_label: "1 downstream review queue is ready.",
+        groups: [
+          {
+            resource_type: "relationship_review_session",
+            resource_type_label: "Relationship review sessions",
+            role: "follow_up_queue",
+            role_label: "Follow-up queue",
+            display_label: "Relationship review sessions · 1 queue",
+            count: 1,
+            resource_ids: [27],
+            preview_labels: ["Relationship review queue"],
+            operation_indexes: [0],
+            operation_summaries: ["Created the downstream review queue."],
+          },
+        ],
+        loop_groups: [],
+        downstream_groups: [],
+      },
       rollback: null,
       is_active: true,
       rollback_cues: {
@@ -345,13 +367,12 @@ describe("review-workspace-action-cards", () => {
           ],
         },
       ],
-      summary: { summary: "Created the downstream review queue." },
+      summary: null,
     } as unknown as import("./domain").PlanningExecutionHistoryItemResponse;
 
     const card = buildPlanningExecutionReceiptCard({
       snapshot,
       latestExecution,
-      rollbackSummary: "1 operation is directly undoable.",
       context: {
         breadcrumbPrefix: ["Home", "Plan"],
         fallbackWorkingSetId: 7,
@@ -361,6 +382,8 @@ describe("review-workspace-action-cards", () => {
     });
 
     expect(card.kind).toBe("receipt");
+    expect(card.summary).toBe("Created the downstream review queue.");
+    expect(card.handoff?.createdResources).toContain("Relationship review sessions · 1 queue");
     expect(card.trust.rollbackLabel).toBe("1 operation is directly undoable.");
     expect(card.actions.some((action) => action.type === "open")).toBe(true);
     expect(card.actions.some((action) => action.type === "rerun")).toBe(true);

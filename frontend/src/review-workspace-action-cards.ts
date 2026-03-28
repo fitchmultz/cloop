@@ -155,6 +155,81 @@ function launchSurfaceToLocation(
   return null;
 }
 
+export function planningExecutionSummary(
+  latestExecution: PlanningExecutionHistoryItemResponse,
+): string {
+  const explicitSummary = latestExecution.summary
+    && typeof latestExecution.summary === "object"
+    && typeof latestExecution.summary["summary"] === "string"
+    ? String(latestExecution.summary["summary"]).trim()
+    : "";
+  if (explicitSummary) {
+    return explicitSummary;
+  }
+  const summaryLabel = latestExecution.resource_change_summary?.summary_label?.trim();
+  if (summaryLabel) {
+    return summaryLabel;
+  }
+  return `Checkpoint execution produced ${latestExecution.operation_count} deterministic result${latestExecution.operation_count === 1 ? "" : "s"}.`;
+}
+
+export function planningExecutionCreatedResources(
+  latestExecution: PlanningExecutionHistoryItemResponse,
+): string[] {
+  const followUpResources = (latestExecution.follow_up_resources ?? [])
+    .map((resource) => resource.label?.trim() || resource.operation_summary?.trim() || `${resource.resource_type} #${resource.resource_id}`)
+    .filter((label): label is string => Boolean(label));
+  if (followUpResources.length) {
+    return followUpResources;
+  }
+  return (latestExecution.resource_change_summary?.groups ?? [])
+    .map((group) => group.display_label?.trim())
+    .filter((label): label is string => Boolean(label));
+}
+
+export function planningExecutionChangeSummary(
+  latestExecution: PlanningExecutionHistoryItemResponse,
+): string {
+  if (latestExecution.launch_surfaces?.length) {
+    return latestExecution.resource_change_summary?.downstream_summary_label?.trim()
+      || "This checkpoint produced downstream work you can launch immediately.";
+  }
+  return latestExecution.resource_change_summary?.summary_label?.trim()
+    || "This checkpoint changed state without creating a dedicated downstream queue.";
+}
+
+export function planningExecutionNextStep(
+  latestExecution: PlanningExecutionHistoryItemResponse,
+  fallback: string,
+): string {
+  const launchReason = (latestExecution.launch_surfaces ?? []).find((surface) => surface.reason?.trim())?.reason?.trim();
+  if (launchReason) {
+    return launchReason;
+  }
+  if (latestExecution.launch_surfaces?.length) {
+    const downstreamSummary = latestExecution.resource_change_summary?.downstream_summary_label?.trim();
+    if (downstreamSummary) {
+      return downstreamSummary;
+    }
+  }
+  return fallback;
+}
+
+export function describePlanningRollbackCue(
+  cues: PlanningExecutionHistoryItemResponse["rollback_cues"] | null | undefined,
+): string {
+  if (!cues) {
+    return "Rollback information is not available.";
+  }
+  if (cues.undoable_operation_count > 0) {
+    return `${cues.undoable_operation_count} operation${cues.undoable_operation_count === 1 ? " is" : "s are"} directly undoable.`;
+  }
+  if (cues.rollback_supported_operation_count > 0) {
+    return `${cues.rollback_supported_operation_count} operation${cues.rollback_supported_operation_count === 1 ? " includes" : "s include"} guided rollback cues.`;
+  }
+  return "No explicit rollback path was captured for this execution.";
+}
+
 function suggestionEntries(
   suggestion: EnrichmentReviewQueueItemResponse["pending_suggestions"][number],
 ): Array<[string, string]> {
@@ -234,23 +309,27 @@ export function buildPlanningExecutionSummaryCard(
     tone: latestExecution.launch_surfaces?.length ? "attention" : "progress",
     eyebrow: "Latest impact",
     title: latestExecution.checkpoint_title,
-    summary: latestExecution.summary && typeof latestExecution.summary === "object" && typeof latestExecution.summary["summary"] === "string"
-      ? String(latestExecution.summary["summary"])
-      : `Checkpoint execution produced ${latestExecution.operation_count} result${latestExecution.operation_count === 1 ? "" : "s"}.`,
+    summary: planningExecutionSummary(latestExecution),
     rationale: "Execution cards keep checkpoint results actionable so the next queue, rollback cues, and downstream resources stay visible in one place.",
     preview: [
       { label: "Executed", value: latestExecution.executed_at_utc },
       { label: "Operations", value: `${latestExecution.operation_count}` },
-      { label: "Launch surfaces", value: `${latestExecution.launch_surfaces?.length ?? 0}` },
-      { label: "Follow-up resources", value: `${latestExecution.follow_up_resources?.length ?? 0}` },
+      {
+        label: "Changed resources",
+        value: latestExecution.resource_change_summary?.summary_label
+          || `${latestExecution.resource_change_summary?.total_change_count ?? 0} durable change${(latestExecution.resource_change_summary?.total_change_count ?? 0) === 1 ? "" : "s"}`,
+      },
+      {
+        label: "Next handoff",
+        value: latestExecution.resource_change_summary?.downstream_summary_label
+          || `${latestExecution.launch_surfaces?.length ?? 0} launch surface${(latestExecution.launch_surfaces?.length ?? 0) === 1 ? "" : "s"}`,
+      },
     ],
     trust,
     handoff: {
-      changeSummary: latestExecution.launch_surfaces?.length
-        ? "This checkpoint produced downstream work you can launch immediately."
-        : "This checkpoint changed state without creating a dedicated downstream queue.",
-      createdResources: (latestExecution.follow_up_resources ?? []).map((resource) => resource.label || `${resource.resource_type} #${resource.resource_id}`),
-      nextStep: primarySurface?.reason || "Inspect the plan or continue from the latest checkpoint.",
+      changeSummary: planningExecutionChangeSummary(latestExecution),
+      createdResources: planningExecutionCreatedResources(latestExecution),
+      nextStep: planningExecutionNextStep(latestExecution, "Inspect the plan or continue from the latest checkpoint."),
       breadcrumbs: [...context.breadcrumbPrefix, context.sessionName, latestExecution.checkpoint_title],
       workingSet: primarySurface
         ? resolveWorkingSetSessionMetadata(
@@ -260,7 +339,11 @@ export function buildPlanningExecutionSummaryCard(
         : workingSetHandoff(context),
     },
     actions: [
-      openAction(primarySurface ? "Open next surface" : "Resume plan", primaryLocation, latestExecution.checkpoint_title),
+      openAction(
+        primarySurface ? "Open next surface" : "Resume plan",
+        primaryLocation,
+        planningExecutionNextStep(latestExecution, latestExecution.checkpoint_title),
+      ),
       requireApiRerunAction(snapshot.rerun_action, {
         sourceLabel: `Planning session ${snapshot.session.name}`,
         workingSetId: context.fallbackWorkingSetId,
@@ -313,7 +396,7 @@ export function buildPlanningLaunchSurfaceCard(
       confidenceTone: "attention",
       freshnessLabel: null,
       freshnessTone: "neutral",
-      rollbackLabel: "Use the originating execution history for rollback cues",
+      rollbackLabel: describePlanningRollbackCue(latestExecution.rollback_cues),
       rollbackTone: "caution",
       impactSummary: surface.reason || "Open the next surface prepared by this checkpoint.",
       impactTone: "attention",
@@ -766,6 +849,12 @@ export function buildEnrichmentDecisionReceiptCard(options: {
     : options.actionType === "reject"
       ? `Rejected suggestion #${options.suggestionId} and refreshed the queue.`
       : `Submitted clarification answers and reran enrichment for the queue.`;
+  const undoAction = options.actionType === "apply" && options.resultLoop
+    ? buildLoopUndoAction(options.resultLoop, {
+        label: "Undo apply",
+        description: `Undo the applied enrichment suggestion for ${loopTitle(options.resultLoop)}.`,
+      })
+    : null;
   return withRecovery(createReceiptCard({
     id: `enrichment-receipt-${options.snapshot.session.id}-${options.suggestionId}-${Date.now()}`,
     eyebrow: "Enrichment receipt",
@@ -792,6 +881,7 @@ export function buildEnrichmentDecisionReceiptCard(options: {
       generationTone: "progress",
       freshnessLabel: `Queue refreshed ${options.snapshot.session.updated_at_utc}`,
       freshnessTone: "progress",
+      rollbackLabel: undoAction ? "Undo apply is available for this loop change." : options.trust.rollbackLabel,
       impactSummary: summary,
       impactTone: options.actionType === "apply" ? "attention" : "progress",
     },
@@ -814,13 +904,7 @@ export function buildEnrichmentDecisionReceiptCard(options: {
       ...(loop
         ? [openAction("Open affected loop in Do", doLocation, `Inspect ${loopTitle(loop)} in Do`, "secondary")]
         : []),
-      ...((options.actionType === "apply" && options.resultLoop)
-        ? [
-            buildLoopUndoAction(options.resultLoop, {
-              description: `Undo the applied enrichment suggestion for ${loopTitle(options.resultLoop)}.`,
-            }),
-          ].filter(isUndoAction)
-        : []),
+      ...[undoAction].filter(isUndoAction),
     ],
   }), { recovery: options.recovery ?? null });
 }
@@ -828,7 +912,6 @@ export function buildEnrichmentDecisionReceiptCard(options: {
 export function buildPlanningExecutionReceiptCard(options: {
   snapshot: PlanningSessionSnapshotResponse;
   latestExecution: PlanningExecutionHistoryItemResponse;
-  rollbackSummary: string;
   context: ReviewWorkspaceHandoffContext & { sessionName: string };
   recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
@@ -854,10 +937,7 @@ export function buildPlanningExecutionReceiptCard(options: {
         launchSurfaceWorkingSetId(primarySurface, options.context.fallbackWorkingSetId),
       )
     : workingSetHandoff(options.context);
-  const summary = options.latestExecution.summary && typeof options.latestExecution.summary === "object"
-    && typeof options.latestExecution.summary["summary"] === "string"
-    ? String(options.latestExecution.summary["summary"])
-    : `Executed ${options.latestExecution.checkpoint_title} with ${options.latestExecution.operation_count} deterministic operation${options.latestExecution.operation_count === 1 ? "" : "s"}.`;
+  const summary = planningExecutionSummary(options.latestExecution);
   return withRecovery(createReceiptCard({
     id: `planning-receipt-${options.snapshot.session.id}-${options.latestExecution.checkpoint_index}-${Date.now()}`,
     eyebrow: "Planning receipt",
@@ -884,15 +964,15 @@ export function buildPlanningExecutionReceiptCard(options: {
       confidenceTone: primarySurface ? "attention" : "progress",
       freshnessLabel: `Executed ${options.latestExecution.executed_at_utc}`,
       freshnessTone: "progress",
-      rollbackLabel: options.rollbackSummary,
+      rollbackLabel: describePlanningRollbackCue(options.latestExecution.rollback_cues),
       rollbackTone: "caution",
       impactSummary: summary,
       impactTone: primarySurface ? "attention" : "progress",
     },
     handoff: {
-      changeSummary: summary,
-      createdResources: (options.latestExecution.follow_up_resources ?? []).map((resource) => resource.label || `${resource.resource_type} #${resource.resource_id}`),
-      nextStep: primarySurface?.reason || "Inspect the plan or continue from the latest checkpoint.",
+      changeSummary: planningExecutionChangeSummary(options.latestExecution),
+      createdResources: planningExecutionCreatedResources(options.latestExecution),
+      nextStep: planningExecutionNextStep(options.latestExecution, "Inspect the plan or continue from the latest checkpoint."),
       breadcrumbs: [...options.context.breadcrumbPrefix, options.context.sessionName, options.latestExecution.checkpoint_title],
       workingSet,
     },
