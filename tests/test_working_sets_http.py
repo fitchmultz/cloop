@@ -60,7 +60,7 @@ def test_working_set_endpoints(make_test_client) -> None:
         "/loops/working-sets",
         json={
             "name": "Launch reset",
-            "description": "Keep the launch cleanup loops and follow-up anchors together.",
+            "description": "Keep the launch cleanup loops and reusable saved items together.",
         },
     )
     assert create_response.status_code == 201
@@ -89,26 +89,28 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert add_loop_payload["items"][0]["launch"]["loop_id"] == first_loop_id
     assert add_loop_payload["latest_reversible_event_type"] == "add_item"
 
-    add_query_anchor_response = client.post(
+    add_query_helper_response = client.post(
         f"/loops/working-sets/{working_set_id}/items",
         json={
             "item_type": "query_anchor",
-            "label": "Blocked launch work",
-            "description": "Return to blocked launch cleanup if drift appears.",
             "metadata": {
                 "query": "status:blocked project:launch",
                 "state": "review",
             },
         },
     )
-    assert add_query_anchor_response.status_code == 200
-    add_query_anchor_payload = add_query_anchor_response.json()
-    assert add_query_anchor_payload["item_count"] == 2
-    assert add_query_anchor_payload["items"][0]["item_type"] == "query_anchor"
+    assert add_query_helper_response.status_code == 200
+    add_query_helper_payload = add_query_helper_response.json()
+    assert add_query_helper_payload["item_count"] == 2
+    assert add_query_helper_payload["items"][0]["item_type"] == "query_anchor"
+    assert add_query_helper_payload["items"][0]["kind_label"] == "Saved query"
+    assert add_query_helper_payload["items"][0]["status_label"] == "Saved query"
+    assert add_query_helper_payload["items"][0]["label"] == "Query · status:blocked project:launch"
+    assert add_query_helper_payload["items"][0]["description"] == "status:blocked project:launch"
     assert (
-        add_query_anchor_payload["items"][0]["launch"]["query"] == "status:blocked project:launch"
+        add_query_helper_payload["items"][0]["launch"]["query"] == "status:blocked project:launch"
     )
-    assert add_query_anchor_payload["latest_reversible_event_type"] == "add_item"
+    assert add_query_helper_payload["latest_reversible_event_type"] == "add_item"
 
     add_second_loop_response = client.post(
         f"/loops/working-sets/{working_set_id}/items",
@@ -305,7 +307,7 @@ def test_working_set_bulk_add_and_undo(make_test_client) -> None:
 
     create_response = client.post(
         "/loops/working-sets",
-        json={"name": "Bulk add", "description": "Undo bulk anchor creation."},
+        json={"name": "Bulk add", "description": "Undo bulk saved-item creation."},
     )
     assert create_response.status_code == 201
     working_set_id = int(create_response.json()["id"])
@@ -367,13 +369,13 @@ def test_working_set_undo_replays_idempotently(make_test_client) -> None:
     assert second_undo.json() == first_undo.json()
 
 
-def test_working_set_recall_query_anchor_round_trips_recall_tool(make_test_client) -> None:
+def test_working_set_query_launch_helper_round_trips_recall_tool(make_test_client) -> None:
     client = make_test_client()
     create_response = client.post(
         "/loops/working-sets",
         json={
-            "name": "Recall anchor",
-            "description": "Verify recall query anchors keep their tool.",
+            "name": "Recall helper",
+            "description": "Verify recall query launch helpers keep their tool.",
         },
     )
     assert create_response.status_code == 201
@@ -397,18 +399,20 @@ def test_working_set_recall_query_anchor_round_trips_recall_tool(make_test_clien
     payload = response.json()
     assert payload["item_count"] == 1
     assert payload["items"][0]["item_type"] == "query_anchor"
+    assert payload["items"][0]["kind_label"] == "Saved query"
+    assert payload["items"][0]["status_label"] == "Saved query"
     assert payload["items"][0]["launch"]["state"] == "recall"
     assert payload["items"][0]["launch"]["recall_tool"] == "rag"
     assert payload["items"][0]["launch"]["query"] == "What changed in the roadmap?"
 
 
-def test_working_set_state_anchor_requires_working_set_id_for_working_set_launch(
+def test_working_set_state_launch_helper_requires_working_set_id_for_working_set_launch(
     make_test_client,
 ) -> None:
     client = make_test_client()
     create_response = client.post(
         "/loops/working-sets",
-        json={"name": "Session launch", "description": "Validate working-set state anchors."},
+        json={"name": "Session launch", "description": "Validate working-set saved locations."},
     )
     assert create_response.status_code == 201
     working_set_id = int(create_response.json()["id"])
@@ -425,6 +429,63 @@ def test_working_set_state_anchor_requires_working_set_id_for_working_set_launch
 
     assert response.status_code == 400
     assert "working_set_id" in response.text
+
+
+def test_working_set_state_launch_helper_defaults_to_neutral_copy(make_test_client) -> None:
+    client = make_test_client()
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Default state launch", "description": "Verify neutral defaults."},
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    response = client.post(
+        f"/loops/working-sets/{working_set_id}/items",
+        json={
+            "item_type": "state_anchor",
+            "metadata": {"state": "capture"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["items"][0]["kind_label"] == "Saved location"
+    assert payload["items"][0]["status_label"] == "Saved location"
+    assert payload["items"][0]["label"] == "Location · capture"
+    assert payload["items"][0]["description"] == "Resume this saved location."
+
+
+def test_working_set_state_launch_helper_rejects_boolean_metadata_ids(make_test_client) -> None:
+    client = make_test_client()
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Strict ids", "description": "Reject boolean metadata ids."},
+    )
+    assert create_response.status_code == 201
+    working_set_id = int(create_response.json()["id"])
+
+    response = client.post(
+        f"/loops/working-sets/{working_set_id}/items",
+        json={
+            "item_type": "state_anchor",
+            "label": "Bad working set launch",
+            "metadata": {"state": "working_set", "working_set_id": True},
+        },
+    )
+    assert response.status_code == 400
+    assert "working_set_id" in response.text
+
+    response = client.post(
+        f"/loops/working-sets/{working_set_id}/items",
+        json={
+            "item_type": "state_anchor",
+            "label": "Bad plan launch",
+            "metadata": {"state": "plan", "session_id": True},
+        },
+    )
+    assert response.status_code == 400
+    assert "session_id" in response.text
 
 
 def test_working_set_returns_missing_items_instead_of_breaking(make_test_client) -> None:

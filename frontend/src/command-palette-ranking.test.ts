@@ -60,7 +60,7 @@ describe("locationsMatch", () => {
     expect(locationsMatch(location({ state: "recall", memoryId: 4 }), location({ state: "recall", memoryId: 4 }))).toBe(true);
   });
 
-  it("treats differing query anchors as different locations", () => {
+  it("treats differing saved queries as different locations", () => {
     expect(
       locationsMatch(
         location({ state: "review", query: "status:blocked" }),

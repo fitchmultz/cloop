@@ -8,7 +8,7 @@
  * Responsibilities:
  *   - Assert createLocation applies the expected shell defaults.
  *   - Assert parseHash and locationToHash preserve key deep-link routes.
- *   - Assert location comparisons stay sensitive to working-set and query anchors.
+ *   - Assert location comparisons stay sensitive to working-set scope and saved queries.
  *
  * Scope:
  *   - Pure shell-routing helpers only.
@@ -94,7 +94,7 @@ describe("locationsMatch", () => {
     ).toBe(true);
   });
 
-  it("treats query anchors as distinct", () => {
+  it("treats saved queries as distinct locations", () => {
     expect(
       locationsMatch(
         createLocation({ state: "do", query: "status:blocked" }),

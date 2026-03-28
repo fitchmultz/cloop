@@ -95,7 +95,7 @@ The system should surface when:
 
 - Durable continuity snapshots now persist landed outcomes, workflow summaries, last-seen markers, notification state, and recovery acknowledgements, while visit baselines and local last-visit timestamps remain browser-local.
 - Frontend display readers may merge fresh unsynced receipts with durable summaries, but durable reopen and recovery resolution should stay backend-authored and summary-driven.
-- Working-set `state_anchor` and `query_anchor` items remain valid shell launch helpers, but they are not part of the continuity snapshot contract.
+- Working-set `state_anchor` and `query_anchor` values remain valid API/storage launch-helper item types, but they are not part of the continuity snapshot contract.
 - Drift detection should begin with deterministic comparisons, not speculative scoring.
 
 ## Acceptance criteria

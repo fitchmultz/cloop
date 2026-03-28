@@ -37,7 +37,7 @@ A working set can contain:
 - saved review sessions
 - saved views
 - notes or memory references
-- optional search/query anchors
+- optional saved queries and saved locations (`query_anchor` and `state_anchor` remain the API/storage `item_type` values for these launch helpers)
 
 Working sets should support:
 
@@ -52,7 +52,7 @@ Current implementation defaults:
 - one durable active working-set context is stored alongside the named sets
 - a dedicated shell route (`#working-set/:id`) restores the set as a first-class session surface
 - focus mode is explicit and can be toggled on/off without deleting the active set
-- sets may contain both durable object references and lightweight state/query anchors when the shell needs a reusable launch target
+- sets may contain both durable object references and lightweight launch helpers when the shell needs a reusable launch target
 - working-set create/focus/pin/stage/defer/reorder/remove/bulk-add mutations now emit shared receipt cards so the landed outcome, executable undo action, and reopen path stay visible after the mutation lands
 - working-set and focus-mode responses expose exact reversible event handles so receipts, recent history, and command-palette recents can replay the same safe undo contract everywhere
 
@@ -90,13 +90,14 @@ Focus mode should:
 
 - **Empty working set**: show setup guidance, not an empty shell.
 - **Deleted object inside set**: show graceful missing-state chips rather than breaking the set.
-- **Stale query anchor**: explain drift and offer refresh.
+- **Stale saved query**: explain drift and offer refresh.
 - **Too-large set**: nudge the user toward splitting the set if it loses focus value.
 
 ## Contract implications
 
 - Working sets need a durable domain object plus a reversible event log for exact-handle undo.
 - They should reference existing durable objects by IDs instead of duplicating payloads.
+- `query_anchor` and `state_anchor` remain stable API/storage `item_type` values, while user-facing copy should stay neutral.
 - Shared surfaces should be able to read/write working-set membership consistently.
 - Working-set context changes and working-set membership mutations should reuse the same shared undo contract rather than bespoke transport-specific reversal paths.
 

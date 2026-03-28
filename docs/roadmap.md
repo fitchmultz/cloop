@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: no active manual-QA hardening slice; continue from newly approved work.
+Execution focus: no active roadmap slice in this file; add the next approved end-to-end slice when selected.
 
 ## Direction
 

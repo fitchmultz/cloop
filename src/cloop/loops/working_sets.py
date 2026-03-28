@@ -49,6 +49,13 @@ _WORKING_SET_ITEM_TYPES = {
     "query_anchor",
     "state_anchor",
 }
+# `query_anchor` and `state_anchor` remain the canonical API/storage item types.
+# User-facing copy should stay neutral and refer to saved queries/locations instead.
+_QUERY_HELPER_KIND_LABEL = "Saved query"
+_QUERY_HELPER_STATUS_LABEL = "Saved query"
+_STATE_HELPER_KIND_LABEL = "Saved location"
+_STATE_HELPER_STATUS_LABEL = "Saved location"
+_STATE_HELPER_DEFAULT_DESCRIPTION = "Resume this saved location."
 
 _SHELL_STATES = {"operator", "capture", "do", "decide", "plan", "review", "recall", "working_set"}
 _RECALL_TOOLS = {"chat", "memory", "rag"}
@@ -188,7 +195,11 @@ def _validate_state_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, An
         if numeric_value is None:
             parsed[numeric_key] = None
             continue
-        if not isinstance(numeric_value, int) or numeric_value < 1:
+        if (
+            isinstance(numeric_value, bool)
+            or not isinstance(numeric_value, int)
+            or numeric_value < 1
+        ):
             raise ValidationError(f"metadata.{numeric_key}", "must be a positive integer")
         parsed[numeric_key] = numeric_value
 
@@ -487,10 +498,10 @@ def _resolve_working_set_item(
             "id": row["id"],
             "item_type": item_type,
             "item_id": None,
-            "kind_label": "Query anchor",
+            "kind_label": _QUERY_HELPER_KIND_LABEL,
             "label": fallback_label,
             "description": fallback_description or anchor["query"],
-            "status_label": "Query anchor",
+            "status_label": _QUERY_HELPER_STATUS_LABEL,
             "missing": False,
             "position": row["position"],
             "created_at_utc": row["created_at"],
@@ -509,10 +520,10 @@ def _resolve_working_set_item(
             "id": row["id"],
             "item_type": item_type,
             "item_id": None,
-            "kind_label": "Surface anchor",
+            "kind_label": _STATE_HELPER_KIND_LABEL,
             "label": fallback_label,
-            "description": fallback_description or "Resume a saved workflow surface.",
-            "status_label": "Surface anchor",
+            "description": fallback_description or _STATE_HELPER_DEFAULT_DESCRIPTION,
+            "status_label": _STATE_HELPER_STATUS_LABEL,
             "missing": False,
             "position": row["position"],
             "created_at_utc": row["created_at"],
@@ -743,9 +754,9 @@ def _default_item_fields(
 
     if item_type == "state_anchor":
         anchor = _validate_state_anchor_metadata(metadata)
-        label = str(metadata.get("label") or "").strip() or f"Surface · {anchor['state']}"
+        label = str(metadata.get("label") or "").strip() or f"Location · {anchor['state']}"
         description = (
-            str(metadata.get("description") or "").strip() or "Resume a saved surface anchor."
+            str(metadata.get("description") or "").strip() or _STATE_HELPER_DEFAULT_DESCRIPTION
         )
         return label, description
 
@@ -1026,13 +1037,13 @@ def undo_working_set_event(
     elif event_type == "delete":
         summary = (
             f"Restored working set {affected_working_set_name or f'#{subject_id}'} "
-            f"and its saved anchors."
+            f"and its saved items."
         )
     elif event_type == "context_update":
         summary = "Restored the prior active working-set context and focus mode."
     elif event_type == "bulk_add_items":
         summary = (
-            "Restored the previous anchor membership for "
+            "Restored the previous saved-item membership for "
             f"{affected_working_set_name or f'working set #{subject_id}'}."
         )
     else:

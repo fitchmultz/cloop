@@ -335,40 +335,17 @@ export function createShellWorkingSetController(
     );
   }
 
-  function workingSetItemKindLabel(item: WorkingSetItemResponse): string {
-    if (item.item_type === "query_anchor") {
-      return "Saved filter";
-    }
-    if (item.item_type === "state_anchor") {
-      return "Saved location";
-    }
-    return item.kind_label;
-  }
-
-  function workingSetItemStatusLabel(item: WorkingSetItemResponse): string {
-    if (item.missing) {
-      return "Missing";
-    }
-    if (item.item_type === "query_anchor") {
-      return "Saved filter";
-    }
-    if (item.item_type === "state_anchor") {
-      return "Saved location";
-    }
-    return item.status_label ?? "Ready";
-  }
-
   function renderWorkingSetItemCard(workingSetId: number, item: WorkingSetItemResponse): string {
     const location = workingSetItemLocation(item);
     return `
       <article class="working-set-item-card${item.missing ? " working-set-item-card--missing" : ""}">
         <div class="working-set-card-header">
           <div>
-            <p class="support-eyebrow">${escapeHtml(workingSetItemKindLabel(item))}</p>
+            <p class="support-eyebrow">${escapeHtml(item.kind_label)}</p>
             <h4>${escapeHtml(item.label)}</h4>
             <p>${escapeHtml(item.description)}</p>
           </div>
-          <span class="operator-chip">${escapeHtml(workingSetItemStatusLabel(item))}</span>
+          <span class="operator-chip">${escapeHtml(item.missing ? "Missing" : item.status_label ?? "Ready")}</span>
         </div>
         <div class="operator-card-actions">
           <button type="button" ${openLocationAttributes(location)}>Open</button>
@@ -953,18 +930,18 @@ export function createShellWorkingSetController(
     recordWorkingSetReceipt({
       kind: "working_set",
       historyLabel: `${pastTense} ${label}`,
-      historyDescription: description ?? "Added a saved location to the active working set.",
+      historyDescription: description ?? "Added a saved item to the active working set.",
       title: `${pastTense} in working set${activeSet ? ` · ${activeSet.name}` : ""}`,
       summary: variant === "stage"
         ? `${label} is now staged as a resumable handoff.`
         : variant === "defer"
           ? `${label} is now saved for later without losing the landing context.`
-          : `${label} is now saved as a resumable location.`,
+          : `${label} is now saved in the working set.`,
       tone: "progress",
       location: pinnedLocation,
       workingSet: activeSet,
       rollbackLabel: variant === "pin"
-        ? "Remove this item from the working set to undo the saved location."
+        ? "Remove this item from the working set to undo the saved item."
         : "Remove this item from the working set to cancel the staged handoff.",
       nextStep: activeSet != null
         ? "Open the working set to continue from the landed outcome."
