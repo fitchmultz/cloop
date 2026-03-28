@@ -47,14 +47,23 @@ Keeping lots of loops in your head consumes working memory. That mental backgrou
 
 The long-term goal of Cloop is simple: **get loops out of your head and into a trusted local system** that you control — so you can close them deliberately instead of carrying them around.
 
-Today, Cloop is the foundation for that: a private local knowledge base + lightweight persistent memory you can query. The “closed loop” experience is: capture → retrieve → act → confirm → close.
+Cloop provides that foundation: a private local knowledge base, durable memory store, and loop manager you can query and act on. The “closed loop” experience is: capture → retrieve → decide → act → confirm → close.
 
 ## Design and Architecture
 
 - Start with the concise architecture walkthrough: [docs/architecture.md](docs/architecture.md)
-- Use [docs/ai_runtime.md](docs/ai_runtime.md) for the pi bridge protocol, startup assumptions, and failure semantics.
+- Use [docs/ai_runtime.md](docs/ai_runtime.md) for the shipped selector, replay, streaming, final-payload, and embedding contracts.
 - Use [docs/roadmap.md](docs/roadmap.md) as the canonical plan for AI capability and interface-parity work.
 - Use [docs/verification_checklist.md](docs/verification_checklist.md) for setup, validation, and smoke-test commands.
+
+## AI runtime contract
+
+- **Selectors**: `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` are ordered preference lists. In `fallback`, Cloop resolves each role to the first selector that `pi --list-models` exposes. In `exact`, each role must resolve one explicit selector.
+- **Tool budgets**: budgets are resolved per surface (`chat=4`, `planning=2`, `enrichment=2`, `rag=2`, `mutation=2` by default). Read-only chat/planning/enrichment/RAG can use one bounded alternate strategy; mutation stays single-path.
+- **Streaming**: HTTP `/chat?stream=true` emits `token`, `tool_call`, `tool_result`, `done`; HTTP `/ask?stream=true` emits `token`, `done`. The `done` event carries the same final payload as the non-streaming response. MCP `chat.complete` is non-streaming.
+- **Final payloads**: chat returns `message`, `tool_results`, `tool_calls`, `metadata`, `options`, `context`, `sources`, `rerun_action`; RAG ask returns `answer`, `chunks`, `model`, `sources`, `metadata`, `rerun_action`.
+- **Embeddings**: generative requests use the pi bridge; embeddings use the separate LiteLLM-compatible path configured by `CLOOP_EMBED_MODEL` and the embedding provider env vars.
+- Full reference: [`docs/ai_runtime.md`](docs/ai_runtime.md)
 
 ## Features
 
@@ -76,7 +85,7 @@ Today, Cloop is the foundation for that: a private local knowledge base + lightw
 
 Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 
-## What you can use it for (now)
+## What you can use it for
 
 - **Personal knowledge base**: Drop in docs, notes, PDFs; ask questions later with cited sources.
 - **Project recall**: Keep design notes, meeting notes, and decision history in a searchable store.
@@ -90,7 +99,7 @@ If you want a simple mental model, treat each loop as having:
 - **Intent**: What does “completed” mean? (clear definition of closed)
 - **Next action**: The smallest step you can do next
 - **Context**: Links, filenames, snippets, and references that make it easy to resume later
-- **Review cadence**: When should you look at it again? (today, next week, someday)
+- **Review cadence**: When should you look at it again? (soon, later, or on a schedule)
 
 Cloop’s role is to keep the **context** and make retrieval effortless, so “next action” is the only thing you have to hold in your head.
 
@@ -142,15 +151,13 @@ CLOOP_SCHEDULER_ENABLED=false
 ```
 
 This keeps the generative path on pi while embeddings stay local on Ollama.
-By default Cloop treats the pi selector env vars as ordered preferences and picks the
-first selector that `pi --list-models` reports as available for your current auth/config.
-The project preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
-`openai-codex/gpt-5.4`, but any pi-supported selectors are valid.
-If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
-selector for each of `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL`.
+`CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` are ordered selector preference lists.
+In `CLOOP_PI_SELECTOR_MODE=fallback`, Cloop asks `pi` which configured selectors are available and resolves each role to the first selector that `pi --list-models` reports as available. In `exact`, each role must be set to one explicit selector and unavailable selectors fail hard.
+The default preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
+`openai-codex/gpt-5.4`, but any selector that `pi` supports is valid.
 Read-only chat, planning, enrichment, and RAG generation paths can use one bounded
-alternate strategy after a retryable upstream failure before returning a deterministic
-final `readonly_generation_exhausted` error; mutation flows stay single-path.
+alternate strategy after a retryable upstream failure before returning
+`readonly_generation_exhausted`; mutation flows stay single-path.
 
 When you do enable scheduling, run it as a separate process:
 
@@ -183,7 +190,7 @@ uv run cloop ask "What does the onboarding process say about PTO?" --k 5
 Run grounded chat from the terminal using the shared `/chat` contract:
 
 ```bash
-uv run cloop chat "What should I focus on today?" --include-loop-context --include-memory-context
+uv run cloop chat "What should I focus on next?" --include-loop-context --include-memory-context
 uv run cloop chat "Where is the onboarding checklist?" --include-rag-context --rag-scope onboarding
 ```
 
@@ -208,9 +215,9 @@ uv run cloop memory list --category preference
 
 Notes:
 
-- `cloop ask` prints JSON including the generated `answer`, retrieved `chunks`, and `sources`.
-- `cloop chat` reuses the shared grounded chat contract from the HTTP `/chat` endpoint and supports `text` or `json` output.
-- The HTTP `/ask` endpoint returns the same answer-oriented payload, with optional SSE streaming.
+- `cloop ask` prints JSON including the generated `answer`, retrieved `chunks`, `model`, `sources`, `metadata`, and `rerun_action`.
+- `cloop chat` reuses the shared grounded chat contract from HTTP `/chat`; `--format json` returns `message`, `tool_results`, `tool_calls`, `metadata`, `options`, `context`, `sources`, and `rerun_action`.
+- HTTP `/chat` and `/ask` SSE streams end with a `done` event that carries the same final payload as the non-streaming response.
 - Loop lifecycle and utility commands support `--format json|table` (default: `json`).
 
 ## Validation shortcut
@@ -435,12 +442,12 @@ cloop plan session get --session 1
 cloop plan session execute --session 1
 cloop plan session refresh --session 1
 
-# Execution payloads now include execution.summary plus per-operation
-# rollback_actions / resource_refs / provenance so operators can inspect
-# exactly which loops, saved views, templates, or review sessions were touched.
+# Execution payloads include execution.summary, resource_change_summary,
+# follow_up_resources, launch_surfaces, rollback_cues, and undo_action so
+# operators can inspect what changed, what to open next, and what can be reversed.
 ```
 
-Planning checkpoints may now reuse broader deterministic primitives when the
+Planning checkpoints may reuse broader deterministic primitives when the
 shared services already own them: query-bulk loop updates/close/snooze steps,
 saved review-session creation, saved-view creation/update, and template capture
 from existing loops.
@@ -484,7 +491,7 @@ curl -X POST http://127.0.0.1:8000/loops/planning/sessions/1/execute
 **MCP operator pattern (good default, not the only valid sequence):**
 - `plan.session.create` → generate the durable checkpointed plan.
 - `plan.session.get` / `plan.session.move` → inspect and navigate checkpoints before execution.
-- `plan.session.execute` → run exactly one deterministic checkpoint and inspect `execution.results`, `execution.summary`, and per-operation `rollback_actions` / `resource_refs`.
+- `plan.session.execute` → run exactly one deterministic checkpoint and inspect `execution.results`, `execution.summary`, `execution.resource_change_summary`, `execution.follow_up_resources`, `execution.launch_surfaces`, `execution.rollback_cues`, and `execution.undo_action`.
 - `review.relationship_session.*` and `review.enrichment_session.*` → continue any saved follow-up sessions that a checkpoint created.
 - `chat.complete` → ask for advice against the live loop/memory/RAG state after deterministic work lands.
 
@@ -645,7 +652,7 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 | Tab | Purpose |
 |-----|---------|
 | **Inbox** (1) | Quick capture plus DSL or semantic loop search/filtering |
-| **Next** (2) | Prioritized "what should I do now?" buckets |
+| **Next** (2) | Prioritized "what should I do next?" buckets |
 | **Chat** (3) | LLM conversation with configurable loop, memory, document, and tool grounding |
 | **Memory** (4) | Durable memory CRUD/search powered by the shared direct-memory contract |
 | **RAG** (5) | Query your knowledge base |
@@ -664,7 +671,7 @@ Captures are persisted immediately with offline sync support. Semantic Inbox sea
 
 ### Review Cohorts
 
-The Review tab now has five review layers, plus an in-product workflow guide that shows when to plan, execute, refresh, and hand work off to saved review sessions:
+The Review tab has five review layers, plus an in-product workflow guide that shows when to plan, execute, refresh, and hand work off to saved review sessions:
 
 - **Checkpointed planning sessions**: grounded AI plans with durable checkpoints, explicit deterministic operations, execution history, and refreshable context snapshots.
 - **Bulk enrichment**: a DSL-driven preview-and-run workflow for re-enriching a filtered loop set without leaving the review workspace.
@@ -729,12 +736,16 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 - `CLOOP_PI_RAG_MAX_TOOL_ROUNDS`: RAG-answer tool-round budget (default: `2`)
 - `CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS`: mutation/tool-writing budget (default: `2`)
 
-Cloop does not implement provider-specific auth or billing logic for chat/organizer calls;
-it passes these selector strings straight through to pi. The current project-preferred
-explicit selectors are `zai/glm-5`, `kimi-coding/k2p5`, and `openai-codex/gpt-5.4`,
-but you can use any provider/model combination that pi supports.
+Cloop passes these selector strings straight through to `pi` and relies on `pi --list-models`
+for availability. The default selector preference order is `zai/glm-5`, `kimi-coding/k2p5`,
+then `openai-codex/gpt-5.4`, but any pi-supported selector is valid.
 
-Cloop resolves these budgets per surface instead of assuming one repo-wide tool loop. Read-only planning, enrichment, and RAG runs can therefore use a bounded multi-step path without loosening mutation safety limits.
+`fallback` resolves each role to the first available configured selector. `exact` requires
+one explicit selector per role and fails if it is unavailable.
+
+Cloop resolves tool budgets per surface instead of assuming one repo-wide loop. Read-only
+chat, planning, enrichment, and RAG can use one bounded alternate strategy before returning
+`readonly_generation_exhausted`; mutation stays single-path.
 
 Check available models with:
 
@@ -747,7 +758,7 @@ If the bridge reports model unavailability, startup failures, or protocol proble
 
 ### Embedding providers
 
-Embeddings remain on LiteLLM-compatible providers during this cutover.
+Embeddings use the separate LiteLLM-compatible embedding path.
 
 - `CLOOP_EMBED_MODEL`: embedding model used for RAG (default: `ollama/nomic-embed-text`)
 - `CLOOP_OLLAMA_API_BASE`: required when embeddings use `ollama/...`
@@ -955,17 +966,17 @@ Exposed tools include `chat.complete`, `continuity.delivery_decisions`, `loop.cr
 `review.relationship_session.move`, `review.enrichment_session.move`,
 `review.enrichment_session.answer_clarifications`, `project.list`, `rag.ask`, and `rag.ingest`.
 
-`chat.complete` reuses the same shared grounded chat execution contract as the HTTP `/chat`
-endpoint and `cloop chat`, so tool behavior, grounding options, metadata, sources, and
-interaction logging stay aligned. MCP currently exposes the non-streaming chat contract.
+`chat.complete` reuses the same grounded chat contract as HTTP `/chat` and `cloop chat`, so
+manual-tool behavior, bridge-led tool calling, ordered `tool_results`, metadata, sources, and
+interaction logging stay aligned. It exposes the shared non-streaming chat payload.
 
-`plan.session.*` and `review.*` are intended to be used together: planning sessions can create
-follow-up review sessions, saved views, and reusable templates, and those saved review sessions preserve
-cursor state for later MCP calls. Planning execution results now also expose `execution.summary`,
-per-operation `resource_refs`, and `rollback_actions` so MCP clients can surface follow-up resources
-and rollback guidance directly inside tool discovery or execution logs. Their tool descriptions now
-include operator-facing `Args`, `Returns`, and `Examples` guidance so MCP clients can surface a
-lightweight workflow playbook directly inside tool discovery.
+`plan.session.*` and `review.*` are designed to chain: planning sessions can create follow-up
+review sessions, saved views, and reusable templates, and saved review sessions preserve cursor
+state for later MCP calls. Planning execution results expose `execution.summary`,
+`execution.follow_up_resources`, `execution.launch_surfaces`, `execution.rollback_cues`, and
+`execution.undo_action` so MCP clients can surface next-step handoffs and reversible-change cues
+without re-deriving them. Their tool descriptions include operator-facing `Args`, `Returns`, and
+`Examples` guidance that matches the runtime docs.
 
 `memory.*` reuses the shared `memory_management` contract as the HTTP, web, and CLI surfaces,
 so direct memory CRUD/search semantics stay aligned everywhere.

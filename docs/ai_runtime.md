@@ -1,268 +1,128 @@
 # AI Runtime and pi Bridge
 
-This document explains the generative runtime boundary in Cloop: what stays in Python, what runs through the local Node-based pi bridge, how the JSONL protocol works, and what to verify when the bridge is unhealthy.
+This document defines the shipped AI runtime contract in Cloop: selector resolution, tool budgets, replay rules, streaming behavior, final payloads, embedding ownership, and health/failure semantics.
 
 ## 1) Boundary and ownership
 
-Cloop uses a **split runtime** for AI features:
+Cloop uses a split runtime:
 
-- **Python owns product/domain behavior**
-  - request shaping for chat/RAG/enrichment
-  - loop, memory, and RAG state
-  - tool execution policy and tool implementations
-  - HTTP/CLI/MCP transport behavior
+- **Python owns product behavior**
+  - request shaping for chat, RAG, planning, and enrichment
+  - loop, memory, and RAG state in SQLite
+  - Python-owned tool execution and tool policy
+  - HTTP, CLI, and MCP transport behavior
 - **The local pi bridge owns generic model execution**
-  - model selection through pi
-  - provider/auth-aware runtime setup
+  - selector resolution through the local `pi` installation
+  - provider/auth-aware model runtime setup
   - assistant turn execution and tool-loop continuation
-  - text/thinking delta streaming
+  - bridge-level JSONL protocol handling
 
 Canonical code locations:
 
-- Python facade: `src/cloop/llm.py`
-- Bridge protocol: `src/cloop/ai_bridge/protocol.py`
-- Bridge runtime/process manager: `src/cloop/ai_bridge/runtime.py`
-- Node bridge implementation: `src/cloop/pi_bridge/bridge.mjs`
-- Python-owned tool definitions: `src/cloop/tools.py`
+- `src/cloop/llm.py`
+- `src/cloop/ai_bridge/protocol.py`
+- `src/cloop/ai_bridge/runtime.py`
+- `src/cloop/pi_bridge/bridge.mjs`
+- `src/cloop/tools.py`
 
-This is an intentional boundary: Cloop reuses pi for generic generative plumbing, but keeps loop lifecycle, SQLite persistence, RAG retrieval, and MCP semantics in Python.
-
-Cloop does not implement provider-specific auth or billing policy for generative calls.
-It sends ordered selector preferences from `CLOOP_PI_MODEL` and
-`CLOOP_PI_ORGANIZER_MODEL` to the local bridge, the bridge resolves those preferences
-against pi's available-model registry, and pi remains responsible for provider resolution,
-auth, and runtime behavior.
+Cloop does not implement provider-specific auth or billing for generative calls. It passes selector preferences to `pi`, and `pi` remains responsible for provider resolution, auth, and model execution.
 
 ## 2) Runtime prerequisites
 
-The bridge depends on local runtime prerequisites, not hosted infrastructure:
+The bridge depends on local tools, not hosted infrastructure:
 
 - Python 3.14+
 - Node 25.8.1+
 - `uv`
 - `pi` installed locally
-- `pi` authenticated/configured for the model selectors you plan to use
+- `pi` authenticated for the selectors you plan to use
 
-Setup commands:
+Setup:
 
 ```bash
 uv sync --all-groups --all-extras
 pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 cp .env.example .env
-```
-
-Before blaming Cloop, confirm pi can actually see the configured model selectors:
-
-```bash
 pi --list-models
 ```
 
-The project defaults both selector lists to the ordered preference chain
-`zai/glm-5`, `kimi-coding/k2p5`, `openai-codex/gpt-5.4` in `settings.py` / `.env.example`.
-In the default `CLOOP_PI_SELECTOR_MODE=fallback`, Cloop asks pi which selectors are
-available and resolves to the first available match before request execution.
-If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
-selector for each env var; in that mode unavailable selectors still fail hard by design.
+## 3) Selector contract
 
-## 3) Bridge process lifecycle
+Cloop resolves selectors through ordered preferences, not one hardcoded model name.
 
-At runtime, Python starts one long-lived subprocess using the command resolved from `Settings.pi_bridge_command()`.
+Primary env vars:
 
-Startup flow:
+- `CLOOP_PI_MODEL`
+- `CLOOP_PI_ORGANIZER_MODEL`
+- `CLOOP_PI_SELECTOR_MODE`
 
-1. Python launches the Node bridge process.
-2. The bridge immediately emits a `hello` handshake line.
-3. Python validates protocol compatibility.
-4. Python keeps the subprocess alive and multiplexes per-request sessions by `request_id`.
-5. On application shutdown, Python terminates the bridge runtime.
+Default preference order:
 
-Key stabilization expectations:
+1. `zai/glm-5`
+2. `kimi-coding/k2p5`
+3. `openai-codex/gpt-5.4`
 
-- importing `src/cloop/pi_bridge/bridge.mjs` must **not** start the bridge
-- startup failures must surface as typed bridge errors
-- malformed JSONL or protocol mismatches must surface as protocol errors
-- unfinished requests must be abortable from Python
+Selector modes:
 
-## 4) JSONL protocol shape
+- `fallback`: ask `pi` which configured selectors are available and use the first match
+- `exact`: require exactly one configured selector for each role and fail if it is unavailable
 
-All messages are JSON objects with a shared `protocol` version.
+The selector contract is exposed in `/health` for both chat and organizer roles:
 
-### Python -> bridge
+- `requested_selector`
+- `requested_selectors`
+- `resolved_selector`
+- `fallback_used`
+- `selector_mode`
+- `error`
+
+## 4) Bridge protocol summary
+
+All bridge messages are JSONL objects with a shared protocol version.
+
+Python → bridge:
 
 - `resolve_model`
-  - `request_id`
-  - `selectors`
-  - `selector_mode`
 - `start`
-  - `request_id`
-  - `model`
-  - `messages`
-  - `thinking_level`
-  - `timeout_ms`
-  - `max_tool_rounds`
-  - `tools`
 - `tool_result`
-  - `request_id`
-  - `tool_call_id`
-  - `payload`
-  - `is_error`
 - `abort`
-  - `request_id`
 - `ping`
-  - `request_id`
 
-### Bridge -> Python
+Bridge → Python:
 
 - `hello`
-  - bridge name/version handshake
 - `pong`
-  - ping response for readiness checks
 - `model_resolved`
-  - selector-resolution result before request execution
 - `text_delta`
-  - incremental assistant output
 - `thinking_delta`
-  - incremental reasoning/thinking text when exposed by pi
 - `tool_call`
-  - request for Python-owned tool execution
 - `tool_result`
-  - bridge echo/report of completed tool execution details
 - `done`
-  - terminal success event
 - `error`
-  - terminal typed failure event
 
-Terminal events are `done` and `error`.
+Terminal bridge events are `done` and `error`.
 
-## 5) Conversation replay rules
+## 5) Replay contract
 
-Python sends a request-scoped message history to the bridge. The bridge normalizes that history into pi agent messages.
+### Conversation replay
 
-Phase-1 hardening rules:
+Python sends request-scoped message history to the bridge. The bridge normalizes that history into pi agent messages with these rules:
 
 - system messages are joined into one effective system prompt
 - user messages are replayed as text content blocks
 - assistant history preserves explicit provider/api/model/usage/stop metadata when supplied
-- if assistant replay metadata is absent, the bridge defaults replay metadata to the currently selected model instead of hardcoding synthetic OpenAI values
+- if assistant replay metadata is absent, replay metadata defaults to the resolved selector for that request
 - tool messages preserve `tool_call_id`, tool name, and `is_error`
 
-That keeps replay behavior closer to the actual request model and avoids misleading fake provider metadata.
+That keeps replay aligned with the selected runtime instead of fabricating provider metadata.
 
-## 6) Supported tool-schema subset
+### Idempotent mutation replay
 
-Cloop tool definitions are authored in Python and translated into pi parameter types inside `bridge.mjs`.
+HTTP and MCP mutation retries use the shared idempotency flow and replay the prior successful response for the same key + same payload. That is a separate contract from conversation replay.
 
-Supported JSON Schema subset:
+## 6) Tool-budget contract
 
-- `type: string`
-- `type: string` + `enum`
-- `type: integer`
-- `type: number`
-- `type: boolean`
-- `type: array`
-- `type: object`
-  - `properties`
-  - `required`
-  - `additionalProperties`
-- descriptive fields such as `description`
-- numeric bounds such as `minimum` / `maximum`
-- array bounds such as `minItems` / `maxItems`
-- `default`
-
-Out of scope for the current bridge translation layer:
-
-- advanced schema composition (`oneOf`, `anyOf`, `allOf`)
-- conditional schemas
-- pattern-based object keys
-- arbitrary custom validators from JSON Schema drafts
-
-If a tool schema needs more than this subset, update the translation layer deliberately instead of smuggling unsupported structure through.
-
-## 7) Failure semantics
-
-Bridge/runtime failures are surfaced as typed Python exceptions and then mapped into the shared app error contract.
-
-Primary failure classes:
-
-- `BridgeStartupError`
-  - missing Node executable
-  - bridge process exits before handshake
-  - handshake never arrives
-- `BridgeProcessError`
-  - subprocess disappears or becomes unwritable during use
-- `BridgeProtocolError`
-  - malformed JSONL
-  - missing `request_id`
-  - protocol mismatch
-  - invalid event shape
-- `BridgeTimeoutError`
-  - startup ping/request timeouts
-- `BridgeUpstreamError`
-  - bridge-reported model/provider failure
-  - includes bridge-provided `code` and `retryable`
-
-HTTP mapping:
-
-- startup/process -> `503 ai_backend_unavailable`
-- timeout -> `504 ai_backend_timeout`
-- protocol -> `502 ai_backend_protocol_error`
-- upstream retryable -> `503`
-- upstream non-retryable -> `502`
-- exhausted bounded read-only strategies -> `503 readonly_generation_exhausted`
-
-## 8) Read-only alternate strategies
-
-Read-only generation surfaces may use one bounded alternate strategy after a
-retryable upstream failure, but only before side effects or client-visible
-output begin.
-
-In scope:
-
-- grounded chat on the `chat` surface
-- planning generation
-- enrichment suggestion generation
-- RAG answer generation
-
-Out of scope:
-
-- `mutation` requests after Python-owned tool execution begins
-- any request that already emitted client-visible output in streaming mode
-
-Selection order:
-
-1. if a read-only request used tools and failed with `tool_round_limit`, retry once
-   on the same resolved selector with `tools=[]` and the lower budget from
-   `CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS`
-2. otherwise, if selector fallback candidates remain, retry once on the next
-   ordered selector
-3. otherwise, retry once on the same resolved selector in exact mode
-
-Execution contract:
-
-- at most one alternate attempt is allowed
-- successful responses record `generation_strategy`,
-  `alternate_strategy_used`, `strategy_reason`, and ordered `strategy_attempts`
-- if all bounded strategies are exhausted, Python raises
-  `readonly_generation_exhausted` with `surface`, `exhaustion_reason`,
-  `attempts`, and `final_error`
-- streaming retries only happen before the first visible event (`text_delta`,
-  `tool_call`, or `tool_result`)
-
-What stays strict here is the bounded retry envelope, selector/tool-budget
-policy, and recorded provenance metadata. Exact prompt wording, internal
-reasoning text, and which preferred selector happened to succeed are not
-contractual as long as the deterministic boundary stays valid.
-
-## 9) Tool-loop budgets, exhaustion, and abort behavior
-
-Cloop keeps Python in control of tool execution and loop policy.
-
-Important request controls:
-
-- `timeout_ms`
-- `max_tool_rounds`
-
-Python now resolves `max_tool_rounds` per surface before sending the request to the bridge:
+Python resolves tool-round budgets per surface before starting bridge execution:
 
 - `chat` → `CLOOP_PI_CHAT_MAX_TOOL_ROUNDS` (default `4`)
 - `planning` → `CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS` (default `2`)
@@ -270,77 +130,189 @@ Python now resolves `max_tool_rounds` per surface before sending the request to 
 - `rag` → `CLOOP_PI_RAG_MAX_TOOL_ROUNDS` (default `2`)
 - `mutation` → `CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS` (default `2`)
 
-That keeps advisory/read-only flows flexible enough for bounded multi-step tool behavior without treating mutation-heavy paths as open-ended loops.
+When the bridge exhausts `max_tool_rounds`, it emits a terminal `tool_round_limit` error with structured details including:
 
-Phase-1 hardening behavior:
+- `tool_rounds_used`
+- `max_tool_rounds`
+- `stop_reason`
+- `partial_text`
 
-- when a request exceeds `timeout_ms`, the bridge aborts the agent and emits a terminal timeout error
-- when tool iterations exceed `max_tool_rounds`, the bridge aborts and emits a terminal `tool_round_limit` error
-- streaming still emits one `tool_result` event per completed tool outcome
-- final chat responses preserve ordered `tool_results`
-- `tool_round_limit` now carries structured details including `tool_rounds_used`, `max_tool_rounds`, `stop_reason`, and `partial_text`
-- Python enriches `tool_round_limit` with surface-specific guidance plus `partial_results.text`, `partial_results.tool_calls`, and `partial_results.tool_results`
-- when Python finishes consuming a session without a terminal success event, it aborts the in-flight bridge request before closing the session
+Python enriches that error with surface guidance plus partial results when available.
 
-## 10) Health endpoint expectations
+## 7) Read-only alternate-strategy contract
 
-`GET /health` and `GET /healthz` report bridge readiness alongside database status.
+Read-only generation surfaces may use one bounded alternate attempt after a retryable upstream failure:
 
-Relevant fields:
+- grounded chat on the `chat` surface
+- planning generation
+- enrichment suggestion generation
+- RAG answer generation
+
+Mutation flows stay single-path.
+
+Selection order:
+
+1. if a tool-using read-only request fails with `tool_round_limit`, retry once on the same resolved selector with `tools=[]` and `CLOOP_PI_READONLY_LOWER_BUDGET_MAX_TOOL_ROUNDS`
+2. otherwise, if fallback candidates remain, retry once on the next ordered selector
+3. otherwise, retry once on the same resolved selector in exact mode
+
+Invariants:
+
+- at most one alternate attempt
+- retries stop before the first client-visible streaming event
+- successful responses record `generation_strategy`, `alternate_strategy_used`, `strategy_reason`, and ordered `strategy_attempts`
+- exhausted bounded strategies raise `readonly_generation_exhausted`
+
+## 8) Streaming contract
+
+### HTTP `/chat`
+
+`POST /chat?stream=true` emits SSE events with these names:
+
+- `token`
+- `tool_call`
+- `tool_result`
+- `done`
+
+### HTTP `/ask`
+
+`GET /ask?stream=true` emits SSE events with these names:
+
+- `token`
+- `done`
+
+### Shared rules
+
+- streaming retries only happen before the first visible event
+- chat streaming preserves one `tool_result` event per completed tool outcome
+- the terminal `done` payload is the same final structured response body returned by the non-streaming route
+- MCP `chat.complete` exposes the same grounded chat contract as non-streaming HTTP/CLI chat; it does not expose the streaming SSE surface
+
+## 9) Final-payload contract
+
+### Chat final payload (`ChatResponse`)
+
+`/chat`, `cloop chat --format json`, and MCP `chat.complete` share the same final payload shape:
+
+- `message`
+- `tool_results` — ordered tool outcome payloads
+- `tool_calls`
+- `model`
+- `metadata`
+- `options`
+- `context`
+- `sources`
+- `rerun_action`
+
+`metadata` includes the runtime provenance fields that matter across transports:
+
+- `latency_ms`
+- `model`
+- `provider`
+- `api`
+- `usage`
+- `stop_reason`
+- `requested_selector`
+- `requested_selectors`
+- `resolved_selector`
+- `fallback_used`
+- `selector_mode`
+- `generation_strategy`
+- `alternate_strategy_used`
+- `strategy_reason`
+- `strategy_attempts`
+
+### RAG ask final payload (`AskResponse`)
+
+`/ask`, `cloop ask`, and the `done` event from `/ask?stream=true` share this final payload shape:
+
+- `answer`
+- `chunks`
+- `model`
+- `sources`
+- `metadata`
+- `rerun_action`
+
+The RAG `metadata` payload uses the same selector/strategy provenance fields as chat when generation runs through the bridge.
+
+## 10) Embedding contract
+
+Embeddings are separate from the pi generative runtime.
+
+- chat, planning, enrichment, and RAG generation use the local pi bridge
+- embeddings stay on the LiteLLM-compatible embedding path
+- embedding provider resolution lives in `src/cloop/embedding_providers.py`
+
+Primary embedding env vars:
+
+- `CLOOP_EMBED_MODEL`
+- `CLOOP_OLLAMA_API_BASE`
+- `CLOOP_LMSTUDIO_API_BASE`
+- `CLOOP_OPENAI_API_KEY`
+- `CLOOP_OPENAI_API_BASE`
+- `CLOOP_GOOGLE_API_KEY`
+- `CLOOP_OPENROUTER_API_BASE`
+
+Provider rules:
+
+- `ollama/...` requires `CLOOP_OLLAMA_API_BASE`
+- `gemini/...` and `google/...` require `CLOOP_GOOGLE_API_KEY`
+- `openai/...`, `gpt-*`, and `o1-*` require `CLOOP_OPENAI_API_KEY`
+- `lmstudio/...` and `openrouter/...` use their matching base-url settings when configured
+
+Embedding credentials do not authenticate pi generative requests.
+
+## 11) Health and failure contract
+
+`GET /health` and `GET /healthz` report:
 
 - `ai_backend`
 - `chat_selector`
-  - `requested_selector`
-  - `requested_selectors`
-  - `resolved_selector`
-  - `fallback_used`
-  - `selector_mode`
-  - `error`
 - `organizer_selector`
-  - `requested_selector`
-  - `requested_selectors`
-  - `resolved_selector`
-  - `fallback_used`
-  - `selector_mode`
-  - `error`
 - `embed_model`
 - `bridge_name`
 - `bridge_version`
 - `bridge_protocol`
 - `checks.pi_bridge`
 
-Healthy example characteristics:
+Healthy bridge characteristics:
 
 - `checks.pi_bridge.ok == true`
 - `bridge_name == "cloop-pi-bridge"`
 - `bridge_protocol == 1`
-- `chat_selector.resolved_selector` is populated
-- non-negative `checks.pi_bridge.latency_ms`
+- selector resolution fields are populated
 
-If `checks.pi_bridge.ok` is false, the selector `error` fields and `checks.pi_bridge.error`
-should be enough to tell whether the failure is startup, process, auth/model availability,
-or protocol related.
+Primary failure classes:
 
-## 11) Verification commands
+- `BridgeStartupError`
+- `BridgeProcessError`
+- `BridgeProtocolError`
+- `BridgeTimeoutError`
+- `BridgeUpstreamError`
+- `ReadOnlyGenerationExhaustedError`
 
-Fast focused checks for bridge work:
+HTTP mapping:
+
+- startup/process → `503 ai_backend_unavailable`
+- timeout → `504 ai_backend_timeout`
+- protocol → `502 ai_backend_protocol_error`
+- upstream retryable → `503`
+- upstream non-retryable → `502`
+- exhausted read-only strategy envelope → `503 readonly_generation_exhausted`
+
+## 12) Verification commands
+
+Focused runtime checks:
 
 ```bash
 npm test --prefix src/cloop/pi_bridge
 uv run pytest tests/test_ai_bridge_runtime.py tests/test_llm.py tests/test_llm_failures.py
+pi --list-models
 ```
 
-Full repo gates:
+Repo gates:
 
 ```bash
 make check-fast
 make ci
-```
-
-Manual smoke checks:
-
-```bash
-uv run uvicorn cloop.main:app --reload
-open http://127.0.0.1:8000/health
-pi --list-models
 ```

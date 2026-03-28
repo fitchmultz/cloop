@@ -84,8 +84,8 @@ def chat_complete(
 
     This tool reuses the same grounded chat preparation/execution contract as the
     HTTP `/chat` endpoint and `cloop chat`. It supports manual tools, bridge-led
-    tool calling, loop/memory/RAG grounding, and returns the canonical chat
-    response payload. MCP currently exposes the non-streaming chat contract only.
+    tool calling, loop/memory/RAG grounding, and returns the canonical
+    non-streaming chat payload.
 
     Args:
         messages: Ordered chat transcript. Include any system/assistant/user
@@ -104,19 +104,21 @@ def chat_complete(
     Returns:
         Dict matching the shared `ChatResponse` contract with:
         - `message`: Final assistant text
-        - `tool_results`: Ordered tool output payloads
+        - `tool_results`: Ordered tool outcome payloads
         - `tool_calls`: Tool calls performed during execution
-        - `model` / `metadata`: Generation metadata
+        - `model` / `metadata`: Generation metadata including selector and
+          alternate-strategy provenance
         - `options`: Effective resolved chat options
         - `context`: Summary of applied grounding inputs
         - `sources`: Retrieved document sources used for grounding
+        - `rerun_action`: Shared rerun affordance for the grounded answer
 
     Raises:
         ToolError: If request validation fails, tool usage is invalid, or chat
             execution raises a shared domain/runtime error.
 
     Examples:
-        - Ask grounded chat to summarize today with loop and memory context on.
+        - Ask grounded chat to summarize the active queue with loop and memory context on.
         - Enable `include_rag_context` when you want document citations in the
           same response payload.
         - Use `tool_mode='llm'` when you want the bridge-led tool loop instead

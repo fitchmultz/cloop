@@ -79,7 +79,7 @@ flowchart LR
 1. Any transport invokes the shared RAG execution contract with ingest or ask inputs.
 2. `src/cloop/rag_execution.py` validates the request, delegates retrieval preparation to `src/cloop/rag/ask_orchestration.py`, and records interaction logs.
 3. RAG modules load/chunk/embed/store content in `rag.db`, or retrieve candidate chunks and assemble source context.
-4. When knowledge is available, the Python app sends request-scoped messages to the local pi bridge and returns the generated answer with explicit source payload.
+4. When knowledge is available, the Python app sends request-scoped messages to the local pi bridge and returns the generated answer with `chunks`, `sources`, `metadata`, and `rerun_action`.
 
 ### Grounded chat (HTTP + CLI + MCP)
 1. HTTP `/chat`, `cloop chat`, and MCP `chat.complete` all build the same `ChatRequest`-shaped payload.
@@ -121,21 +121,21 @@ flowchart LR
 1. HTTP `/loops/review/*`, the Review tab session workspaces, `cloop review *`, and MCP `review.*` all call `src/cloop/loops/review_workflows.py`.
 2. `src/cloop/loops/review_workflows.py` owns saved review-action presets, saved review-session persistence, filtered worklist snapshots, cursor preservation, and session-scoped relationship/enrichment action execution.
 3. Relationship session snapshots delegate candidate generation back to `src/cloop/loops/relationship_review.py`, and enrichment session snapshots delegate suggestion/clarification hydration back to `src/cloop/loops/enrichment_review.py`.
-4. The web Review tab should treat saved sessions as the source of truth for current worklist state instead of rebuilding ad-hoc queue filters client-side.
+4. The web Review tab should treat saved sessions as the source of truth for session worklist state instead of rebuilding ad-hoc queue filters client-side.
 
 ### Planning workflows (HTTP + Web + CLI + MCP)
 1. HTTP `/loops/planning/*`, the Review tab planning workspace, `cloop plan session *`, and MCP `plan.session.*` all call `src/cloop/loops/planning_workflows.py`.
 2. `src/cloop/loops/planning_workflows.py` owns grounded plan generation, durable planning-session persistence, checkpoint cursors, execution history, refresh semantics, and deterministic checkpoint execution.
 3. Persisted session metadata lives in `planning_sessions`, and executed checkpoint snapshots live in `planning_session_runs`, so operators can inspect prior results without relying on transport-local state.
 4. Checkpoint execution may compose existing shared deterministic primitives such as loop capture/update/status transitions, query-bulk loop mutations, saved views/templates, explicit enrichment orchestration, and saved review-session creation instead of inventing transport-specific workflow forks.
-5. Executed checkpoints should persist transparent provenance plus operator handoff metadata: `execution.summary`, per-operation `resource_refs`, rollback metadata, `follow_up_resources`, and `launch_surfaces`, so transports can explain what changed and open the next saved review-session queue without rebuilding ad-hoc bookkeeping.
+5. Executed checkpoints should persist transparent provenance plus operator handoff metadata: `execution.summary`, `resource_change_summary`, `follow_up_resources`, `launch_surfaces`, `rollback_cues`, and `undo_action`, so transports can explain what changed and open the next saved review-session queue without rebuilding ad-hoc bookkeeping.
 6. Transport ergonomics should stay layered on top of that shared substrate: the Review tab should surface plan freshness, focus loops, rollback cues, execution outputs, and next-step launch surfaces clearly, while MCP tool descriptions should teach operators how planning hands off into saved review sessions and grounded chat.
 
 ### Bulk enrichment (HTTP + Web + CLI + MCP)
-1. Explicit bulk enrichment now routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.
+1. Explicit bulk enrichment routes through `src/cloop/loops/enrichment_orchestration.py` instead of letting each transport loop over single-item enrichment on its own.
 2. `src/cloop/loops/enrichment_orchestration.py` owns selected-loop bulk execution, query-target preview, and query-driven bulk enrichment for filtered loop sets.
 3. HTTP `/loops/bulk/enrich` and `/loops/bulk/query/enrich`, the Review tab bulk-enrichment panel, the Inbox bulk `Enrich` action, `cloop loop bulk enrich`, and MCP `loop.bulk_enrich*` all reuse that shared contract.
-4. Prompt construction, suggestion persistence, clarification generation, and relationship-sync follow-up still remain owned by `src/cloop/loops/enrichment.py`; bulk orchestration layers on top instead of forking enrichment behavior.
+4. Prompt construction, suggestion persistence, clarification generation, and relationship-sync follow-up remain owned by `src/cloop/loops/enrichment.py`; bulk orchestration layers on top instead of forking enrichment behavior.
 
 ### MCP loop mutation
 1. MCP tool call maps directly to the shared loop service operation.

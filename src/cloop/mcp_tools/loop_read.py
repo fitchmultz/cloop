@@ -135,7 +135,7 @@ def loop_semantic_search(
 
     This ranks loops by meaning instead of exact token matches. The search path
     backfills missing or stale loop embeddings on demand so older loops remain
-    searchable after the feature cutover.
+    searchable without a separate reindex step.
 
     Args:
         query: Natural-language search query.

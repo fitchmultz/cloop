@@ -95,7 +95,7 @@ uv run cloop review enrichment-session list
 uv run cloop plan session list
 uv run cloop continuity delivery-decisions --channel push --limit 3
 uv run cloop loop bulk enrich --query "status:open" --dry-run
-uv run cloop chat "What should I focus on today?" --include-loop-context --no-stream
+uv run cloop chat "What should I focus on next?" --include-loop-context --no-stream
 uv run cloop memory create "User prefers dark mode" --category preference --priority 40
 uv run cloop memory search "dark mode"
 uv run cloop suggestion list --pending
@@ -127,16 +127,16 @@ Review-tab smoke checklist:
   - current checkpoint success criteria
   - focus-loop cards
   - execution-history output summaries after a checkpoint runs
-  - rollback / provenance cues when a checkpoint exposes `rollback_actions`, `resource_refs`, or created follow-up resources
+  - rollback / provenance cues when a checkpoint exposes `rollback_cues`, `follow_up_resources`, or `execution.undo_action`
 - If a checkpoint creates a saved review session, confirm the adjacent relationship/enrichment workspace can pick it up without reloading the app.
-- Confirm the Review support sidebar still explains the plan → execute → review → refresh flow.
+- Confirm the Review support sidebar explains the plan → execute → review → refresh flow.
 
 Focused working-set browser path:
 - Use a fresh browser tab or profile so stale HTML, ES modules, or service-worker state does not mask regressions.
 - Create or open a working set, then open the dedicated `#working-set/:id` session surface.
 - Confirm the session renders the ordered membership, working-set summary, and focus controls without dropping bounded-context metadata.
 - Launch a planning, review, or recall handoff that carries `handoff.workingSet`, then reopen it from the shell and confirm the resumed surface keeps the same working-set scope instead of falling back to a generic unscoped resume.
-- Reload the shell and revisit the same `#working-set/:id` deep link to confirm the session still restores the same bounded context.
+- Reload the shell and revisit the same `#working-set/:id` deep link to confirm the session restores the same bounded context.
 
 MCP:
 

@@ -66,7 +66,7 @@ def plan_session_create(
         - `session`: durable planning session metadata
         - `plan_title` / `plan_summary`: generated plan overview
         - `checkpoints`: ordered checkpoint list with deterministic operations
-        - `current_checkpoint`: the checkpoint currently ready for review/execution
+        - `current_checkpoint`: the checkpoint selected for review/execution
         - `target_loops`, `context_summary`, `context_freshness`: grounded context
         - `execution_history`, `execution_analytics`: durable execution metadata
 

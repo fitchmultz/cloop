@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: normalize steady-state contract docs.
+Execution focus: keep this file limited to unfinished end-to-end slices; the runtime and operator contract docs are aligned.
 
 ## Direction
 
@@ -35,16 +35,7 @@ Current product goals:
 
 ## Execution order
 
-### Next — Normalize steady-state runtime docs
-
-1. Rewrite `README.md` and `docs/ai_runtime.md` around the steady-state selector, tool-budget, replay, and embedding contracts.
-2. Keep public terminology aligned with the UX specs and transport contracts.
-
-### Then — Trim residual time-bound wording outside the runtime docs
-
-1. Remove remaining current-state and rollout wording from `docs/architecture.md` and `docs/verification_checklist.md`.
-2. Keep architecture and verification docs contract-focused instead of timeline-focused.
-3. Avoid reintroducing rollout history outside the UX spec set.
+- No queued slices.
 
 ## Guardrails
 
