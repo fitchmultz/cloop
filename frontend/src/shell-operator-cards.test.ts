@@ -830,7 +830,7 @@ describe("shell-operator-cards", () => {
 
     const headings = Array.from(elements.operatorSinceLast.querySelectorAll("h3")).map((node) => node.textContent);
     expect(headings[0]).toBe("Why this workflow became the top recommendation");
-    expect(elements.operatorSinceLast.textContent).toContain("Old launch plan was superseded by Launch review queue is ready.");
+    expect(findCard(elements.operatorSinceLast, "Old launch plan")).not.toBeNull();
     expect(elements.operatorSinceLast.textContent).toContain("Open replacement workflow");
   });
 

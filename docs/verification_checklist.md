@@ -131,12 +131,12 @@ Review-tab smoke checklist:
 - If a checkpoint creates a saved review session, confirm the adjacent relationship/enrichment workspace can pick it up without reloading the app.
 - Confirm the Review support sidebar still explains the plan → execute → review → refresh flow.
 
-Full visual migration signoff sweep:
+Focused working-set browser path:
 - Use a fresh browser tab or profile so stale HTML, ES modules, or service-worker state does not mask regressions.
-- Walk the current shell experience end-to-end across operator, capture, do, review, recall, and `#working-set/:id` session surfaces.
-- From any planning/review/operator handoff that carries `handoff.workingSet`, confirm every destination surface renders the same working-set badge, breadcrumb, and next-surface cue instead of dropping or re-deriving that context.
-- Confirm command-palette and resume affordances prefer the active bounded working set over generic session resumes when a working-set context is live.
-- Reload the shell, revisit deep links, and verify offline/PWA entry points still reopen the right surface without losing visible workflow context.
+- Create or open a working set, then open the dedicated `#working-set/:id` session surface.
+- Confirm the session renders the ordered membership, working-set summary, and focus controls without dropping bounded-context metadata.
+- Launch a planning, review, or recall handoff that carries `handoff.workingSet`, then reopen it from the shell and confirm the resumed surface keeps the same working-set scope instead of falling back to a generic unscoped resume.
+- Reload the shell and revisit the same `#working-set/:id` deep link to confirm the session still restores the same bounded context.
 
 MCP:
 

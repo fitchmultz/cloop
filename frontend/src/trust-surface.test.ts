@@ -26,7 +26,7 @@ import { renderTrustSurface } from "./trust-surface";
 describe("renderTrustSurface", () => {
   const metadata = {
     generationLabel: "AI-assisted queue",
-    contextSources: ["Saved query: status:open", "Model: test-model"],
+    contextSources: ["Grounded continuity data", "Model: test-model"],
     assumptions: ["Human review remains required."],
     confidenceLabel: "High-confidence review signal",
     freshnessLabel: "Generated 2 minutes ago",
@@ -44,7 +44,7 @@ describe("renderTrustSurface", () => {
     expect(html).toContain("Mode");
     expect(html).toContain("AI-assisted queue");
     expect(html).toContain("Context used");
-    expect(html).toContain("Saved query: status:open");
+    expect(html).toContain("Grounded continuity data");
     expect(html).toContain("Assumptions");
     expect(html).toContain("Human review remains required.");
     expect(html).toContain("Impact");
