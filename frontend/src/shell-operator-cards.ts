@@ -80,6 +80,7 @@ import {
 import { summarizeCohortDrift } from "./continuity-drift";
 import { formatRelativeTime, formatTimestamp, loopPreview, loopTitle } from "./shell-core";
 import { createLocation, locationsMatch } from "./shell-routing";
+import { savedQueryContextSource } from "./saved-query-copy";
 import type { DecisionSessionSnapshot, PrioritizedCard, ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
 
 export interface ShellOperatorCardRenderer {
@@ -479,7 +480,7 @@ export function createShellOperatorCardRenderer(
       ],
       trust: {
         contextSources: [
-          `Saved query: ${snapshot.session.query}`,
+          savedQueryContextSource(snapshot.session.query, "Saved relationship session"),
           `${snapshot.session.relationship_kind} similarity review`,
           item ? `Top score ${Math.round(item.top_score * 100)}%` : "Session-level similarity scan",
         ],
@@ -544,7 +545,7 @@ export function createShellOperatorCardRenderer(
       ],
       trust: {
         contextSources: [
-          `Saved query: ${snapshot.session.query}`,
+          savedQueryContextSource(snapshot.session.query, "Saved enrichment session"),
           `${snapshot.session.pending_kind} pending enrichment follow-up`,
           suggestion ? `Model: ${suggestion.model}` : "Stored session snapshot",
         ],

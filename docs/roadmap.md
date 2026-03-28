@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: no active roadmap slice in this file; add the next approved end-to-end slice when selected.
+Execution focus: prune historical implementation wording in continuity/undo UX docs, then keep contract-boundary verification lean before broader shell work resumes.
 
 ## Direction
 
@@ -32,6 +32,20 @@ Current product goals:
 - Remove finished work instead of marking it done.
 - Update the relevant UX spec when behavior changes materially.
 - Ship end-to-end slices (contract + storage + transport + UI), not isolated polish.
+
+## Execution order
+
+### Next — Prune historical implementation wording in continuity and undo docs
+
+1. Remove “shipped”, “current implementation”, and similar time-bound narration when the doc can just state the current contract.
+2. Keep only operator-facing acceptance, rollback, and transport details that still drive implementation.
+3. Preserve explicit API/storage term references only where they clarify the active contract.
+
+### Then — Keep contract-boundary verification lean
+
+1. Keep one focused browser verification path for working-set session rendering and working-set-scoped reopen behavior.
+2. Keep automated coverage on stale-target fallback and transport contracts, not copy.
+3. Remove any remaining test duplication that only repeats shared copy helpers or backend-emitted wording.
 
 ## Guardrails
 

@@ -17,7 +17,7 @@ Cloop uses an outcome-first continuity model.
 
 The operator workspace, receipt rail, command-palette recents, and stale-workflow recovery paths should all prefer the landed result and its resolved reopen target over raw launch metadata.
 
-Working sets still support lightweight reusable launch helpers. `state_anchor` and `query_anchor` remain the API/storage item-type values for those helpers, but backend continuity no longer stores a separate resume-anchor model.
+Working sets still support lightweight reusable launch helpers. `state_anchor` and `query_anchor` remain the API/storage item-type values for those helpers, while continuity persists landed outcomes and resolved reopen targets.
 
 ## Current implementation contract
 
@@ -77,7 +77,7 @@ Recall-side mutations should record landed receipts so downstream work reopens f
 
 ## Non-goals
 
-- Reintroducing backend resume-anchor persistence.
+- Persisting a second reopen-state store beside landed outcomes and workflow summaries.
 - Promoting low-signal navigation events into continuity headlines.
 - Replacing deterministic drift and recovery logic with speculative AI summaries.
 

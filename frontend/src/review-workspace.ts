@@ -76,6 +76,7 @@ import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
 import { recordRecentShellAction } from "./continuity-intelligence";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
+import { savedQueryContextSource } from "./saved-query-copy";
 import { renderTrustSurface } from "./trust-surface";
 import {
   buildCohortImpactCard,
@@ -1181,7 +1182,7 @@ function planningTrustMetadata(snapshot: PlanningSessionSnapshotResponse | null)
     generationLabel: "AI-authored plan + deterministic execution",
     generationTone: "attention",
     contextSources: [
-      snapshot?.session.query ? `Saved query: ${snapshot.session.query}` : "Saved planning session",
+      savedQueryContextSource(snapshot?.session.query, "Saved planning session"),
       `${snapshot?.target_loops?.length ?? 0} target loop${(snapshot?.target_loops?.length ?? 0) === 1 ? "" : "s"}`,
       `${sourceCount} external source${sourceCount === 1 ? "" : "s"}`,
     ],
@@ -1216,7 +1217,7 @@ function relationshipTrustMetadata(
     generationLabel: "Deterministic similarity queue + human decision",
     generationTone: "attention",
     contextSources: [
-      snapshot?.session.query ? `Saved query: ${snapshot.session.query}` : "Saved relationship session",
+      savedQueryContextSource(snapshot?.session.query, "Saved relationship session"),
       snapshot?.session.relationship_kind ? `${snapshot.session.relationship_kind} review focus` : "Relationship review",
       candidate ? `Top candidate: ${loopTitle(candidate)}` : "No active candidate preview",
     ],
@@ -1255,7 +1256,7 @@ function enrichmentTrustMetadata(
     generationLabel: "AI-assisted suggestion queue",
     generationTone: "attention",
     contextSources: [
-      snapshot?.session.query ? `Saved query: ${snapshot.session.query}` : "Saved enrichment session",
+      savedQueryContextSource(snapshot?.session.query, "Saved enrichment session"),
       snapshot?.session.pending_kind ? `${snapshot.session.pending_kind} pending work` : "Pending enrichment follow-up",
       suggestion ? `Model: ${suggestion.model}` : "No active suggestion preview",
     ],

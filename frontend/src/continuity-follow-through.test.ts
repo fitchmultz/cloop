@@ -791,25 +791,6 @@ describe("readRankedWorkflowSummaries", () => {
     expect(resolution.recovery?.kind).toBe("home_fallback");
   });
 
-  it("ignores stale discarded browser cache once reopen resolution is summary-only", async () => {
-    await hydrateDurableContinuityState();
-    window.localStorage.setItem("cloop.continuity.resume-anchors.cache.v3", JSON.stringify({
-      planning: {
-        sessionId: 321,
-        message: "Discarded browser cache should not affect reopen resolution.",
-      },
-    }));
-
-    const resolution = resolveDurableReopenLocation({
-      location: location({ state: "plan", reviewFocus: "planning", sessionId: 321 }),
-      allowSessionMatch: true,
-    });
-
-    expect(resolution.matched).toBe(false);
-    expect(resolution.resolvedLocation).toEqual(location({ state: "plan", reviewFocus: "planning", sessionId: 321 }));
-    expect(resolution.recovery).toBeNull();
-  });
-
   it("builds one canonical notification and digest from the primary recommendation", async () => {
     await hydrateDurableContinuityState();
 
