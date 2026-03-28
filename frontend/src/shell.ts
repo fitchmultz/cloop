@@ -59,7 +59,7 @@ import {
   staleRerunReason,
 } from "./executable-rerun";
 import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
-import { confirmDialog } from "./modals";
+import { closeActiveModal, confirmDialog } from "./modals";
 import { createShellEventController } from "./shell-events";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createShellOperatorCardRenderer, type ShellOperatorCardRenderer } from "./shell-operator-cards";
@@ -500,7 +500,11 @@ async function applyLocation(
   input: Partial<ShellLocation>,
   options: { syncHash?: boolean; refreshWorkspace?: boolean } = {},
 ): Promise<void> {
+  const previousLocation = currentLocation;
   currentLocation = normalizeLocation(input);
+  if (!locationsMatch(previousLocation, currentLocation)) {
+    closeActiveModal();
+  }
   markCurrentNotificationSeen(currentLocation);
 
   if (currentLocation.state === "working_set" && currentLocation.workingSetId != null && workingSetController) {

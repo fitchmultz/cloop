@@ -24,6 +24,8 @@
 
 import type { SurfaceLoop } from "./contracts";
 
+export const INVALID_DUE_DATE_MESSAGE = "Enter a valid due date as MM/DD/YYYY.";
+
 interface ParsedUserDateInput {
   year: number;
   month: number;
@@ -209,7 +211,16 @@ export function isoFromLocalDateAndTime(
 }
 
 export function formatDateInputValue(value: string | null | undefined): string {
-  const digits = String(value ?? "")
+  const rawValue = String(value ?? "").trim();
+  if (!rawValue) {
+    return "";
+  }
+
+  if (/^[\d/\-]+$/.test(rawValue) && /[\/-]/.test(rawValue)) {
+    return rawValue.slice(0, 10);
+  }
+
+  const digits = rawValue
     .replace(/\D/g, "")
     .slice(0, 8);
 
@@ -276,6 +287,34 @@ export function parseUserDateInput(value: string | null | undefined): ParsedUser
     isoDate,
     displayValue: `${String(month).padStart(2, "0")}/${String(day).padStart(2, "0")}/${String(year).padStart(4, "0")}`,
   };
+}
+
+export function describeKnowledgeIngestError(
+  error: unknown,
+  health: Record<string, unknown> | null,
+): string {
+  const directMessage = messageFromError(error, "Knowledge ingestion failed.");
+  if (directMessage !== "Knowledge ingestion failed." && directMessage !== "Unexpected server error") {
+    return directMessage;
+  }
+
+  const embedModelValue = health?.["embed_model"];
+  const embedModel = typeof embedModelValue === "string" ? embedModelValue.trim() : "";
+  if (!embedModel) {
+    return "Knowledge ingestion needs a working embedding provider. Check the local embedding configuration, then try again.";
+  }
+
+  if (embedModel.startsWith("ollama/")) {
+    return `Knowledge ingestion needs a running Ollama embedding server for ${embedModel}. Start Ollama or point CLOOP_OLLAMA_API_BASE at a running instance, then try again.`;
+  }
+  if (embedModel.startsWith("openai/")) {
+    return `Knowledge ingestion needs a valid OpenAI embedding configuration for ${embedModel}. Set CLOOP_OPENAI_API_KEY, restart the app, then try again.`;
+  }
+  if (embedModel.startsWith("gemini/")) {
+    return `Knowledge ingestion needs a valid Google embedding configuration for ${embedModel}. Set CLOOP_GOOGLE_API_KEY, restart the app, then try again.`;
+  }
+
+  return `Knowledge ingestion needs a working embedding provider for ${embedModel}. Check the local provider configuration, restart the app if needed, then try again.`;
 }
 
 export function normalizeTags(value: string | null | undefined): string[] {

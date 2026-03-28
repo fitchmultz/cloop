@@ -44,6 +44,7 @@ import {
   closestFromEventTarget,
   dueDateInputValueFromLoop,
   formatDateInputValue,
+  INVALID_DUE_DATE_MESSAGE,
   messageFromError,
   parseUserDateInput,
   snoozeDurationToUtc,
@@ -307,7 +308,7 @@ async function captureLoop(event: SubmitEvent): Promise<void> {
 
   const { parsedDate, isValid: isDueDateValid } = normalizeDueDateField();
   if (!isDueDateValid) {
-    elements.status.textContent = "Enter a valid due date as MM/DD/YYYY.";
+    elements.status.textContent = INVALID_DUE_DATE_MESSAGE;
     elements.dueDate.focus();
     elements.dueDate.select();
     return;
@@ -655,7 +656,14 @@ function setupEventHandlers(): void {
     elements.dueDate.removeAttribute("aria-invalid");
   });
   elements.dueDate.addEventListener("blur", () => {
-    normalizeDueDateField();
+    const { isValid } = normalizeDueDateField();
+    if (!isValid) {
+      elements.status.textContent = INVALID_DUE_DATE_MESSAGE;
+      return;
+    }
+    if (elements.status.textContent === INVALID_DUE_DATE_MESSAGE) {
+      elements.status.textContent = "Ready.";
+    }
   });
   elements.chatForm.addEventListener("submit", (event: SubmitEvent) => {
     event.preventDefault();

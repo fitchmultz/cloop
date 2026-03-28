@@ -32,6 +32,7 @@ import * as timer from "./timer";
 import type { QueryMode, SurfaceLoop } from "./contracts";
 import {
   formatTime,
+  INVALID_DUE_DATE_MESSAGE,
   isoFromLocalDateAndTime,
   messageFromError,
   normalizeTags,
@@ -402,7 +403,7 @@ export async function applyInlineUpdate(target: HTMLElement): Promise<boolean> {
       const parsedDueDate = parseUserDateInput(rawDueDate);
       if (!parsedDueDate) {
         dueDateInput.setAttribute("aria-invalid", "true");
-        statusEl.textContent = "Enter a valid due date as MM/DD/YYYY.";
+        statusEl.textContent = INVALID_DUE_DATE_MESSAGE;
         dueDateInput.focus();
         dueDateInput.select();
         return false;

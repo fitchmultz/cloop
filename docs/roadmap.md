@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: lock the working-set launch-helper contract, then align docs and tests to it.
+Execution focus: no active manual-QA hardening slice; continue from newly approved work.
 
 ## Direction
 
@@ -21,29 +21,10 @@ Current product goals:
 
 - Experience vision: [`docs/ux/experience-vision.md`](ux/experience-vision.md)
 - Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
+- Working sets: [`docs/ux/working-sets.md`](ux/working-sets.md)
 - Continuity intelligence: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - Outcome-first continuity: [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 - Undo actions: [`docs/ux/undo-actions.md`](ux/undo-actions.md)
-
-## Execution order
-
-### Next — Lock the working-set launch-helper contract
-
-1. Decide whether `query_anchor` and `state_anchor` remain the canonical public `item_type` values.
-2. If they change, rename schema, storage, frontend, docs, and tests in one cutover without compatibility shims.
-3. If they stay, document them as working-set launch helpers only and stop treating them as deleted continuity leftovers.
-
-### Then — Align working-set docs and HTTP fixtures to the locked contract
-
-1. Update `docs/ux/working-sets.md` and working-set HTTP fixture/test descriptions to match the locked term.
-2. Keep docs and fixture wording neutral even if public `item_type` values retain `*_anchor` names.
-3. Remove wording that implies deleted continuity-anchor behavior.
-
-### Then — Align pure frontend test terminology
-
-1. Update frontend routing and ranking test descriptions to the locked term.
-2. Preserve behavior assertions and avoid broad regression churn.
-3. Keep the discarded-browser-cache reopen regression narrowly focused on ignored legacy cache behavior.
 
 ## Delivery model
 

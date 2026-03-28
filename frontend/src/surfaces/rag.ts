@@ -31,7 +31,7 @@ import { buildRecallIngestReceiptEntry } from "./recall-receipts";
 import * as api from "./api";
 import type { RagChunk, RagSource, SurfaceChatEventPayload } from "./contracts";
 import { consumeJsonEventStream } from "./stream";
-import { escapeHtml, messageFromError } from "./utils";
+import { describeKnowledgeIngestError, escapeHtml, messageFromError } from "./utils";
 
 const NO_KNOWLEDGE_MESSAGE = "No knowledge available. Ingest documents first.";
 
@@ -283,7 +283,9 @@ export async function submitIngestPath(): Promise<void> {
     renderActionCards({ hasKnowledge: true });
     ragInput?.focus();
   } catch (error: unknown) {
-    setIngestStatus(messageFromError(error, "Knowledge ingestion failed."), { isError: true });
+    const health = await api.fetchHealth().catch(() => null);
+    setIngestStatus(describeKnowledgeIngestError(error, health), { isError: true });
+    focusIngestPath();
   }
 }
 
