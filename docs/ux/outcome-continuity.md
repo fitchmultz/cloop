@@ -1,7 +1,5 @@
 # Outcome-First Continuity History
 
-Historical implementation plan: [`outcome-continuity-plan.md`](outcome-continuity-plan.md)
-
 ## Why
 
 Cloop continuity should describe what landed, not just where the operator started.

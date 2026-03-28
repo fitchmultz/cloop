@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: no active continuity cleanup slice; continue from new requirements.
+Execution focus: no active roadmap slice; continue from newly approved work.
 
 ## Direction
 
@@ -22,6 +22,7 @@ Current product goals:
 - Experience vision: [`docs/ux/experience-vision.md`](ux/experience-vision.md)
 - Shared UX principles: [`docs/ux/principles.md`](ux/principles.md)
 - Continuity intelligence: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
+- Outcome-first continuity: [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 - Undo actions: [`docs/ux/undo-actions.md`](ux/undo-actions.md)
 
 ## Delivery model

@@ -113,7 +113,7 @@ Every action card should have:
 - Recall result cards now use those richer follow-through actions to save durable briefs, reopen editable source questions, rerun grounded answers, and defer evidence or execution handoffs without losing working-set scope.
 - Planning and saved review-session cards now expose one shared rerun contract that makes provenance, freshness, strategy summary, strict invariants, variable attempt behavior, and landing semantics explicit before the operator refreshes a workflow.
 - Card-triggered working-set changes, review decisions, planning execution, reruns, and command-palette actions now emit shared receipt cards with rollback cues and resume-from-landed-outcome affordances instead of disappearing into one-line status text.
-- The next roadmap work that builds on shared receipts is now specified in [`outcome-continuity.md`](outcome-continuity.md), [`continuity-intelligence.md`](continuity-intelligence.md), and [`undo-actions.md`](undo-actions.md).
+- Shared receipt, continuity, and rollback behavior is specified in [`outcome-continuity.md`](outcome-continuity.md), [`continuity-intelligence.md`](continuity-intelligence.md), and [`undo-actions.md`](undo-actions.md).
 
 ## Dependencies
 
