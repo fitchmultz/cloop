@@ -25,6 +25,9 @@
  */
 
 import type { ShellLocationContract } from "./contracts-ui";
+import { locationsMatch } from "./shell-routing";
+
+export { locationsMatch };
 
 export type PaletteGroup =
   | "recommended"
@@ -104,24 +107,6 @@ function tokenize(value: string): string[] {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-export function locationsMatch(
-  left: ShellLocationContract | null | undefined,
-  right: ShellLocationContract | null | undefined,
-): boolean {
-  if (!left || !right) {
-    return false;
-  }
-  return left.state === right.state
-    && left.recallTool === right.recallTool
-    && left.reviewFocus === right.reviewFocus
-    && left.sessionId === right.sessionId
-    && left.loopId === right.loopId
-    && (left.viewId ?? null) === (right.viewId ?? null)
-    && (left.memoryId ?? null) === (right.memoryId ?? null)
-    && (left.workingSetId ?? null) === (right.workingSetId ?? null)
-    && (left.query ?? null) === (right.query ?? null);
 }
 
 export function buildPaletteSearchText(item: PaletteRankItem): string {

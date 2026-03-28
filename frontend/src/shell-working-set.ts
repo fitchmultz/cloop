@@ -335,17 +335,40 @@ export function createShellWorkingSetController(
     );
   }
 
+  function workingSetItemKindLabel(item: WorkingSetItemResponse): string {
+    if (item.item_type === "query_anchor") {
+      return "Saved filter";
+    }
+    if (item.item_type === "state_anchor") {
+      return "Saved location";
+    }
+    return item.kind_label;
+  }
+
+  function workingSetItemStatusLabel(item: WorkingSetItemResponse): string {
+    if (item.missing) {
+      return "Missing";
+    }
+    if (item.item_type === "query_anchor") {
+      return "Saved filter";
+    }
+    if (item.item_type === "state_anchor") {
+      return "Saved location";
+    }
+    return item.status_label ?? "Ready";
+  }
+
   function renderWorkingSetItemCard(workingSetId: number, item: WorkingSetItemResponse): string {
     const location = workingSetItemLocation(item);
     return `
       <article class="working-set-item-card${item.missing ? " working-set-item-card--missing" : ""}">
         <div class="working-set-card-header">
           <div>
-            <p class="support-eyebrow">${escapeHtml(item.kind_label)}</p>
+            <p class="support-eyebrow">${escapeHtml(workingSetItemKindLabel(item))}</p>
             <h4>${escapeHtml(item.label)}</h4>
             <p>${escapeHtml(item.description)}</p>
           </div>
-          <span class="operator-chip">${escapeHtml(item.missing ? "Missing" : item.status_label ?? "Ready")}</span>
+          <span class="operator-chip">${escapeHtml(workingSetItemStatusLabel(item))}</span>
         </div>
         <div class="operator-card-actions">
           <button type="button" ${openLocationAttributes(location)}>Open</button>
