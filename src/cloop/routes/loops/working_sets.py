@@ -28,7 +28,7 @@ Non-scope:
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from ... import db
@@ -62,6 +62,15 @@ router = APIRouter()
 
 def _raise_working_set_http_exception(exc: ValidationError) -> None:
     """Map working-set validation failures to stable HTTP responses."""
+    if exc.field == "name" and "already exists" in exc.reason.lower():
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "working_set_name_conflict",
+                "message": exc.reason,
+                "field": exc.field,
+            },
+        ) from None
     if exc.field in {"working_set_id", "item_id"} and "not found" in exc.reason.lower():
         resource_type = "working set" if exc.field == "working_set_id" else "working-set item"
         raise map_not_found_to_404(resource_type=resource_type, message=exc.reason) from None
@@ -256,17 +265,20 @@ def undo_working_set_endpoint(
 ) -> WorkingSetUndoResponse | JSONResponse:
     """Undo one exact latest working-set mutation event."""
     payload = {"expected_event_id": request.expected_event_id}
-    result = run_idempotent_loop_route(
-        settings=settings,
-        method="POST",
-        path="/loops/working-sets/undo",
-        idempotency_key=idempotency_key,
-        payload=payload,
-        execute=lambda conn: working_sets.undo_working_set_event(
-            expected_event_id=request.expected_event_id,
-            conn=conn,
-        ),
-    )
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path="/loops/working-sets/undo",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            execute=lambda conn: working_sets.undo_working_set_event(
+                expected_event_id=request.expected_event_id,
+                conn=conn,
+            ),
+        )
+    except ValidationError as exc:
+        _raise_working_set_http_exception(exc)
     if isinstance(result, dict):
         return WorkingSetUndoResponse.model_validate(result)
     return result

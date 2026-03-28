@@ -26,7 +26,7 @@
 
 import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
 import { buildWorkingSetUndoAction } from "./executable-undo";
-import { requestJson } from "./http";
+import { HttpRequestError, requestJson } from "./http";
 import * as modals from "./modals";
 import { recordRecentShellAction } from "./continuity-intelligence";
 import { escapeHtml, formatRelativeTime, loopPreview, loopTitle } from "./shell-core";
@@ -596,19 +596,32 @@ export function createShellWorkingSetController(
     });
   }
 
+  async function showWorkingSetRequestError(title: string, error: unknown): Promise<void> {
+    const description = error instanceof HttpRequestError || error instanceof Error
+      ? error.message
+      : "Unexpected working-set error.";
+    await modals.alertDialog({ eyebrow: "Working set", title, description });
+  }
+
   async function createWorkingSetViaDialog(): Promise<WorkingSetResponse | null> {
     const details = await promptForWorkingSetDetails();
     if (!details) {
       return null;
     }
-    const created = await requestJson<WorkingSetResponse, { name: string; description: string | null }>(
-      "/loops/working-sets",
-      {
-        method: "POST",
-        body: details,
-      },
-      "Failed to create working set",
-    );
+    let created: WorkingSetResponse;
+    try {
+      created = await requestJson<WorkingSetResponse, { name: string; description: string | null }>(
+        "/loops/working-sets",
+        {
+          method: "POST",
+          body: details,
+        },
+        "Failed to create working set",
+      );
+    } catch (error) {
+      await showWorkingSetRequestError("Could not create working set", error);
+      return null;
+    }
     await refreshWorkingSetState();
     const hydrated = latestWorkingSets.find((set) => set.id === created.id) ?? created;
     recordWorkingSetReceipt({
@@ -656,14 +669,19 @@ export function createShellWorkingSetController(
     details: { name: string; description: string | null },
   ): Promise<void> {
     const previous = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
-    await requestJson<WorkingSetResponse, { name: string; description: string | null }>(
-      `/loops/working-sets/${workingSetId}`,
-      {
-        method: "PATCH",
-        body: details,
-      },
-      "Failed to update working set",
-    );
+    try {
+      await requestJson<WorkingSetResponse, { name: string; description: string | null }>(
+        `/loops/working-sets/${workingSetId}`,
+        {
+          method: "PATCH",
+          body: details,
+        },
+        "Failed to update working set",
+      );
+    } catch (error) {
+      await showWorkingSetRequestError("Could not update working set", error);
+      return;
+    }
     await refreshWorkingSetState();
     const updated = latestWorkingSets.find((set) => set.id === workingSetId) ?? null;
     if (!updated) {

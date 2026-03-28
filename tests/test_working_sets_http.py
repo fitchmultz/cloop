@@ -184,6 +184,81 @@ def test_working_set_endpoints(make_test_client) -> None:
     assert cleared_context_response.json()["focus_mode_enabled"] is False
 
 
+def test_working_set_name_conflicts_return_structured_409(make_test_client) -> None:
+    client = make_test_client()
+
+    first_create = client.post(
+        "/loops/working-sets",
+        json={"name": "Launch reset", "description": "Primary bounded context."},
+    )
+    assert first_create.status_code == 201
+    first_id = int(first_create.json()["id"])
+
+    duplicate_create = client.post(
+        "/loops/working-sets",
+        json={"name": "Launch reset", "description": "Duplicate bounded context."},
+    )
+    assert duplicate_create.status_code == 409
+    assert duplicate_create.json()["error"]["code"] == "working_set_name_conflict"
+    assert "already exists" in duplicate_create.json()["error"]["message"]
+
+    second_create = client.post(
+        "/loops/working-sets",
+        json={"name": "Rollback reset", "description": "Secondary bounded context."},
+    )
+    assert second_create.status_code == 201
+    second_id = int(second_create.json()["id"])
+
+    duplicate_rename = client.patch(
+        f"/loops/working-sets/{second_id}",
+        json={"name": "Launch reset"},
+    )
+    assert duplicate_rename.status_code == 409
+    assert duplicate_rename.json()["error"]["code"] == "working_set_name_conflict"
+    assert "already exists" in duplicate_rename.json()["error"]["message"]
+
+    first_get = client.get(f"/loops/working-sets/{first_id}")
+    second_get = client.get(f"/loops/working-sets/{second_id}")
+    assert first_get.status_code == 200
+    assert second_get.status_code == 200
+    assert first_get.json()["name"] == "Launch reset"
+    assert second_get.json()["name"] == "Rollback reset"
+
+
+def test_working_set_undo_restore_name_conflicts_return_structured_409(
+    make_test_client,
+) -> None:
+    client = make_test_client()
+
+    create_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Launch reset", "description": "Original bounded context."},
+    )
+    assert create_response.status_code == 201
+    original_id = int(create_response.json()["id"])
+
+    delete_response = client.delete(f"/loops/working-sets/{original_id}")
+    assert delete_response.status_code == 200
+    delete_event_id = int(delete_response.json()["latest_reversible_event_id"])
+
+    replacement_response = client.post(
+        "/loops/working-sets",
+        json={"name": "Launch reset", "description": "Replacement bounded context."},
+    )
+    assert replacement_response.status_code == 201
+    replacement_id = int(replacement_response.json()["id"])
+
+    undo_response = _undo_working_set(client, delete_event_id)
+    assert undo_response.status_code == 409
+    assert undo_response.json()["error"]["code"] == "working_set_name_conflict"
+    assert "already exists" in undo_response.json()["error"]["message"]
+
+    replacement_get = client.get(f"/loops/working-sets/{replacement_id}")
+    original_get = client.get(f"/loops/working-sets/{original_id}")
+    assert replacement_get.status_code == 200
+    assert original_get.status_code == 404
+
+
 def test_working_set_undo_rejects_stale_handles(make_test_client) -> None:
     client = make_test_client()
 

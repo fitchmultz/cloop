@@ -33,7 +33,13 @@ import sqlite3
 from collections.abc import Mapping
 from typing import Any
 
+from ..errors import ValidationError
 from .shared import _UNSET
+
+
+def _raise_working_set_name_conflict(name: str) -> None:
+    """Raise the canonical duplicate-name validation error."""
+    raise ValidationError("name", f"working set '{name}' already exists") from None
 
 
 def create_working_set(
@@ -43,13 +49,16 @@ def create_working_set(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
     """Create a durable working set and return the stored row."""
-    cursor = conn.execute(
-        """
-        INSERT INTO working_sets (name, description)
-        VALUES (?, ?)
-        """,
-        (name, description),
-    )
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO working_sets (name, description)
+            VALUES (?, ?)
+            """,
+            (name, description),
+        )
+    except sqlite3.IntegrityError:
+        _raise_working_set_name_conflict(name)
     row = conn.execute("SELECT * FROM working_sets WHERE id = ?", (cursor.lastrowid,)).fetchone()
     if row is None:
         raise RuntimeError("working_set_insert_failed")
@@ -62,33 +71,36 @@ def restore_working_set(
     conn: sqlite3.Connection,
 ) -> dict[str, Any]:
     """Insert or replace one working-set row from an exact snapshot."""
-    conn.execute(
-        """
-        INSERT INTO working_sets (
-            id,
-            name,
-            description,
-            last_activated_at,
-            created_at,
-            updated_at
+    try:
+        conn.execute(
+            """
+            INSERT INTO working_sets (
+                id,
+                name,
+                description,
+                last_activated_at,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                last_activated_at = excluded.last_activated_at,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at
+            """,
+            (
+                snapshot["id"],
+                snapshot["name"],
+                snapshot.get("description"),
+                snapshot.get("last_activated_at"),
+                snapshot["created_at"],
+                snapshot["updated_at"],
+            ),
         )
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            name = excluded.name,
-            description = excluded.description,
-            last_activated_at = excluded.last_activated_at,
-            created_at = excluded.created_at,
-            updated_at = excluded.updated_at
-        """,
-        (
-            snapshot["id"],
-            snapshot["name"],
-            snapshot.get("description"),
-            snapshot.get("last_activated_at"),
-            snapshot["created_at"],
-            snapshot["updated_at"],
-        ),
-    )
+    except sqlite3.IntegrityError:
+        _raise_working_set_name_conflict(str(snapshot["name"]))
     row = conn.execute("SELECT * FROM working_sets WHERE id = ?", (snapshot["id"],)).fetchone()
     if row is None:
         raise RuntimeError("working_set_restore_failed")
@@ -140,14 +152,19 @@ def update_working_set(
     if not updates:
         return get_working_set(working_set_id=working_set_id, conn=conn)
     params.append(working_set_id)
-    conn.execute(
-        f"""
-        UPDATE working_sets
-        SET {", ".join(updates)}, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        """,
-        params,
-    )
+    try:
+        conn.execute(
+            f"""
+            UPDATE working_sets
+            SET {", ".join(updates)}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            params,
+        )
+    except sqlite3.IntegrityError:
+        if name is not None:
+            _raise_working_set_name_conflict(name)
+        raise
     return get_working_set(working_set_id=working_set_id, conn=conn)
 
 
