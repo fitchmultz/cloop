@@ -19,11 +19,11 @@ The operator workspace, receipt rail, command-palette recents, and stale-workflo
 
 Working sets still support lightweight reusable launch helpers. `state_anchor` and `query_anchor` remain the API/storage item-type values for those helpers, while continuity persists landed outcomes and resolved reopen targets.
 
-## Current implementation contract
+## Contract
 
 ### Durable backend continuity
 
-`src/cloop/storage/continuity_store.py` and `/loops/continuity*` now persist and hydrate:
+`src/cloop/storage/continuity_store.py` and `/loops/continuity*` persist and hydrate:
 
 - landed outcomes
 - workflow summaries

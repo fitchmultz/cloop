@@ -47,13 +47,13 @@ Working sets should support:
 - restoring last active set
 - switching to focus mode
 
-Current implementation defaults:
+Contract defaults:
 
 - one durable active working-set context is stored alongside the named sets
 - a dedicated shell route (`#working-set/:id`) restores the set as a first-class session surface
 - focus mode is explicit and can be toggled on/off without deleting the active set
 - sets may contain both durable object references and lightweight launch helpers when the shell needs a reusable launch target
-- working-set create/focus/pin/stage/defer/reorder/remove/bulk-add mutations now emit shared receipt cards so the landed outcome, executable undo action, and reopen path stay visible after the mutation lands
+- working-set create/focus/pin/stage/defer/reorder/remove/bulk-add mutations emit shared receipt cards so the landed outcome, executable undo action, and reopen path stay visible after the mutation lands
 - working-set and focus-mode responses expose exact reversible event handles so receipts, recent history, and command-palette recents can replay the same safe undo contract everywhere
 
 ## Focus mode

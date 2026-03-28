@@ -8,7 +8,7 @@ A powerhouse tool should feel like it remembers what happened, what drifted, and
 
 Users can return to Cloop and immediately understand what changed, what is aging, and which workflows should resume next.
 
-Current implementation baseline: durable last-seen markers now persist planning sessions, saved review sessions, workflow threads, and review cohorts so drift-aware since-last cards and resume ranking survive browser and device changes. Browser-local visit baselines still exist for local-only comparisons, but durable continuity is now the primary resume and drift substrate. The operator workspace and command palette now also derive one deterministic next move plus a calm why-this-won digest from that same durable evidence, and stale continuity paths now surface explicit replacement/fallback recovery actions instead of warning-only copy.
+Durable continuity persists planning sessions, saved review sessions, workflow threads, and review cohorts so drift-aware since-last cards and resume ranking survive browser and device changes. Browser-local visit baselines remain local-only. Durable continuity is the primary resume and drift substrate, operator home plus the command palette derive one deterministic next move from the same evidence, and stale continuity paths surface explicit replacement or fallback recovery actions instead of warning-only copy.
 
 ## User jobs
 
@@ -93,7 +93,7 @@ The system should surface when:
 
 ## Contract implications
 
-- Durable continuity snapshots now persist landed outcomes, workflow summaries, last-seen markers, notification state, and recovery acknowledgements, while visit baselines and local last-visit timestamps remain browser-local.
+- Durable continuity snapshots persist landed outcomes, workflow summaries, last-seen markers, notification state, and recovery acknowledgements, while visit baselines and local last-visit timestamps remain browser-local.
 - Frontend display readers may merge fresh unsynced receipts with durable summaries, but durable reopen and recovery resolution should stay backend-authored and summary-driven.
 - Working-set `state_anchor` and `query_anchor` values remain valid API/storage launch-helper item types, but they are not part of the continuity snapshot contract.
 - Drift detection should begin with deterministic comparisons, not speculative scoring.

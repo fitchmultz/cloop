@@ -44,9 +44,9 @@ Reversible outcomes should behave consistently across planning, review, enrichme
 - Workflow handoffs beat tab jumping.
 - Human authority, AI acceleration.
 
-## Shipped implementation
+## Contract
 
-The executable undo model is now a first-class shared workflow contract.
+The executable undo model is a first-class shared workflow contract.
 
 ### Backend-safe handles
 
@@ -54,30 +54,30 @@ The executable undo model is now a first-class shared workflow contract.
   - `POST /loops/{loop_id}/undo`
   - body requires `expected_event_id`
   - stale handles are rejected explicitly instead of undoing “whatever is latest”
-- loop undo responses now return enough data to land a fresh receipt:
+- loop undo responses return enough data to land a fresh receipt:
   - restored loop payload
   - `undone_event_id`
   - `undo_event_id`
   - `undone_event_type`
-- loop mutation responses now expose reversible-event metadata so the frontend can attach real undo handles:
+- loop mutation responses expose reversible-event metadata so the frontend can attach real undo handles:
   - `latest_reversible_event_id`
   - `latest_reversible_event_type`
-- planning rollback is now a public transport contract:
+- planning rollback is a public transport contract:
   - `POST /loops/planning/sessions/{session_id}/rollback`
   - body requires `run_id`
   - only the latest active run can be rolled back
   - fully rolled-back runs stay in history but are marked inactive for continuity and analytics
-- planning execution payloads now carry a shared executable `undo_action` contract across HTTP, CLI, MCP, and web, so clients stop re-deriving rollback handles from raw cue counts
-- working-set undo is now a public exact-handle contract:
+- planning execution payloads carry a shared executable `undo_action` contract across HTTP, CLI, MCP, and web, so clients stop re-deriving rollback handles from raw cue counts
+- working-set undo is a public exact-handle contract:
   - `POST /loops/working-sets/undo`
   - body requires `expected_event_id`
   - stale handles are rejected explicitly instead of undoing a newer working-set change
-  - reversible working-set responses now expose `latest_reversible_event_id` and `latest_reversible_event_type`
+  - reversible working-set responses expose `latest_reversible_event_id` and `latest_reversible_event_type`
 
 ### Shared frontend contract
 
-- `frontend/src/contracts-ui.ts` now includes a first-class `undo` action type on shared operator action cards
-- `RecentShellActionOutcome` now stores both trust copy and a structured executable `undoAction`
+- `frontend/src/contracts-ui.ts` includes a first-class `undo` action type on shared operator action cards
+- `RecentShellActionOutcome` stores both trust copy and a structured executable `undoAction`
 - `frontend/src/executable-undo.ts` centralizes:
   - loop-event undo handles
   - planning-run rollback handles
@@ -85,9 +85,9 @@ The executable undo model is now a first-class shared workflow contract.
   - stale-action failure handling
   - post-undo receipt shaping
 
-### Shipped surfaces
+### Surfaces using executable undo
 
-Executable undo now appears anywhere the backend already exposes a safe inverse contract:
+Executable undo appears anywhere the backend already exposes a safe inverse contract:
 
 - planning execution receipts and operator handoff cards
 - enrichment apply receipts
@@ -173,16 +173,16 @@ If a review action is not actually reversible, the receipt should remain explici
 
 ### Working-set mutations
 
-Working-set mutations now use the same executable undo model as loop and planning receipts.
+Working-set mutations use the same executable undo model as loop and planning receipts.
 
-Shipped working-set undo coverage includes:
+Working-set undo coverage includes:
 
 - create, update, and delete of named working sets
 - active working-set / focus-mode context changes
 - single-item pin, stage, defer, remove, and reorder mutations
 - bulk loop-add expansion into the active working set
 
-These receipts now carry exact working-set event handles through the shared undo contract, so recent history, operator outcome cards, and command-palette quick undo all reuse the same safe backend path.
+These receipts carry exact working-set event handles through the shared undo contract, so recent history, operator outcome cards, and command-palette quick undo all reuse the same safe backend path.
 
 ### Command-palette quick actions
 

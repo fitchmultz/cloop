@@ -96,15 +96,15 @@ The palette should rank using:
 - Result ranking reflects current work context.
 - High-frequency operator actions are keyboard-viable end to end.
 
-## Current implementation defaults
+## Contract defaults
 
 - The web shell exposes a global palette via the header button, `⌘K` / `Ctrl+K`, and `/`.
-- Result ranking is deterministic and currently combines query match, current shell state, active working-set focus locations and filters, selected loops, local recent-command history, and canonical landed-outcome continuity rank.
-- The Recent group now derives from the same ranked landed-outcome feed that powers operator home and the receipt rail, so resume and undo affordances stay ordered and worded consistently across surfaces.
+- Result ranking is deterministic and combines query match, current shell state, active working-set focus locations and filters, selected loops, local recent-command history, and canonical landed-outcome continuity rank.
+- The Recent group derives from the same ranked landed-outcome feed that powers operator home and the receipt rail, so resume and undo affordances stay ordered and worded consistently across surfaces.
 - When a bounded working set is active, working-set-scoped plan/review resumes outrank generic saved-session resumes when the canonical follow-through feed says that scope is the real landed context.
-- Quick actions currently include loop capture, direct memory creation, planning-session creation, working-set pinning, working-set activation/focus, and selected-loop mutations (complete, drop, status transitions, snooze, enrich).
-- Search currently covers local loop/object matches, saved views, saved sessions, working sets, memory search, and recall-launch queries for grounded chat/documents.
-- Recent command usage remains browser-local and still influences ranking, but it now complements — rather than defines — the canonical landed-outcome continuity feed.
+- Quick actions include loop capture, direct memory creation, planning-session creation, working-set pinning, working-set activation/focus, and selected-loop mutations (complete, drop, status transitions, snooze, enrich).
+- Search covers local loop/object matches, saved views, saved sessions, working sets, memory search, and recall-launch queries for grounded chat/documents.
+- Recent command usage remains browser-local and still influences ranking, but it complements — rather than defines — the canonical landed-outcome continuity feed.
 
 ## Dependencies
 
