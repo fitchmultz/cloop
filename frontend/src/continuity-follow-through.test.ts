@@ -791,31 +791,13 @@ describe("readRankedWorkflowSummaries", () => {
     expect(resolution.recovery?.kind).toBe("home_fallback");
   });
 
-  it("ignores stale resume-anchor cache once reopen resolution is summary-only", async () => {
+  it("ignores stale discarded browser cache once reopen resolution is summary-only", async () => {
     await hydrateDurableContinuityState();
     window.localStorage.setItem("cloop.continuity.resume-anchors.cache.v3", JSON.stringify({
       planning: {
-        kind: "planning",
-        reviewFocus: "planning",
         sessionId: 321,
-        visitedAtUtc: "2026-03-20T11:59:00Z",
-        launchLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 321 }),
-        resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 321 }),
-        resolvedResume: {
-          requestedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 321 }),
-          resolvedLocation: location({ state: "operator" }),
-          status: "home_fallback",
-          message: "Old anchor should no longer participate in reopen resolution.",
-          successor: null,
-        },
-        outcomeTitle: "Old anchor",
-        outcomeSummary: "Legacy fallback only",
-        workingSetId: null,
-        workflowThreadId: "planning:321",
-        degraded: true,
-        degradedLabel: "Old anchor should no longer participate in reopen resolution.",
+        message: "Discarded browser cache should not affect reopen resolution.",
       },
-      review: null,
     }));
 
     const resolution = resolveDurableReopenLocation({

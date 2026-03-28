@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: no active roadmap slice; continue from newly approved work.
+Execution focus: decide and lock working-set launch-helper naming without mixing it with deleted continuity behavior.
 
 ## Direction
 
@@ -24,6 +24,20 @@ Current product goals:
 - Continuity intelligence: [`docs/ux/continuity-intelligence.md`](ux/continuity-intelligence.md)
 - Outcome-first continuity: [`docs/ux/outcome-continuity.md`](ux/outcome-continuity.md)
 - Undo actions: [`docs/ux/undo-actions.md`](ux/undo-actions.md)
+
+## Execution order
+
+### Next — Decide and lock working-set launch-helper naming
+
+1. Decide whether `query_anchor` and `state_anchor` remain the canonical working-set `item_type` values.
+2. If they stay, document them as working-set launch helpers only and stop treating them as continuity leftovers.
+3. If they go, rename schemas, storage, frontend, docs, and tests in one cutover without compatibility shims.
+
+### Then — Align working-set docs and fixtures to the locked term
+
+1. Update `docs/ux/working-sets.md`, working-set HTTP fixtures, and related test descriptions to match the locked term.
+2. Keep user-facing copy neutral even if internal/public `item_type` values retain `*_anchor` names.
+3. Remove leftover wording that implies deleted continuity-anchor behavior.
 
 ## Delivery model
 
