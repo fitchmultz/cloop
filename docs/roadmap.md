@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: extend safe review undo only where the backend can prove restoration.
+Execution focus: prove backend-safe clarification-answer undo before widening shared review undo contracts.
 
 ## Direction
 
@@ -35,11 +35,23 @@ Current product goals:
 
 ## Execution order
 
-### Next — Extend safe review undo only where the backend can prove restoration
+### Next — Prove clarification-answer undo safety in the backend
 
-1. Evaluate exact-handle undo for enrichment clarification-answer flows.
-2. Ship new undo only when the backend can validate stale-handle safety and full state restoration.
-3. Keep irreversible review outcomes explicit when no exact restore exists.
+1. Define the exact state that clarification-answer undo would need to restore: answered clarification rows, superseded suggestions, rerun suggestion state, and saved-session cursor effects.
+2. Prototype exact-handle stale-state validation against that state before changing any shared transport or frontend contract.
+3. Stop at an explicit irreversible contract if full restoration cannot be guaranteed.
+
+### Then — Ship clarification-answer undo only if backend proof holds
+
+1. Add one backend-owned undo handle and restore path for clarification answers only after the exact-handle proof succeeds.
+2. Reuse the existing shared review follow-through, continuity, frontend undo, CLI, and MCP adapters instead of inventing clarification-specific transport logic.
+3. Keep hydrated continuity outcomes, rerun state, and stale-handle disablement aligned with the new undo path.
+
+### Later — Lock irreversible review outcomes where no exact restore exists
+
+1. Codify no-undo behavior for review outcomes that still cannot prove exact restoration.
+2. Keep receipts and trust surfaces explicit about when rerun is available but undo is not.
+3. Avoid best-effort or inferred review undo paths.
 
 ## Guardrails
 
