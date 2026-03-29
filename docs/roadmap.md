@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: harden durable review continuity round-trips and keep safe undo expansion exact-handle only.
+Execution focus: delete remaining review-only fallback reopen logic, then extend safe review undo only where the backend can prove restoration.
 
 ## Direction
 
@@ -35,15 +35,15 @@ Current product goals:
 
 ## Execution order
 
-### Next — Harden durable review continuity reload behavior
+### Next — Delete review-only fallback reopen logic
 
-1. Add focused end-to-end coverage that relationship and enrichment review outcomes survive continuity sync and hydration with executable undo/rerun state intact.
-2. Eliminate frontend-only review fallback resume targets by backfilling durable backend `resume_location` where continuity needs to reopen landed work.
-3. Keep stale undo/rerun disablement synchronized between recent actions and workflow summaries after hydration.
+1. Remove `fallbackLocation` from shared review follow-through adapters.
+2. Keep review continuity writes sourced from backend-authored `follow_through` fields only.
+3. Treat unexpected missing `resume_location` as an explicit contract failure instead of silent client repair.
 
 ### Then — Extend safe review undo only where the backend can prove restoration
 
-1. Evaluate exact-handle undo for enrichment apply and clarification-answer flows after the shared adapter path lands.
+1. Evaluate exact-handle undo for enrichment apply and clarification-answer flows after fallback deletion lands.
 2. Keep irreversible review outcomes explicit when full stale-handle protection or state restoration is unavailable.
 3. Avoid inferred or best-effort review undo paths that weaken trust in landed outcomes.
 

@@ -23,16 +23,22 @@ Invariants/Assumptions:
 
 from __future__ import annotations
 
+import json
+import math
 import sqlite3
+from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from conftest import insert_planning_session, insert_scheduler_push_delivery
 
 from cloop import db
+from cloop.loops import enrichment_review, repo, review_workflows, service
 from cloop.loops.errors import ValidationError
+from cloop.loops.models import LoopStatus
 from cloop.schemas._loops.continuity import (
     ContinuityDisplayCardResponse,
     ContinuityLastSeenBatchUpsertRequest,
@@ -72,6 +78,130 @@ def _insert_loop(tmp_data_dir: Path, loop_id: int = 11) -> None:
             (loop_id, f"Loop {loop_id}", "actionable", "2026-03-21T12:00:00Z", 0),
         )
         conn.commit()
+
+
+_RELATIONSHIP_VECTORS = {
+    "buy milk and eggs before the weekend": (1.0, 0.0, 0.0),
+    "pick up groceries like milk and eggs": (0.99, 0.01, 0.0),
+}
+
+
+def _capture_loop(raw_text: str, *, status: LoopStatus, conn: sqlite3.Connection) -> dict[str, Any]:
+    return service.capture_loop(
+        raw_text=raw_text,
+        captured_at_iso="2026-03-14T12:00:00+00:00",
+        client_tz_offset_min=0,
+        status=status,
+        conn=conn,
+    )
+
+
+def _mock_relationship_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_embedding(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        inputs = kwargs.get("input") or []
+        data: list[dict[str, list[float]]] = []
+        for text in inputs:
+            lowered = str(text).lower()
+            vector = [0.1, 0.1, 0.1]
+            for key, mapped in _RELATIONSHIP_VECTORS.items():
+                if key in lowered:
+                    vector = list(mapped)
+                    break
+            norm = math.sqrt(sum(component * component for component in vector)) or 1.0
+            data.append(
+                {
+                    "embedding": [component / norm for component in vector],
+                }
+            )
+        return {"data": data}
+
+    monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
+
+
+def _review_outcome_request(
+    follow_through: Mapping[str, Any],
+    *,
+    dedupe_key: str,
+    occurred_at_utc: str,
+) -> ContinuityOutcomeWriteRequest:
+    resume_location = ContinuityLocationResponse.model_validate(
+        dict(follow_through["resume_location"])
+    )
+    undo_action = follow_through.get("undo_action")
+    rerun_action = follow_through.get("rerun_action")
+    return ContinuityOutcomeWriteRequest(
+        kind="review",
+        label=str(follow_through["display_card"]["title"]),
+        description=str(follow_through["display_card"]["summary"]),
+        occurred_at_utc=occurred_at_utc,
+        launch_location=resume_location,
+        display_card=ContinuityDisplayCardResponse.model_validate(
+            dict(follow_through["display_card"])
+        ),
+        undo_action=(
+            ContinuityUndoAction.model_validate(dict(undo_action))
+            if isinstance(undo_action, Mapping)
+            else None
+        ),
+        rerun_action=(
+            ContinuityRerunAction.model_validate(dict(rerun_action))
+            if isinstance(rerun_action, Mapping)
+            else None
+        ),
+        resume_location=resume_location,
+        working_set_id=follow_through.get("working_set_id"),
+        workflow_thread=WorkflowThreadRefResponse.model_validate(
+            dict(follow_through["workflow_thread"])
+        ),
+        dedupe_key=dedupe_key,
+        source_surface="review-workspace",
+        signal_level="high",
+        metadata={"source": "review-workspace"},
+    )
+
+
+def _assert_review_round_trip(
+    *,
+    snapshot: Any,
+    review_focus: str,
+    session_id: int,
+    undo_kind: str | None,
+) -> None:
+    outcome = snapshot.outcomes[0]
+    summary = snapshot.workflow_summaries[0]
+    notification = snapshot.notification_records[0]
+
+    assert outcome.kind == "review"
+    assert outcome.resume_location is not None
+    assert outcome.resume_location.state == "decide"
+    assert outcome.resume_location.review_focus == review_focus
+    assert outcome.resume_location.session_id == session_id
+    assert outcome.resolved_resume.status == "ok"
+    assert outcome.resolved_resume.resolved_location.review_focus == review_focus
+    assert outcome.resolved_resume.resolved_location.session_id == session_id
+    assert outcome.rerun_action is not None
+    assert outcome.rerun_action.rerun.kind == "review_session"
+    assert outcome.rerun_action.rerun.review_focus == review_focus
+    if undo_kind is None:
+        assert outcome.undo_action is None
+        assert summary.undo_action is None
+    else:
+        assert outcome.undo_action is not None
+        assert outcome.undo_action.undo.kind == undo_kind
+        assert summary.undo_action is not None
+        assert summary.undo_action.undo.kind == undo_kind
+
+    assert summary.workflow_thread.kind == "review_session"
+    assert summary.requested_resume_location is not None
+    assert summary.requested_resume_location.review_focus == review_focus
+    assert summary.requested_resume_location.session_id == session_id
+    assert summary.resolved_resume.resolved_location.review_focus == review_focus
+    assert summary.resolved_resume.resolved_location.session_id == session_id
+    assert summary.rerun_action is not None
+    assert summary.rerun_action.rerun.kind == "review_session"
+    assert summary.rerun_action.rerun.review_focus == review_focus
+    assert notification.resolved_location.review_focus == review_focus
+    assert notification.resolved_location.session_id == session_id
 
 
 def _planning_undo_action_payload() -> ContinuityUndoAction:
@@ -285,6 +415,170 @@ def test_continuity_snapshot_round_trips_typed_follow_through_actions(tmp_data_d
     assert snapshot.workflow_summaries[0].undo_action.undo.kind == "planning_run"
     assert snapshot.workflow_summaries[0].rerun_action is not None
     assert snapshot.workflow_summaries[0].rerun_action.rerun.kind == "planning_session"
+
+
+def test_relationship_review_outcome_round_trips_through_continuity_snapshot(
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del tmp_data_dir
+    settings = get_settings()
+    _mock_relationship_embeddings(monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        first_loop = _capture_loop(
+            "Buy milk and eggs before the weekend",
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        second_loop = _capture_loop(
+            "Pick up groceries like milk and eggs",
+            status=LoopStatus.ACTIONABLE,
+            conn=conn,
+        )
+        conn.commit()
+
+        snapshot = review_workflows.create_relationship_review_session(
+            name="duplicate-pass",
+            query="status:open",
+            relationship_kind="duplicate",
+            candidate_limit=3,
+            item_limit=25,
+            current_loop_id=first_loop["id"],
+            conn=conn,
+            settings=settings,
+        )
+        after = review_workflows.execute_relationship_review_session_action(
+            session_id=snapshot["session"]["id"],
+            loop_id=first_loop["id"],
+            candidate_loop_id=second_loop["id"],
+            candidate_relationship_type="duplicate",
+            action_preset_id=None,
+            action_type="dismiss",
+            relationship_type="duplicate",
+            conn=conn,
+            settings=settings,
+        )
+
+    record_continuity_outcome(
+        _review_outcome_request(
+            after["follow_through"],
+            dedupe_key=f"review::relationship::{snapshot['session']['id']}",
+            occurred_at_utc="2026-03-21T12:00:00Z",
+        )
+    )
+
+    continuity = read_continuity_snapshot()
+    _assert_review_round_trip(
+        snapshot=continuity,
+        review_focus="relationship",
+        session_id=snapshot["session"]["id"],
+        undo_kind="relationship_decision",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected_undo_kind"),
+    (("apply", "loop_event"), ("clarify", None)),
+)
+def test_enrichment_review_outcomes_round_trip_through_continuity_snapshot(
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    expected_undo_kind: str | None,
+) -> None:
+    del tmp_data_dir
+    settings = get_settings()
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(
+                {
+                    "title": "Schedule launch date",
+                    "next_action": "Confirm Friday launch plan",
+                    "confidence": {"title": 0.99, "next_action": 0.99},
+                }
+            ),
+            {"model": "mock-organizer", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+
+    with db.core_connection(settings) as conn:
+        first_loop = _capture_loop("Clarify launch date", status=LoopStatus.INBOX, conn=conn)
+        repo.insert_loop_suggestion(
+            loop_id=first_loop["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=first_loop["id"],
+            question="When should this happen?",
+            conn=conn,
+        )
+        apply_loop = _capture_loop(
+            "Prepare launch retrospective",
+            status=LoopStatus.ACTIONABLE,
+            conn=conn,
+        )
+        apply_suggestion_id = repo.insert_loop_suggestion(
+            loop_id=apply_loop["id"],
+            suggestion_json={"title": "Plan launch retrospective", "confidence": 0.99},
+            model="test-model",
+            conn=conn,
+        )
+        conn.commit()
+
+        snapshot = review_workflows.create_enrichment_review_session(
+            name=f"enrichment-{mode}",
+            query="status:open",
+            pending_kind="all",
+            suggestion_limit=3,
+            clarification_limit=3,
+            item_limit=25,
+            current_loop_id=(apply_loop["id"] if mode == "apply" else first_loop["id"]),
+            conn=conn,
+        )
+
+        if mode == "apply":
+            after = review_workflows.execute_enrichment_review_session_action(
+                session_id=snapshot["session"]["id"],
+                suggestion_id=apply_suggestion_id,
+                action_preset_id=None,
+                action_type="apply",
+                fields=["title"],
+                conn=conn,
+                settings=settings,
+            )
+        else:
+            after = review_workflows.answer_enrichment_review_session_clarifications(
+                session_id=snapshot["session"]["id"],
+                loop_id=first_loop["id"],
+                answers=[
+                    enrichment_review.ClarificationAnswerInput(
+                        clarification_id=clarification_id,
+                        answer="Friday",
+                    )
+                ],
+                conn=conn,
+                settings=settings,
+            )
+
+    record_continuity_outcome(
+        _review_outcome_request(
+            after["follow_through"],
+            dedupe_key=f"review::enrichment::{mode}::{snapshot['session']['id']}",
+            occurred_at_utc="2026-03-21T12:05:00Z",
+        )
+    )
+
+    continuity = read_continuity_snapshot()
+    _assert_review_round_trip(
+        snapshot=continuity,
+        review_focus="enrichment",
+        session_id=snapshot["session"]["id"],
+        undo_kind=expected_undo_kind,
+    )
 
 
 def test_notification_state_round_trips_on_snapshot(tmp_data_dir: Path) -> None:

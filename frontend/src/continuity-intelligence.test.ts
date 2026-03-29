@@ -35,6 +35,7 @@ import {
   markContinuityNotificationSeen,
   markContinuityRecoveryAcknowledged,
   markRerunActionUnavailable,
+  markUndoActionUnavailable,
   readActiveContinuityNotificationRecords,
   readBannerContinuityNotificationRecords,
   readContinuityNotificationRecords,
@@ -80,6 +81,167 @@ function createMemoryStorage(): Storage {
       values.set(key, value);
     },
   } satisfies Storage;
+}
+
+function buildReviewContinuitySnapshot(input: {
+  outcomeId: number;
+  reviewFocus: "relationship" | "enrichment";
+  sessionId: number;
+  sessionName: string;
+  title: string;
+  summary: string;
+  eyebrow: string;
+  undoAction: Record<string, unknown> | null;
+  workingSetId: number | null;
+}): Record<string, unknown> {
+  const location = {
+    state: "decide",
+    recall_tool: "chat",
+    review_focus: input.reviewFocus,
+    session_id: input.sessionId,
+    loop_id: null,
+    view_id: null,
+    memory_id: null,
+    working_set_id: input.workingSetId,
+    query: null,
+  };
+  const workflowThread = {
+    id: `review:${input.reviewFocus}:${input.sessionId}`,
+    kind: "review_session",
+    title: input.sessionName,
+    summary: `${input.eyebrow} thread`,
+    parent_outcome_id: null,
+  };
+  const rerunAction = {
+    label: input.reviewFocus === "relationship" ? "Refresh queue" : "Refresh enrichment",
+    description: `Refresh ${input.sessionName}.`,
+    rerun: {
+      kind: "review_session",
+      review_focus: input.reviewFocus,
+      session_id: input.sessionId,
+      session_name: input.sessionName,
+    },
+    contract: {
+      mode: "refresh",
+      provenance_label: `${input.sessionName} · status:open`,
+      freshness_label: "Updated 2026-03-28T18:30:00Z",
+      strategy_summary: `Reuse the saved ${input.reviewFocus} review session.`,
+      strict_invariants: ["Same saved review session identity"],
+      may_vary: ["Queue membership and cursor target"],
+      post_run: {
+        summary: `Land back in ${input.sessionName}.`,
+        location,
+      },
+    },
+  };
+  const displayCard = {
+    kind: "receipt",
+    tone: "progress",
+    eyebrow: input.eyebrow,
+    title: input.title,
+    summary: input.summary,
+    rationale: "Receipt",
+    preview: [],
+    trust: {
+      generation_label: null,
+      generation_tone: null,
+      context_sources: [`Saved ${input.reviewFocus} review session`],
+      assumptions: [],
+      confidence_label: "Recorded",
+      confidence_tone: null,
+      freshness_label: "Saved just now",
+      freshness_tone: null,
+      rollback_label: input.undoAction ? "Undo remains available." : "Undo is not available.",
+      rollback_tone: null,
+      impact_summary: input.summary,
+      impact_tone: null,
+    },
+    handoff: null,
+    action_context_label: "Continue from here",
+    action_warning: null,
+  };
+  const resolvedResume = {
+    requested_location: location,
+    resolved_location: location,
+    status: "ok",
+    message: null,
+    successor: null,
+  };
+  return {
+    recorded_at_utc: "2026-03-17T12:00:00Z",
+    outcomes: [
+      {
+        id: input.outcomeId,
+        kind: "review",
+        label: input.title,
+        description: input.summary,
+        occurred_at_utc: "2026-03-17T11:55:00Z",
+        launch_location: location,
+        display_card: displayCard,
+        undo_action: input.undoAction,
+        rerun_action: rerunAction,
+        resume_location: location,
+        resolved_resume: resolvedResume,
+        workflow_thread: workflowThread,
+        working_set_id: input.workingSetId,
+        degraded: false,
+        degraded_label: null,
+        metadata: { source: "review-workspace", sessionId: input.sessionId },
+      },
+    ],
+    workflow_summaries: [
+      {
+        id: workflowThread.id,
+        source: "receipt",
+        rank: 5418,
+        ranking_signals: {
+          drift_severity: "moderate",
+          drift_score: 52,
+          working_set_relevant: true,
+          downstream_ready: true,
+          degraded: false,
+          recency_tie_breaker: 18,
+        },
+        workflow_thread: workflowThread,
+        representative_outcome_id: input.outcomeId,
+        latest_outcome_id: input.outcomeId,
+        occurred_at_utc: "2026-03-17T11:55:00Z",
+        outcome_count: 1,
+        outcome_preview_titles: [input.title],
+        requested_resume_location: location,
+        resolved_resume: resolvedResume,
+        display_title: input.title,
+        display_summary: input.summary,
+        display_card: displayCard,
+        undo_action: input.undoAction,
+        rerun_action: rerunAction,
+        working_set_id: input.workingSetId,
+        degraded: false,
+        degraded_label: null,
+        why_now: ["This workflow has fresh unseen movement."],
+        changed_since_last_seen: ["This workflow has never been seen from durable continuity."],
+        prior_state: null,
+      },
+    ],
+    notification_records: [
+      {
+        id: workflowThread.id,
+        title: `${input.title} is ready in your review queue`,
+        body: "This workflow has fresh unseen movement.",
+        severity: "info",
+        workflow_thread: workflowThread,
+        resolved_location: location,
+        state: {
+          inboxed_at_utc: null,
+          seen_at_utc: null,
+          acknowledged_at_utc: null,
+          suppressed_until_utc: null,
+        },
+      },
+    ],
+    last_seen_markers: [],
+    recovery_acknowledgements: [],
+  };
 }
 
 let originalLocalStorage: Storage;
@@ -444,6 +606,125 @@ describe("continuity-intelligence", () => {
     expect(readContinuityWorkflowSummaries()[0]?.undoAction?.undo.kind).toBe("planning_run");
     expect(readContinuityWorkflowSummaries()[0]?.rerunAction?.rerun.kind).toBe("planning_session");
     expect(readContinuityNotificationRecords()[0]?.title).toBe("Created launch review queue is ready in your working set");
+  });
+
+  it("hydrates relationship review outcomes and keeps stale undo/rerun disablement synchronized", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(buildReviewContinuitySnapshot({
+        outcomeId: 9,
+        reviewFocus: "relationship",
+        sessionId: 17,
+        sessionName: "duplicate-pass",
+        title: "Dismissed duplicate suggestion",
+        summary: "The relationship queue advanced after the saved decision.",
+        eyebrow: "Relationship receipt",
+        undoAction: {
+          label: "Undo decision",
+          description: "Restore the pair to the saved queue.",
+          undo: {
+            kind: "relationship_decision",
+            session_id: 17,
+            loop_id: 8,
+            candidate_loop_id: 11,
+            expected_pair_state: {
+              duplicate: { state: "dismissed", confidence: 1, source: "human_review" },
+              related: null,
+            },
+            restore_pair_state: {
+              duplicate: { state: "active", confidence: 0.82, source: "similarity" },
+              related: null,
+            },
+          },
+          requires_confirmation: false,
+          confirm_title: null,
+          confirm_description: null,
+          success_location: null,
+        },
+        workingSetId: 9,
+      })), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await hydrateDurableContinuityState();
+
+    expect(readRecentShellActions()[0]?.outcome?.resumeLocation).toEqual(
+      location({ state: "decide", reviewFocus: "relationship", sessionId: 17, workingSetId: 9 }),
+    );
+    expect(readRecentShellActions()[0]?.outcome?.undoAction?.undo.kind).toBe("relationship_decision");
+    expect(readRecentShellActions()[0]?.outcome?.rerunAction?.rerun.kind).toBe("review_session");
+    expect(readContinuityWorkflowSummaries()[0]?.requestedResumeLocation).toEqual(
+      location({ state: "decide", reviewFocus: "relationship", sessionId: 17, workingSetId: 9 }),
+    );
+
+    markUndoActionUnavailable(
+      readRecentShellActions()[0]!.outcome!.undoAction!.undo,
+      "This saved relationship decision is stale.",
+    );
+    markRerunActionUnavailable(
+      readRecentShellActions()[0]!.outcome!.rerunAction!.rerun,
+      "This saved review session moved.",
+    );
+
+    expect(readRecentShellActions()[0]?.outcome?.undoAction?.disabledReason).toBe(
+      "This saved relationship decision is stale.",
+    );
+    expect(readContinuityWorkflowSummaries()[0]?.undoAction?.disabledReason).toBe(
+      "This saved relationship decision is stale.",
+    );
+    expect(readRecentShellActions()[0]?.outcome?.rerunAction?.disabledReason).toBe(
+      "This saved review session moved.",
+    );
+    expect(readContinuityWorkflowSummaries()[0]?.rerunAction?.disabledReason).toBe(
+      "This saved review session moved.",
+    );
+  });
+
+  it("hydrates enrichment review outcomes with executable reopen, undo, and rerun state", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(buildReviewContinuitySnapshot({
+        outcomeId: 10,
+        reviewFocus: "enrichment",
+        sessionId: 52,
+        sessionName: "enrichment-pass",
+        title: "Applied title suggestion",
+        summary: "The enrichment queue refreshed after the saved suggestion landed.",
+        eyebrow: "Enrichment receipt",
+        undoAction: {
+          label: "Undo enrichment",
+          description: "Restore the loop before the suggestion landed.",
+          undo: {
+            kind: "loop_event",
+            loop_id: 41,
+            expected_event_id: 91,
+            event_type: "update",
+            claim_token: null,
+          },
+          requires_confirmation: false,
+          confirm_title: null,
+          confirm_description: null,
+          success_location: null,
+        },
+        workingSetId: 7,
+      })), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await hydrateDurableContinuityState();
+
+    expect(readRecentShellActions()[0]?.outcome?.resumeLocation).toEqual(
+      location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+    );
+    expect(readRecentShellActions()[0]?.outcome?.undoAction?.undo.kind).toBe("loop_event");
+    expect(readRecentShellActions()[0]?.outcome?.rerunAction?.rerun.kind).toBe("review_session");
+    expect(readContinuityWorkflowSummaries()[0]?.requestedResumeLocation).toEqual(
+      location({ state: "decide", reviewFocus: "enrichment", sessionId: 52, workingSetId: 7 }),
+    );
+    expect(readContinuityWorkflowSummaries()[0]?.undoAction?.undo.kind).toBe("loop_event");
+    expect(readContinuityNotificationRecords()[0]?.workflowThread.id).toBe("review:enrichment:52");
   });
 
   it("persists local notification seen and acknowledgement state", async () => {
