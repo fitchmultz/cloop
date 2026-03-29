@@ -417,6 +417,63 @@ def test_migrate_core_db_drops_unused_continuity_anchor_table(
     assert version == 49
 
 
+def test_migrate_core_db_backfills_planning_run_rollback_payloads() -> None:
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.execute(
+            """
+            CREATE TABLE planning_session_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                checkpoint_index INTEGER NOT NULL,
+                result_json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO planning_session_runs (id, session_id, checkpoint_index, result_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                41,
+                12,
+                2,
+                json.dumps(
+                    {
+                        "checkpoint_title": "Queue review work",
+                        "rollback": {
+                            "failed_actions": [],
+                            "summary": "Rollback attempted",
+                        },
+                    }
+                ),
+            ),
+        )
+        conn.execute("PRAGMA user_version = 49")
+        conn.commit()
+
+        db.migrate_core_db(conn, from_version=49, to_version=50)
+        result_json = conn.execute(
+            "SELECT result_json FROM planning_session_runs WHERE id = ?",
+            (41,),
+        ).fetchone()[0]
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    rollback = json.loads(result_json)["rollback"]
+    assert rollback == {
+        "run_id": 41,
+        "checkpoint_index": 2,
+        "checkpoint_title": "Queue review work",
+        "attempted_action_count": 0,
+        "failed_action_count": 0,
+        "failed_actions": [],
+        "rollback_complete": True,
+        "rolled_back_at_utc": "",
+        "summary": "Rollback attempted",
+    }
+    assert version == 50
+
+
 def test_critical_performance_indexes_exist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

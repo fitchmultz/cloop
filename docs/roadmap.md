@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: prove backend-safe clarification-answer undo before widening shared review undo contracts.
+Execution focus: prove clarification-answer undo safety in the backend before widening shared review undo contracts.
 
 ## Direction
 
@@ -37,21 +37,21 @@ Current product goals:
 
 ### Next — Prove clarification-answer undo safety in the backend
 
-1. Define the exact state that clarification-answer undo would need to restore: answered clarification rows, superseded suggestions, rerun suggestion state, and saved-session cursor effects.
+1. Define the exact persisted state that clarification-answer undo must restore: answered clarification rows, superseded suggestions, rerun outputs, saved-session cursor state, and continuity outcomes.
 2. Prototype exact-handle stale-state validation against that state before changing any shared transport or frontend contract.
 3. Stop at an explicit irreversible contract if full restoration cannot be guaranteed.
 
-### Then — Ship clarification-answer undo only if backend proof holds
+### Then — Ship clarification-answer undo end to end only if proof holds
 
-1. Add one backend-owned undo handle and restore path for clarification answers only after the exact-handle proof succeeds.
-2. Reuse the existing shared review follow-through, continuity, frontend undo, CLI, and MCP adapters instead of inventing clarification-specific transport logic.
-3. Keep hydrated continuity outcomes, rerun state, and stale-handle disablement aligned with the new undo path.
+1. Add one backend-owned undo handle and restore path for clarification answers after the exact-handle proof succeeds.
+2. Reuse the shared review follow-through, continuity, frontend undo, CLI, and MCP adapters instead of inventing clarification-specific transport logic.
+3. Keep rerun state, continuity hydration, and stale-handle disablement aligned with the new undo path.
 
-### Later — Lock irreversible review outcomes where no exact restore exists
+### Later — Make irreversible review outcomes explicit and finish schema/runtime parity cleanup
 
 1. Codify no-undo behavior for review outcomes that still cannot prove exact restoration.
-2. Keep receipts and trust surfaces explicit about when rerun is available but undo is not.
-3. Avoid best-effort or inferred review undo paths.
+2. Keep receipts and trust surfaces explicit about rerun-without-undo cases.
+3. Audit other route-built runtime payloads for schema drift before frontend contract regeneration.
 
 ## Guardrails
 

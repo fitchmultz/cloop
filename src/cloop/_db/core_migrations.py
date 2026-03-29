@@ -31,6 +31,79 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    50: """
+    UPDATE planning_session_runs
+    SET result_json = json_set(
+        result_json,
+        '$.rollback.run_id', id,
+        '$.rollback.checkpoint_index', checkpoint_index,
+        '$.rollback.checkpoint_title', COALESCE(
+            json_extract(result_json, '$.rollback.checkpoint_title'),
+            json_extract(result_json, '$.checkpoint_title'),
+            ''
+        ),
+        '$.rollback.failed_actions', json(
+            CASE
+                WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
+                    THEN json_extract(result_json, '$.rollback.failed_actions')
+                ELSE '[]'
+            END
+        ),
+        '$.rollback.attempted_action_count', CASE
+            WHEN json_type(result_json, '$.rollback.attempted_action_count') IN ('integer', 'real')
+                THEN CAST(json_extract(result_json, '$.rollback.attempted_action_count') AS INTEGER)
+            ELSE CASE
+                WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
+                    THEN json_array_length(result_json, '$.rollback.failed_actions')
+                ELSE 0
+            END
+        END,
+        '$.rollback.failed_action_count', CASE
+            WHEN json_type(result_json, '$.rollback.failed_action_count') IN ('integer', 'real')
+                THEN CAST(json_extract(result_json, '$.rollback.failed_action_count') AS INTEGER)
+            ELSE CASE
+                WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
+                    THEN json_array_length(result_json, '$.rollback.failed_actions')
+                ELSE 0
+            END
+        END,
+        '$.rollback.rollback_complete', json(
+            CASE
+                WHEN json_type(result_json, '$.rollback.rollback_complete') = 'true'
+                    THEN 'true'
+                WHEN json_type(result_json, '$.rollback.rollback_complete') = 'false'
+                    THEN 'false'
+                WHEN json_type(result_json, '$.rollback.rollback_complete') IN ('integer', 'real')
+                    THEN CASE
+                        WHEN CAST(json_extract(result_json, '$.rollback.rollback_complete') AS INTEGER) = 0
+                            THEN 'false'
+                        ELSE 'true'
+                    END
+                ELSE CASE
+                    WHEN (
+                        CASE
+                            WHEN json_type(result_json, '$.rollback.failed_action_count') IN ('integer', 'real')
+                                THEN CAST(json_extract(result_json, '$.rollback.failed_action_count') AS INTEGER)
+                            ELSE CASE
+                                WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
+                                    THEN json_array_length(result_json, '$.rollback.failed_actions')
+                                ELSE 0
+                            END
+                        END
+                    ) = 0
+                        THEN 'true'
+                    ELSE 'false'
+                END
+            END
+        ),
+        '$.rollback.rolled_back_at_utc', COALESCE(
+            json_extract(result_json, '$.rollback.rolled_back_at_utc'),
+            ''
+        ),
+        '$.rollback.summary', COALESCE(json_extract(result_json, '$.rollback.summary'), '')
+    )
+    WHERE json_type(result_json, '$.rollback') = 'object';
+    """,
     49: """
     DROP TABLE IF EXISTS continuity_resume_anchors;
     """,

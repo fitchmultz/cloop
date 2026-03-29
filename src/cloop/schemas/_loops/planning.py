@@ -256,12 +256,15 @@ class PlanningResourceChangeSummaryResponse(BaseModel):
 class PlanningExecutionRollbackResultResponse(BaseModel):
     """Rollback attempt metadata attached to one execution history item."""
 
-    attempted_action_count: int = 0
-    failed_action_count: int = 0
-    failed_actions: List[Dict[str, Any]] = Field(default_factory=list)
-    rollback_complete: bool = False
-    rolled_back_at_utc: str | None = None
-    summary: str | None = None
+    run_id: int
+    checkpoint_index: int
+    checkpoint_title: str
+    attempted_action_count: int
+    failed_action_count: int
+    failed_actions: List[Dict[str, Any]]
+    rollback_complete: bool
+    rolled_back_at_utc: str
+    summary: str
 
 
 class PlanningExecutionHistoryItemResponse(BaseModel):

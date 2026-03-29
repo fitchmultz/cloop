@@ -4911,29 +4911,41 @@ export type PlanningExecutionRollbackResultResponse = {
     /**
      * Attempted Action Count
      */
-    attempted_action_count?: number;
+    attempted_action_count: number;
+    /**
+     * Checkpoint Index
+     */
+    checkpoint_index: number;
+    /**
+     * Checkpoint Title
+     */
+    checkpoint_title: string;
     /**
      * Failed Action Count
      */
-    failed_action_count?: number;
+    failed_action_count: number;
     /**
      * Failed Actions
      */
-    failed_actions?: Array<{
+    failed_actions: Array<{
         [key: string]: unknown;
     }>;
     /**
      * Rollback Complete
      */
-    rollback_complete?: boolean;
+    rollback_complete: boolean;
     /**
      * Rolled Back At Utc
      */
-    rolled_back_at_utc?: string | null;
+    rolled_back_at_utc: string;
+    /**
+     * Run Id
+     */
+    run_id: number;
     /**
      * Summary
      */
-    summary?: string | null;
+    summary: string;
 };
 
 /**

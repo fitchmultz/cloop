@@ -9,6 +9,7 @@ import pytest
 
 from cloop import db
 from cloop.loops import repo
+from cloop.main import create_app
 from cloop.settings import get_settings
 
 
@@ -282,9 +283,22 @@ def test_planning_workflow_rollback_endpoint(
     )
     assert rollback_response.status_code == 200
     rollback_payload = rollback_response.json()
+    assert rollback_payload["rollback"]["run_id"] == run_id
+    assert rollback_payload["rollback"]["checkpoint_index"] == 0
+    assert rollback_payload["rollback"]["checkpoint_title"] == "Stabilize the active loops"
+    assert rollback_payload["rollback"]["attempted_action_count"] == 2
+    assert rollback_payload["rollback"]["failed_action_count"] == 0
     assert rollback_payload["rollback"]["rollback_complete"] is True
+    assert rollback_payload["rollback"]["rolled_back_at_utc"]
+    assert rollback_payload["rollback"]["summary"].startswith("Rolled back")
     assert rollback_payload["snapshot"]["session"]["current_checkpoint_index"] == 0
     assert rollback_payload["snapshot"]["session"]["executed_checkpoint_count"] == 0
+    assert rollback_payload["snapshot"]["execution_history"][0]["rollback"]["run_id"] == run_id
+    assert rollback_payload["snapshot"]["execution_history"][0]["rollback"]["checkpoint_index"] == 0
+    assert (
+        rollback_payload["snapshot"]["execution_history"][0]["rollback"]["checkpoint_title"]
+        == "Stabilize the active loops"
+    )
     assert (
         rollback_payload["snapshot"]["execution_history"][0]["rollback"]["rollback_complete"]
         is True
@@ -297,3 +311,25 @@ def test_planning_workflow_rollback_endpoint(
     assert second_loop.status_code == 200
     assert first_loop.json()["next_action"] is None
     assert second_loop.json()["status"] == "actionable"
+
+
+def test_planning_rollback_openapi_contract_exposes_required_runtime_fields() -> None:
+    app = create_app()
+    rollback_schema = app.openapi()["components"]["schemas"][
+        "PlanningExecutionRollbackResultResponse"
+    ]
+
+    assert rollback_schema["required"] == [
+        "run_id",
+        "checkpoint_index",
+        "checkpoint_title",
+        "attempted_action_count",
+        "failed_action_count",
+        "failed_actions",
+        "rollback_complete",
+        "rolled_back_at_utc",
+        "summary",
+    ]
+    assert rollback_schema["properties"]["run_id"]["type"] == "integer"
+    assert rollback_schema["properties"]["checkpoint_index"]["type"] == "integer"
+    assert rollback_schema["properties"]["checkpoint_title"]["type"] == "string"
