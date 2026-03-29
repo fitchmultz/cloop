@@ -42,7 +42,7 @@ import type {
   WorkingSetUndoRequest,
   WorkingSetUndoResponse,
 } from "./domain";
-import { buildReviewFollowThroughReceipt } from "./follow-through-adapters";
+import { buildReviewFollowThroughReceipt, mapApiLocation } from "./follow-through-adapters";
 import { HttpRequestError, requestJson } from "./http";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
@@ -51,10 +51,6 @@ export interface ExecutedUndoResult {
   card: OperatorActionCard;
   entry: Omit<RecentShellActionEntry, "occurredAt">;
   resumeLocation: ShellLocationContract | null;
-}
-
-function hasOwn(obj: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, key);
 }
 
 export function undoHandleIdentity(handle: ExecutableUndoHandle): string {
@@ -125,7 +121,6 @@ export function buildLoopUndoAction(
 
 export function buildPlanningRollbackAction(
   execution: PlanningExecutionHistoryItemResponse,
-  options: { variant?: "primary" | "secondary"; successLocation?: ShellLocationContract | null } = {},
 ): OperatorActionCardUndoAction | null {
   const action = execution.undo_action;
   if (!action) {
@@ -134,7 +129,7 @@ export function buildPlanningRollbackAction(
   return {
     type: "undo",
     label: action.label,
-    variant: options.variant ?? "secondary",
+    variant: "secondary",
     description: action.description,
     undo: {
       kind: "planning_run",
@@ -148,8 +143,23 @@ export function buildPlanningRollbackAction(
     requiresConfirmation: action.requires_confirmation === true,
     confirmTitle: action.confirm_title ?? null,
     confirmDescription: action.confirm_description ?? null,
-    successLocation: options.successLocation ?? planResumeLocation(action.undo.session_id),
+    successLocation: mapApiLocation(action.success_location),
   };
+}
+
+export function undoConfirmationDialog(action: OperatorActionCardUndoAction): {
+  title: string;
+  description: string;
+} | null {
+  if (!action.requiresConfirmation) {
+    return null;
+  }
+  const title = action.confirmTitle?.trim();
+  const description = action.confirmDescription?.trim();
+  if (!title || !description) {
+    throw new Error("Undo action requires backend confirmation title and description.");
+  }
+  return { title, description };
 }
 
 export function buildWorkingSetUndoAction(
@@ -210,7 +220,6 @@ function maybeChainWorkingSetUndo(
     workingSetName: options.workingSetName,
   });
 }
-
 
 function buildLoopUndoReceipt(response: LoopUndoResponse): ExecutedUndoResult {
   const loop = response.loop;
@@ -297,46 +306,47 @@ function buildPlanningRollbackReceipt(response: PlanningSessionRollbackResponse)
   const snapshot = response.snapshot;
   const sessionId = snapshot.session.id;
   const resumeLocation = planResumeLocation(sessionId);
-  const failedActions = rollback.failed_actions ?? [];
-  const checkpointTitle = rollback.summary?.trim()
-    ? rollback.summary
-    : `Rolled back checkpoint ${snapshot.session.current_checkpoint_index + 1}`;
-  const title = rollback.rollback_complete ? "Rolled back planning checkpoint" : "Planning rollback incomplete";
-  const summary = rollback.summary ?? "Rollback finished without a detailed summary.";
+  const failedActions = rollback.failed_actions;
+  const attemptedActionCount = rollback.attempted_action_count;
+  const failedActionCount = rollback.failed_action_count;
+  const rollbackComplete = rollback.rollback_complete;
+  const checkpointTitle = rollback.checkpoint_title.trim() || `Checkpoint #${rollback.checkpoint_index + 1}`;
+  const title = rollbackComplete ? "Rolled back planning checkpoint" : "Planning rollback incomplete";
+  const summary = rollback.summary.trim() || "Rollback finished without a detailed summary.";
   const card = createReceiptCard({
-    id: `undo-planning-${sessionId}-${rollback.rolled_back_at_utc ?? Date.now()}`,
+    id: `undo-planning-${sessionId}-${rollback.rolled_back_at_utc || rollback.run_id}`,
     eyebrow: "Rollback receipt",
     title,
     summary,
     rationale:
       "Rollback receipts keep checkpoint reversals explicit so the planning session remains resumable after consequential undo work.",
-    tone: rollback.rollback_complete ? "progress" : "caution",
+    tone: rollbackComplete ? "progress" : "caution",
     preview: [
       { label: "Session", value: snapshot.session.name },
-      { label: "Attempted actions", value: `${rollback.attempted_action_count}` },
-      { label: "Failed actions", value: `${rollback.failed_action_count}` },
-      { label: "Checkpoint", value: checkpointTitle },
+      { label: "Attempted actions", value: `${attemptedActionCount}` },
+      { label: "Failed actions", value: `${failedActionCount}` },
+      { label: "Rolled back checkpoint", value: checkpointTitle },
     ],
     trust: {
-      generationLabel: rollback.rollback_complete ? "Executed planning rollback" : "Planning rollback incomplete",
-      generationTone: rollback.rollback_complete ? "progress" : "caution",
+      generationLabel: rollbackComplete ? "Executed planning rollback" : "Planning rollback incomplete",
+      generationTone: rollbackComplete ? "progress" : "caution",
       contextSources: [snapshot.session.name, "Stored planning execution history"],
       assumptions: ["Rollback only targeted the latest active checkpoint execution."],
-      confidenceLabel: rollback.rollback_complete ? "Checkpoint rewound to the prior state" : "Some rollback actions still need manual follow-up",
-      confidenceTone: rollback.rollback_complete ? "progress" : "caution",
+      confidenceLabel: rollbackComplete ? "Checkpoint rewound to the prior state" : "Some rollback actions still need manual follow-up",
+      confidenceTone: rollbackComplete ? "progress" : "caution",
       freshnessLabel: rollback.rolled_back_at_utc ? `Saved ${rollback.rolled_back_at_utc}` : "Saved just now",
       freshnessTone: "progress",
-      rollbackLabel: rollback.rollback_complete
+      rollbackLabel: rollbackComplete
         ? "You can inspect earlier execution history or re-run the checkpoint from the planning session."
         : "Inspect failed rollback actions before trusting the restored state.",
-      rollbackTone: rollback.rollback_complete ? "neutral" : "caution",
+      rollbackTone: rollbackComplete ? "neutral" : "caution",
       impactSummary: summary,
-      impactTone: rollback.rollback_complete ? "progress" : "caution",
+      impactTone: rollbackComplete ? "progress" : "caution",
     },
     handoff: {
       changeSummary: summary,
       createdResources: failedActions.map((action) => `${action["resource_type"]} #${action["resource_id"]}`),
-      nextStep: rollback.rollback_complete
+      nextStep: rollbackComplete
         ? "Resume the planning session and decide whether to re-execute or revise the checkpoint."
         : "Resume the planning session and inspect the failed rollback actions before continuing.",
       breadcrumbs: ["Home", "Plan", snapshot.session.name],
@@ -359,7 +369,6 @@ function buildPlanningRollbackReceipt(response: PlanningSessionRollbackResponse)
         metadata: {
           source: "undo",
           sessionId,
-          runId: hasOwn(rollback, "run_id") ? (rollback as { run_id?: unknown }).run_id : null,
         },
       },
       card,

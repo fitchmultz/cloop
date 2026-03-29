@@ -91,6 +91,10 @@ function parseDatasetJson<T>(raw: string | undefined): T | null {
 
 function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndoAction | null {
   const kind = button.dataset["undoKind"]?.trim();
+  const description = button.dataset["undoDescription"]?.trim();
+  if (!description) {
+    return null;
+  }
   if (kind === "loop_event") {
     const loopId = parseOptionalInteger(button.dataset["undoLoopId"]);
     const expectedEventId = parseOptionalInteger(button.dataset["undoExpectedEventId"]);
@@ -101,7 +105,7 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       type: "undo",
       label: button.textContent?.trim() || "Undo",
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
-      description: button.dataset["undoEventType"]?.trim() || "Undo the latest loop event.",
+      description,
       undo: {
         kind: "loop_event",
         loopId,
@@ -111,7 +115,7 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       },
       confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
       confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
-      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      requiresConfirmation: button.dataset["undoRequiresConfirmation"] === "true",
       successLocation: button.hasAttribute("data-undo-success-state")
         ? locationFromButton(button, "undoSuccess")
         : null,
@@ -139,11 +143,11 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       type: "undo",
       label: button.textContent?.trim() || (undo.bestEffort ? "Rollback checkpoint" : "Undo checkpoint"),
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
-      description: button.dataset["undoCheckpointTitle"]?.trim() || "Undo the latest planning checkpoint.",
+      description,
       undo,
       confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
       confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
-      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      requiresConfirmation: button.dataset["undoRequiresConfirmation"] === "true",
       successLocation: button.hasAttribute("data-undo-success-state")
         ? locationFromButton(button, "undoSuccess")
         : null,
@@ -166,11 +170,11 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       type: "undo",
       label: button.textContent?.trim() || "Undo",
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
-      description: button.dataset["undoEventType"]?.trim() || "Undo the latest working-set change.",
+      description,
       undo,
       confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
       confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
-      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      requiresConfirmation: button.dataset["undoRequiresConfirmation"] === "true",
       successLocation: button.hasAttribute("data-undo-success-state")
         ? locationFromButton(button, "undoSuccess")
         : null,
@@ -186,11 +190,11 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       type: "undo",
       label: button.textContent?.trim() || "Undo decision",
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
-      description: button.dataset["undoConfirmDescription"]?.trim() || "Undo the saved relationship decision.",
+      description,
       undo,
       confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
       confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
-      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      requiresConfirmation: button.dataset["undoRequiresConfirmation"] === "true",
       successLocation: button.hasAttribute("data-undo-success-state")
         ? locationFromButton(button, "undoSuccess")
         : null,

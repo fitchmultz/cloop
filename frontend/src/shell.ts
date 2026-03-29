@@ -58,7 +58,11 @@ import {
   executeRerunAction as runExecutableRerunAction,
   staleRerunReason,
 } from "./executable-rerun";
-import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
+import {
+  executeUndoAction as runExecutableUndoAction,
+  staleUndoReason,
+  undoConfirmationDialog,
+} from "./executable-undo";
 import { closeActiveModal, confirmDialog } from "./modals";
 import { createShellEventController } from "./shell-events";
 import { renderActionCardDeck } from "./operator-action-cards";
@@ -744,11 +748,12 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     pinLocationToWorkingSet: async (location, label, description, options) =>
       workingSetController!.pinLocationToWorkingSet(location, label, description, options),
     executeUndoAction: async (action, button) => {
-      if (action.requiresConfirmation && action.confirmDescription?.trim()) {
+      const confirmation = undoConfirmationDialog(action);
+      if (confirmation) {
         const confirmed = await confirmDialog({
           eyebrow: action.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
-          title: action.confirmTitle?.trim() || action.label,
-          description: action.confirmDescription.trim(),
+          title: confirmation.title,
+          description: confirmation.description,
           confirmLabel: action.label,
           confirmVariant: "danger",
         });

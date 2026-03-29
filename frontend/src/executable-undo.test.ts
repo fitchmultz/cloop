@@ -2,11 +2,11 @@
  * executable-undo.test.ts - Regression tests for shared undo builders.
  *
  * Purpose:
- *   Verify the executable undo helpers preserve deterministic resume locations and
- *   tolerate backend payloads that omit optional planning rollback fields.
+ *   Verify the executable undo helpers preserve backend-authored confirmation and
+ *   success-location contracts for planning rollback actions.
  *
  * Responsibilities:
- *   - Assert planning rollback actions still render with stable defaults.
+ *   - Assert planning rollback actions honor the backend-authored shared undo contract.
  *   - Guard against accidental regressions in the shared undo builder contract.
  *
  * Scope:
@@ -17,15 +17,26 @@
  *
  * Invariants/Assumptions:
  *   - Backend rollback handles remain the source of truth.
- *   - Optional planning undo fields may be omitted by the API and should fall back deterministically.
+ *   - Planning rollback actions include backend-authored confirmation copy and success-location handoff.
  */
 
-import type { PlanningExecutionHistoryItemResponse } from "./domain";
-import { buildPlanningRollbackAction } from "./executable-undo";
+import { requestJson } from "./http";
+import type { PlanningExecutionHistoryItemResponse, PlanningSessionRollbackResponse } from "./domain";
+import { buildPlanningRollbackAction, executeUndoAction, undoConfirmationDialog } from "./executable-undo";
 import { createLocation } from "./shell-routing";
+import { vi } from "vitest";
+
+vi.mock("./http", () => ({
+  requestJson: vi.fn(),
+  HttpRequestError: class HttpRequestError extends Error {},
+}));
 
 describe("executable-undo", () => {
-  it("defaults missing planning rollback fields without breaking the resume location", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses the backend-authored planning success location without frontend fallback", () => {
     const action = buildPlanningRollbackAction({
       undo_action: {
         label: "Undo checkpoint",
@@ -36,6 +47,13 @@ describe("executable-undo", () => {
           run_id: 44,
           checkpoint_index: 3,
           checkpoint_title: "Create queue",
+          action_count: 2,
+          best_effort: false,
+        },
+        success_location: {
+          state: "plan",
+          review_focus: "planning",
+          session_id: 19,
         },
       },
     } as unknown as PlanningExecutionHistoryItemResponse);
@@ -53,7 +71,7 @@ describe("executable-undo", () => {
         runId: 44,
         checkpointIndex: 3,
         checkpointTitle: "Create queue",
-        actionCount: 0,
+        actionCount: 2,
         bestEffort: false,
       },
       successLocation: createLocation({
@@ -63,4 +81,136 @@ describe("executable-undo", () => {
       }),
     });
   });
+
+  it("requires backend-authored confirmation copy for undo dialogs", () => {
+    expect(
+      undoConfirmationDialog({
+        type: "undo",
+        label: "Rollback checkpoint",
+        variant: "secondary",
+        description: "Rollback Create queue.",
+        undo: {
+          kind: "planning_run",
+          sessionId: 19,
+          runId: 44,
+          checkpointIndex: 3,
+          checkpointTitle: "Create queue",
+          actionCount: 2,
+          bestEffort: true,
+        },
+        requiresConfirmation: true,
+        confirmTitle: "Rollback checkpoint",
+        confirmDescription: "Rollback will attempt 2 actions in reverse order.",
+        successLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
+      }),
+    ).toEqual({
+      title: "Rollback checkpoint",
+      description: "Rollback will attempt 2 actions in reverse order.",
+    });
+
+    expect(
+      undoConfirmationDialog({
+        type: "undo",
+        label: "Undo checkpoint",
+        variant: "secondary",
+        description: "Undo the checkpoint and resume planning.",
+        undo: {
+          kind: "planning_run",
+          sessionId: 19,
+          runId: 44,
+          checkpointIndex: 3,
+          checkpointTitle: "Create queue",
+          actionCount: 0,
+          bestEffort: false,
+        },
+        requiresConfirmation: false,
+        confirmTitle: null,
+        confirmDescription: null,
+        successLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
+      }),
+    ).toBeNull();
+
+    expect(() =>
+      undoConfirmationDialog({
+        type: "undo",
+        label: "Rollback checkpoint",
+        variant: "secondary",
+        description: "Rollback Create queue.",
+        undo: {
+          kind: "planning_run",
+          sessionId: 19,
+          runId: 44,
+          checkpointIndex: 3,
+          checkpointTitle: "Create queue",
+          actionCount: 2,
+          bestEffort: true,
+        },
+        requiresConfirmation: true,
+        confirmTitle: null,
+        confirmDescription: null,
+        successLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
+      }),
+    ).toThrow("Undo action requires backend confirmation title and description.");
+  });
+
+  it("lands planning rollback receipts on the current checkpoint title", async () => {
+    vi.mocked(requestJson).mockResolvedValueOnce({
+      rollback: {
+        run_id: 44,
+        checkpoint_index: 3,
+        checkpoint_title: "Create queue",
+        attempted_action_count: 2,
+        failed_action_count: 0,
+        failed_actions: [],
+        rollback_complete: true,
+        rolled_back_at_utc: "2026-03-29T13:00:00Z",
+        summary: "Rolled back checkpoint Create queue; 2 rollback actions completed",
+      },
+      snapshot: {
+        session: {
+          id: 19,
+          name: "Weekly planning",
+          current_checkpoint_index: 2,
+        },
+        current_checkpoint: {
+          title: "Resume plan from prior checkpoint",
+          summary: "Resume plan from prior checkpoint summary",
+        },
+      },
+    } as unknown as PlanningSessionRollbackResponse);
+
+    const result = await executeUndoAction({
+      type: "undo",
+      label: "Undo checkpoint",
+      variant: "secondary",
+      description: "Undo the checkpoint and resume planning.",
+      undo: {
+        kind: "planning_run",
+        sessionId: 19,
+        runId: 44,
+        checkpointIndex: 3,
+        checkpointTitle: "Create queue",
+        actionCount: 0,
+        bestEffort: false,
+      },
+      requiresConfirmation: false,
+      confirmTitle: null,
+      confirmDescription: null,
+      successLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/loops/planning/sessions/19/rollback",
+      expect.objectContaining({
+        method: "POST",
+        body: { run_id: 44 },
+      }),
+      "Failed to undo checkpoint",
+    );
+    expect(result.card.id).toBe("undo-planning-19-2026-03-29T13:00:00Z");
+    expect(result.card.summary).toBe("Rolled back checkpoint Create queue; 2 rollback actions completed");
+    expect(result.card.preview).toContainEqual({ label: "Rolled back checkpoint", value: "Create queue" });
+    expect(result.resumeLocation).toEqual(createLocation({ state: "plan", reviewFocus: "planning", sessionId: 19 }));
+  });
+
 });

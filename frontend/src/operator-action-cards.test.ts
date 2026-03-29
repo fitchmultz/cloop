@@ -239,6 +239,9 @@ describe("renderActionCardDeck", () => {
               actionCount: 2,
               bestEffort: false,
             },
+            requiresConfirmation: true,
+            confirmTitle: "Undo checkpoint",
+            confirmDescription: "This rollback may partially revert the checkpoint.",
             successLocation: {
               state: "plan",
               recallTool: "chat",
@@ -312,7 +315,10 @@ describe("renderActionCardDeck", () => {
     expect(html).toContain('data-card-action="defer"');
     expect(html).toContain('data-defer-label="Do · Review the duplicate queue first"');
     expect(html).toContain('data-card-action="undo"');
+    expect(html).toContain('data-undo-description="Undo this planning checkpoint."');
     expect(html).toContain('data-undo-run-id="44"');
+    expect(html).toContain('data-undo-requires-confirmation="true"');
+    expect(html).toContain('data-undo-requires-confirmation="false"');
     expect(html).toContain('data-undo-working-set-id="7"');
     expect(html).toContain('data-undo-working-set-name="Launch reset"');
     expect(html).toContain('data-undo-success-state="plan"');

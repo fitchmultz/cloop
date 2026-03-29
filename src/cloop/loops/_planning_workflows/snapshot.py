@@ -637,6 +637,11 @@ def _build_execution_undo_action(
             if best_effort
             else None
         ),
+        "success_location": {
+            "state": "plan",
+            "review_focus": "planning",
+            "session_id": session_id,
+        },
     }
 
 

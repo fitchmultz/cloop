@@ -262,6 +262,11 @@ describe("review-workspace-action-cards", () => {
         requires_confirmation: false,
         confirm_title: null,
         confirm_description: null,
+        success_location: {
+          state: "plan",
+          review_focus: "planning",
+          session_id: 19,
+        },
       },
       results: [
         {

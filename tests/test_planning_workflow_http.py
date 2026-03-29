@@ -157,6 +157,10 @@ def test_planning_workflow_endpoints(
     )
     assert first_execute_payload["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
     assert first_execute_payload["execution"]["undo_action"]["undo"]["run_id"] > 0
+    success_location = first_execute_payload["execution"]["undo_action"]["success_location"]
+    assert success_location["state"] == "plan"
+    assert success_location["review_focus"] == "planning"
+    assert success_location["session_id"] == session_id
     assert first_execute_payload["execution"]["follow_up_resources"] == []
     assert first_execute_payload["execution"]["launch_surfaces"] == []
     assert (
@@ -315,9 +319,9 @@ def test_planning_workflow_rollback_endpoint(
 
 def test_planning_rollback_openapi_contract_exposes_required_runtime_fields() -> None:
     app = create_app()
-    rollback_schema = app.openapi()["components"]["schemas"][
-        "PlanningExecutionRollbackResultResponse"
-    ]
+    schemas = app.openapi()["components"]["schemas"]
+    rollback_schema = schemas["PlanningExecutionRollbackResultResponse"]
+    undo_action_schema = schemas["PlanningExecutionUndoActionResponse"]
 
     assert rollback_schema["required"] == [
         "run_id",
@@ -333,3 +337,9 @@ def test_planning_rollback_openapi_contract_exposes_required_runtime_fields() ->
     assert rollback_schema["properties"]["run_id"]["type"] == "integer"
     assert rollback_schema["properties"]["checkpoint_index"]["type"] == "integer"
     assert rollback_schema["properties"]["checkpoint_title"]["type"] == "string"
+    assert undo_action_schema["required"] == [
+        "label",
+        "description",
+        "undo",
+        "success_location",
+    ]

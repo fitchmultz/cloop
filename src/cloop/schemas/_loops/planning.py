@@ -34,7 +34,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Literal
 
 from ._shared import RAW_TEXT_MAX, SEARCH_QUERY_MAX, VIEW_NAME_MAX, BaseModel, Field
-from .continuity import ContinuityRerunAction
+from .continuity import ContinuityLocationResponse, ContinuityRerunAction
 from .core import LoopResponse
 
 PlanningSessionStatus = Literal["draft", "in_progress", "completed"]
@@ -190,6 +190,7 @@ class PlanningExecutionUndoActionResponse(BaseModel):
     requires_confirmation: bool = False
     confirm_title: str | None = None
     confirm_description: str | None = None
+    success_location: ContinuityLocationResponse
 
 
 class PlanningContextFreshnessTargetChangeResponse(BaseModel):

@@ -160,6 +160,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
           ${disabledAttributes}
           data-card-action="undo"
           data-undo-kind="${escapeHtml(action.undo.kind)}"
+          data-undo-description="${escapeHtml(action.description)}"
           data-undo-handle="${escapeHtml(action.undo.kind === "relationship_decision" ? JSON.stringify(action.undo) : "")}"
           data-undo-loop-id="${escapeHtml(action.undo.kind === "loop_event" ? String(action.undo.loopId) : "")}"
           data-undo-expected-event-id="${escapeHtml(action.undo.kind === "loop_event" || action.undo.kind === "working_set_event" ? String(action.undo.expectedEventId) : "")}"
@@ -172,8 +173,9 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
           data-undo-checkpoint-index="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.checkpointIndex) : "")}"
           data-undo-checkpoint-title="${escapeHtml(action.undo.kind === "planning_run" ? action.undo.checkpointTitle : "")}"
           data-undo-action-count="${escapeHtml(action.undo.kind === "planning_run" ? String(action.undo.actionCount) : "")}"
-          data-undo-best-effort="${escapeHtml(action.undo.kind === "planning_run" && action.undo.bestEffort ? "true" : "false")}" 
-          data-undo-confirm-title="${escapeHtml(action.confirmTitle?.trim() || "")}" 
+          data-undo-best-effort="${escapeHtml(action.undo.kind === "planning_run" && action.undo.bestEffort ? "true" : "false")}"
+          data-undo-requires-confirmation="${escapeHtml(action.requiresConfirmation === true ? "true" : "false")}"
+          data-undo-confirm-title="${escapeHtml(action.confirmTitle?.trim() || "")}"
           data-undo-confirm-description="${escapeHtml(action.confirmDescription?.trim() || "")}"
           ${action.successLocation ? locationAttributes("undo-success", action.successLocation) : ""}
         >${escapeHtml(action.label)}</button>

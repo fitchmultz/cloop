@@ -198,7 +198,10 @@ describe("handleOperatorActionCardClick", () => {
         data-undo-checkpoint-index="1"
         data-undo-checkpoint-title="Create review queue"
         data-undo-action-count="2"
+        data-undo-description="Undo this planning checkpoint."
         data-undo-best-effort="true"
+        data-undo-description="Undo this planning checkpoint."
+        data-undo-requires-confirmation="true"
         data-undo-confirm-title="Rollback checkpoint"
         data-undo-confirm-description="Rollback may be partial."
         data-undo-success-state="plan"
@@ -233,6 +236,7 @@ describe("handleOperatorActionCardClick", () => {
     expect(executeUndoAction).toHaveBeenCalledTimes(1);
     expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
       type: "undo",
+      description: "Undo this planning checkpoint.",
       undo: {
         kind: "planning_run",
         sessionId: 12,
@@ -242,6 +246,7 @@ describe("handleOperatorActionCardClick", () => {
         actionCount: 2,
         bestEffort: true,
       },
+      requiresConfirmation: true,
       successLocation: expect.objectContaining({
         state: "plan",
         reviewFocus: "planning",
@@ -250,6 +255,57 @@ describe("handleOperatorActionCardClick", () => {
     });
     expect(applyLocation).not.toHaveBeenCalled();
     expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+  });
+
+  it("preserves explicit undo confirmation flags instead of inferring from description text", async () => {
+    document.body.innerHTML = `
+      <button
+        id="undo-no-confirm"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="planning_run"
+        data-undo-session-id="12"
+        data-undo-run-id="44"
+        data-undo-checkpoint-index="1"
+        data-undo-checkpoint-title="Create review queue"
+        data-undo-action-count="2"
+        data-undo-best-effort="false"
+        data-undo-description="Undo this planning checkpoint."
+        data-undo-requires-confirmation="false"
+        data-undo-confirm-title="Checkpoint info"
+        data-undo-confirm-description="Informational text only."
+      >Undo checkpoint</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("undo-no-confirm");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing undo button without confirmation");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).toHaveBeenCalledTimes(1);
+    expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
+      type: "undo",
+      requiresConfirmation: false,
+      confirmTitle: "Checkpoint info",
+      confirmDescription: "Informational text only.",
+    });
   });
 
   it("dispatches working-set undo actions", async () => {
@@ -263,6 +319,7 @@ describe("handleOperatorActionCardClick", () => {
         data-undo-event-type="reorder"
         data-undo-working-set-id="7"
         data-undo-working-set-name="Launch reset"
+        data-undo-description="Undo the working-set reorder."
         data-undo-success-state="working_set"
         data-undo-success-recall-tool="chat"
         data-undo-success-working-set-id="7"
@@ -318,6 +375,7 @@ describe("handleOperatorActionCardClick", () => {
         data-card-action="undo"
         data-undo-kind="relationship_decision"
         data-undo-handle='{"kind":"relationship_decision","sessionId":12,"loopId":5,"candidateLoopId":9,"expectedPairState":{"duplicate":{"state":"dismissed","confidence":null,"source":"user"},"related":null},"restorePairState":{"duplicate":null,"related":null}}'
+        data-undo-description="Restore the relationship pair to the queue."
         data-undo-success-state="decide"
         data-undo-success-recall-tool="chat"
         data-undo-success-review-focus="relationship"
@@ -350,6 +408,7 @@ describe("handleOperatorActionCardClick", () => {
     expect(executeUndoAction).toHaveBeenCalledTimes(1);
     expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
       type: "undo",
+      description: "Restore the relationship pair to the queue.",
       undo: {
         kind: "relationship_decision",
         sessionId: 12,

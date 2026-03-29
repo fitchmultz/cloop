@@ -4974,6 +4974,7 @@ export type PlanningExecutionUndoActionResponse = {
      * Requires Confirmation
      */
     requires_confirmation?: boolean;
+    success_location: ContinuityLocationResponse;
     undo: PlanningExecutionUndoHandleResponse;
 };
 

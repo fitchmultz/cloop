@@ -86,7 +86,11 @@ import {
   executeRerunAction as runExecutableRerunAction,
   staleRerunReason,
 } from "./executable-rerun";
-import { executeUndoAction as runExecutableUndoAction, staleUndoReason } from "./executable-undo";
+import {
+  executeUndoAction as runExecutableUndoAction,
+  staleUndoReason,
+  undoConfirmationDialog,
+} from "./executable-undo";
 import * as modals from "./modals";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { updateBulkActionBar } from "./bulk-actions";
@@ -2435,11 +2439,12 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           },
           skipAutomaticReceipt: true,
           execute: async () => {
-            if (undoAction.requiresConfirmation && undoAction.confirmDescription?.trim()) {
+            const confirmation = undoConfirmationDialog(undoAction);
+            if (confirmation) {
               const confirmed = await modals.confirmDialog({
                 eyebrow: undoAction.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
-                title: undoAction.confirmTitle?.trim() || undoAction.label,
-                description: undoAction.confirmDescription.trim(),
+                title: confirmation.title,
+                description: confirmation.description,
                 confirmLabel: undoAction.label,
                 confirmVariant: "danger",
               });
