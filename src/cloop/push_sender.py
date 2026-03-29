@@ -22,6 +22,8 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from importlib import import_module
+from importlib import util as importlib_util
 from typing import Any
 
 from ._scheduler.models import SchedulerPushResult
@@ -121,11 +123,18 @@ def send_push_notification(
     Returns count of successful sends.
     """
     # Try to import webpush (optional dependency)
+    if importlib_util.find_spec("pywebpush") is None:
+        logger.warning("pywebpush not installed, skipping push notifications")
+        return 0
+
     try:
-        from pywebpush import WebPushException, webpush  # type: ignore[import-not-found]
+        pywebpush: Any = import_module("pywebpush")
     except ImportError:
         logger.warning("pywebpush not installed, skipping push notifications")
         return 0
+
+    WebPushException = pywebpush.WebPushException
+    webpush = pywebpush.webpush
 
     subscriptions = conn.execute("SELECT endpoint, p256dh, auth FROM push_subscriptions").fetchall()
 

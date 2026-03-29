@@ -24,7 +24,7 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Callable, ParamSpec, TypeVar, cast
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -33,19 +33,20 @@ from ..error_contract import error_view_from_exception
 from ..loops.errors import CloopError
 from ..settings import get_settings
 
-F = TypeVar("F", bound=Callable[..., Any])
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
-def with_db_init(func: F) -> F:
+def with_db_init(func: Callable[P, R]) -> Callable[P, R]:
     """Initialize databases before executing an MCP tool handler."""
 
     @wraps(func)
-    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+    def _wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         settings = get_settings()
         db.init_databases(settings)
         return func(*args, **kwargs)
 
-    return _wrapper  # type: ignore[return-value]
+    return cast(Callable[P, R], _wrapper)
 
 
 def to_tool_error(exc: Exception) -> ToolError:
@@ -58,14 +59,14 @@ def to_tool_error(exc: Exception) -> ToolError:
     return ToolError(str(exc))
 
 
-def with_mcp_error_handling(func: F) -> F:
+def with_mcp_error_handling(func: Callable[P, R]) -> Callable[P, R]:
     """Wrap an MCP tool handler to convert domain exceptions to ToolError."""
 
     @wraps(func)
-    def _wrapper(*args: Any, **kwargs: Any) -> Any:
+    def _wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
         try:
             return func(*args, **kwargs)
         except Exception as exc:
             raise to_tool_error(exc) from exc
 
-    return _wrapper  # type: ignore[return-value]
+    return cast(Callable[P, R], _wrapper)

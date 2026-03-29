@@ -177,7 +177,7 @@ def test_replace_loop_tags_query_count(
 
         # Replace tags with 10 tags
         tags = [f"tag{i}" for i in range(10)]
-        repo.replace_loop_tags(loop_id=record.id, tag_names=tags, conn=counting_conn)  # type: ignore[arg-type]
+        repo.replace_loop_tags(loop_id=record.id, tag_names=tags, conn=counting_conn)  # type: ignore[invalid-argument-type]
 
         # With batch operations, we expect:
         # - 1 DELETE loop_tags

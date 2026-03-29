@@ -744,7 +744,7 @@ def execute_enrichment_review_session_action(
     )
     undo_action = (
         _loop_undo_action(
-            cast(Mapping[str, Any], result_loop),
+            result_loop,
             summary=(
                 "Undo the applied enrichment change for "
                 f"{_loop_label(result_loop, fallback='the loop')}."

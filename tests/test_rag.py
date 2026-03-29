@@ -983,7 +983,7 @@ def test_chunk_rows_with_scores_single_query(
 
     with db.rag_connection(settings) as conn:
         counting_conn = CountingConnection(conn)
-        results = _chunk_rows_with_scores(counting_conn, matches)  # type: ignore[arg-type]
+        results = _chunk_rows_with_scores(counting_conn, matches)  # type: ignore[invalid-argument-type]
 
     # Should have executed only 1 query for chunk lookup, not 5
     assert len(results) >= 1

@@ -36,7 +36,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from ..constants import (
     OFFSET_TO_TIMEZONE,
@@ -68,8 +68,17 @@ try:
 except ImportError:
     RRULE_AVAILABLE = False
     # Create placeholder values for type checking
-    MO = TU = WE = TH = FR = SA = SU = None  # type: ignore[misc]
-    DAILY = WEEKLY = MONTHLY = YEARLY = None
+    MO = cast(Any, None)
+    TU = cast(Any, None)
+    WE = cast(Any, None)
+    TH = cast(Any, None)
+    FR = cast(Any, None)
+    SA = cast(Any, None)
+    SU = cast(Any, None)
+    DAILY = cast(Any, None)
+    WEEKLY = cast(Any, None)
+    MONTHLY = cast(Any, None)
+    YEARLY = cast(Any, None)
 
 # Day name to weekday number mapping (Monday=0, Sunday=6)
 DAY_MAP: dict[str, int] = {
