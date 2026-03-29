@@ -133,8 +133,8 @@ export function mapApiDisplayCard(response: ApiDisplayCard): ContinuityCardDispl
             ? {
                 workingSetId: response.handoff.working_set.working_set_id,
                 workingSetName: response.handoff.working_set.working_set_name,
-                itemCount: response.handoff.working_set.item_count,
-                missingItemCount: response.handoff.working_set.missing_item_count,
+                itemCount: response.handoff.working_set.item_count ?? 0,
+                missingItemCount: response.handoff.working_set.missing_item_count ?? 0,
               }
             : null,
         }
@@ -180,8 +180,8 @@ export function mapApiUndoAction(action: ApiUndoAction): OperatorActionCardUndoA
       runId: action.undo.run_id,
       checkpointIndex: action.undo.checkpoint_index,
       checkpointTitle: action.undo.checkpoint_title,
-      actionCount: action.undo.action_count,
-      bestEffort: Boolean(action.undo.best_effort),
+      actionCount: action.undo.action_count ?? 0,
+      bestEffort: action.undo.best_effort === true,
     };
   } else if (action.undo.kind === "working_set_event") {
     undo = {
@@ -218,7 +218,7 @@ export function mapApiUndoAction(action: ApiUndoAction): OperatorActionCardUndoA
     variant: "secondary",
     description: action.description,
     undo,
-    requiresConfirmation: Boolean(action.requires_confirmation),
+    requiresConfirmation: action.requires_confirmation === true,
     confirmTitle: action.confirm_title ?? null,
     confirmDescription: action.confirm_description ?? null,
     successLocation: mapApiLocation(action.success_location),

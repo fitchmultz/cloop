@@ -21,7 +21,7 @@
  */
 
 import type { ContinuityOutcomeRecordResponse, ReviewFollowThroughResponse } from "./domain";
-import { buildReviewFollowThroughReceipt, mapApiUndoAction } from "./follow-through-adapters";
+import { buildReviewFollowThroughReceipt, mapApiDisplayCard, mapApiUndoAction } from "./follow-through-adapters";
 import { createLocation } from "./shell-routing";
 
 describe("follow-through-adapters", () => {
@@ -204,6 +204,98 @@ describe("follow-through-adapters", () => {
         id: "review-follow-through-missing-resume-location",
       }),
     ).toThrow("resume_location");
+  });
+
+  it("defaults optional planning undo fields through the shared continuity adapter", () => {
+    const action = mapApiUndoAction({
+      label: "Undo checkpoint",
+      description: "Undo the checkpoint and resume planning.",
+      undo: {
+        kind: "planning_run",
+        session_id: 19,
+        run_id: 44,
+        checkpoint_index: 3,
+        checkpoint_title: "Create queue",
+      },
+      success_location: {
+        state: "plan",
+        recall_tool: "chat",
+        review_focus: "planning",
+        session_id: 19,
+        loop_id: null,
+        view_id: null,
+        memory_id: null,
+        working_set_id: null,
+        query: null,
+      },
+    } as unknown as ContinuityOutcomeRecordResponse["undo_action"]);
+
+    expect(action).not.toBeNull();
+    expect(action).toMatchObject({
+      type: "undo",
+      label: "Undo checkpoint",
+      description: "Undo the checkpoint and resume planning.",
+      requiresConfirmation: false,
+      undo: {
+        kind: "planning_run",
+        sessionId: 19,
+        runId: 44,
+        checkpointIndex: 3,
+        checkpointTitle: "Create queue",
+        actionCount: 0,
+        bestEffort: false,
+      },
+      successLocation: createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: 19,
+      }),
+    });
+  });
+
+  it("defaults missing working-set handoff counts in display cards", () => {
+    const card = mapApiDisplayCard({
+      kind: "receipt",
+      tone: "progress",
+      eyebrow: "Review receipt",
+      title: "Created working set",
+      summary: "A new working set is ready.",
+      rationale: "Receipt",
+      preview: [],
+      trust: {
+        generation_label: null,
+        generation_tone: null,
+        context_sources: [],
+        assumptions: [],
+        confidence_label: null,
+        confidence_tone: null,
+        freshness_label: null,
+        freshness_tone: null,
+        rollback_label: null,
+        rollback_tone: null,
+        impact_summary: null,
+        impact_tone: null,
+      },
+      handoff: {
+        change_summary: "Created a working set.",
+        created_resources: ["Working set"],
+        next_step: "Open it.",
+        breadcrumbs: ["Home", "Operator"],
+        working_set: {
+          working_set_id: 7,
+          working_set_name: "Hiring loop",
+        },
+      },
+      action_context_label: null,
+      action_warning: null,
+    } as unknown as ContinuityOutcomeRecordResponse["display_card"]);
+
+    expect(card.handoff?.workingSet).toEqual({
+      workingSetId: 7,
+      workingSetName: "Hiring loop",
+      itemCount: 0,
+      missingItemCount: 0,
+    });
   });
 
   it("maps durable relationship undo handles through the shared continuity adapter", () => {

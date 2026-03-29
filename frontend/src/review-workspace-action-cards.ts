@@ -216,11 +216,13 @@ export function describePlanningRollbackCue(
   if (!cues) {
     return "Rollback information is not available.";
   }
-  if (cues.undoable_operation_count > 0) {
-    return `${cues.undoable_operation_count} operation${cues.undoable_operation_count === 1 ? " is" : "s are"} directly undoable.`;
+  const undoableOperationCount = cues.undoable_operation_count ?? 0;
+  if (undoableOperationCount > 0) {
+    return `${undoableOperationCount} operation${undoableOperationCount === 1 ? " is" : "s are"} directly undoable.`;
   }
-  if (cues.rollback_supported_operation_count > 0) {
-    return `${cues.rollback_supported_operation_count} operation${cues.rollback_supported_operation_count === 1 ? " includes" : "s include"} guided rollback cues.`;
+  const rollbackSupportedOperationCount = cues.rollback_supported_operation_count ?? 0;
+  if (rollbackSupportedOperationCount > 0) {
+    return `${rollbackSupportedOperationCount} operation${rollbackSupportedOperationCount === 1 ? " includes" : "s include"} guided rollback cues.`;
   }
   return "No explicit rollback path was captured for this execution.";
 }

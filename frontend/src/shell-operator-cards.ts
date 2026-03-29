@@ -1160,11 +1160,11 @@ export function createShellOperatorCardRenderer(
     }
 
     return {
-      isStale: freshness.is_stale,
+      isStale: freshness.is_stale ?? false,
       label: freshness.summary_label
         ?? `Generated ${formatRelativeTime(snapshot?.session.generated_at_utc ?? snapshot?.session.updated_at_utc ?? null)}`,
-      staleTargetLoopCount: freshness.stale_target_loop_count,
-      missingTargetLoopCount: freshness.missing_target_loop_count,
+      staleTargetLoopCount: freshness.stale_target_loop_count ?? 0,
+      missingTargetLoopCount: freshness.missing_target_loop_count ?? 0,
       changedTargets: freshness.changed_targets ?? [],
       summaryLabel: freshness.summary_label ?? "Planning freshness available",
     };

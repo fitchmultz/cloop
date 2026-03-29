@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "generate:openapi": "sh -c 'cd .. && uv run --locked python scripts/export_frontend_openapi.py'",
-    "generate:contracts": "pnpm run generate:openapi && openapi-typescript ./openapi.json -o ./src/generated/openapi.ts",
+    "generate:contracts": "pnpm run generate:openapi && rm -rf ./src/generated && openapi-ts --file ./openapi-ts.config.ts && rm -f ./src/generated/index.ts",
     "dev": "pnpm run generate:contracts && vite",
     "typecheck": "pnpm run generate:contracts && tsc --noEmit",
     "build": "pnpm run generate:contracts && vite build",
@@ -15,9 +15,9 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@hey-api/openapi-ts": "0.94.5",
     "jsdom": "^29.0.1",
-    "openapi-typescript": "7.13.0",
-    "typescript": "5.9.3",
+    "typescript": "6.0.2",
     "vite": "^8.0.3",
     "vitest": "^4.1.2"
   }

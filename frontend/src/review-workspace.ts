@@ -2725,7 +2725,7 @@ async function relationshipSessionDialog(
   return {
     name: dialogValue(result, "name"),
     query: dialogValue(result, "query"),
-    relationship_kind: dialogValue(result, "relationship_kind") as RelationshipReviewSessionCreateRequest["relationship_kind"],
+    relationship_kind: (dialogValue(result, "relationship_kind") || "all") as NonNullable<RelationshipReviewSessionCreateRequest["relationship_kind"]>,
     candidate_limit: dialogPositiveInteger(result, "candidate_limit"),
     item_limit: dialogPositiveInteger(result, "item_limit"),
   };
@@ -2756,7 +2756,7 @@ async function relationshipActionDialog(
   return {
     name: dialogValue(result, "name"),
     action_type: dialogValue(result, "action_type") as RelationshipReviewActionCreateRequest["action_type"],
-    relationship_type: dialogValue(result, "relationship_type") as RelationshipReviewActionCreateRequest["relationship_type"],
+    relationship_type: (dialogValue(result, "relationship_type") || "suggested") as NonNullable<RelationshipReviewActionCreateRequest["relationship_type"]>,
     description: dialogOptionalValue(result, "description"),
   };
 }
@@ -2798,7 +2798,7 @@ async function enrichmentSessionDialog(
   return {
     name: dialogValue(result, "name"),
     query: dialogValue(result, "query"),
-    pending_kind: dialogValue(result, "pending_kind") as EnrichmentReviewSessionCreateRequest["pending_kind"],
+    pending_kind: (dialogValue(result, "pending_kind") || "all") as NonNullable<EnrichmentReviewSessionCreateRequest["pending_kind"]>,
     suggestion_limit: dialogPositiveInteger(result, "suggestion_limit"),
     clarification_limit: dialogPositiveInteger(result, "clarification_limit"),
     item_limit: dialogPositiveInteger(result, "item_limit"),
@@ -3404,7 +3404,7 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
       actionType: "clarify",
     },
   });
-  setStatus(response.result.message);
+  setStatus(response.result.message ?? "Clarification answered.");
 }
 
 async function handleControlChange(event: Event): Promise<void> {
