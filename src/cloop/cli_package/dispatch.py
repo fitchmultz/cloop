@@ -155,6 +155,7 @@ from .review_commands import (
     relationship_review_session_list_command,
     relationship_review_session_move_command,
     relationship_review_session_refresh_command,
+    relationship_review_session_undo_command,
     relationship_review_session_update_command,
 )
 from .template_commands import (
@@ -291,6 +292,7 @@ REVIEW_TARGET = _branch(
                 "update": relationship_review_session_update_command,
                 "delete": relationship_review_session_delete_command,
                 "apply-action": relationship_review_session_apply_action_command,
+                "undo": relationship_review_session_undo_command,
             },
         ),
         "enrichment-action": _branch(

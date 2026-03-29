@@ -145,6 +145,27 @@ def test_relationship_review_workflow_cli(
     assert 2 not in remaining_loop_ids
     assert result["snapshot"]["session"]["current_loop_id"] in remaining_loop_ids
 
+    assert (
+        main(
+            [
+                "review",
+                "relationship-session",
+                "undo",
+                "--undo-json",
+                json.dumps(result["follow_through"]["undo_action"]["undo"]),
+            ]
+        )
+        == 0
+    )
+    restored = _last_json(capsys)
+    assert restored["follow_through"]["display_card"]["title"] == "Restored relationship decision"
+    restored_items = {
+        item["loop"]["id"]: {candidate["id"] for candidate in item["duplicate_candidates"]}
+        for item in restored["snapshot"]["items"]
+    }
+    assert 2 in restored_items[1]
+    assert 1 in restored_items[2]
+
     assert main(["review", "relationship-session", "list"]) == 0
     listed = _last_json(capsys)
     assert {item["id"] for item in listed} == {session["session"]["id"]}

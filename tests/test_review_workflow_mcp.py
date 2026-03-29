@@ -24,6 +24,7 @@ from cloop.mcp_tools.review_workflows import (
     review_relationship_session_create,
     review_relationship_session_move,
     review_relationship_session_refresh,
+    review_relationship_session_undo,
 )
 from cloop.settings import Settings, get_settings
 
@@ -120,6 +121,17 @@ def test_relationship_review_workflow_tools(
     assert first_id not in remaining_loop_ids
     assert second_id not in remaining_loop_ids
     assert third_id in remaining_loop_ids or fourth_id in remaining_loop_ids
+
+    restored = review_relationship_session_undo(
+        undo=result["follow_through"]["undo_action"]["undo"],
+    )
+    assert restored["follow_through"]["display_card"]["title"] == "Restored relationship decision"
+    restored_items = {
+        item["loop"]["id"]: {candidate["id"] for candidate in item["duplicate_candidates"]}
+        for item in restored["snapshot"]["items"]
+    }
+    assert second_id in restored_items[first_id]
+    assert first_id in restored_items[second_id]
 
 
 def test_review_session_move_tools(

@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: extend the new review follow-through and undo contracts to the remaining transports and durable continuity surfaces.
+Execution focus: finish the review follow-through rollout across durable continuity and shared undo adapters.
 
 ## Direction
 
@@ -35,22 +35,16 @@ Current product goals:
 
 ## Execution order
 
-### Next — Add CLI and MCP execution parity for relationship-decision undo
+### Next — Persist review follow-through outcomes into durable continuity
 
-1. Expose exact-handle relationship undo through `cloop review ...` and MCP review tools using the existing HTTP/backend contract.
-2. Reuse the backend-authored relationship undo handle instead of inventing transport-local flags.
-3. Keep stale-handle failures explicit and deterministic across transports.
+1. Write relationship and enrichment `follow_through` payloads into the continuity store at mutation time so operator home, the receipt rail, and the command palette survive reloads without local-only receipt state.
+2. Reuse backend-authored display, rerun, and undo fields directly when hydrating durable continuity outcomes.
+3. Remove local-only review receipt fallback paths once durable writes land.
 
-### Then — Persist backend-authored review outcomes into durable continuity
+### Then — Unify frontend follow-through adapters and extend safe review undo
 
-1. Write relationship and enrichment follow-through results into the continuity store at mutation time so operator home, the receipt rail, and the command palette survive reloads without depending on local-only receipt state.
-2. Reuse the backend `follow_through` payload directly instead of re-shaping review continuity cards client-side.
-3. Keep rerun and undo metadata synchronized with the durable continuity outcome record.
-
-### Later — Extend exact-handle review undo only where the backend can prove safety
-
-1. Evaluate safe undo contracts for enrichment apply and clarification-answer flows.
-2. Only add executable undo when the backend can verify stale-handle protection and full state restoration.
+1. Collapse duplicated frontend API-to-card and API-to-undo mapping helpers around review `follow_through` and continuity display contracts.
+2. Evaluate safe undo contracts for enrichment apply and clarification-answer flows only after the shared adapter path is in place.
 3. Leave irreversible review outcomes explicit when no safe inverse exists.
 
 ## Guardrails

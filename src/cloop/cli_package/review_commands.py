@@ -5,7 +5,8 @@ Purpose:
     workflow contract.
 
 Responsibilities:
-    - Parse CLI-only field formats such as comma-separated apply fields
+    - Parse CLI-only field formats such as comma-separated apply fields and
+      exact undo-handle JSON payloads
     - Map review workflow domain errors to stable CLI exit codes
     - Delegate relationship/enrichment action and session operations to
       `loops/review_workflows.py`
@@ -18,11 +19,15 @@ Non-scope:
 
 from __future__ import annotations
 
+import json
 from argparse import Namespace
 from collections.abc import Sequence
 
+from pydantic import ValidationError as SchemaValidationError
+
 from ..loops import enrichment_review, review_workflows
 from ..loops.errors import LoopNotFoundError, ResourceNotFoundError, ValidationError
+from ..schemas._loops.continuity import ContinuityRelationshipDecisionUndoHandle
 from ..settings import Settings
 from ._runtime import cli_error, error_handler, fail_cli, run_cli_db_action
 
@@ -63,6 +68,21 @@ def _parse_clarification_items(
             )
         )
     return parsed
+
+
+def _parse_relationship_undo_handle(raw: str) -> ContinuityRelationshipDecisionUndoHandle:
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        fail_cli(f"invalid --undo-json JSON: {exc.msg}")
+    try:
+        return ContinuityRelationshipDecisionUndoHandle.model_validate(payload)
+    except SchemaValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors()
+        )
+        fail_cli(f"invalid --undo-json value: {details}")
 
 
 def relationship_review_action_create_command(args: Namespace, settings: Settings) -> int:
@@ -263,6 +283,24 @@ def relationship_review_session_apply_action_command(args: Namespace, settings: 
             action_preset_id=args.action_id,
             action_type=args.action,
             relationship_type=args.relationship_type,
+            conn=conn,
+            settings=settings,
+        ),
+        output_format=args.format,
+        error_handlers=_common_error_handlers(),
+    )
+
+
+def relationship_review_session_undo_command(args: Namespace, settings: Settings) -> int:
+    undo = _parse_relationship_undo_handle(args.undo_json)
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: review_workflows.undo_relationship_review_session_action(
+            session_id=undo.session_id,
+            loop_id=undo.loop_id,
+            candidate_loop_id=undo.candidate_loop_id,
+            expected_pair_state=undo.expected_pair_state.model_dump(mode="python"),
+            restore_pair_state=undo.restore_pair_state.model_dump(mode="python"),
             conn=conn,
             settings=settings,
         ),

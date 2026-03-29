@@ -20,7 +20,8 @@ Usage:
     Imported by `cloop.mcp_tools` and MCP server assembly.
 
 Invariants/Assumptions:
-    - Tool names and operator-facing docstrings stay unchanged
+    - Existing tool names stay stable and new tools follow the `review.*` naming
+      scheme
     - Relationship and enrichment tools are registered together by the facade
 """
 
@@ -59,6 +60,7 @@ from ._review_workflows.relationship import (
     review_relationship_session_list,
     review_relationship_session_move,
     review_relationship_session_refresh,
+    review_relationship_session_undo,
     review_relationship_session_update,
 )
 
@@ -87,6 +89,7 @@ __all__ = [
     "review_relationship_session_update",
     "review_relationship_session_delete",
     "review_relationship_session_apply_action",
+    "review_relationship_session_undo",
     "review_enrichment_action_create",
     "review_enrichment_action_list",
     "review_enrichment_action_get",

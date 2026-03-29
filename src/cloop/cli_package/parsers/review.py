@@ -157,6 +157,17 @@ Examples:
     )
     add_format_option(apply_action)
 
+    undo = sub.add_parser(
+        "undo",
+        help="Undo one exact relationship-review decision",
+    )
+    undo.add_argument(
+        "--undo-json",
+        required=True,
+        help="Exact relationship undo handle JSON from follow_through.undo_action.undo",
+    )
+    add_format_option(undo)
+
 
 def _add_enrichment_action_parser(review_subparsers: Any) -> None:
     parser = review_subparsers.add_parser(

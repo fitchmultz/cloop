@@ -6,7 +6,8 @@ Purpose:
 
 Responsibilities:
     - Register relationship-review action CRUD MCP tools
-    - Register relationship-review session CRUD, movement, and apply-action MCP tools
+    - Register relationship-review session CRUD, movement, apply-action, and
+      exact-handle undo MCP tools
     - Reuse shared MCP mutation and error-handling helpers
 
 Non-scope:
@@ -30,6 +31,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from ...loops import review_workflows
+from ...schemas._loops.continuity import ContinuityRelationshipDecisionUndoHandle
 from .._mutation import run_idempotent_tool_mutation
 from .._runtime import with_mcp_error_handling
 
@@ -439,6 +441,46 @@ def review_relationship_session_apply_action(
     )
 
 
+@with_mcp_error_handling
+def review_relationship_session_undo(
+    undo: dict[str, Any],
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Undo one exact saved relationship decision.
+
+    Args:
+        undo: Exact relationship undo handle returned in
+            `follow_through.undo_action.undo`.
+        request_id: Optional idempotency key for safe retries.
+
+    Returns:
+        Dict with:
+        - `result`: normalized relationship undo payload
+        - `snapshot`: refreshed relationship-review session after the undo
+        - `follow_through`: backend-authored receipt after restoration
+
+    Raises:
+        ToolError: If the undo handle is invalid, stale, or targets missing
+            saved review state.
+    """
+    validated = ContinuityRelationshipDecisionUndoHandle.model_validate(undo)
+    payload = {"undo": validated.model_dump(mode="python")}
+    return run_idempotent_tool_mutation(
+        tool_name="review.relationship_session.undo",
+        request_id=request_id,
+        payload=payload,
+        execute=lambda conn, settings: review_workflows.undo_relationship_review_session_action(
+            session_id=validated.session_id,
+            loop_id=validated.loop_id,
+            candidate_loop_id=validated.candidate_loop_id,
+            expected_pair_state=validated.expected_pair_state.model_dump(mode="python"),
+            restore_pair_state=validated.restore_pair_state.model_dump(mode="python"),
+            conn=conn,
+            settings=settings,
+        ),
+    )
+
+
 def register_relationship_review_workflow_tools(mcp: "FastMCP") -> None:
     """Register relationship review workflow MCP tools."""
     from .._runtime import with_db_init
@@ -476,6 +518,9 @@ def register_relationship_review_workflow_tools(mcp: "FastMCP") -> None:
     mcp.tool(name="review.relationship_session.apply_action")(
         with_db_init(review_relationship_session_apply_action)
     )
+    mcp.tool(name="review.relationship_session.undo")(
+        with_db_init(review_relationship_session_undo)
+    )
 
 
 __all__ = [
@@ -492,5 +537,6 @@ __all__ = [
     "review_relationship_session_update",
     "review_relationship_session_delete",
     "review_relationship_session_apply_action",
+    "review_relationship_session_undo",
     "register_relationship_review_workflow_tools",
 ]
