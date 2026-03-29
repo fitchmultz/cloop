@@ -111,7 +111,9 @@ Examples:
   # Continuity delivery diagnostics
   cloop continuity delivery-decisions --channel push --limit 5
 
-  # Working-set undo
+  # Working sets
+  cloop working-set create --name "Ship queue"
+  cloop working-set context update --focus-mode on --active-working-set-id 12
   cloop working-set undo --event-id 42
 
   # Loop claims (multi-agent coordination)

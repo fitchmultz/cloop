@@ -396,6 +396,7 @@ def review_enrichment_session_apply_action(
         Dict with:
         - `result`: normalized suggestion resolution payload
         - `snapshot`: refreshed enrichment-review session after the action
+        - `follow_through`: backend-authored receipt, rerun, and undo metadata
 
     Raises:
         ToolError: If the suggestion is invalid for the session, the requested
@@ -447,6 +448,7 @@ def review_enrichment_session_answer_clarifications(
         Dict with:
         - `result`: clarification-answer + rerun-enrichment payload
         - `snapshot`: refreshed enrichment-review session after refinement
+        - `follow_through`: backend-authored receipt and rerun metadata
 
     Raises:
         ToolError: If the clarification IDs do not belong to the loop/session or

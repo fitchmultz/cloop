@@ -465,6 +465,37 @@ function parseUndoHandle(value: unknown): ExecutableUndoHandle | null {
       workingSetName: stringValue(value["workingSetName"]),
     };
   }
+  if (value["kind"] === "relationship_decision") {
+    const sessionId = integerValue(value["sessionId"]);
+    const loopId = integerValue(value["loopId"]);
+    const candidateLoopId = integerValue(value["candidateLoopId"]);
+    const expectedPairState = isRecord(value["expectedPairState"]) ? value["expectedPairState"] : null;
+    const restorePairState = isRecord(value["restorePairState"]) ? value["restorePairState"] : null;
+    if (sessionId == null || loopId == null || candidateLoopId == null || !expectedPairState || !restorePairState) {
+      return null;
+    }
+    const parseState = (raw: unknown) => isRecord(raw) && typeof raw["state"] === "string"
+      ? {
+          state: raw["state"] as "active" | "dismissed" | "resolved",
+          confidence: typeof raw["confidence"] === "number" ? raw["confidence"] : null,
+          source: stringValue(raw["source"]),
+        }
+      : null;
+    return {
+      kind: "relationship_decision",
+      sessionId,
+      loopId,
+      candidateLoopId,
+      expectedPairState: {
+        duplicate: parseState(expectedPairState["duplicate"]),
+        related: parseState(expectedPairState["related"]),
+      },
+      restorePairState: {
+        duplicate: parseState(restorePairState["duplicate"]),
+        related: parseState(restorePairState["related"]),
+      },
+    };
+  }
   return null;
 }
 
@@ -1097,7 +1128,7 @@ function mapLocationToApi(location: ShellLocationContract | null): ContinuityLoc
   };
 }
 
-function mapLocationFromApi(location: ContinuityLocationResponse | null | undefined): ShellLocationContract | null {
+export function mapLocationFromApi(location: ContinuityLocationResponse | null | undefined): ShellLocationContract | null {
   if (!location) {
     return null;
   }
@@ -1157,6 +1188,54 @@ function mapUndoActionToApi(action: OperatorActionCardUndoAction | null | undefi
         checkpoint_title: action.undo.checkpointTitle,
         action_count: action.undo.actionCount,
         best_effort: action.undo.bestEffort,
+      },
+      requires_confirmation: action.requiresConfirmation ?? false,
+      confirm_title: action.confirmTitle ?? null,
+      confirm_description: action.confirmDescription ?? null,
+      success_location: mapLocationToApi(action.successLocation ?? null),
+    };
+  }
+  if (action.undo.kind === "relationship_decision") {
+    return {
+      label: action.label,
+      description: action.description,
+      undo: {
+        kind: "relationship_decision" as const,
+        session_id: action.undo.sessionId,
+        loop_id: action.undo.loopId,
+        candidate_loop_id: action.undo.candidateLoopId,
+        expected_pair_state: {
+          duplicate: action.undo.expectedPairState.duplicate
+            ? {
+                state: action.undo.expectedPairState.duplicate.state,
+                confidence: action.undo.expectedPairState.duplicate.confidence,
+                source: action.undo.expectedPairState.duplicate.source,
+              }
+            : null,
+          related: action.undo.expectedPairState.related
+            ? {
+                state: action.undo.expectedPairState.related.state,
+                confidence: action.undo.expectedPairState.related.confidence,
+                source: action.undo.expectedPairState.related.source,
+              }
+            : null,
+        },
+        restore_pair_state: {
+          duplicate: action.undo.restorePairState.duplicate
+            ? {
+                state: action.undo.restorePairState.duplicate.state,
+                confidence: action.undo.restorePairState.duplicate.confidence,
+                source: action.undo.restorePairState.duplicate.source,
+              }
+            : null,
+          related: action.undo.restorePairState.related
+            ? {
+                state: action.undo.restorePairState.related.state,
+                confidence: action.undo.restorePairState.related.confidence,
+                source: action.undo.restorePairState.related.source,
+              }
+            : null,
+        },
       },
       requires_confirmation: action.requiresConfirmation ?? false,
       confirm_title: action.confirmTitle ?? null,
@@ -1259,7 +1338,7 @@ function mapRerunActionToApi(action: OperatorActionCardRerunAction | null | unde
   };
 }
 
-function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workflow_thread"]): WorkflowThreadRef {
+export function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workflow_thread"]): WorkflowThreadRef {
   return {
     id: thread.id,
     kind: thread.kind,
@@ -1269,7 +1348,7 @@ function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workf
   };
 }
 
-function mapContinuityCardDisplayFromApi(
+export function mapContinuityCardDisplayFromApi(
   response: ContinuityOutcomeRecordResponse["display_card"] | ContinuityWorkflowSummaryResponse["display_card"],
 ): ContinuityCardDisplay {
   return {
@@ -1332,7 +1411,7 @@ function outcomeCardFollowThroughActions(input: {
   return actions;
 }
 
-function buildOutcomeCardFromDisplayCard(
+export function buildOutcomeCardFromDisplayCard(
   displayCard: ContinuityCardDisplay,
   outcomeId: number | null,
   options: { id?: string; actions?: readonly OperatorActionCardAction[] } = {},
@@ -1443,7 +1522,7 @@ function mapResolvedTargetFromApi(
   };
 }
 
-function mapUndoActionFromApi(
+export function mapUndoActionFromApi(
   action: ContinuityOutcomeRecordResponse["undo_action"] | ContinuityWorkflowSummaryResponse["undo_action"] | null | undefined,
 ): OperatorActionCardUndoAction | null {
   if (!action) {
@@ -1475,6 +1554,47 @@ function mapUndoActionFromApi(
       eventType: action.undo.event_type ?? null,
       workingSetId: action.undo.working_set_id ?? null,
       workingSetName: action.undo.working_set_name ?? null,
+    };
+  } else if (action.undo.kind === "relationship_decision") {
+    const expectedPairState = action.undo.expected_pair_state ?? { duplicate: null, related: null };
+    const restorePairState = action.undo.restore_pair_state ?? { duplicate: null, related: null };
+    undo = {
+      kind: "relationship_decision",
+      sessionId: action.undo.session_id,
+      loopId: action.undo.loop_id,
+      candidateLoopId: action.undo.candidate_loop_id,
+      expectedPairState: {
+        duplicate: expectedPairState.duplicate
+          ? {
+              state: expectedPairState.duplicate.state,
+              confidence: expectedPairState.duplicate.confidence ?? null,
+              source: expectedPairState.duplicate.source ?? null,
+            }
+          : null,
+        related: expectedPairState.related
+          ? {
+              state: expectedPairState.related.state,
+              confidence: expectedPairState.related.confidence ?? null,
+              source: expectedPairState.related.source ?? null,
+            }
+          : null,
+      },
+      restorePairState: {
+        duplicate: restorePairState.duplicate
+          ? {
+              state: restorePairState.duplicate.state,
+              confidence: restorePairState.duplicate.confidence ?? null,
+              source: restorePairState.duplicate.source ?? null,
+            }
+          : null,
+        related: restorePairState.related
+          ? {
+              state: restorePairState.related.state,
+              confidence: restorePairState.related.confidence ?? null,
+              source: restorePairState.related.source ?? null,
+            }
+          : null,
+      },
     };
   }
   if (!undo) {

@@ -109,11 +109,29 @@ def test_relationship_review_workflow_endpoints(
     assert action_run.status_code == 200
     action_result = action_run.json()
     assert action_result["result"]["link_state"] == "dismissed"
+    assert action_result["follow_through"]["display_card"]["eyebrow"] == "Relationship receipt"
+    assert action_result["follow_through"]["undo_action"]["undo"]["kind"] == "relationship_decision"
     remaining_loop_ids = {item["loop"]["id"] for item in action_result["snapshot"]["items"]}
     assert first_id not in remaining_loop_ids
     assert second_id not in remaining_loop_ids
     assert third_id in remaining_loop_ids or fourth_id in remaining_loop_ids
     assert action_result["snapshot"]["session"]["current_loop_id"] in remaining_loop_ids
+
+    undo_response = client.post(
+        f"/loops/review/relationship/sessions/{session_id}/undo",
+        json={"undo": action_result["follow_through"]["undo_action"]["undo"]},
+    )
+    assert undo_response.status_code == 200
+    undo_payload = undo_response.json()
+    assert (
+        undo_payload["follow_through"]["display_card"]["title"] == "Restored relationship decision"
+    )
+    restored_items = {
+        item["loop"]["id"]: {candidate["id"] for candidate in item["duplicate_candidates"]}
+        for item in undo_payload["snapshot"]["items"]
+    }
+    assert second_id in restored_items[first_id]
+    assert first_id in restored_items[second_id]
 
     delete_session = client.delete(f"/loops/review/relationship/sessions/{session_id}")
     assert delete_session.status_code == 200
@@ -321,6 +339,8 @@ def test_enrichment_review_workflow_endpoints(
     apply_payload = apply_response.json()
     assert apply_payload["result"]["suggestion_id"] == suggestion_id
     assert apply_payload["result"]["applied_fields"] == ["title"]
+    assert apply_payload["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
+    assert apply_payload["follow_through"]["undo_action"]["undo"]["kind"] == "loop_event"
     assert apply_payload["snapshot"]["session"]["current_loop_id"] == clarification_loop_id
 
     answer_response = client.post(
@@ -337,6 +357,8 @@ def test_enrichment_review_workflow_endpoints(
     )
     assert answer_response.status_code == 200
     answer_payload = answer_response.json()
+    assert answer_payload["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
+    assert answer_payload["follow_through"]["undo_action"] is None
     assert answer_payload["result"]["loop_id"] == clarification_loop_id
     assert answer_payload["result"]["clarification_result"]["answered_count"] == 1
     assert answer_payload["result"]["clarification_result"]["superseded_suggestion_ids"] == [

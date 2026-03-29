@@ -26,6 +26,7 @@ import type {
   OperatorActionCardUndoAction,
   PlanningRunUndoHandle,
   RecallTool,
+  RelationshipDecisionUndoHandle,
   RerunAttemptContract,
   WorkingSetEventUndoHandle,
   ReviewFocus,
@@ -166,6 +167,26 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
       label: button.textContent?.trim() || "Undo",
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
       description: button.dataset["undoEventType"]?.trim() || "Undo the latest working-set change.",
+      undo,
+      confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
+      confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
+      requiresConfirmation: Boolean(button.dataset["undoConfirmDescription"]?.trim()),
+      successLocation: button.hasAttribute("data-undo-success-state")
+        ? locationFromButton(button, "undoSuccess")
+        : null,
+      disabledReason: button.disabled ? button.title || "Undo is unavailable." : null,
+    };
+  }
+  if (kind === "relationship_decision") {
+    const undo = parseDatasetJson<RelationshipDecisionUndoHandle>(button.dataset["undoHandle"]);
+    if (!undo || undo.kind !== "relationship_decision") {
+      return null;
+    }
+    return {
+      type: "undo",
+      label: button.textContent?.trim() || "Undo decision",
+      variant: button.classList.contains("secondary") ? "secondary" : "primary",
+      description: button.dataset["undoConfirmDescription"]?.trim() || "Undo the saved relationship decision.",
       undo,
       confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
       confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,

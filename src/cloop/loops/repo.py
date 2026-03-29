@@ -119,6 +119,7 @@ from ._repo.planning_sessions import (
     update_planning_session_run,
 )
 from ._repo.relationships import (
+    delete_loop_link,
     insert_loop_link,
     list_loop_links_by_type,
     list_loop_links_for_loop_ids,
@@ -235,6 +236,7 @@ __all__ = [
     "list_loop_tags",
     "_upsert_tags_batch",
     "replace_loop_tags",
+    "delete_loop_link",
     "insert_loop_link",
     "upsert_loop_link",
     "list_loop_links_by_type",

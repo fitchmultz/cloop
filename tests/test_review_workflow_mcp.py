@@ -114,6 +114,8 @@ def test_relationship_review_workflow_tools(
     )
 
     assert result["result"]["link_state"] == "dismissed"
+    assert result["follow_through"]["display_card"]["eyebrow"] == "Relationship receipt"
+    assert result["follow_through"]["undo_action"]["undo"]["kind"] == "relationship_decision"
     remaining_loop_ids = {item["loop"]["id"] for item in result["snapshot"]["items"]}
     assert first_id not in remaining_loop_ids
     assert second_id not in remaining_loop_ids
@@ -267,6 +269,8 @@ def test_enrichment_review_workflow_tools(
         action_preset_id=action["id"],
     )
     assert apply_result["result"]["suggestion_id"] == suggestion_id
+    assert apply_result["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
+    assert apply_result["follow_through"]["undo_action"]["undo"]["kind"] == "loop_event"
     assert apply_result["snapshot"]["session"]["current_loop_id"] == clarification_loop_id
 
     answer_result = review_enrichment_session_answer_clarifications(
@@ -275,6 +279,8 @@ def test_enrichment_review_workflow_tools(
         answers=[{"clarification_id": clarification_id, "answer": "Operations"}],
     )
     assert answer_result["result"]["loop_id"] == clarification_loop_id
+    assert answer_result["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
+    assert answer_result["follow_through"]["undo_action"] is None
     assert answer_result["result"]["clarification_result"]["superseded_suggestion_ids"] == [
         superseded_suggestion_id
     ]

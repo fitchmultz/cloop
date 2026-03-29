@@ -160,6 +160,7 @@ function renderActionButton(card: OperatorActionCard, action: OperatorActionCard
           ${disabledAttributes}
           data-card-action="undo"
           data-undo-kind="${escapeHtml(action.undo.kind)}"
+          data-undo-handle="${escapeHtml(action.undo.kind === "relationship_decision" ? JSON.stringify(action.undo) : "")}"
           data-undo-loop-id="${escapeHtml(action.undo.kind === "loop_event" ? String(action.undo.loopId) : "")}"
           data-undo-expected-event-id="${escapeHtml(action.undo.kind === "loop_event" || action.undo.kind === "working_set_event" ? String(action.undo.expectedEventId) : "")}"
           data-undo-event-type="${escapeHtml(action.undo.kind === "loop_event" || action.undo.kind === "working_set_event" ? action.undo.eventType ?? "" : "")}"

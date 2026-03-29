@@ -20,13 +20,16 @@
  *   - Successful undo returns a landed receipt with a deterministic resume location.
  */
 
-import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
+import { createReceiptCard, createReceiptCardFromDisplayCard, withReceiptOutcome } from "./action-receipts";
 import type {
+  ContinuityCardDisplay,
   ExecutableUndoHandle,
   OperatorActionCard,
+  OperatorActionCardAction,
   OperatorActionCardUndoAction,
   RecentShellActionEntry,
   ShellLocationContract,
+  WorkflowThreadRef,
   WorkingSetEventUndoHandle,
 } from "./contracts-ui";
 import type {
@@ -34,12 +37,16 @@ import type {
   LoopUndoResponse,
   PlanningExecutionHistoryItemResponse,
   PlanningSessionRollbackResponse,
+  RelationshipReviewSessionUndoRequest,
+  RelationshipReviewSessionUndoResponse,
+  ReviewFollowThroughResponse,
   WorkingSetContextResponse,
   WorkingSetDeleteResponse,
   WorkingSetResponse,
   WorkingSetUndoRequest,
   WorkingSetUndoResponse,
 } from "./domain";
+import { mapApiRerunAction } from "./executable-rerun";
 import { HttpRequestError, requestJson } from "./http";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
@@ -60,6 +67,9 @@ export function undoHandleIdentity(handle: ExecutableUndoHandle): string {
   }
   if (handle.kind === "planning_run") {
     return `planning:${handle.sessionId}:run:${handle.runId}`;
+  }
+  if (handle.kind === "relationship_decision") {
+    return `review:relationship:${handle.sessionId}:${handle.loopId}:${handle.candidateLoopId}`;
   }
   return `working-set:event:${handle.expectedEventId}`;
 }
@@ -203,6 +213,219 @@ function maybeChainWorkingSetUndo(
     workingSetId: options.workingSetId,
     workingSetName: options.workingSetName,
   });
+}
+
+function mapFollowThroughLocation(
+  location: ReviewFollowThroughResponse["resume_location"] | null | undefined,
+): ShellLocationContract | null {
+  if (!location?.state) {
+    return null;
+  }
+  return createLocation({
+    state: location.state,
+    recallTool: location.recall_tool ?? "chat",
+    reviewFocus: location.review_focus ?? null,
+    sessionId: location.session_id ?? null,
+    loopId: location.loop_id ?? null,
+    viewId: location.view_id ?? null,
+    memoryId: location.memory_id ?? null,
+    workingSetId: location.working_set_id ?? null,
+    query: location.query ?? null,
+  });
+}
+
+function mapFollowThroughWorkflowThread(
+  thread: ReviewFollowThroughResponse["workflow_thread"],
+): WorkflowThreadRef {
+  return {
+    id: thread.id,
+    kind: thread.kind,
+    title: thread.title,
+    summary: thread.summary ?? null,
+    parentOutcomeId: thread.parent_outcome_id ?? null,
+  };
+}
+
+function mapFollowThroughDisplayCard(
+  response: ReviewFollowThroughResponse["display_card"],
+): ContinuityCardDisplay {
+  return {
+    kind: response.kind,
+    tone: response.tone,
+    eyebrow: response.eyebrow,
+    title: response.title,
+    summary: response.summary,
+    rationale: response.rationale,
+    preview: (response.preview ?? []).map((item) => ({ label: item.label, value: item.value })),
+    trust: {
+      generationLabel: response.trust.generation_label ?? null,
+      generationTone: response.trust.generation_tone ?? null,
+      contextSources: response.trust.context_sources ?? [],
+      assumptions: response.trust.assumptions ?? [],
+      confidenceLabel: response.trust.confidence_label ?? null,
+      confidenceTone: response.trust.confidence_tone ?? null,
+      freshnessLabel: response.trust.freshness_label ?? null,
+      freshnessTone: response.trust.freshness_tone ?? null,
+      rollbackLabel: response.trust.rollback_label ?? null,
+      rollbackTone: response.trust.rollback_tone ?? null,
+      impactSummary: response.trust.impact_summary ?? null,
+      impactTone: response.trust.impact_tone ?? null,
+    },
+    handoff: response.handoff
+      ? {
+          changeSummary: response.handoff.change_summary,
+          createdResources: response.handoff.created_resources ?? [],
+          nextStep: response.handoff.next_step ?? null,
+          breadcrumbs: response.handoff.breadcrumbs ?? [],
+          workingSet: response.handoff.working_set
+            ? {
+                workingSetId: response.handoff.working_set.working_set_id,
+                workingSetName: response.handoff.working_set.working_set_name,
+                itemCount: response.handoff.working_set.item_count,
+                missingItemCount: response.handoff.working_set.missing_item_count,
+              }
+            : null,
+        }
+      : null,
+    actionContextLabel: response.action_context_label ?? null,
+    actionWarning: response.action_warning ?? null,
+  };
+}
+
+function mapFollowThroughUndoAction(
+  action: ReviewFollowThroughResponse["undo_action"] | null | undefined,
+): OperatorActionCardUndoAction | null {
+  if (!action) {
+    return null;
+  }
+  let undo: ExecutableUndoHandle | null = null;
+  if (action.undo.kind === "loop_event") {
+    undo = {
+      kind: "loop_event",
+      loopId: action.undo.loop_id,
+      expectedEventId: action.undo.expected_event_id,
+      eventType: action.undo.event_type ?? null,
+      claimToken: action.undo.claim_token ?? null,
+    };
+  } else if (action.undo.kind === "working_set_event") {
+    undo = {
+      kind: "working_set_event",
+      expectedEventId: action.undo.expected_event_id,
+      eventType: action.undo.event_type ?? null,
+      workingSetId: action.undo.working_set_id ?? null,
+      workingSetName: action.undo.working_set_name ?? null,
+    };
+  } else if (action.undo.kind === "planning_run") {
+    undo = {
+      kind: "planning_run",
+      sessionId: action.undo.session_id,
+      runId: action.undo.run_id,
+      checkpointIndex: action.undo.checkpoint_index,
+      checkpointTitle: action.undo.checkpoint_title,
+      actionCount: action.undo.action_count,
+      bestEffort: Boolean(action.undo.best_effort),
+    };
+  } else if (action.undo.kind === "relationship_decision") {
+    const expectedPairState = action.undo.expected_pair_state ?? { duplicate: null, related: null };
+    const restorePairState = action.undo.restore_pair_state ?? { duplicate: null, related: null };
+    undo = {
+      kind: "relationship_decision",
+      sessionId: action.undo.session_id,
+      loopId: action.undo.loop_id,
+      candidateLoopId: action.undo.candidate_loop_id,
+      expectedPairState: {
+        duplicate: expectedPairState.duplicate
+          ? {
+              state: expectedPairState.duplicate.state,
+              confidence: expectedPairState.duplicate.confidence ?? null,
+              source: expectedPairState.duplicate.source ?? null,
+            }
+          : null,
+        related: expectedPairState.related
+          ? {
+              state: expectedPairState.related.state,
+              confidence: expectedPairState.related.confidence ?? null,
+              source: expectedPairState.related.source ?? null,
+            }
+          : null,
+      },
+      restorePairState: {
+        duplicate: restorePairState.duplicate
+          ? {
+              state: restorePairState.duplicate.state,
+              confidence: restorePairState.duplicate.confidence ?? null,
+              source: restorePairState.duplicate.source ?? null,
+            }
+          : null,
+        related: restorePairState.related
+          ? {
+              state: restorePairState.related.state,
+              confidence: restorePairState.related.confidence ?? null,
+              source: restorePairState.related.source ?? null,
+            }
+          : null,
+      },
+    };
+  }
+  if (!undo) {
+    return null;
+  }
+  return {
+    type: "undo",
+    label: action.label,
+    variant: "secondary",
+    description: action.description,
+    undo,
+    requiresConfirmation: Boolean(action.requires_confirmation),
+    confirmTitle: action.confirm_title ?? null,
+    confirmDescription: action.confirm_description ?? null,
+    successLocation: mapFollowThroughLocation(action.success_location),
+  };
+}
+
+function buildReviewFollowThroughReceipt(
+  followThrough: ReviewFollowThroughResponse,
+  options: {
+    id: string;
+    label: string;
+    description: string;
+    kind?: RecentShellActionEntry["kind"];
+  },
+): ExecutedUndoResult {
+  const displayCard = mapFollowThroughDisplayCard(followThrough.display_card);
+  const resumeLocation = mapFollowThroughLocation(followThrough.resume_location);
+  const undoAction = mapFollowThroughUndoAction(followThrough.undo_action);
+  const rerunAction = mapApiRerunAction(followThrough.rerun_action);
+  const actions: OperatorActionCardAction[] = [];
+  if (rerunAction) {
+    actions.push(rerunAction);
+  }
+  if (undoAction) {
+    actions.push(undoAction);
+  }
+  const card = createReceiptCardFromDisplayCard({
+    id: options.id,
+    displayCard,
+    resumeLocation,
+    resumeDescription: options.description,
+    pinLabel: displayCard.title,
+    actions,
+  });
+  return {
+    card,
+    entry: withReceiptOutcome(
+      {
+        kind: options.kind ?? "review",
+        label: options.label,
+        description: options.description,
+        location: resumeLocation,
+      },
+      card,
+      resumeLocation,
+      { workflowThread: mapFollowThroughWorkflowThread(followThrough.workflow_thread) },
+    ),
+    resumeLocation,
+  };
 }
 
 function buildLoopUndoReceipt(response: LoopUndoResponse): ExecutedUndoResult {
@@ -492,6 +715,17 @@ function buildWorkingSetUndoReceipt(response: WorkingSetUndoResponse): ExecutedU
   };
 }
 
+function buildRelationshipDecisionUndoReceipt(
+  response: RelationshipReviewSessionUndoResponse,
+): ExecutedUndoResult {
+  const summary = response.result.summary?.trim() || "Relationship decision undo completed.";
+  return buildReviewFollowThroughReceipt(response.follow_through, {
+    id: `undo-review-relationship-${response.result.loop_id}-${response.result.candidate_loop_id}`,
+    label: response.follow_through.display_card.title,
+    description: summary,
+  });
+}
+
 export async function executeUndoAction(action: OperatorActionCardUndoAction): Promise<ExecutedUndoResult> {
   if (action.undo.kind === "loop_event") {
     const response = await requestJson<LoopUndoResponse, { expected_event_id: number; claim_token?: string | null }>(
@@ -518,6 +752,58 @@ export async function executeUndoAction(action: OperatorActionCardUndoAction): P
       "Failed to undo working-set change",
     );
     return buildWorkingSetUndoReceipt(response);
+  }
+
+  if (action.undo.kind === "relationship_decision") {
+    const response = await requestJson<
+      RelationshipReviewSessionUndoResponse,
+      RelationshipReviewSessionUndoRequest
+    >(
+      `/loops/review/relationship/sessions/${action.undo.sessionId}/undo`,
+      {
+        method: "POST",
+        body: { undo: {
+          kind: "relationship_decision",
+          session_id: action.undo.sessionId,
+          loop_id: action.undo.loopId,
+          candidate_loop_id: action.undo.candidateLoopId,
+          expected_pair_state: {
+            duplicate: action.undo.expectedPairState.duplicate
+              ? {
+                  state: action.undo.expectedPairState.duplicate.state,
+                  confidence: action.undo.expectedPairState.duplicate.confidence,
+                  source: action.undo.expectedPairState.duplicate.source,
+                }
+              : null,
+            related: action.undo.expectedPairState.related
+              ? {
+                  state: action.undo.expectedPairState.related.state,
+                  confidence: action.undo.expectedPairState.related.confidence,
+                  source: action.undo.expectedPairState.related.source,
+                }
+              : null,
+          },
+          restore_pair_state: {
+            duplicate: action.undo.restorePairState.duplicate
+              ? {
+                  state: action.undo.restorePairState.duplicate.state,
+                  confidence: action.undo.restorePairState.duplicate.confidence,
+                  source: action.undo.restorePairState.duplicate.source,
+                }
+              : null,
+            related: action.undo.restorePairState.related
+              ? {
+                  state: action.undo.restorePairState.related.state,
+                  confidence: action.undo.restorePairState.related.confidence,
+                  source: action.undo.restorePairState.related.source,
+                }
+              : null,
+          },
+        } },
+      },
+      "Failed to undo relationship decision",
+    );
+    return buildRelationshipDecisionUndoReceipt(response);
   }
 
   const response = await requestJson<PlanningSessionRollbackResponse, { run_id: number }>(

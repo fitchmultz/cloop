@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: eliminate remaining client-side follow-through reconstruction first, then close the highest-value transport parity gaps.
+Execution focus: extend the new review follow-through and undo contracts to the remaining transports and durable continuity surfaces.
 
 ## Direction
 
@@ -35,23 +35,23 @@ Current product goals:
 
 ## Execution order
 
-### Next — Backend-author shared review follow-through payloads
+### Next — Add CLI and MCP execution parity for relationship-decision undo
 
-1. Emit one shared follow-through payload for relationship and enrichment mutations instead of forcing web/MCP/CLI clients to reconstruct receipts from `result` + `snapshot`.
-2. Reuse the existing planning vocabulary where it fits: explicit summary, next surface, `rerun_action`, and `undo_action` when the backend has a safe inverse.
-3. Keep irreversibility explicit when no exact-handle undo exists.
+1. Expose exact-handle relationship undo through `cloop review ...` and MCP review tools using the existing HTTP/backend contract.
+2. Reuse the backend-authored relationship undo handle instead of inventing transport-local flags.
+3. Keep stale-handle failures explicit and deterministic across transports.
 
-### Then — Add safe relationship undo handles
+### Then — Persist backend-authored review outcomes into durable continuity
 
-1. Expose exact reversible handles for relationship decisions when the backend can identify the landed loop event safely.
-2. Reuse the continuity undo contract instead of inferring reversibility from stale review snapshots.
-3. Keep duplicate/merge paths explicit when they remain irreversible.
+1. Write relationship and enrichment follow-through results into the continuity store at mutation time so operator home, the receipt rail, and the command palette survive reloads without depending on local-only receipt state.
+2. Reuse the backend `follow_through` payload directly instead of re-shaping review continuity cards client-side.
+3. Keep rerun and undo metadata synchronized with the durable continuity outcome record.
 
-### Later — Close working-set CLI parity gaps
+### Later — Extend exact-handle review undo only where the backend can prove safety
 
-1. Expose durable working-set list/get/context/mutation flows to the CLI with the same launch and exact-handle semantics already used by HTTP, web, and MCP.
-2. Reuse `loops/working_sets.py` plus the shared CLI runtime helpers instead of forking transport-local logic.
-3. Keep `#working-set/:id` and the returned `launch` payload as the shared resume contract across surfaces.
+1. Evaluate safe undo contracts for enrichment apply and clarification-answer flows.
+2. Only add executable undo when the backend can verify stale-handle protection and full state restoration.
+3. Leave irreversible review outcomes explicit when no safe inverse exists.
 
 ## Guardrails
 

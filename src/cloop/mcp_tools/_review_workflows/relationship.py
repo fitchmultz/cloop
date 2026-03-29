@@ -406,6 +406,7 @@ def review_relationship_session_apply_action(
         Dict with:
         - `result`: normalized relationship decision payload
         - `snapshot`: refreshed relationship-review session after the action
+        - `follow_through`: backend-authored receipt, rerun, and undo metadata
 
     Raises:
         ToolError: If the candidate is invalid for the session, the action is

@@ -44,6 +44,7 @@ from ._review_workflows.execution import (
     answer_enrichment_review_session_clarifications,
     execute_enrichment_review_session_action,
     execute_relationship_review_session_action,
+    undo_relationship_review_session_action,
 )
 from ._review_workflows.sessions import (
     create_enrichment_review_session,
@@ -158,6 +159,7 @@ __all__ = [
     "update_enrichment_review_session",
     "delete_enrichment_review_session",
     "execute_relationship_review_session_action",
+    "undo_relationship_review_session_action",
     "execute_enrichment_review_session_action",
     "answer_enrichment_review_session_clarifications",
 ]

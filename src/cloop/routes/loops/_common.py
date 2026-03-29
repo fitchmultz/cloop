@@ -74,10 +74,13 @@ from ...schemas.loops import (
     PlanningSessionSnapshotResponse,
     PlanningTargetLoopResponse,
     QueryBulkEnrichResponse,
+    RelationshipDecisionUndoResultResponse,
     RelationshipReviewActionResponse,
     RelationshipReviewSessionActionResponse,
     RelationshipReviewSessionResponse,
     RelationshipReviewSessionSnapshotResponse,
+    RelationshipReviewSessionUndoResponse,
+    ReviewFollowThroughResponse,
     SuggestionListResponse,
     SuggestionResponse,
     TimerStatusResponse,
@@ -310,6 +313,13 @@ def build_relationship_review_session_snapshot_response(
     )
 
 
+def build_review_follow_through_response(
+    payload: Mapping[str, Any],
+) -> ReviewFollowThroughResponse:
+    """Convert one backend-authored review follow-through payload."""
+    return ReviewFollowThroughResponse.model_validate(dict(payload))
+
+
 def build_relationship_review_session_action_response(
     payload: Mapping[str, Any],
 ) -> RelationshipReviewSessionActionResponse:
@@ -317,6 +327,18 @@ def build_relationship_review_session_action_response(
     return RelationshipReviewSessionActionResponse(
         result=payload["result"],
         snapshot=build_relationship_review_session_snapshot_response(payload["snapshot"]),
+        follow_through=build_review_follow_through_response(payload["follow_through"]),
+    )
+
+
+def build_relationship_review_session_undo_response(
+    payload: Mapping[str, Any],
+) -> RelationshipReviewSessionUndoResponse:
+    """Convert a relationship undo payload into the response model."""
+    return RelationshipReviewSessionUndoResponse(
+        result=RelationshipDecisionUndoResultResponse.model_validate(payload["result"]),
+        snapshot=build_relationship_review_session_snapshot_response(payload["snapshot"]),
+        follow_through=build_review_follow_through_response(payload["follow_through"]),
     )
 
 
@@ -396,6 +418,7 @@ def build_enrichment_review_session_action_response(
     return EnrichmentReviewSessionActionResponse(
         result=build_enrichment_review_action_result_response(payload["result"]),
         snapshot=build_enrichment_review_session_snapshot_response(payload["snapshot"]),
+        follow_through=build_review_follow_through_response(payload["follow_through"]),
     )
 
 
@@ -406,6 +429,7 @@ def build_enrichment_review_session_clarification_response(
     return EnrichmentReviewSessionClarificationResponse(
         result=build_clarification_refinement_response(payload["result"]),
         snapshot=build_enrichment_review_session_snapshot_response(payload["snapshot"]),
+        follow_through=build_review_follow_through_response(payload["follow_through"]),
     )
 
 

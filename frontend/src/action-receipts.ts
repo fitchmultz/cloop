@@ -23,6 +23,7 @@
  */
 
 import type {
+  ContinuityCardDisplay,
   OperatorActionCard,
   OperatorActionCardAction,
   OperatorActionCardRerunAction,
@@ -49,6 +50,8 @@ export interface CreateReceiptCardInput {
   resumeLabel?: string;
   resumeDescription?: string;
   pinLabel?: string | null;
+  actionContextLabel?: string | null;
+  actionWarning?: string | null;
   actions?: OperatorActionCardAction[];
 }
 
@@ -125,10 +128,39 @@ export function createReceiptCard(input: CreateReceiptCardInput): OperatorAction
     preview: input.preview ?? [],
     trust: input.trust,
     handoff: input.handoff,
-    actionContextLabel: missingResumeWarning ? "Receipt contract gap" : (actions.length ? "Continue from here" : null),
-    actionWarning: missingResumeWarning,
+    actionContextLabel: missingResumeWarning
+      ? "Receipt contract gap"
+      : (input.actionContextLabel ?? (actions.length ? "Continue from here" : null)),
+    actionWarning: missingResumeWarning ?? input.actionWarning ?? null,
     actions,
   };
+}
+
+export function createReceiptCardFromDisplayCard(input: {
+  id: string;
+  displayCard: ContinuityCardDisplay;
+  resumeLocation: ShellLocationContract | null;
+  resumeDescription?: string;
+  pinLabel?: string | null;
+  actions?: OperatorActionCardAction[];
+}): OperatorActionCard {
+  return createReceiptCard({
+    id: input.id,
+    eyebrow: input.displayCard.eyebrow,
+    title: input.displayCard.title,
+    summary: input.displayCard.summary,
+    rationale: input.displayCard.rationale,
+    tone: input.displayCard.tone,
+    preview: input.displayCard.preview,
+    trust: input.displayCard.trust,
+    handoff: input.displayCard.handoff,
+    resumeLocation: input.resumeLocation,
+    ...(input.resumeDescription !== undefined ? { resumeDescription: input.resumeDescription } : {}),
+    ...(input.pinLabel !== undefined ? { pinLabel: input.pinLabel } : {}),
+    actionContextLabel: input.displayCard.actionContextLabel ?? null,
+    actionWarning: input.displayCard.actionWarning ?? null,
+    ...(input.actions !== undefined ? { actions: input.actions } : {}),
+  });
 }
 
 export function findUndoAction(card: OperatorActionCard): OperatorActionCardUndoAction | null {

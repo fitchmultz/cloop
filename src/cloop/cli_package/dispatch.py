@@ -164,7 +164,20 @@ from .template_commands import (
     template_list_command,
     template_show_command,
 )
-from .working_set_commands import working_set_undo_command
+from .working_set_commands import (
+    working_set_add_item_command,
+    working_set_add_items_bulk_command,
+    working_set_context_get_command,
+    working_set_context_update_command,
+    working_set_create_command,
+    working_set_delete_command,
+    working_set_get_command,
+    working_set_list_command,
+    working_set_remove_item_command,
+    working_set_reorder_command,
+    working_set_undo_command,
+    working_set_update_command,
+)
 
 CommandHandler = Callable[[argparse.Namespace, Settings], int]
 
@@ -405,6 +418,23 @@ ROOT_TARGET = _branch(
             "working_set_command",
             "working-set command",
             {
+                "list": working_set_list_command,
+                "get": working_set_get_command,
+                "create": working_set_create_command,
+                "update": working_set_update_command,
+                "delete": working_set_delete_command,
+                "context": _branch(
+                    "working_set_context_command",
+                    "working-set context command",
+                    {
+                        "get": working_set_context_get_command,
+                        "update": working_set_context_update_command,
+                    },
+                ),
+                "add-item": working_set_add_item_command,
+                "add-items-bulk": working_set_add_items_bulk_command,
+                "remove-item": working_set_remove_item_command,
+                "reorder": working_set_reorder_command,
                 "undo": working_set_undo_command,
             },
         ),

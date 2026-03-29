@@ -29,7 +29,6 @@ import type {
   ContinuityRecoveryPlan,
   OperatorActionCard,
   OperatorActionCardAction,
-  OperatorActionCardUndoAction,
   ShellLocationContract,
   TrustSurfaceMetadata,
 } from "./contracts-ui";
@@ -55,7 +54,7 @@ import {
   type ReviewWorkspaceHandoffContext,
 } from "./review-workspace-handoffs";
 import { requireApiRerunAction } from "./executable-rerun";
-import { buildLoopUndoAction, buildPlanningRollbackAction } from "./executable-undo";
+import { buildPlanningRollbackAction } from "./executable-undo";
 import { createLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
 
@@ -92,10 +91,6 @@ function pinAction(
 
 export interface ActionCardRecoveryInput {
   recovery?: ContinuityRecoveryPlan | null;
-}
-
-function isUndoAction(value: OperatorActionCardUndoAction | null): value is OperatorActionCardUndoAction {
-  return value != null;
 }
 
 function withRecovery(card: OperatorActionCard, options: ActionCardRecoveryInput = {}): OperatorActionCard {
@@ -744,171 +739,6 @@ export function buildEnrichmentSuggestionCard(options: {
   }, { recovery: options.recovery ?? null });
 }
 
-export function buildRelationshipDecisionReceiptCard(options: {
-  snapshot: RelationshipReviewSessionSnapshotResponse;
-  trust: TrustSurfaceMetadata;
-  workingSets: readonly WorkingSetResponse[];
-  sessionName: string;
-  workingSetId: number | null;
-  loopId: number;
-  candidate: RelationshipReviewCandidateResponse | null;
-  actionType: "confirm" | "dismiss";
-  relationshipType: "duplicate" | "related";
-  recovery?: ContinuityRecoveryPlan | null;
-}): OperatorActionCard {
-  const candidateLabel = options.candidate ? loopTitle(options.candidate) : `Loop #${options.loopId}`;
-  const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "relationship",
-    sessionId: options.snapshot.session.id,
-    workingSetId: options.workingSetId,
-  });
-  const doLocation = createLocation({
-    state: "do",
-    loopId: options.loopId,
-    workingSetId: options.workingSetId,
-  });
-  const summary = options.actionType === "confirm"
-    ? `${candidateLabel} was recorded as ${options.relationshipType} and the queue advanced.`
-    : `${candidateLabel} was dismissed and the queue advanced.`;
-  return withRecovery(createReceiptCard({
-    id: `relationship-receipt-${options.snapshot.session.id}-${options.loopId}-${Date.now()}`,
-    eyebrow: "Relationship receipt",
-    title: options.actionType === "confirm"
-      ? `Recorded ${options.relationshipType} relationship`
-      : "Dismissed relationship candidate",
-    summary,
-    rationale:
-      "Review receipts keep relationship decisions resumable after the queue advances so the operator never loses the landed outcome.",
-    tone: options.actionType === "confirm" && options.relationshipType === "duplicate" ? "attention" : "progress",
-    preview: [
-      { label: "Candidate", value: candidateLabel },
-      { label: "Queue", value: describeQueueProgress(options.snapshot.current_index, options.snapshot.loop_count) },
-      ...(options.snapshot.current_item
-        ? [{ label: "Next up", value: loopTitle(options.snapshot.current_item.loop) }]
-        : []),
-    ],
-    trust: {
-      ...options.trust,
-      generationLabel: "Recorded review decision",
-      generationTone: "progress",
-      freshnessLabel: `Queue refreshed ${options.snapshot.session.updated_at_utc}`,
-      freshnessTone: "progress",
-      impactSummary: summary,
-      impactTone: options.actionType === "confirm" ? "attention" : "progress",
-    },
-    handoff: {
-      changeSummary: summary,
-      createdResources: [],
-      nextStep: relationshipDecisionLabel(options.snapshot.current_item),
-      breadcrumbs: ["Home", "Decide", "Relationship review", options.sessionName],
-      workingSet,
-    },
-    resumeLocation: queueLocation,
-    resumeLabel: "Resume queue",
-    resumeDescription: summary,
-    pinLabel: `Relationship review · ${options.sessionName}`,
-    actions: [
-      requireApiRerunAction(options.snapshot.rerun_action, {
-        sourceLabel: `Saved relationship review session ${options.snapshot.session.name}`,
-        workingSetId: options.workingSetId,
-      }),
-      openAction("Open affected loop in Do", doLocation, `Inspect ${candidateLabel} in Do`, "secondary"),
-    ],
-  }), { recovery: options.recovery ?? null });
-}
-
-export function buildEnrichmentDecisionReceiptCard(options: {
-  snapshot: EnrichmentReviewSessionSnapshotResponse;
-  trust: TrustSurfaceMetadata;
-  workingSets: readonly WorkingSetResponse[];
-  sessionName: string;
-  workingSetId: number | null;
-  item: EnrichmentReviewQueueItemResponse | null;
-  suggestionId: number;
-  actionType: "apply" | "reject" | "clarify";
-  resultLoop?: import("./domain").LoopResponse | null;
-  recovery?: ContinuityRecoveryPlan | null;
-}): OperatorActionCard {
-  const workingSet = resolveWorkingSetSessionMetadata(options.workingSets, options.workingSetId);
-  const loop = options.item?.loop ?? null;
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "enrichment",
-    sessionId: options.snapshot.session.id,
-    workingSetId: options.workingSetId,
-  });
-  const doLocation = createLocation({
-    state: "do",
-    loopId: loop?.id ?? null,
-    workingSetId: options.workingSetId,
-  });
-  const summary = options.actionType === "apply"
-    ? `Applied suggestion #${options.suggestionId} and refreshed the queue.`
-    : options.actionType === "reject"
-      ? `Rejected suggestion #${options.suggestionId} and refreshed the queue.`
-      : `Submitted clarification answers and reran enrichment for the queue.`;
-  const undoAction = options.actionType === "apply" && options.resultLoop
-    ? buildLoopUndoAction(options.resultLoop, {
-        label: "Undo apply",
-        description: `Undo the applied enrichment suggestion for ${loopTitle(options.resultLoop)}.`,
-      })
-    : null;
-  return withRecovery(createReceiptCard({
-    id: `enrichment-receipt-${options.snapshot.session.id}-${options.suggestionId}-${Date.now()}`,
-    eyebrow: "Enrichment receipt",
-    title: options.actionType === "apply"
-      ? "Applied enrichment suggestion"
-      : options.actionType === "reject"
-        ? "Rejected enrichment suggestion"
-        : "Submitted clarification answers",
-    summary,
-    rationale:
-      "Review receipts keep enrichment mutations resumable after the queue shifts so operators can continue from the landed outcome instead of reconstructing it.",
-    tone: options.actionType === "apply" ? "attention" : "progress",
-    preview: [
-      ...(loop ? [{ label: "Loop", value: loopTitle(loop) }] : []),
-      { label: "Suggestion", value: `#${options.suggestionId}` },
-      { label: "Queue", value: describeQueueProgress(options.snapshot.current_index, options.snapshot.loop_count) },
-      ...(options.snapshot.current_item
-        ? [{ label: "Next up", value: loopTitle(options.snapshot.current_item.loop) }]
-        : []),
-    ],
-    trust: {
-      ...options.trust,
-      generationLabel: "Recorded enrichment decision",
-      generationTone: "progress",
-      freshnessLabel: `Queue refreshed ${options.snapshot.session.updated_at_utc}`,
-      freshnessTone: "progress",
-      rollbackLabel: undoAction ? "Undo apply is available for this loop change." : options.trust.rollbackLabel,
-      impactSummary: summary,
-      impactTone: options.actionType === "apply" ? "attention" : "progress",
-    },
-    handoff: {
-      changeSummary: summary,
-      createdResources: [],
-      nextStep: enrichmentDecisionLabel(options.snapshot.current_item ?? null),
-      breadcrumbs: ["Home", "Decide", "Enrichment review", options.sessionName],
-      workingSet,
-    },
-    resumeLocation: queueLocation,
-    resumeLabel: "Resume queue",
-    resumeDescription: summary,
-    pinLabel: `Enrichment review · ${options.sessionName}`,
-    actions: [
-      requireApiRerunAction(options.snapshot.rerun_action, {
-        sourceLabel: `Saved enrichment review session ${options.snapshot.session.name}`,
-        workingSetId: options.workingSetId,
-      }),
-      ...(loop
-        ? [openAction("Open affected loop in Do", doLocation, `Inspect ${loopTitle(loop)} in Do`, "secondary")]
-        : []),
-      ...[undoAction].filter(isUndoAction),
-    ],
-  }), { recovery: options.recovery ?? null });
-}
-
 export function buildPlanningExecutionReceiptCard(options: {
   snapshot: PlanningSessionSnapshotResponse;
   latestExecution: PlanningExecutionHistoryItemResponse;
@@ -985,9 +815,10 @@ export function buildPlanningExecutionReceiptCard(options: {
         sourceLabel: `Planning session ${options.snapshot.session.name}`,
         workingSetId: options.context.fallbackWorkingSetId,
       }),
-      ...[
-        buildPlanningRollbackAction(options.latestExecution),
-      ].filter(isUndoAction),
+      ...(() => {
+        const rollbackAction = buildPlanningRollbackAction(options.latestExecution);
+        return rollbackAction ? [rollbackAction] : [];
+      })(),
     ],
   }), { recovery: options.recovery ?? null });
 }

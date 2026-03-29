@@ -310,6 +310,66 @@ describe("handleOperatorActionCardClick", () => {
     expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
   });
 
+  it("dispatches relationship-decision undo actions from encoded handles", async () => {
+    document.body.innerHTML = `
+      <button
+        id="relationship-undo"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="relationship_decision"
+        data-undo-handle='{"kind":"relationship_decision","sessionId":12,"loopId":5,"candidateLoopId":9,"expectedPairState":{"duplicate":{"state":"dismissed","confidence":null,"source":"user"},"related":null},"restorePairState":{"duplicate":null,"related":null}}'
+        data-undo-success-state="decide"
+        data-undo-success-recall-tool="chat"
+        data-undo-success-review-focus="relationship"
+        data-undo-success-session-id="12"
+      >Undo decision</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("relationship-undo");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing relationship undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).toHaveBeenCalledTimes(1);
+    expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
+      type: "undo",
+      undo: {
+        kind: "relationship_decision",
+        sessionId: 12,
+        loopId: 5,
+        candidateLoopId: 9,
+        expectedPairState: {
+          duplicate: { state: "dismissed", confidence: null, source: "user" },
+          related: null,
+        },
+      },
+      successLocation: expect.objectContaining({
+        state: "decide",
+        reviewFocus: "relationship",
+        sessionId: 12,
+      }),
+    });
+    expect(applyLocation).not.toHaveBeenCalled();
+    expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+  });
+
   it("acknowledges and opens recovery actions", async () => {
     document.body.innerHTML = `
       <button

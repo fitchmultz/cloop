@@ -19,7 +19,12 @@ from __future__ import annotations
 from typing import List, Literal
 
 from ._shared import SEARCH_QUERY_MAX, VIEW_DESCRIPTION_MAX, VIEW_NAME_MAX, BaseModel, Field
-from .continuity import ContinuityRerunAction
+from .continuity import (
+    ContinuityRelationshipDecisionPairState,
+    ContinuityRelationshipDecisionUndoHandle,
+    ContinuityRerunAction,
+    ReviewFollowThroughResponse,
+)
 from .core import LoopResponse
 
 
@@ -165,6 +170,30 @@ class RelationshipReviewSessionActionResponse(BaseModel):
 
     result: "RelationshipDecisionResponse"
     snapshot: RelationshipReviewSessionSnapshotResponse
+    follow_through: ReviewFollowThroughResponse
+
+
+class RelationshipReviewSessionUndoRequest(BaseModel):
+    """Undo one exact saved relationship decision."""
+
+    undo: ContinuityRelationshipDecisionUndoHandle
+
+
+class RelationshipDecisionUndoResultResponse(BaseModel):
+    """Result of restoring one relationship pair to its prior state."""
+
+    loop_id: int
+    candidate_loop_id: int
+    restored_pair_state: ContinuityRelationshipDecisionPairState
+    summary: str
+
+
+class RelationshipReviewSessionUndoResponse(BaseModel):
+    """Result of undoing one saved relationship-review session decision."""
+
+    result: RelationshipDecisionUndoResultResponse
+    snapshot: RelationshipReviewSessionSnapshotResponse
+    follow_through: ReviewFollowThroughResponse
 
 
 class RelationshipDecisionRequest(BaseModel):

@@ -87,6 +87,24 @@ def upsert_loop_link(
     )
 
 
+def delete_loop_link(
+    *,
+    loop_id: int,
+    related_loop_id: int,
+    relationship_type: str,
+    conn: sqlite3.Connection,
+) -> bool:
+    """Delete one authoritative relationship row if it exists."""
+    cursor = conn.execute(
+        """
+        DELETE FROM loop_links
+        WHERE loop_id = ? AND related_loop_id = ? AND relationship_type = ?
+        """,
+        (loop_id, related_loop_id, relationship_type),
+    )
+    return cursor.rowcount > 0
+
+
 def list_loop_links_by_type(
     *,
     loop_id: int,

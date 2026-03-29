@@ -25,7 +25,7 @@
  *   - The shared modal and merge runtimes are available from the TypeScript frontend.
  */
 
-import { withReceiptOutcome } from "./action-receipts";
+import { createReceiptCardFromDisplayCard, withReceiptOutcome } from "./action-receipts";
 import { HttpRequestError, requestJson } from "./http";
 import type {
   ClarificationSubmitRequest,
@@ -66,20 +66,27 @@ import type {
 } from "./domain";
 import type {
   OperatorActionCard,
+  OperatorActionCardAction,
   ReviewFocus,
   TrustSurfaceMetadata,
 } from "./contracts-ui";
 import { applyContinuityRecovery } from "./continuity-recovery";
 import { resolveDurableReopenLocation } from "./continuity-follow-through";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
-import { recordRecentShellAction } from "./continuity-intelligence";
+import {
+  mapContinuityCardDisplayFromApi,
+  mapLocationFromApi,
+  mapUndoActionFromApi,
+  mapWorkflowThreadFromApi,
+  recordRecentShellAction,
+} from "./continuity-intelligence";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
 import { renderTrustSurface } from "./trust-surface";
+import { mapApiRerunAction } from "./executable-rerun";
 import {
   buildCohortImpactCard,
-  buildEnrichmentDecisionReceiptCard,
   buildEnrichmentImpactCard,
   buildEnrichmentSuggestionCard,
   buildPlanningExecutionReceiptCard,
@@ -87,7 +94,6 @@ import {
   buildPlanningFollowUpResourceCard,
   buildPlanningLaunchSurfaceCard,
   describePlanningRollbackCue,
-  buildRelationshipDecisionReceiptCard,
   buildRelationshipImpactCard,
 } from "./review-workspace-action-cards";
 import * as modals from "./modals";
@@ -865,6 +871,48 @@ async function fetchReviewData(): Promise<LoopReviewResponse> {
     "/loops/review?daily=true&weekly=true&limit=12",
     {},
     "Failed to load review cohorts",
+  );
+}
+
+function recordBackendReviewFollowThrough(input: {
+  followThrough: RelationshipReviewSessionActionResponse["follow_through"]
+    | EnrichmentReviewSessionActionResponse["follow_through"]
+    | EnrichmentReviewSessionClarificationResponse["follow_through"];
+  fallbackLocation: ReturnType<typeof createLocation>;
+  metadata: Record<string, unknown>;
+}): void {
+  const displayCard = mapContinuityCardDisplayFromApi(input.followThrough.display_card);
+  const resumeLocation = mapLocationFromApi(input.followThrough.resume_location) ?? input.fallbackLocation;
+  const undoAction = mapUndoActionFromApi(input.followThrough.undo_action);
+  const rerunAction = mapApiRerunAction(input.followThrough.rerun_action);
+  const actions: OperatorActionCardAction[] = [];
+  if (rerunAction) {
+    actions.push(rerunAction);
+  }
+  if (undoAction) {
+    actions.push(undoAction);
+  }
+  const card = createReceiptCardFromDisplayCard({
+    id: `review-follow-through-${input.followThrough.workflow_thread.id}-${Date.now()}`,
+    displayCard,
+    resumeLocation,
+    resumeDescription: displayCard.summary,
+    pinLabel: displayCard.title,
+    actions,
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "review",
+        label: card.title,
+        description: card.summary,
+        location: resumeLocation,
+        metadata: input.metadata,
+      },
+      card,
+      resumeLocation,
+      { workflowThread: mapWorkflowThreadFromApi(input.followThrough.workflow_thread) },
+    ),
   );
 }
 
@@ -3109,10 +3157,6 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
   if (actionType === "confirm" && !(await confirmRelationshipDuplicateIfNeeded(candidateId, relationshipType))) {
     return;
   }
-  const previousSnapshot = state.relationshipSnapshot;
-  const previousItem = previousSnapshot?.current_item ?? null;
-  const candidate = findRelationshipCandidate(candidateId);
-  const trust = relationshipTrustMetadata(previousSnapshot, previousItem);
   const response = await runRelationshipSessionAction(sessionId, {
     loop_id: loopId,
     candidate_loop_id: candidateId,
@@ -3131,38 +3175,18 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
     sessionId,
     workingSetId,
   });
-  const receiptCard = buildRelationshipDecisionReceiptCard({
-    snapshot: response.snapshot,
-    trust,
-    workingSets: state.workingSets ?? [],
-    sessionName: response.snapshot.session.name,
-    workingSetId,
-    loopId,
-    candidate,
-    actionType,
-    relationshipType,
-    recovery: surfaceRecoveryForLocation(queueLocation, `review:relationship:${sessionId}`),
+  recordBackendReviewFollowThrough({
+    followThrough: response.follow_through,
+    fallbackLocation: queueLocation,
+    metadata: {
+      source: "review-workspace",
+      sessionId,
+      loopId,
+      candidateId,
+      actionType,
+      relationshipType,
+    },
   });
-  recordRecentShellAction(
-    withReceiptOutcome(
-      {
-        kind: "review",
-        label: receiptCard.title,
-        description: receiptCard.summary,
-        location: queueLocation,
-        metadata: {
-          source: "review-workspace",
-          sessionId,
-          loopId,
-          candidateId,
-          actionType,
-          relationshipType,
-        },
-      },
-      receiptCard,
-      queueLocation,
-    ),
-  );
   setStatus(`Recorded ${actionType} for loop #${loopId}.`);
 }
 
@@ -3185,10 +3209,6 @@ async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void
   if (selectedAction.action_type === "confirm" && !(await confirmRelationshipDuplicateIfNeeded(candidateId, resolvedRelationshipType))) {
     return;
   }
-  const previousSnapshot = state.relationshipSnapshot;
-  const previousItem = previousSnapshot?.current_item ?? null;
-  const candidate = findRelationshipCandidate(candidateId);
-  const trust = relationshipTrustMetadata(previousSnapshot, previousItem);
   const response = await runRelationshipSessionAction(sessionId, {
     loop_id: loopId,
     candidate_loop_id: candidateId,
@@ -3206,39 +3226,19 @@ async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void
     sessionId,
     workingSetId,
   });
-  const receiptCard = buildRelationshipDecisionReceiptCard({
-    snapshot: response.snapshot,
-    trust,
-    workingSets: state.workingSets ?? [],
-    sessionName: response.snapshot.session.name,
-    workingSetId,
-    loopId,
-    candidate,
-    actionType: selectedAction.action_type,
-    relationshipType: resolvedRelationshipType,
-    recovery: surfaceRecoveryForLocation(queueLocation, `review:relationship:${sessionId}`),
+  recordBackendReviewFollowThrough({
+    followThrough: response.follow_through,
+    fallbackLocation: queueLocation,
+    metadata: {
+      source: "review-workspace",
+      sessionId,
+      loopId,
+      candidateId,
+      actionPresetId: actionId,
+      actionType: selectedAction.action_type,
+      relationshipType: resolvedRelationshipType,
+    },
   });
-  recordRecentShellAction(
-    withReceiptOutcome(
-      {
-        kind: "review",
-        label: receiptCard.title,
-        description: receiptCard.summary,
-        location: queueLocation,
-        metadata: {
-          source: "review-workspace",
-          sessionId,
-          loopId,
-          candidateId,
-          actionPresetId: actionId,
-          actionType: selectedAction.action_type,
-          relationshipType: resolvedRelationshipType,
-        },
-      },
-      receiptCard,
-      queueLocation,
-    ),
-  );
   setStatus(`Applied saved relationship action.`);
 }
 
@@ -3361,9 +3361,6 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
   if (actionType === "apply" && !(await confirmEnrichmentApplyIfNeeded(suggestionId))) {
     return;
   }
-  const previousSnapshot = state.enrichmentSnapshot;
-  const previousItem = previousSnapshot?.current_item ?? null;
-  const trust = enrichmentTrustMetadata(previousSnapshot, previousItem);
   const response = await runEnrichmentSessionAction(sessionId, {
     suggestion_id: suggestionId,
     action_type: actionType,
@@ -3379,36 +3376,16 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
     sessionId,
     workingSetId,
   });
-  const receiptCard = buildEnrichmentDecisionReceiptCard({
-    snapshot: response.snapshot,
-    trust,
-    workingSets: state.workingSets ?? [],
-    sessionName: response.snapshot.session.name,
-    workingSetId,
-    item: previousItem,
-    suggestionId,
-    actionType,
-    resultLoop: response.result.loop ?? null,
-    recovery: surfaceRecoveryForLocation(queueLocation, `review:enrichment:${sessionId}`),
+  recordBackendReviewFollowThrough({
+    followThrough: response.follow_through,
+    fallbackLocation: queueLocation,
+    metadata: {
+      source: "review-workspace",
+      sessionId,
+      suggestionId,
+      actionType,
+    },
   });
-  recordRecentShellAction(
-    withReceiptOutcome(
-      {
-        kind: "review",
-        label: receiptCard.title,
-        description: receiptCard.summary,
-        location: queueLocation,
-        metadata: {
-          source: "review-workspace",
-          sessionId,
-          suggestionId,
-          actionType,
-        },
-      },
-      receiptCard,
-      queueLocation,
-    ),
-  );
   setStatus(`${actionType === "apply" ? "Applied" : "Rejected"} suggestion #${suggestionId}.`);
 }
 
@@ -3422,9 +3399,6 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
   if (action.action_type === "apply" && !(await confirmEnrichmentApplyIfNeeded(suggestionId))) {
     return;
   }
-  const previousSnapshot = state.enrichmentSnapshot;
-  const previousItem = previousSnapshot?.current_item ?? null;
-  const trust = enrichmentTrustMetadata(previousSnapshot, previousItem);
   const response = await runEnrichmentSessionAction(sessionId, {
     suggestion_id: suggestionId,
     action_preset_id: actionId,
@@ -3440,37 +3414,17 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
     sessionId,
     workingSetId,
   });
-  const receiptCard = buildEnrichmentDecisionReceiptCard({
-    snapshot: response.snapshot,
-    trust,
-    workingSets: state.workingSets ?? [],
-    sessionName: response.snapshot.session.name,
-    workingSetId,
-    item: previousItem,
-    suggestionId,
-    actionType: action.action_type === "reject" ? "reject" : "apply",
-    resultLoop: response.result.loop ?? null,
-    recovery: surfaceRecoveryForLocation(queueLocation, `review:enrichment:${sessionId}`),
+  recordBackendReviewFollowThrough({
+    followThrough: response.follow_through,
+    fallbackLocation: queueLocation,
+    metadata: {
+      source: "review-workspace",
+      sessionId,
+      suggestionId,
+      actionPresetId: actionId,
+      actionType: action.action_type,
+    },
   });
-  recordRecentShellAction(
-    withReceiptOutcome(
-      {
-        kind: "review",
-        label: receiptCard.title,
-        description: receiptCard.summary,
-        location: queueLocation,
-        metadata: {
-          source: "review-workspace",
-          sessionId,
-          suggestionId,
-          actionPresetId: actionId,
-          actionType: action.action_type,
-        },
-      },
-      receiptCard,
-      queueLocation,
-    ),
-  );
   setStatus(`Applied saved enrichment action.`);
 }
 
@@ -3499,9 +3453,6 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
     return;
   }
 
-  const previousSnapshot = state.enrichmentSnapshot;
-  const previousItem = previousSnapshot?.current_item ?? null;
-  const trust = enrichmentTrustMetadata(previousSnapshot, previousItem);
   const response = await answerEnrichmentClarifications(sessionId, {
     loop_id: loopId,
     answers,
@@ -3517,36 +3468,17 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
     sessionId,
     workingSetId,
   });
-  const receiptCard = buildEnrichmentDecisionReceiptCard({
-    snapshot: response.snapshot,
-    trust,
-    workingSets: state.workingSets ?? [],
-    sessionName: response.snapshot.session.name,
-    workingSetId,
-    item: previousItem,
-    suggestionId: previousItem?.pending_suggestions[0]?.id ?? 0,
-    actionType: "clarify",
-    recovery: surfaceRecoveryForLocation(queueLocation, `review:enrichment:${sessionId}`),
+  recordBackendReviewFollowThrough({
+    followThrough: response.follow_through,
+    fallbackLocation: queueLocation,
+    metadata: {
+      source: "review-workspace",
+      sessionId,
+      loopId,
+      answerCount: answers.length,
+      actionType: "clarify",
+    },
   });
-  recordRecentShellAction(
-    withReceiptOutcome(
-      {
-        kind: "review",
-        label: receiptCard.title,
-        description: receiptCard.summary,
-        location: queueLocation,
-        metadata: {
-          source: "review-workspace",
-          sessionId,
-          loopId,
-          answerCount: answers.length,
-          actionType: "clarify",
-        },
-      },
-      receiptCard,
-      queueLocation,
-    ),
-  );
   setStatus(response.result.message);
 }
 

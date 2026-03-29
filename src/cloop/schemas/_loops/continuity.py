@@ -176,10 +176,41 @@ class ContinuityWorkingSetEventUndoHandle(BaseModel):
     working_set_name: str | None = None
 
 
+class ContinuityRelationshipDecisionState(BaseModel):
+    """One relationship-link state captured for exact-handle undo."""
+
+    state: Literal["active", "dismissed", "resolved"]
+    confidence: float | None = None
+    source: str | None = None
+
+
+class ContinuityRelationshipDecisionPairState(BaseModel):
+    """Bidirectional relationship-pair state captured around one decision."""
+
+    duplicate: ContinuityRelationshipDecisionState | None = None
+    related: ContinuityRelationshipDecisionState | None = None
+
+
+class ContinuityRelationshipDecisionUndoHandle(BaseModel):
+    """Exact handle for undoing one saved relationship decision."""
+
+    kind: Literal["relationship_decision"] = "relationship_decision"
+    session_id: int
+    loop_id: int
+    candidate_loop_id: int
+    expected_pair_state: ContinuityRelationshipDecisionPairState = Field(
+        default_factory=ContinuityRelationshipDecisionPairState
+    )
+    restore_pair_state: ContinuityRelationshipDecisionPairState = Field(
+        default_factory=ContinuityRelationshipDecisionPairState
+    )
+
+
 ContinuityExecutableUndoHandle = (
     ContinuityLoopEventUndoHandle
     | ContinuityPlanningRunUndoHandle
     | ContinuityWorkingSetEventUndoHandle
+    | ContinuityRelationshipDecisionUndoHandle
 )
 
 
@@ -316,6 +347,17 @@ class ContinuityDisplayCardResponse(BaseModel):
     handoff: ContinuityDisplayHandoffResponse | None = None
     action_context_label: str | None = None
     action_warning: str | None = None
+
+
+class ReviewFollowThroughResponse(BaseModel):
+    """Backend-authored review follow-through contract for fresh landed outcomes."""
+
+    display_card: ContinuityDisplayCardResponse
+    undo_action: ContinuityUndoAction | None = None
+    rerun_action: ContinuityRerunAction | None = None
+    resume_location: ContinuityLocationResponse | None = None
+    workflow_thread: WorkflowThreadRefResponse
+    working_set_id: int | None = None
 
 
 class ContinuityOutcomeWriteRequest(BaseModel):

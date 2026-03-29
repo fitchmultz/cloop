@@ -127,11 +127,78 @@ def test_relationship_review_session_advances_after_resolving_current_pair(
         )
 
     assert after["result"]["link_state"] == "dismissed"
+    assert after["follow_through"]["display_card"]["eyebrow"] == "Relationship receipt"
+    assert after["follow_through"]["undo_action"]["undo"]["kind"] == "relationship_decision"
     remaining_loop_ids = {item["loop"]["id"] for item in after["snapshot"]["items"]}
     assert third_loop["id"] in remaining_loop_ids or fourth_loop["id"] in remaining_loop_ids
     assert after["snapshot"]["session"]["current_loop_id"] in remaining_loop_ids
     assert first_loop["id"] not in remaining_loop_ids
     assert second_loop["id"] not in remaining_loop_ids
+
+
+def test_relationship_review_session_action_can_be_undone_with_exact_handle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+    _mock_relationship_embeddings(monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        first_loop = _capture_loop(
+            "Buy milk and eggs before the weekend",
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        second_loop = _capture_loop(
+            "Pick up groceries like milk and eggs",
+            status=LoopStatus.ACTIONABLE,
+            conn=conn,
+        )
+        conn.commit()
+
+        snapshot = review_workflows.create_relationship_review_session(
+            name="duplicate-pass",
+            query="status:open",
+            relationship_kind="duplicate",
+            candidate_limit=3,
+            item_limit=25,
+            current_loop_id=first_loop["id"],
+            conn=conn,
+            settings=settings,
+        )
+        after = review_workflows.execute_relationship_review_session_action(
+            session_id=snapshot["session"]["id"],
+            loop_id=first_loop["id"],
+            candidate_loop_id=second_loop["id"],
+            candidate_relationship_type="duplicate",
+            action_preset_id=None,
+            action_type="dismiss",
+            relationship_type="duplicate",
+            conn=conn,
+            settings=settings,
+        )
+        undo_handle = after["follow_through"]["undo_action"]["undo"]
+
+        restored = review_workflows.undo_relationship_review_session_action(
+            session_id=snapshot["session"]["id"],
+            loop_id=undo_handle["loop_id"],
+            candidate_loop_id=undo_handle["candidate_loop_id"],
+            expected_pair_state=undo_handle["expected_pair_state"],
+            restore_pair_state=undo_handle["restore_pair_state"],
+            conn=conn,
+            settings=settings,
+        )
+
+    assert restored["result"]["summary"]
+    assert restored["follow_through"]["undo_action"] is None
+    restored_items = {
+        item["loop"]["id"]: {candidate["id"] for candidate in item["duplicate_candidates"]}
+        for item in restored["snapshot"]["items"]
+    }
+    assert first_loop["id"] in restored_items
+    assert second_loop["id"] in restored_items
+    assert second_loop["id"] in restored_items[first_loop["id"]]
+    assert first_loop["id"] in restored_items[second_loop["id"]]
 
 
 def test_review_session_move_helpers_step_through_saved_cursors(
@@ -460,6 +527,8 @@ def test_enrichment_review_action_preset_applies_suggestion_and_refreshes_sessio
 
     assert after["result"]["suggestion_id"] == suggestion_id
     assert after["result"]["applied_fields"] == ["title"]
+    assert after["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
+    assert after["follow_through"]["undo_action"]["undo"]["kind"] == "loop_event"
     assert updated_loop is not None
     assert updated_loop.title == "Plan launch retrospective"
     assert after["snapshot"]["loop_count"] == 0
@@ -551,6 +620,8 @@ def test_enrichment_review_session_answers_clarifications_reruns_and_reenters_sa
         )
 
     assert after["result"]["loop_id"] == first_loop["id"]
+    assert after["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
+    assert after["follow_through"]["undo_action"] is None
     assert after["result"]["clarification_result"]["answered_count"] == 1
     assert after["result"]["clarification_result"]["superseded_suggestion_ids"] == [
         first_suggestion_id

@@ -42,6 +42,8 @@ from ....schemas.loops import (
     RelationshipReviewSessionCreateRequest,
     RelationshipReviewSessionResponse,
     RelationshipReviewSessionSnapshotResponse,
+    RelationshipReviewSessionUndoRequest,
+    RelationshipReviewSessionUndoResponse,
     RelationshipReviewSessionUpdateRequest,
     ReviewSessionMoveRequest,
 )
@@ -52,6 +54,7 @@ from .._common import (
     build_relationship_review_session_action_response,
     build_relationship_review_session_response,
     build_relationship_review_session_snapshot_response,
+    build_relationship_review_session_undo_response,
     map_not_found_to_404,
     map_validation_to_400,
     no_fields_to_update_http_exception,
@@ -436,6 +439,45 @@ def execute_relationship_review_session_action_endpoint(
     return build_relationship_review_session_action_response(result)
 
 
+@router.post(
+    "/review/relationship/sessions/{session_id}/undo",
+    response_model=RelationshipReviewSessionUndoResponse,
+)
+def undo_relationship_review_session_action_endpoint(
+    session_id: int,
+    request: RelationshipReviewSessionUndoRequest,
+    settings: SettingsDep,
+    idempotency_key: str | None = IdempotencyKeyHeader,
+) -> RelationshipReviewSessionUndoResponse | JSONResponse:
+    payload = {"session_id": session_id, **request.model_dump(mode="json")}
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/review/relationship/sessions/{session_id}/undo",
+            idempotency_key=idempotency_key,
+            payload=payload,
+            execute=lambda conn: review_workflows.undo_relationship_review_session_action(
+                session_id=session_id,
+                loop_id=request.undo.loop_id,
+                candidate_loop_id=request.undo.candidate_loop_id,
+                expected_pair_state=request.undo.expected_pair_state.model_dump(mode="python"),
+                restore_pair_state=request.undo.restore_pair_state.model_dump(mode="python"),
+                conn=conn,
+                settings=settings,
+            ),
+        )
+    except ResourceNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="review session") from None
+    except LoopNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="loop") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+    if isinstance(result, JSONResponse):
+        return result
+    return build_relationship_review_session_undo_response(result)
+
+
 __all__ = [
     "router",
     "list_relationship_review_actions_endpoint",
@@ -451,4 +493,5 @@ __all__ = [
     "update_relationship_review_session_endpoint",
     "delete_relationship_review_session_endpoint",
     "execute_relationship_review_session_action_endpoint",
+    "undo_relationship_review_session_action_endpoint",
 ]

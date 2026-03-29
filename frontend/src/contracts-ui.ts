@@ -311,7 +311,31 @@ export interface WorkingSetEventUndoHandle {
   workingSetName: string | null;
 }
 
-export type ExecutableUndoHandle = LoopEventUndoHandle | PlanningRunUndoHandle | WorkingSetEventUndoHandle;
+export interface RelationshipDecisionState {
+  state: "active" | "dismissed" | "resolved";
+  confidence: number | null;
+  source: string | null;
+}
+
+export interface RelationshipDecisionPairState {
+  duplicate: RelationshipDecisionState | null;
+  related: RelationshipDecisionState | null;
+}
+
+export interface RelationshipDecisionUndoHandle {
+  kind: "relationship_decision";
+  sessionId: number;
+  loopId: number;
+  candidateLoopId: number;
+  expectedPairState: RelationshipDecisionPairState;
+  restorePairState: RelationshipDecisionPairState;
+}
+
+export type ExecutableUndoHandle =
+  | LoopEventUndoHandle
+  | PlanningRunUndoHandle
+  | WorkingSetEventUndoHandle
+  | RelationshipDecisionUndoHandle;
 
 export interface RerunPostRunBehavior {
   summary: string;
