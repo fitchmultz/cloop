@@ -429,41 +429,96 @@ def test_migrate_core_db_backfills_planning_run_rollback_payloads() -> None:
             )
             """
         )
-        conn.execute(
+        conn.executemany(
             """
             INSERT INTO planning_session_runs (id, session_id, checkpoint_index, result_json)
             VALUES (?, ?, ?, ?)
             """,
-            (
-                41,
-                12,
-                2,
-                json.dumps(
-                    {
-                        "checkpoint_title": "Queue review work",
-                        "rollback": {
-                            "failed_actions": [],
-                            "summary": "Rollback attempted",
-                        },
-                    }
+            [
+                (
+                    41,
+                    12,
+                    2,
+                    json.dumps(
+                        {
+                            "checkpoint_title": "Queue review work",
+                            "rollback": {
+                                "failed_actions": [],
+                                "summary": "Rollback attempted",
+                            },
+                        }
+                    ),
                 ),
-            ),
+                (
+                    42,
+                    12,
+                    1,
+                    json.dumps(
+                        {
+                            "checkpoint_title": "Review launch risks",
+                            "rollback": {
+                                "attempted_action_count": "2",
+                                "failed_action_count": "1",
+                                "failed_actions": [],
+                                "summary": "Rollback attempted",
+                            },
+                        }
+                    ),
+                ),
+                (
+                    43,
+                    12,
+                    0,
+                    json.dumps(
+                        {
+                            "checkpoint_title": "Archive stale notes",
+                            "rollback": {
+                                "attempted_action_count": "2 actions",
+                                "failed_action_count": "1 failed",
+                                "failed_actions": [],
+                                "summary": "Rollback attempted",
+                            },
+                        }
+                    ),
+                ),
+            ],
         )
         conn.execute("PRAGMA user_version = 49")
         conn.commit()
 
         db.migrate_core_db(conn, from_version=49, to_version=50)
-        result_json = conn.execute(
-            "SELECT result_json FROM planning_session_runs WHERE id = ?",
-            (41,),
-        ).fetchone()[0]
+        rows = conn.execute(
+            "SELECT id, result_json FROM planning_session_runs ORDER BY id ASC"
+        ).fetchall()
         version = conn.execute("PRAGMA user_version").fetchone()[0]
 
-    rollback = json.loads(result_json)["rollback"]
-    assert rollback == {
+    payloads = {int(row[0]): json.loads(row[1])["rollback"] for row in rows}
+    assert payloads[41] == {
         "run_id": 41,
         "checkpoint_index": 2,
         "checkpoint_title": "Queue review work",
+        "attempted_action_count": 0,
+        "failed_action_count": 0,
+        "failed_actions": [],
+        "rollback_complete": True,
+        "rolled_back_at_utc": "",
+        "summary": "Rollback attempted",
+    }
+    assert payloads[42] == {
+        "run_id": 42,
+        "checkpoint_index": 1,
+        "checkpoint_title": "Review launch risks",
+        "attempted_action_count": 2,
+        "failed_action_count": 1,
+        "failed_actions": [],
+        "rollback_complete": False,
+        "rolled_back_at_utc": "",
+        "summary": "Rollback attempted",
+    }
+    assert payloads[43] == {
+        "run_id": 43,
+        "checkpoint_index": 0,
+        "checkpoint_title": "Archive stale notes",
         "attempted_action_count": 0,
         "failed_action_count": 0,
         "failed_actions": [],

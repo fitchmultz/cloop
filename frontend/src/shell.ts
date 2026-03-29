@@ -60,10 +60,10 @@ import {
 } from "./executable-rerun";
 import {
   executeUndoAction as runExecutableUndoAction,
-  staleUndoReason,
   undoConfirmationDialog,
+  undoUnavailableReason,
 } from "./executable-undo";
-import { closeActiveModal, confirmDialog } from "./modals";
+import { alertDialog, closeActiveModal, confirmDialog } from "./modals";
 import { createShellEventController } from "./shell-events";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createShellOperatorCardRenderer, type ShellOperatorCardRenderer } from "./shell-operator-cards";
@@ -748,29 +748,39 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
     pinLocationToWorkingSet: async (location, label, description, options) =>
       workingSetController!.pinLocationToWorkingSet(location, label, description, options),
     executeUndoAction: async (action, button) => {
-      const confirmation = undoConfirmationDialog(action);
-      if (confirmation) {
-        const confirmed = await confirmDialog({
-          eyebrow: action.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
-          title: confirmation.title,
-          description: confirmation.description,
-          confirmLabel: action.label,
-          confirmVariant: "danger",
-        });
-        if (!confirmed) {
-          return;
-        }
-      }
-
       try {
+        const confirmation = undoConfirmationDialog(action);
+        if (confirmation) {
+          const confirmed = await confirmDialog({
+            eyebrow: action.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
+            title: confirmation.title,
+            description: confirmation.description,
+            confirmLabel: action.label,
+            confirmVariant: "danger",
+          });
+          if (!confirmed) {
+            return;
+          }
+        }
+
         const result = await runExecutableUndoAction(action);
         recordRecentShellAction(result.entry);
       } catch (error: unknown) {
-        const reason = staleUndoReason(error) ?? "Undo is no longer available.";
-        button.disabled = true;
-        button.setAttribute("aria-disabled", "true");
-        button.title = reason;
-        markUndoActionUnavailable(action.undo, reason);
+        const reason = undoUnavailableReason(error);
+        if (reason) {
+          button.disabled = true;
+          button.setAttribute("aria-disabled", "true");
+          button.title = reason;
+          markUndoActionUnavailable(action.undo, reason);
+          return;
+        }
+        await alertDialog({
+          eyebrow: action.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
+          title: `${action.label} failed`,
+          description: error instanceof Error && error.message.trim()
+            ? error.message
+            : "Undo failed.",
+        });
       }
     },
     executeRerunAction: async (action, button) => {
@@ -783,15 +793,21 @@ export function bootstrapShell(dependencies: ShellRuntimeDependencies): void {
           await applyLocation(result.resumeLocation);
         }
       } catch (error: unknown) {
-        const reason = staleRerunReason(error) ?? "Rerun is no longer available.";
-        if (staleRerunReason(error)) {
+        const reason = staleRerunReason(error);
+        if (reason) {
           button.disabled = true;
           button.setAttribute("aria-disabled", "true");
           button.title = reason;
           markRerunActionUnavailable(action.rerun, reason);
           return;
         }
-        throw error;
+        await alertDialog({
+          eyebrow: action.rerun.kind === "planning_session" ? "Planning refresh" : "Rerun",
+          title: `${action.label} failed`,
+          description: error instanceof Error && error.message.trim()
+            ? error.message
+            : "Rerun failed.",
+        });
       }
     },
     addLoopIdsToActiveWorkingSet: async (loopIds) => workingSetController!.addLoopIdsToActiveWorkingSet(loopIds),

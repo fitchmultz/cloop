@@ -88,8 +88,8 @@ import {
 } from "./executable-rerun";
 import {
   executeUndoAction as runExecutableUndoAction,
-  staleUndoReason,
   undoConfirmationDialog,
+  undoUnavailableReason,
 } from "./executable-undo";
 import * as modals from "./modals";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
@@ -2439,20 +2439,20 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           },
           skipAutomaticReceipt: true,
           execute: async () => {
-            const confirmation = undoConfirmationDialog(undoAction);
-            if (confirmation) {
-              const confirmed = await modals.confirmDialog({
-                eyebrow: undoAction.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
-                title: confirmation.title,
-                description: confirmation.description,
-                confirmLabel: undoAction.label,
-                confirmVariant: "danger",
-              });
-              if (!confirmed) {
-                return;
-              }
-            }
             try {
+              const confirmation = undoConfirmationDialog(undoAction);
+              if (confirmation) {
+                const confirmed = await modals.confirmDialog({
+                  eyebrow: undoAction.undo.kind === "planning_run" ? "Planning rollback" : "Undo",
+                  title: confirmation.title,
+                  description: confirmation.description,
+                  confirmLabel: undoAction.label,
+                  confirmVariant: "danger",
+                });
+                if (!confirmed) {
+                  return;
+                }
+              }
               const result = await runExecutableUndoAction(undoAction);
               recordRecentShellAction(result.entry);
               await bindings.refreshWorkspace();
@@ -2460,8 +2460,10 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
                 await bindings.openLocation(result.resumeLocation);
               }
             } catch (error: unknown) {
-              const reason = staleUndoReason(error) ?? "Undo is no longer available.";
-              markUndoActionUnavailable(undoAction.undo, reason);
+              const reason = undoUnavailableReason(error);
+              if (reason) {
+                markUndoActionUnavailable(undoAction.undo, reason);
+              }
               throw error;
             }
           },

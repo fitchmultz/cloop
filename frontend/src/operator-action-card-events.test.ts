@@ -200,7 +200,6 @@ describe("handleOperatorActionCardClick", () => {
         data-undo-action-count="2"
         data-undo-description="Undo this planning checkpoint."
         data-undo-best-effort="true"
-        data-undo-description="Undo this planning checkpoint."
         data-undo-requires-confirmation="true"
         data-undo-confirm-title="Rollback checkpoint"
         data-undo-confirm-description="Rollback may be partial."
@@ -306,6 +305,46 @@ describe("handleOperatorActionCardClick", () => {
       confirmTitle: "Checkpoint info",
       confirmDescription: "Informational text only.",
     });
+  });
+
+  it("ignores malformed undo buttons that omit the backend-authored description", async () => {
+    document.body.innerHTML = `
+      <button
+        id="undo-missing-description"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="planning_run"
+        data-undo-session-id="12"
+        data-undo-run-id="44"
+        data-undo-checkpoint-index="1"
+        data-undo-checkpoint-title="Create review queue"
+        data-undo-action-count="2"
+      >Undo checkpoint</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("undo-missing-description");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing malformed undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).not.toHaveBeenCalled();
   });
 
   it("dispatches working-set undo actions", async () => {

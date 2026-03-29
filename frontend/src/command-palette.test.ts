@@ -13,6 +13,7 @@ import { bootstrapCommandPalette } from "./command-palette";
 import {
   recordRecentShellAction,
 } from "./continuity-intelligence";
+import * as executableUndo from "./executable-undo";
 import type { ContinuityNotificationRecord, ShellLocationContract } from "./contracts-ui";
 
 const NOTIFICATION_RECORDS_CACHE_KEY = "cloop.continuity.notification-records.cache.v1";
@@ -159,6 +160,7 @@ describe("command-palette notification commands", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     globalThis.fetch = originalFetch as typeof fetch;
     Object.defineProperty(window, "localStorage", {
       value: originalLocalStorage,
@@ -259,6 +261,88 @@ describe("command-palette notification commands", () => {
     await settle();
 
     expect(openLocation).toHaveBeenCalledWith(location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }));
+  });
+
+  it("keeps recent undo commands available after transient failures", async () => {
+    buildPaletteDom();
+    vi.spyOn(executableUndo, "executeUndoAction").mockRejectedValueOnce(new Error("Network down"));
+
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Undid launch checkpoint",
+      description: "Undo the launch checkpoint.",
+      location: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+      outcome: {
+        card: {
+          id: "receipt-planning-undo",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Launch checkpoint updated",
+          summary: "The launch checkpoint can still be undone.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Undo remains available.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+        rollbackLabel: "Undo remains available.",
+        undoAction: {
+          type: "undo",
+          label: "Undo checkpoint",
+          variant: "secondary",
+          description: "Undo the launch checkpoint.",
+          undo: {
+            kind: "planning_run",
+            sessionId: 12,
+            runId: 44,
+            checkpointIndex: 0,
+            checkpointTitle: "Launch prep",
+            actionCount: 1,
+            bestEffort: false,
+          },
+          requiresConfirmation: false,
+          confirmTitle: null,
+          confirmDescription: null,
+          successLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+        },
+        workflowThread: {
+          id: "planning:12",
+          kind: "planning_checkpoint",
+          title: "Launch prep",
+          summary: "Checkpoint updated",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+          resolvedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+
+    const controller = createController();
+    controller.open();
+    await settle();
+
+    findCommandButton("Undo checkpoint: Launch prep").click();
+    await settle();
+
+    expect(document.getElementById("command-palette-status")?.textContent).toBe("Network down");
+    const stored = readRecentActions()[0] as {
+      outcome?: { undoAction?: { disabledReason?: string | null } | null } | null;
+    };
+    expect(stored.outcome?.undoAction?.disabledReason ?? null).toBeNull();
+    expect(findCommandButton("Undo checkpoint: Launch prep")).toBeTruthy();
   });
 
   it("persists acknowledge and suppress notification controls through shared state writes", async () => {

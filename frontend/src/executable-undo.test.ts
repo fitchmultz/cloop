@@ -22,7 +22,7 @@
 
 import { requestJson } from "./http";
 import type { PlanningExecutionHistoryItemResponse, PlanningSessionRollbackResponse } from "./domain";
-import { buildPlanningRollbackAction, executeUndoAction, undoConfirmationDialog } from "./executable-undo";
+import { buildPlanningRollbackAction, executeUndoAction, undoConfirmationDialog, undoUnavailableReason } from "./executable-undo";
 import { createLocation } from "./shell-routing";
 import { vi } from "vitest";
 
@@ -151,6 +151,28 @@ describe("executable-undo", () => {
         successLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 19 }),
       }),
     ).toThrow("Undo action requires backend confirmation title and description.");
+  });
+
+  it("only marks unavailability for stale-or-malformed undo errors", () => {
+    expect(undoUnavailableReason({
+      name: "HttpRequestError",
+      message: "Cannot undo: newer work landed",
+      status: 400,
+    })).toBe("Cannot undo: newer work landed");
+    expect(undoUnavailableReason({
+      name: "HttpRequestError",
+      message: "Planning session not found",
+      status: 404,
+    })).toBe("Planning session not found");
+    expect(undoUnavailableReason({
+      name: "HttpRequestError",
+      message: "Server exploded",
+      status: 500,
+    })).toBeNull();
+    expect(undoUnavailableReason(new Error("Undo action requires backend confirmation title and description."))).toBe(
+      "Undo action requires backend confirmation title and description.",
+    );
+    expect(undoUnavailableReason(new Error("Network down"))).toBeNull();
   });
 
   it("lands planning rollback receipts on the current checkpoint title", async () => {

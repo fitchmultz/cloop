@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: prove clarification-answer exact restore before widening review undo.
+Execution focus: settle clarification-answer reversibility with the smallest end-to-end slices, then bring the rest of review follow-through to parity.
 
 ## Direction
 
@@ -35,23 +35,29 @@ Current product goals:
 
 ## Execution order
 
-### Slice 1 — Clarification-answer exact-restore proof
+### Slice 1 — Clarification-answer write-path inventory
 
-1. Map the stored rows and continuity writes touched by clarification answers, superseded suggestions, rerun outputs, and saved-session cursor movement.
-2. Prototype exact-handle stale-state validation against that stored state.
-3. End the slice with one decision: clarification answers are exactly restorable, or they are irreversible.
+1. Trace every row and payload written by clarification answers and the immediate rerun: clarification answers, superseded suggestions, replacement suggestions, session cursor changes, and continuity outcomes.
+2. Capture the exact before/after state needed to restore one answer operation without guessing.
+3. End with one explicit restore matrix that names what is reversible, what must be guarded, and what is already irreversible.
 
-### Slice 2 — Clarification-answer undo rollout (only if Slice 1 proves exact restore)
+### Slice 2 — Clarification-answer restore viability probe
 
-1. Add one backend-owned clarification-answer undo handle and restore path.
-2. Reuse the shared review follow-through, continuity, frontend undo, CLI, and MCP adapters.
-3. Keep rerun state, continuity hydration, and stale-handle disablement aligned with the restore path.
+1. Prototype the minimum stale-state validation against the stored state from Slice 1.
+2. Prove or disprove exact restore for one clarification-answer operation, including rerun side effects and saved-session cursor position.
+3. End with one decision only: exact undo ships, or clarification answers are irreversible.
 
-### Slice 3 — Irreversible review outcomes and contract-parity sweep
+### Slice 3 — Clarification-answer contract hard cut
 
-1. Mark review outcomes without exact restore as irreversible.
-2. Keep receipts and trust surfaces explicit about rerun-without-undo cases.
-3. Audit other runtime-derived payloads for schema drift before contract regeneration.
+1. If exact undo is viable, add one backend-owned undo handle plus restore path and thread it through review follow-through, continuity, frontend undo, CLI, and MCP.
+2. If exact undo is not viable, mark clarification-answer receipts and continuity outcomes explicitly irreversible and remove any implied undo affordances.
+3. Regenerate contracts only after the chosen contract is consistent across backend and frontend surfaces.
+
+### Slice 4 — Review outcome parity sweep
+
+1. Audit the remaining review outcomes for mixed reversibility rules, stale-handle behavior, and advisory-only rollback copy.
+2. Mark every non-restorable outcome explicitly irreversible and disable stale handles with specific reasons.
+3. Land one shared review follow-through matrix across HTTP, web, CLI, and MCP.
 
 ## Guardrails
 

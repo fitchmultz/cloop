@@ -53,6 +53,20 @@ export interface ExecutedUndoResult {
   resumeLocation: ShellLocationContract | null;
 }
 
+function isHttpRequestError(error: unknown): error is HttpRequestError {
+  return error instanceof HttpRequestError
+    || (
+      typeof error === "object"
+      && error !== null
+      && "name" in error
+      && error.name === "HttpRequestError"
+      && "status" in error
+      && typeof error.status === "number"
+      && "message" in error
+      && typeof error.message === "string"
+    );
+}
+
 export function undoHandleIdentity(handle: ExecutableUndoHandle): string {
   if (handle.kind === "loop_event") {
     return `loop:${handle.loopId}:event:${handle.expectedEventId}`;
@@ -157,7 +171,7 @@ export function undoConfirmationDialog(action: OperatorActionCardUndoAction): {
   const title = action.confirmTitle?.trim();
   const description = action.confirmDescription?.trim();
   if (!title || !description) {
-    throw new Error("Undo action requires backend confirmation title and description.");
+    throw new Error(MALFORMED_UNDO_CONFIRMATION_MESSAGE);
   }
   return { title, description };
 }
@@ -611,11 +625,16 @@ export async function executeUndoAction(action: OperatorActionCardUndoAction): P
   return buildPlanningRollbackReceipt(response);
 }
 
-export function staleUndoReason(error: unknown): string | null {
-  if (error instanceof HttpRequestError) {
-    return error.message;
+const MALFORMED_UNDO_CONFIRMATION_MESSAGE = "Undo action requires backend confirmation title and description.";
+
+export function undoUnavailableReason(error: unknown): string | null {
+  if (isHttpRequestError(error)) {
+    if (error.status === 400 || error.status === 404 || error.status === 409) {
+      return error.message;
+    }
+    return null;
   }
-  if (error instanceof Error && error.message.trim()) {
+  if (error instanceof Error && error.message.trim() === MALFORMED_UNDO_CONFIRMATION_MESSAGE) {
     return error.message;
   }
   return null;

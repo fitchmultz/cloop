@@ -52,6 +52,10 @@ _CORE_MIGRATIONS: dict[int, str] = {
         '$.rollback.attempted_action_count', CASE
             WHEN json_type(result_json, '$.rollback.attempted_action_count') IN ('integer', 'real')
                 THEN CAST(json_extract(result_json, '$.rollback.attempted_action_count') AS INTEGER)
+            WHEN json_type(result_json, '$.rollback.attempted_action_count') = 'text'
+                AND trim(CAST(json_extract(result_json, '$.rollback.attempted_action_count') AS TEXT)) != ''
+                AND trim(CAST(json_extract(result_json, '$.rollback.attempted_action_count') AS TEXT)) NOT GLOB '*[^0-9]*'
+                THEN CAST(trim(CAST(json_extract(result_json, '$.rollback.attempted_action_count') AS TEXT)) AS INTEGER)
             ELSE CASE
                 WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
                     THEN json_array_length(result_json, '$.rollback.failed_actions')
@@ -61,6 +65,10 @@ _CORE_MIGRATIONS: dict[int, str] = {
         '$.rollback.failed_action_count', CASE
             WHEN json_type(result_json, '$.rollback.failed_action_count') IN ('integer', 'real')
                 THEN CAST(json_extract(result_json, '$.rollback.failed_action_count') AS INTEGER)
+            WHEN json_type(result_json, '$.rollback.failed_action_count') = 'text'
+                AND trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) != ''
+                AND trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) NOT GLOB '*[^0-9]*'
+                THEN CAST(trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) AS INTEGER)
             ELSE CASE
                 WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
                     THEN json_array_length(result_json, '$.rollback.failed_actions')
@@ -79,11 +87,41 @@ _CORE_MIGRATIONS: dict[int, str] = {
                             THEN 'false'
                         ELSE 'true'
                     END
+                WHEN json_type(result_json, '$.rollback.rollback_complete') = 'text'
+                    THEN CASE
+                        WHEN lower(trim(CAST(json_extract(result_json, '$.rollback.rollback_complete') AS TEXT))) IN ('true', '1')
+                            THEN 'true'
+                        WHEN lower(trim(CAST(json_extract(result_json, '$.rollback.rollback_complete') AS TEXT))) IN ('false', '0')
+                            THEN 'false'
+                        ELSE CASE
+                            WHEN (
+                                CASE
+                                    WHEN json_type(result_json, '$.rollback.failed_action_count') IN ('integer', 'real')
+                                        THEN CAST(json_extract(result_json, '$.rollback.failed_action_count') AS INTEGER)
+                                    WHEN json_type(result_json, '$.rollback.failed_action_count') = 'text'
+                                        AND trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) != ''
+                                        AND trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) NOT GLOB '*[^0-9]*'
+                                        THEN CAST(trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) AS INTEGER)
+                                    ELSE CASE
+                                        WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
+                                            THEN json_array_length(result_json, '$.rollback.failed_actions')
+                                        ELSE 0
+                                    END
+                                END
+                            ) = 0
+                                THEN 'true'
+                            ELSE 'false'
+                        END
+                    END
                 ELSE CASE
                     WHEN (
                         CASE
                             WHEN json_type(result_json, '$.rollback.failed_action_count') IN ('integer', 'real')
                                 THEN CAST(json_extract(result_json, '$.rollback.failed_action_count') AS INTEGER)
+                            WHEN json_type(result_json, '$.rollback.failed_action_count') = 'text'
+                                AND trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) != ''
+                                AND trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) NOT GLOB '*[^0-9]*'
+                                THEN CAST(trim(CAST(json_extract(result_json, '$.rollback.failed_action_count') AS TEXT)) AS INTEGER)
                             ELSE CASE
                                 WHEN json_type(result_json, '$.rollback.failed_actions') = 'array'
                                     THEN json_array_length(result_json, '$.rollback.failed_actions')
