@@ -35,12 +35,6 @@ Current product goals:
 
 ## Execution order
 
-### Slice 1 — Clarification-answer write-path inventory
-
-1. Trace every row and payload written by clarification answers and the immediate rerun: clarification answers, superseded suggestions, replacement suggestions, session cursor changes, and continuity outcomes.
-2. Capture the exact before/after state needed to restore one answer operation without guessing.
-3. End with one explicit restore matrix that names what is reversible, what must be guarded, and what is already irreversible.
-
 ### Slice 2 — Clarification-answer restore viability probe
 
 1. Prototype the minimum stale-state validation against the stored state from Slice 1.
