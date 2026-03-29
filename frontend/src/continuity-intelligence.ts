@@ -87,6 +87,13 @@ import {
 } from "./continuity-api";
 import { findRerunAction, findUndoAction } from "./action-receipts";
 import { mapApiRerunAction, rerunHandleIdentity } from "./executable-rerun";
+import {
+  buildFollowThroughActions,
+  mapApiDisplayCard,
+  mapApiLocation,
+  mapApiUndoAction,
+  mapApiWorkflowThread,
+} from "./follow-through-adapters";
 import { undoHandleIdentity } from "./executable-undo";
 import {
   isLowSignalNavigationEntry,
@@ -1129,20 +1136,7 @@ function mapLocationToApi(location: ShellLocationContract | null): ContinuityLoc
 }
 
 export function mapLocationFromApi(location: ContinuityLocationResponse | null | undefined): ShellLocationContract | null {
-  if (!location) {
-    return null;
-  }
-  return {
-    state: location.state,
-    recallTool: location.recall_tool,
-    reviewFocus: location.review_focus ?? null,
-    sessionId: location.session_id ?? null,
-    loopId: location.loop_id ?? null,
-    viewId: location.view_id ?? null,
-    memoryId: location.memory_id ?? null,
-    workingSetId: location.working_set_id ?? null,
-    query: location.query ?? null,
-  };
+  return mapApiLocation(location);
 }
 
 function mapWorkflowThreadToApi(thread: WorkflowThreadRef) {
@@ -1339,76 +1333,20 @@ function mapRerunActionToApi(action: OperatorActionCardRerunAction | null | unde
 }
 
 export function mapWorkflowThreadFromApi(thread: ContinuityOutcomeRecordResponse["workflow_thread"]): WorkflowThreadRef {
-  return {
-    id: thread.id,
-    kind: thread.kind,
-    title: thread.title,
-    summary: thread.summary ?? null,
-    parentOutcomeId: thread.parent_outcome_id ?? null,
-  };
+  return mapApiWorkflowThread(thread);
 }
 
 export function mapContinuityCardDisplayFromApi(
   response: ContinuityOutcomeRecordResponse["display_card"] | ContinuityWorkflowSummaryResponse["display_card"],
 ): ContinuityCardDisplay {
-  return {
-    kind: response.kind,
-    tone: response.tone,
-    eyebrow: response.eyebrow,
-    title: response.title,
-    summary: response.summary,
-    rationale: response.rationale,
-    preview: (response.preview ?? []).map((item) => ({
-      label: item.label,
-      value: item.value,
-    })),
-    trust: {
-      generationLabel: response.trust.generation_label ?? null,
-      generationTone: response.trust.generation_tone ?? null,
-      contextSources: response.trust.context_sources ?? [],
-      assumptions: response.trust.assumptions ?? [],
-      confidenceLabel: response.trust.confidence_label ?? null,
-      confidenceTone: response.trust.confidence_tone ?? null,
-      freshnessLabel: response.trust.freshness_label ?? null,
-      freshnessTone: response.trust.freshness_tone ?? null,
-      rollbackLabel: response.trust.rollback_label ?? null,
-      rollbackTone: response.trust.rollback_tone ?? null,
-      impactSummary: response.trust.impact_summary ?? null,
-      impactTone: response.trust.impact_tone ?? null,
-    },
-    handoff: response.handoff
-      ? {
-        changeSummary: response.handoff.change_summary,
-        createdResources: response.handoff.created_resources ?? [],
-        nextStep: response.handoff.next_step ?? null,
-        breadcrumbs: response.handoff.breadcrumbs ?? [],
-        workingSet: response.handoff.working_set
-          ? {
-            workingSetId: response.handoff.working_set.working_set_id,
-            workingSetName: response.handoff.working_set.working_set_name,
-            itemCount: response.handoff.working_set.item_count,
-            missingItemCount: response.handoff.working_set.missing_item_count,
-          }
-          : null,
-      }
-      : null,
-    actionContextLabel: response.action_context_label ?? null,
-    actionWarning: response.action_warning ?? null,
-  };
+  return mapApiDisplayCard(response);
 }
 
 function outcomeCardFollowThroughActions(input: {
   undoAction: OperatorActionCardUndoAction | null | undefined;
   rerunAction: OperatorActionCardRerunAction | null | undefined;
 }): OperatorActionCardAction[] {
-  const actions: OperatorActionCardAction[] = [];
-  if (input.rerunAction) {
-    actions.push(input.rerunAction);
-  }
-  if (input.undoAction) {
-    actions.push(input.undoAction);
-  }
-  return actions;
+  return buildFollowThroughActions(input);
 }
 
 export function buildOutcomeCardFromDisplayCard(
@@ -1525,92 +1463,7 @@ function mapResolvedTargetFromApi(
 export function mapUndoActionFromApi(
   action: ContinuityOutcomeRecordResponse["undo_action"] | ContinuityWorkflowSummaryResponse["undo_action"] | null | undefined,
 ): OperatorActionCardUndoAction | null {
-  if (!action) {
-    return null;
-  }
-  let undo: ExecutableUndoHandle | null = null;
-  if (action.undo.kind === "loop_event") {
-    undo = {
-      kind: "loop_event",
-      loopId: action.undo.loop_id,
-      expectedEventId: action.undo.expected_event_id,
-      eventType: action.undo.event_type ?? null,
-      claimToken: action.undo.claim_token ?? null,
-    };
-  } else if (action.undo.kind === "planning_run") {
-    undo = {
-      kind: "planning_run",
-      sessionId: action.undo.session_id,
-      runId: action.undo.run_id,
-      checkpointIndex: action.undo.checkpoint_index,
-      checkpointTitle: action.undo.checkpoint_title,
-      actionCount: action.undo.action_count,
-      bestEffort: Boolean(action.undo.best_effort),
-    };
-  } else if (action.undo.kind === "working_set_event") {
-    undo = {
-      kind: "working_set_event",
-      expectedEventId: action.undo.expected_event_id,
-      eventType: action.undo.event_type ?? null,
-      workingSetId: action.undo.working_set_id ?? null,
-      workingSetName: action.undo.working_set_name ?? null,
-    };
-  } else if (action.undo.kind === "relationship_decision") {
-    const expectedPairState = action.undo.expected_pair_state ?? { duplicate: null, related: null };
-    const restorePairState = action.undo.restore_pair_state ?? { duplicate: null, related: null };
-    undo = {
-      kind: "relationship_decision",
-      sessionId: action.undo.session_id,
-      loopId: action.undo.loop_id,
-      candidateLoopId: action.undo.candidate_loop_id,
-      expectedPairState: {
-        duplicate: expectedPairState.duplicate
-          ? {
-              state: expectedPairState.duplicate.state,
-              confidence: expectedPairState.duplicate.confidence ?? null,
-              source: expectedPairState.duplicate.source ?? null,
-            }
-          : null,
-        related: expectedPairState.related
-          ? {
-              state: expectedPairState.related.state,
-              confidence: expectedPairState.related.confidence ?? null,
-              source: expectedPairState.related.source ?? null,
-            }
-          : null,
-      },
-      restorePairState: {
-        duplicate: restorePairState.duplicate
-          ? {
-              state: restorePairState.duplicate.state,
-              confidence: restorePairState.duplicate.confidence ?? null,
-              source: restorePairState.duplicate.source ?? null,
-            }
-          : null,
-        related: restorePairState.related
-          ? {
-              state: restorePairState.related.state,
-              confidence: restorePairState.related.confidence ?? null,
-              source: restorePairState.related.source ?? null,
-            }
-          : null,
-      },
-    };
-  }
-  if (!undo) {
-    return null;
-  }
-  return {
-    type: "undo",
-    label: action.label,
-    variant: "secondary",
-    description: action.description,
-    undo,
-    requiresConfirmation: Boolean(action.requires_confirmation),
-    confirmTitle: action.confirm_title ?? null,
-    confirmDescription: action.confirm_description ?? null,
-    successLocation: mapLocationFromApi(action.success_location),
-  };
+  return mapApiUndoAction(action);
 }
 
 function mapRerunActionFromApi(

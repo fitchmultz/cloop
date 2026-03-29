@@ -25,7 +25,7 @@
  *   - The shared modal and merge runtimes are available from the TypeScript frontend.
  */
 
-import { createReceiptCardFromDisplayCard, withReceiptOutcome } from "./action-receipts";
+import { withReceiptOutcome } from "./action-receipts";
 import { HttpRequestError, requestJson } from "./http";
 import type {
   ClarificationSubmitRequest,
@@ -66,25 +66,18 @@ import type {
 } from "./domain";
 import type {
   OperatorActionCard,
-  OperatorActionCardAction,
   ReviewFocus,
   TrustSurfaceMetadata,
 } from "./contracts-ui";
 import { applyContinuityRecovery } from "./continuity-recovery";
 import { resolveDurableReopenLocation } from "./continuity-follow-through";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
-import {
-  mapContinuityCardDisplayFromApi,
-  mapLocationFromApi,
-  mapUndoActionFromApi,
-  mapWorkflowThreadFromApi,
-  recordRecentShellAction,
-} from "./continuity-intelligence";
+import { recordRecentShellAction } from "./continuity-intelligence";
 import { renderActionCardDeck } from "./operator-action-cards";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
 import { renderTrustSurface } from "./trust-surface";
-import { mapApiRerunAction } from "./executable-rerun";
+import { buildReviewFollowThroughReceipt } from "./follow-through-adapters";
 import {
   buildCohortImpactCard,
   buildEnrichmentImpactCard,
@@ -881,39 +874,13 @@ function recordBackendReviewFollowThrough(input: {
   fallbackLocation: ReturnType<typeof createLocation>;
   metadata: Record<string, unknown>;
 }): void {
-  const displayCard = mapContinuityCardDisplayFromApi(input.followThrough.display_card);
-  const resumeLocation = mapLocationFromApi(input.followThrough.resume_location) ?? input.fallbackLocation;
-  const undoAction = mapUndoActionFromApi(input.followThrough.undo_action);
-  const rerunAction = mapApiRerunAction(input.followThrough.rerun_action);
-  const actions: OperatorActionCardAction[] = [];
-  if (rerunAction) {
-    actions.push(rerunAction);
-  }
-  if (undoAction) {
-    actions.push(undoAction);
-  }
-  const card = createReceiptCardFromDisplayCard({
+  const receipt = buildReviewFollowThroughReceipt({
+    followThrough: input.followThrough,
     id: `review-follow-through-${input.followThrough.workflow_thread.id}-${Date.now()}`,
-    displayCard,
-    resumeLocation,
-    resumeDescription: displayCard.summary,
-    pinLabel: displayCard.title,
-    actions,
+    fallbackLocation: input.fallbackLocation,
+    metadata: input.metadata,
   });
-  recordRecentShellAction(
-    withReceiptOutcome(
-      {
-        kind: "review",
-        label: card.title,
-        description: card.summary,
-        location: resumeLocation,
-        metadata: input.metadata,
-      },
-      card,
-      resumeLocation,
-      { workflowThread: mapWorkflowThreadFromApi(input.followThrough.workflow_thread) },
-    ),
-  );
+  recordRecentShellAction(receipt.entry);
 }
 
 function choosePersistedId<T extends { id: number }>(items: T[], persistedId: number | null): number | null {
