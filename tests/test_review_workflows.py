@@ -61,6 +61,22 @@ def _capture_loop(raw_text: str, *, status: LoopStatus, conn: Any) -> dict[str, 
     )
 
 
+def _assert_review_follow_through_contract(
+    follow_through: dict[str, Any],
+    *,
+    review_focus: str,
+    session_id: int,
+) -> None:
+    assert follow_through["resume_location"]["state"] == "decide"
+    assert follow_through["resume_location"]["review_focus"] == review_focus
+    assert follow_through["resume_location"]["session_id"] == session_id
+    assert follow_through["workflow_thread"]["kind"] == "review_session"
+    assert follow_through["workflow_thread"]["id"] == f"review:{review_focus}:session:{session_id}"
+    assert follow_through["rerun_action"]["rerun"]["kind"] == "review_session"
+    assert follow_through["rerun_action"]["rerun"]["review_focus"] == review_focus
+    assert follow_through["rerun_action"]["rerun"]["session_id"] == session_id
+
+
 def test_relationship_review_session_advances_after_resolving_current_pair(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -127,6 +143,11 @@ def test_relationship_review_session_advances_after_resolving_current_pair(
         )
 
     assert after["result"]["link_state"] == "dismissed"
+    _assert_review_follow_through_contract(
+        after["follow_through"],
+        review_focus="relationship",
+        session_id=snapshot["session"]["id"],
+    )
     assert after["follow_through"]["display_card"]["eyebrow"] == "Relationship receipt"
     assert after["follow_through"]["undo_action"]["undo"]["kind"] == "relationship_decision"
     remaining_loop_ids = {item["loop"]["id"] for item in after["snapshot"]["items"]}
@@ -468,9 +489,15 @@ def test_enrichment_review_session_can_attach_to_and_cleanup_from_working_set(
         assert cleaned["items"] == []
 
 
-def test_enrichment_review_action_preset_applies_suggestion_and_refreshes_session(
+@pytest.mark.parametrize(
+    ("action_type", "expected_undo_kind"),
+    (("apply", "loop_event"), ("reject", None)),
+)
+def test_enrichment_review_session_action_emits_complete_follow_through_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    action_type: str,
+    expected_undo_kind: str | None,
 ) -> None:
     settings = _setup_settings(tmp_path, monkeypatch)
 
@@ -493,10 +520,10 @@ def test_enrichment_review_action_preset_applies_suggestion_and_refreshes_sessio
         conn.commit()
 
         action = review_workflows.create_enrichment_review_action(
-            name="apply-title-only",
-            action_type="apply",
-            fields=["title"],
-            description="Apply just the title field",
+            name=f"{action_type}-title-only",
+            action_type=action_type,
+            fields=["title"] if action_type == "apply" else None,
+            description=f"{action_type.capitalize()} the queued suggestion",
             conn=conn,
         )
         snapshot = review_workflows.create_enrichment_review_session(
@@ -526,11 +553,22 @@ def test_enrichment_review_action_preset_applies_suggestion_and_refreshes_sessio
         updated_loop = repo.read_loop(loop_id=loop_record["id"], conn=conn)
 
     assert after["result"]["suggestion_id"] == suggestion_id
-    assert after["result"]["applied_fields"] == ["title"]
+    _assert_review_follow_through_contract(
+        after["follow_through"],
+        review_focus="enrichment",
+        session_id=snapshot["session"]["id"],
+    )
     assert after["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
-    assert after["follow_through"]["undo_action"]["undo"]["kind"] == "loop_event"
+    if expected_undo_kind is None:
+        assert after["follow_through"]["undo_action"] is None
+    else:
+        assert after["follow_through"]["undo_action"]["undo"]["kind"] == expected_undo_kind
     assert updated_loop is not None
-    assert updated_loop.title == "Plan launch retrospective"
+    if action_type == "apply":
+        assert after["result"]["applied_fields"] == ["title"]
+        assert updated_loop.title == "Plan launch retrospective"
+    else:
+        assert updated_loop.title is None
     assert after["snapshot"]["loop_count"] == 0
     assert after["snapshot"]["session"]["current_loop_id"] is None
 
@@ -620,6 +658,11 @@ def test_enrichment_review_session_answers_clarifications_reruns_and_reenters_sa
         )
 
     assert after["result"]["loop_id"] == first_loop["id"]
+    _assert_review_follow_through_contract(
+        after["follow_through"],
+        review_focus="enrichment",
+        session_id=snapshot["session"]["id"],
+    )
     assert after["follow_through"]["display_card"]["eyebrow"] == "Enrichment receipt"
     assert after["follow_through"]["undo_action"] is None
     assert after["result"]["clarification_result"]["answered_count"] == 1

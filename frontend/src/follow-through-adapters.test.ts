@@ -26,7 +26,7 @@ import { createLocation } from "./shell-routing";
 
 describe("follow-through-adapters", () => {
   it("builds one shared review receipt entry from backend follow-through payloads", () => {
-    const fallbackLocation = createLocation({
+    const resumeLocation = createLocation({
       state: "decide",
       reviewFocus: "relationship",
       sessionId: 17,
@@ -113,7 +113,17 @@ describe("follow-through-adapters", () => {
           },
         },
       },
-      resume_location: null,
+      resume_location: {
+        state: "decide",
+        recall_tool: "chat",
+        review_focus: "relationship",
+        session_id: 17,
+        loop_id: null,
+        view_id: null,
+        memory_id: null,
+        working_set_id: 9,
+        query: null,
+      },
       workflow_thread: {
         id: "review:relationship:17",
         kind: "review_session",
@@ -126,13 +136,12 @@ describe("follow-through-adapters", () => {
     const receipt = buildReviewFollowThroughReceipt({
       followThrough,
       id: "review-follow-through-17",
-      fallbackLocation,
       metadata: { source: "review-workspace", sessionId: 17 },
     });
 
     expect(receipt.card.title).toBe("Recorded duplicate decision");
-    expect(receipt.resumeLocation).toEqual(fallbackLocation);
-    expect(receipt.entry.location).toEqual(fallbackLocation);
+    expect(receipt.resumeLocation).toEqual(resumeLocation);
+    expect(receipt.entry.location).toEqual(resumeLocation);
     expect(receipt.entry.metadata).toEqual({ source: "review-workspace", sessionId: 17 });
     expect(receipt.entry.outcome?.workflowThread).toEqual({
       id: "review:relationship:17",
@@ -149,6 +158,52 @@ describe("follow-through-adapters", () => {
       "rerun",
       "undo",
     ]);
+  });
+
+  it("fails fast when backend review follow-through omits resume_location", () => {
+    expect(() =>
+      buildReviewFollowThroughReceipt({
+        followThrough: {
+          display_card: {
+            kind: "receipt",
+            tone: "progress",
+            eyebrow: "Relationship receipt",
+            title: "Recorded duplicate decision",
+            summary: "Marked loop #11 as a duplicate of loop #8.",
+            rationale: "Receipt",
+            preview: [],
+            trust: {
+              generation_label: null,
+              generation_tone: null,
+              context_sources: [],
+              assumptions: [],
+              confidence_label: null,
+              confidence_tone: null,
+              freshness_label: null,
+              freshness_tone: null,
+              rollback_label: null,
+              rollback_tone: null,
+              impact_summary: null,
+              impact_tone: null,
+            },
+            handoff: null,
+            action_context_label: null,
+            action_warning: null,
+          },
+          undo_action: null,
+          rerun_action: null,
+          resume_location: null,
+          workflow_thread: {
+            id: "review:relationship:17",
+            kind: "review_session",
+            title: "Duplicate review",
+            summary: null,
+            parent_outcome_id: null,
+          },
+        } as unknown as ReviewFollowThroughResponse,
+        id: "review-follow-through-missing-resume-location",
+      }),
+    ).toThrow("resume_location");
   });
 
   it("maps durable relationship undo handles through the shared continuity adapter", () => {

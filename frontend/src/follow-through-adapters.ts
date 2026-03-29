@@ -239,17 +239,26 @@ export function buildFollowThroughActions(input: {
   return actions;
 }
 
+function requireReviewResumeLocation(
+  location: ReviewFollowThroughResponse["resume_location"] | null | undefined,
+): ShellLocationContract {
+  const mapped = mapApiLocation(location);
+  if (!mapped) {
+    throw new Error("review follow_through.resume_location is required");
+  }
+  return mapped;
+}
+
 export function buildReviewFollowThroughReceipt(input: {
   followThrough: ReviewFollowThroughResponse;
   id: string;
-  fallbackLocation?: ShellLocationContract | null;
   label?: string;
   description?: string;
   kind?: RecentShellActionEntry["kind"];
   metadata?: Record<string, unknown> | null;
 }): ReviewFollowThroughReceiptResult {
   const displayCard = mapApiDisplayCard(input.followThrough.display_card);
-  const resumeLocation = mapApiLocation(input.followThrough.resume_location) ?? input.fallbackLocation ?? null;
+  const resumeLocation = requireReviewResumeLocation(input.followThrough.resume_location);
   const workflowThread = mapApiWorkflowThread(input.followThrough.workflow_thread);
   const undoAction = mapApiUndoAction(input.followThrough.undo_action);
   const rerunAction = mapApiRerunAction(input.followThrough.rerun_action);

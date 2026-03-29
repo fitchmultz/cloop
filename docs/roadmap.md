@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: delete remaining review-only fallback reopen logic, then extend safe review undo only where the backend can prove restoration.
+Execution focus: extend safe review undo only where the backend can prove restoration.
 
 ## Direction
 
@@ -35,17 +35,11 @@ Current product goals:
 
 ## Execution order
 
-### Next — Delete review-only fallback reopen logic
+### Next — Extend safe review undo only where the backend can prove restoration
 
-1. Remove `fallbackLocation` from shared review follow-through adapters.
-2. Keep review continuity writes sourced from backend-authored `follow_through` fields only.
-3. Treat unexpected missing `resume_location` as an explicit contract failure instead of silent client repair.
-
-### Then — Extend safe review undo only where the backend can prove restoration
-
-1. Evaluate exact-handle undo for enrichment apply and clarification-answer flows after fallback deletion lands.
-2. Keep irreversible review outcomes explicit when full stale-handle protection or state restoration is unavailable.
-3. Avoid inferred or best-effort review undo paths that weaken trust in landed outcomes.
+1. Evaluate exact-handle undo for enrichment clarification-answer flows.
+2. Ship new undo only when the backend can validate stale-handle safety and full state restoration.
+3. Keep irreversible review outcomes explicit when no exact restore exists.
 
 ## Guardrails
 

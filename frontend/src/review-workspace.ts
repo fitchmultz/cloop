@@ -871,13 +871,11 @@ function recordBackendReviewFollowThrough(input: {
   followThrough: RelationshipReviewSessionActionResponse["follow_through"]
     | EnrichmentReviewSessionActionResponse["follow_through"]
     | EnrichmentReviewSessionClarificationResponse["follow_through"];
-  fallbackLocation: ReturnType<typeof createLocation>;
   metadata: Record<string, unknown>;
 }): void {
   const receipt = buildReviewFollowThroughReceipt({
     followThrough: input.followThrough,
     id: `review-follow-through-${input.followThrough.workflow_thread.id}-${Date.now()}`,
-    fallbackLocation: input.fallbackLocation,
     metadata: input.metadata,
   });
   recordRecentShellAction(receipt.entry);
@@ -3135,16 +3133,8 @@ async function handleRelationshipDecision(button: HTMLButtonElement, actionType:
   requestWorkspaceRefresh();
   renderAll();
 
-  const workingSetId = currentWorkingSetId();
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "relationship",
-    sessionId,
-    workingSetId,
-  });
   recordBackendReviewFollowThrough({
     followThrough: response.follow_through,
-    fallbackLocation: queueLocation,
     metadata: {
       source: "review-workspace",
       sessionId,
@@ -3186,16 +3176,8 @@ async function handleRelationshipPreset(button: HTMLButtonElement): Promise<void
   requestWorkspaceRefresh();
   renderAll();
 
-  const workingSetId = currentWorkingSetId();
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "relationship",
-    sessionId,
-    workingSetId,
-  });
   recordBackendReviewFollowThrough({
     followThrough: response.follow_through,
-    fallbackLocation: queueLocation,
     metadata: {
       source: "review-workspace",
       sessionId,
@@ -3336,16 +3318,8 @@ async function handleEnrichmentDecision(suggestionId: number, actionType: "apply
   requestWorkspaceRefresh();
   renderAll();
 
-  const workingSetId = currentWorkingSetId();
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "enrichment",
-    sessionId,
-    workingSetId,
-  });
   recordBackendReviewFollowThrough({
     followThrough: response.follow_through,
-    fallbackLocation: queueLocation,
     metadata: {
       source: "review-workspace",
       sessionId,
@@ -3374,16 +3348,8 @@ async function handleEnrichmentPreset(suggestionId: number): Promise<void> {
   requestWorkspaceRefresh();
   renderAll();
 
-  const workingSetId = currentWorkingSetId();
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "enrichment",
-    sessionId,
-    workingSetId,
-  });
   recordBackendReviewFollowThrough({
     followThrough: response.follow_through,
-    fallbackLocation: queueLocation,
     metadata: {
       source: "review-workspace",
       sessionId,
@@ -3428,16 +3394,8 @@ async function handleEnrichmentClarifications(form: HTMLFormElement): Promise<vo
   requestWorkspaceRefresh();
   renderAll();
 
-  const workingSetId = currentWorkingSetId();
-  const queueLocation = createLocation({
-    state: "decide",
-    reviewFocus: "enrichment",
-    sessionId,
-    workingSetId,
-  });
   recordBackendReviewFollowThrough({
     followThrough: response.follow_through,
-    fallbackLocation: queueLocation,
     metadata: {
       source: "review-workspace",
       sessionId,
