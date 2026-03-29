@@ -71,16 +71,29 @@ def test_insert_and_read_suggestion(fresh_db, test_loop):
 
 
 def test_list_pending_suggestions(fresh_db, test_loop):
-    """Test listing pending suggestions."""
-    repo.insert_loop_suggestion(
-        loop_id=test_loop["id"],
-        suggestion_json={"title": "Sug1"},
-        model="test",
-        conn=fresh_db,
-    )
+    """Test listing pending suggestions newest-first with identical timestamps."""
+    same_created_at = "2026-02-18 12:00:00"
+    with fresh_db:
+        first_cursor = fresh_db.execute(
+            """
+            INSERT INTO loop_suggestions (loop_id, suggestion_json, model, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (test_loop["id"], json.dumps({"title": "Sug1"}), "test", same_created_at),
+        )
+        second_cursor = fresh_db.execute(
+            """
+            INSERT INTO loop_suggestions (loop_id, suggestion_json, model, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (test_loop["id"], json.dumps({"title": "Sug2"}), "test", same_created_at),
+        )
+
+    first_id = int(first_cursor.lastrowid)
+    second_id = int(second_cursor.lastrowid)
 
     pending = repo.list_pending_suggestions(conn=fresh_db)
-    assert len(pending) == 1
+    assert [item["id"] for item in pending] == [second_id, first_id]
     assert pending[0]["resolution"] is None
 
 
@@ -108,18 +121,25 @@ def test_resolve_suggestion(fresh_db, test_loop):
 
 def test_list_loop_suggestions_with_filters(fresh_db, test_loop):
     """Test listing with loop_id and resolution filters."""
-    repo.insert_loop_suggestion(
-        loop_id=test_loop["id"],
-        suggestion_json={"title": "Sug1"},
-        model="test",
-        conn=fresh_db,
-    )
-    suggestion_id2 = repo.insert_loop_suggestion(
-        loop_id=test_loop["id"],
-        suggestion_json={"title": "Sug2"},
-        model="test",
-        conn=fresh_db,
-    )
+    same_created_at = "2026-02-18 12:00:00"
+    with fresh_db:
+        suggestion_cursor1 = fresh_db.execute(
+            """
+            INSERT INTO loop_suggestions (loop_id, suggestion_json, model, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (test_loop["id"], json.dumps({"title": "Sug1"}), "test", same_created_at),
+        )
+        suggestion_cursor2 = fresh_db.execute(
+            """
+            INSERT INTO loop_suggestions (loop_id, suggestion_json, model, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (test_loop["id"], json.dumps({"title": "Sug2"}), "test", same_created_at),
+        )
+
+    suggestion_id1 = int(suggestion_cursor1.lastrowid)
+    suggestion_id2 = int(suggestion_cursor2.lastrowid)
 
     repo.resolve_loop_suggestion(
         suggestion_id=suggestion_id2,
@@ -129,7 +149,7 @@ def test_list_loop_suggestions_with_filters(fresh_db, test_loop):
     )
 
     by_loop = repo.list_loop_suggestions(loop_id=test_loop["id"], conn=fresh_db)
-    assert len(by_loop) == 2
+    assert [item["id"] for item in by_loop] == [suggestion_id2, suggestion_id1]
 
     resolved = repo.list_loop_suggestions(resolution="applied", conn=fresh_db)
     assert len(resolved) == 1
@@ -357,6 +377,173 @@ class TestClarificationLifecycle:
                 conn=fresh_db,
             )
 
+    def test_submit_clarification_answers_rejects_failed_update(
+        self,
+        fresh_db,
+        test_loop,
+        monkeypatch,
+    ):
+        """Clarification submission should fail if the repo update reports no changed row."""
+        with fresh_db:
+            clarification_id = repo.insert_loop_clarification(
+                loop_id=test_loop["id"],
+                question="What is the priority?",
+                conn=fresh_db,
+            )
+
+        monkeypatch.setattr(
+            enrichment_review.repo,
+            "answer_loop_clarification",
+            lambda *, clarification_id, answer, conn: False,
+        )
+
+        with pytest.raises(
+            ValidationError,
+            match="changed before the answer could be recorded",
+        ):
+            enrichment_review.submit_clarification_answers(
+                loop_id=test_loop["id"],
+                answers=[
+                    enrichment_review.ClarificationAnswerInput(
+                        clarification_id=clarification_id,
+                        answer="High priority",
+                    )
+                ],
+                conn=fresh_db,
+            )
+
+        updated = repo.read_loop_clarification(clarification_id=clarification_id, conn=fresh_db)
+        assert updated is not None
+        assert updated["answer"] is None
+
+    def test_submit_clarification_answers_rejects_already_answered_row(
+        self,
+        fresh_db,
+        test_loop,
+    ):
+        """Clarification submission should reject rows that were already answered earlier."""
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=test_loop["id"],
+            question="What is the priority?",
+            conn=fresh_db,
+        )
+        enrichment_review.submit_clarification_answers(
+            loop_id=test_loop["id"],
+            answers=[
+                enrichment_review.ClarificationAnswerInput(
+                    clarification_id=clarification_id,
+                    answer="High priority",
+                )
+            ],
+            conn=fresh_db,
+        )
+
+        with pytest.raises(ValidationError, match="Clarification already answered"):
+            enrichment_review.submit_clarification_answers(
+                loop_id=test_loop["id"],
+                answers=[
+                    enrichment_review.ClarificationAnswerInput(
+                        clarification_id=clarification_id,
+                        answer="Changed answer",
+                    )
+                ],
+                conn=fresh_db,
+            )
+
+    def test_submit_clarification_answers_supersedes_all_matching_suggestions(
+        self,
+        fresh_db,
+        test_loop,
+    ):
+        """Clarification submission should supersede every matching pending suggestion."""
+        suggestion_payload = json.dumps(
+            {
+                "needs_clarification": ["What is the priority?"],
+                "confidence": {},
+            }
+        )
+        with fresh_db:
+            fresh_db.executemany(
+                """
+                INSERT INTO loop_suggestions (loop_id, suggestion_json, model)
+                VALUES (?, ?, ?)
+                """,
+                [(test_loop["id"], suggestion_payload, "test") for _ in range(1001)],
+            )
+
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=test_loop["id"],
+            question="What is the priority?",
+            conn=fresh_db,
+        )
+
+        result = enrichment_review.submit_clarification_answers(
+            loop_id=test_loop["id"],
+            answers=[
+                enrichment_review.ClarificationAnswerInput(
+                    clarification_id=clarification_id,
+                    answer="High priority",
+                )
+            ],
+            conn=fresh_db,
+        )
+
+        assert result.answered_count == 1
+        assert len(result.superseded_suggestion_ids) == 1001
+        pending = repo.list_pending_suggestions(loop_id=test_loop["id"], conn=fresh_db, limit=None)
+        assert pending == []
+
+    def test_enrichment_review_queue_lists_newest_pending_suggestion_first(
+        self,
+        fresh_db,
+        test_loop,
+    ):
+        """Queue snapshots should surface the newest pending suggestion first."""
+        same_created_at = "2026-02-18 12:00:00"
+        with fresh_db:
+            first_cursor = fresh_db.execute(
+                """
+                INSERT INTO loop_suggestions (loop_id, suggestion_json, model, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    test_loop["id"],
+                    json.dumps({"title": "First pending suggestion"}),
+                    "test",
+                    same_created_at,
+                ),
+            )
+            second_cursor = fresh_db.execute(
+                """
+                INSERT INTO loop_suggestions (loop_id, suggestion_json, model, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    test_loop["id"],
+                    json.dumps({"title": "Second pending suggestion"}),
+                    "test",
+                    same_created_at,
+                ),
+            )
+
+        first_id = int(first_cursor.lastrowid)
+        second_id = int(second_cursor.lastrowid)
+
+        queue = enrichment_review.list_enrichment_review_queue(
+            query="status:open",
+            pending_kind="suggestions",
+            limit=10,
+            suggestion_limit=3,
+            clarification_limit=3,
+            conn=fresh_db,
+        )
+
+        assert queue["loop_count"] == 1
+        assert [item["id"] for item in queue["items"][0]["pending_suggestions"]] == [
+            second_id,
+            first_id,
+        ]
+
     def test_clarifications_included_in_enrichment_context(self, fresh_db, test_loop):
         """Answered clarifications are included in enrichment context."""
         from cloop.loops.enrichment import _gather_enrichment_context
@@ -387,6 +574,76 @@ class TestClarificationLifecycle:
         assert len(context.answered_clarifications) == 1
         assert context.answered_clarifications[0]["question"] == "Due date?"
         assert context.answered_clarifications[0]["answer"] == "Tomorrow"
+
+    def test_list_loop_clarifications_orders_unanswered_first(self, fresh_db, test_loop):
+        """Clarification listings should remain stable when rows share a timestamp."""
+        same_created_at = "2026-02-18 12:00:00"
+        with fresh_db:
+            first_cursor = fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (test_loop["id"], "First question?", same_created_at),
+            )
+            second_cursor = fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (test_loop["id"], "Second question?", same_created_at),
+            )
+
+        first_id = int(first_cursor.lastrowid)
+        second_id = int(second_cursor.lastrowid)
+
+        clarifications = repo.list_loop_clarifications(loop_id=test_loop["id"], conn=fresh_db)
+
+        assert [item["id"] for item in clarifications] == [first_id, second_id]
+        assert all(item["answer"] is None for item in clarifications)
+
+    def test_list_answered_clarifications_orders_newest_first(self, fresh_db, test_loop):
+        """Answered clarifications should be returned newest-first, even within one second."""
+        same_created_at = "2026-02-18 12:00:00"
+        same_answered_at = "2026-02-18 12:05:00"
+        with fresh_db:
+            first_cursor = fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (test_loop["id"], "First answered question?", same_created_at),
+            )
+            second_cursor = fresh_db.execute(
+                """
+                INSERT INTO loop_clarifications (loop_id, question, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (test_loop["id"], "Second answered question?", same_created_at),
+            )
+            fresh_db.execute(
+                """
+                UPDATE loop_clarifications
+                SET answer = ?, answered_at = ?
+                WHERE id = ?
+                """,
+                ("First answer", same_answered_at, int(first_cursor.lastrowid)),
+            )
+            fresh_db.execute(
+                """
+                UPDATE loop_clarifications
+                SET answer = ?, answered_at = ?
+                WHERE id = ?
+                """,
+                ("Second answer", same_answered_at, int(second_cursor.lastrowid)),
+            )
+
+        first_id = int(first_cursor.lastrowid)
+        second_id = int(second_cursor.lastrowid)
+
+        answered = repo.list_answered_clarifications(loop_id=test_loop["id"], conn=fresh_db)
+
+        assert [item["id"] for item in answered] == [second_id, first_id]
 
     def test_unanswered_clarifications_excluded_from_context(self, fresh_db, test_loop):
         """Only answered clarifications are included in enrichment context."""

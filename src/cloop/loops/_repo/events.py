@@ -195,7 +195,7 @@ def list_loop_suggestions(
                resolution, resolved_at, resolved_fields_json
         FROM loop_suggestions
         {where_clause}
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT ? OFFSET ?
         """,
         params,
@@ -207,15 +207,22 @@ def list_pending_suggestions(
     *,
     conn: sqlite3.Connection,
     loop_id: int | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
 ) -> list[dict[str, Any]]:
-    """Get unresolved suggestions, optionally scoped to one loop."""
+    """Get unresolved suggestions, optionally scoped to one loop.
+
+    Pass `limit=None` to return all unresolved suggestions for the scope.
+    """
     params: list[Any] = []
     where_clause = "WHERE resolution IS NULL"
     if loop_id is not None:
         where_clause += " AND loop_id = ?"
         params.append(loop_id)
-    params.append(limit)
+
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ?"
+        params.append(limit)
 
     rows = conn.execute(
         f"""
@@ -223,8 +230,8 @@ def list_pending_suggestions(
                resolution, resolved_at, resolved_fields_json
         FROM loop_suggestions
         {where_clause}
-        ORDER BY created_at DESC
-        LIMIT ?
+        ORDER BY created_at DESC, id DESC
+        {limit_clause}
         """,
         params,
     ).fetchall()
@@ -246,7 +253,7 @@ def list_pending_suggestions_for_loops(
                resolution, resolved_at, resolved_fields_json
         FROM loop_suggestions
         WHERE resolution IS NULL AND loop_id IN ({placeholders})
-        ORDER BY created_at DESC
+        ORDER BY created_at DESC, id DESC
         """,
         list(loop_ids),
     ).fetchall()
@@ -329,7 +336,7 @@ def list_loop_clarifications(
         SELECT id, loop_id, question, answer, answered_at, created_at
         FROM loop_clarifications
         WHERE loop_id = ?
-        ORDER BY answered_at IS NULL DESC, created_at ASC
+        ORDER BY answered_at IS NULL DESC, created_at ASC, id ASC
         """,
         (loop_id,),
     ).fetchall()
@@ -350,7 +357,7 @@ def list_loop_clarifications_for_loops(
         SELECT id, loop_id, question, answer, answered_at, created_at
         FROM loop_clarifications
         WHERE loop_id IN ({placeholders})
-        ORDER BY loop_id ASC, answered_at IS NULL DESC, created_at ASC
+        ORDER BY loop_id ASC, answered_at IS NULL DESC, created_at ASC, id ASC
         """,
         list(loop_ids),
     ).fetchall()
@@ -371,7 +378,7 @@ def list_unanswered_clarifications_for_loops(
         SELECT id, loop_id, question, answer, answered_at, created_at
         FROM loop_clarifications
         WHERE loop_id IN ({placeholders}) AND answer IS NULL
-        ORDER BY loop_id ASC, created_at ASC
+        ORDER BY loop_id ASC, created_at ASC, id ASC
         """,
         list(loop_ids),
     ).fetchall()
@@ -409,7 +416,7 @@ def list_answered_clarifications(
         SELECT id, loop_id, question, answer, answered_at, created_at
         FROM loop_clarifications
         WHERE loop_id = ? AND answer IS NOT NULL
-        ORDER BY answered_at DESC
+        ORDER BY answered_at DESC, id DESC
         """,
         (loop_id,),
     ).fetchall()

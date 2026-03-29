@@ -475,7 +475,7 @@ def _supersede_answered_suggestions(
     conn: sqlite3.Connection,
 ) -> list[int]:
     superseded_ids: list[int] = []
-    pending_suggestions = repo.list_pending_suggestions(loop_id=loop_id, conn=conn, limit=1000)
+    pending_suggestions = repo.list_pending_suggestions(loop_id=loop_id, conn=conn, limit=None)
     for suggestion in pending_suggestions:
         parsed = json.loads(str(suggestion["suggestion_json"]))
         needs_clarification = {
@@ -507,17 +507,36 @@ def submit_clarification_answers(
 
     with conn:
         for clarification, item in zip(clarifications, answers, strict=True):
-            repo.answer_loop_clarification(
-                clarification_id=int(clarification["id"]),
+            clarification_id = int(clarification["id"])
+            if not repo.answer_loop_clarification(
+                clarification_id=clarification_id,
                 answer=item.answer.strip(),
                 conn=conn,
-            )
+            ):
+                updated = repo.read_loop_clarification(
+                    clarification_id=clarification_id,
+                    conn=conn,
+                )
+                if updated is None:
+                    raise ClarificationNotFoundError(clarification_id)
+                if updated.get("answer"):
+                    raise ValidationError(
+                        "clarification",
+                        f"Clarification already answered: {clarification_id}",
+                    )
+                raise ValidationError(
+                    "clarification",
+                    (
+                        f"clarification {clarification_id} changed before the answer "
+                        "could be recorded"
+                    ),
+                )
             updated = repo.read_loop_clarification(
-                clarification_id=int(clarification["id"]),
+                clarification_id=clarification_id,
                 conn=conn,
             )
             if updated is None:
-                raise ClarificationNotFoundError(int(clarification["id"]))
+                raise ClarificationNotFoundError(clarification_id)
             answered_clarifications.append(updated)
             answered_questions.add(str(updated["question"]))
 
