@@ -18,6 +18,7 @@
  *
  * Invariants/Assumptions:
  *   - Backend workflow summaries are already ranked.
+ *   - When summary ranks are tied, warning-severity notifications outrank info-severity notifications.
  *   - Backend notification records are the canonical title/body/severity source.
  *   - Backend `whyNow`, `changedSinceLastSeen`, and `priorState` fields are canonical.
  *   - Display semantics on `summary.card` come from the backend display payload; this
@@ -57,21 +58,59 @@ export function notificationToneForSeverity(
   return "neutral";
 }
 
+const notificationSeverityRank: Record<ContinuityNotificationRecord["severity"], number> = {
+  info: 0,
+  warning: 1,
+  alert: 2,
+};
+
+type PrimaryRecommendationCandidate = {
+  summary: RankedWorkflowSummary;
+  notification: ContinuityNotificationRecord;
+  index: number;
+};
+
+function comparePrimaryRecommendationCandidates(
+  left: PrimaryRecommendationCandidate,
+  right: PrimaryRecommendationCandidate,
+): number {
+  if (left.summary.rank !== right.summary.rank) {
+    return right.summary.rank - left.summary.rank;
+  }
+
+  const severityDelta = (
+    notificationSeverityRank[right.notification.severity]
+    - notificationSeverityRank[left.notification.severity]
+  );
+  if (severityDelta !== 0) {
+    return severityDelta;
+  }
+
+  return left.index - right.index;
+}
+
 export function derivePrimaryRecommendation(
   summaries: readonly RankedWorkflowSummary[],
   notifications: readonly ContinuityNotificationRecord[] = readActiveContinuityNotificationRecords(),
 ): PrimaryRecommendation | null {
   const notificationById = new Map(notifications.map((notification) => [notification.id, notification]));
-  const summary = summaries.find((item) => notificationById.has(item.id)) ?? null;
-  if (!summary) {
+  const candidates: PrimaryRecommendationCandidate[] = [];
+
+  summaries.forEach((summary, index) => {
+    const notification = notificationById.get(summary.id);
+    if (!notification) {
+      return;
+    }
+    candidates.push({ summary, notification, index });
+  });
+
+  candidates.sort(comparePrimaryRecommendationCandidates);
+  const candidate = candidates[0] ?? null;
+  if (!candidate) {
     return null;
   }
 
-  const notification = notificationById.get(summary.id) ?? null;
-  if (!notification) {
-    return null;
-  }
-
+  const { summary, notification } = candidate;
   const card = continuitySurfaceCard(summary, {
     id: `primary-next-move-${summary.id}`,
     emphasis: "primary",

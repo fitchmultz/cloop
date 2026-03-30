@@ -8,7 +8,7 @@ A powerhouse tool should feel like it remembers what happened, what drifted, and
 
 Users can return to Cloop and immediately understand what changed, what is aging, and which workflows should resume next.
 
-Durable continuity persists planning sessions, saved review sessions, workflow threads, and review cohorts so drift-aware since-last cards and resume ranking survive browser and device changes. Browser-local visit baselines remain local-only. Durable continuity is the primary resume and drift substrate, operator home plus the command palette derive one deterministic next move from the same evidence, and stale continuity paths surface explicit replacement or fallback recovery actions instead of warning-only copy.
+Durable continuity persists planning sessions, saved review sessions, workflow threads, and review cohorts so drift-aware since-last cards and resume ranking survive browser and device changes. Browser-local visit baselines remain local-only. Durable continuity is the primary resume and drift substrate, operator home plus the command palette derive one deterministic next move from the same evidence, warning-severity continuity recommendations outrank info-severity recommendations when the other ranking signals tie, and stale continuity paths surface explicit replacement or fallback recovery actions instead of warning-only copy.
 
 ## User jobs
 
