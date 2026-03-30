@@ -805,5 +805,33 @@ describe("readRankedWorkflowSummaries", () => {
     const digest = buildPrimaryRecommendationDigestCard(recommendation!);
     expect(digest.title).toBe("Why this workflow became the top recommendation");
     expect(digest.summary).toBe(notification.body);
+    expect(digest.tone).toBe("neutral");
+  });
+
+  it("chooses the highest-ranked primary recommendation even when notification records are reordered", async () => {
+    const snapshot = continuitySnapshot();
+    const [currentPrimary, replacementPrimary] = snapshot.notification_records;
+    snapshot.notification_records = [
+      { ...replacementPrimary! },
+      { ...currentPrimary!, severity: "warning" },
+    ];
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(snapshot), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await hydrateDurableContinuityState();
+
+    const recommendation = derivePrimaryRecommendation(readRankedWorkflowSummaries());
+    expect(recommendation).not.toBeNull();
+    expect(recommendation!.summary.id).toBe("planning:41:checkpoint:0");
+    expect(recommendation!.notification.id).toBe("planning:41:checkpoint:0");
+    expect(recommendation!.notification.severity).toBe("warning");
+
+    const digest = buildPrimaryRecommendationDigestCard(recommendation!);
+    expect(digest.tone).toBe("caution");
   });
 });

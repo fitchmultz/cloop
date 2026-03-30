@@ -64,6 +64,7 @@ import { continuitySurfaceCard, readMergedRankedWorkflowSummaries } from "./cont
 import {
   buildPrimaryRecommendationDigestCard,
   derivePrimaryRecommendation,
+  notificationToneForSeverity,
 } from "./continuity-recommendations";
 import { requireApiRerunAction } from "./executable-rerun";
 import { buildPlanningRollbackAction } from "./executable-undo";
@@ -1922,11 +1923,7 @@ export function createShellOperatorCardRenderer(
             },
           },
         ];
-        const tone = notification.severity === "alert"
-          ? "attention"
-          : notification.severity === "warning"
-            ? "caution"
-            : "neutral";
+        const tone = notificationToneForSeverity(notification.severity);
         return [{
           priority: 127 - index * 2,
           card: continuitySurfaceCard(summary, {

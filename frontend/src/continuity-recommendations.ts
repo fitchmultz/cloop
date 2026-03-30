@@ -45,17 +45,30 @@ export interface PrimaryRecommendation {
   recovery: ContinuityRecoveryPlan | null;
 }
 
+export function notificationToneForSeverity(
+  severity: ContinuityNotificationRecord["severity"],
+): OperatorActionCard["tone"] {
+  if (severity === "alert") {
+    return "attention";
+  }
+  if (severity === "warning") {
+    return "caution";
+  }
+  return "neutral";
+}
+
 export function derivePrimaryRecommendation(
   summaries: readonly RankedWorkflowSummary[],
   notifications: readonly ContinuityNotificationRecord[] = readActiveContinuityNotificationRecords(),
 ): PrimaryRecommendation | null {
-  const notification = notifications[0] ?? null;
-  if (!notification) {
+  const notificationById = new Map(notifications.map((notification) => [notification.id, notification]));
+  const summary = summaries.find((item) => notificationById.has(item.id)) ?? null;
+  if (!summary) {
     return null;
   }
 
-  const summary = summaries.find((item) => item.id === notification.id) ?? null;
-  if (!summary) {
+  const notification = notificationById.get(summary.id) ?? null;
+  if (!notification) {
     return null;
   }
 
@@ -82,7 +95,7 @@ export function buildPrimaryRecommendationDigestCard(
   recommendation: PrimaryRecommendation,
 ): OperatorActionCard {
   const { notification, summary: s } = recommendation;
-  const tone = notification.severity === "alert" ? "attention" : "neutral";
+  const tone = notificationToneForSeverity(notification.severity);
 
   return continuitySurfaceCard(s, {
     id: `primary-next-move-digest-${s.id}`,
