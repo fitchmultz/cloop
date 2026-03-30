@@ -1,7 +1,7 @@
 /**
  * command-palette.test.ts - Command-palette continuity regression tests.
- * Purpose: verify palette notification controls and low-signal navigation behavior stay stable.
- * Responsibilities: cover notification state writes, durable reopen commands, and navigation commands that should not emit continuity receipts.
+ * Purpose: verify palette continuity controls, stale recent-action visibility, and low-signal navigation behavior stay stable.
+ * Responsibilities: cover notification state writes, durable reopen commands, disabled recent follow-through commands, and navigation commands that should not emit continuity receipts.
  * Scope: command-palette continuity behavior only.
  * Usage: run with `pnpm --dir frontend test`.
  * Invariants/Assumptions: commands read shared local continuity cache and local state updates land before background sync.
@@ -343,6 +343,155 @@ describe("command-palette notification commands", () => {
     };
     expect(stored.outcome?.undoAction?.disabledReason ?? null).toBeNull();
     expect(findCommandButton("Undo checkpoint: Launch prep")).toBeTruthy();
+  });
+
+  it("keeps stale recent undo and rerun commands visible but disabled", async () => {
+    buildPaletteDom();
+
+    recordRecentShellAction({
+      kind: "planning",
+      label: "Launch checkpoint updated",
+      description: "Undo the launch checkpoint.",
+      location: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+      outcome: {
+        card: {
+          id: "receipt-planning-undo-disabled",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Planning receipt",
+          title: "Launch checkpoint updated",
+          summary: "Undo is no longer safe.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Planning session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Resume the planning session instead.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+        rollbackLabel: "Resume the planning session instead.",
+        undoAction: {
+          type: "undo",
+          label: "Undo checkpoint",
+          variant: "secondary",
+          description: "Undo the launch checkpoint.",
+          disabledReason: "This checkpoint can no longer be undone.",
+          undo: {
+            kind: "planning_run",
+            sessionId: 12,
+            runId: 45,
+            checkpointIndex: 0,
+            checkpointTitle: "Launch prep",
+            actionCount: 1,
+            bestEffort: false,
+          },
+          requiresConfirmation: false,
+          confirmTitle: null,
+          confirmDescription: null,
+          successLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+        },
+        workflowThread: {
+          id: "planning:12:disabled",
+          kind: "planning_checkpoint",
+          title: "Launch prep",
+          summary: "Checkpoint updated",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+          resolvedLocation: location({ state: "plan", reviewFocus: "planning", sessionId: 12 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+    recordRecentShellAction({
+      kind: "review",
+      label: "Duplicate queue refreshed",
+      description: "Refresh the duplicate review queue.",
+      location: location({ state: "decide", reviewFocus: "relationship", sessionId: 18 }),
+      outcome: {
+        card: {
+          id: "receipt-review-rerun-disabled",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Review receipt",
+          title: "Duplicate queue refreshed",
+          summary: "Refresh is no longer safe.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Saved review session"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Resume the review queue instead.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 18 }),
+        rollbackLabel: "Resume the review queue instead.",
+        undoAction: null,
+        rerunAction: {
+          type: "rerun",
+          label: "Refresh duplicate review",
+          variant: "secondary",
+          description: "Refresh the duplicate review queue against current loop state.",
+          disabledReason: "This saved review session moved.",
+          rerun: {
+            kind: "review_session",
+            reviewFocus: "relationship",
+            sessionId: 18,
+            sessionName: "Duplicate queue",
+          },
+          contract: {
+            mode: "refresh",
+            provenanceLabel: "Saved review session: Duplicate queue",
+            freshnessLabel: "Queue moved",
+            strategySummary: "Reuse the saved review session and refresh it against current loop state.",
+            strictInvariants: ["Same saved review session identity"],
+            mayVary: ["Queue contents"],
+            postRun: {
+              summary: "Land back in the saved review session.",
+              location: location({ state: "decide", reviewFocus: "relationship", sessionId: 18 }),
+            },
+          },
+        },
+        workflowThread: {
+          id: "review:18:disabled",
+          kind: "review_session",
+          title: "Duplicate queue",
+          summary: "Review the current relationship candidates.",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 18 }),
+          resolvedLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 18 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+
+    const controller = createController();
+    controller.open();
+    await settle();
+
+    const disabledUndo = findCommandButton("Undo checkpoint: Launch prep");
+    expect(disabledUndo.getAttribute("aria-disabled")).toBe("true");
+    expect(disabledUndo.textContent).toContain("Unavailable");
+
+    const disabledRerun = findCommandButton("Refresh duplicate review: Duplicate queue");
+    expect(disabledRerun.getAttribute("aria-disabled")).toBe("true");
+    expect(disabledRerun.textContent).toContain("Unavailable");
   });
 
   it("persists acknowledge and suppress notification controls through shared state writes", async () => {

@@ -2311,6 +2311,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       const commands: CommandPaletteCommand[] = [];
       const rerunAction = item.rerunAction;
       const undoAction = item.undoAction;
+      const rerunDisabledReason = rerunAction?.disabledReason?.trim() ?? null;
+      const undoDisabledReason = undoAction?.disabledReason?.trim() ?? null;
       const workingSetName = item.workingSetName ?? item.card.handoff?.workingSet?.workingSetName ?? activeWorkingSetName ?? "";
 
       if (item.recovery && !item.recovery.acknowledged) {
@@ -2333,12 +2335,12 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         return commands;
       }
 
-      if (rerunAction && !rerunAction.disabledReason) {
+      if (rerunAction) {
         commands.push({
           id: `recent-rerun-${item.id}`,
           group: "recent",
           title: `${rerunAction.label}: ${item.workflowThread.title}`,
-          subtitle: rerunAction.description,
+          subtitle: rerunDisabledReason ?? rerunAction.description,
           keywords: [
             rerunAction.label,
             "rerun",
@@ -2360,11 +2362,19 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             degraded: item.rankingSignals.degraded,
             recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
           },
+          disabled: Boolean(rerunDisabledReason),
           detail: {
-            eyebrow: rerunAction.contract.mode === "refresh" ? "Recent refresh" : "Recent rerun",
-            description: rerunAction.description,
+            eyebrow: rerunDisabledReason
+              ? "Recent rerun unavailable"
+              : rerunAction.contract.mode === "refresh"
+                ? "Recent refresh"
+                : "Recent rerun",
+            description: rerunDisabledReason ?? rerunAction.description,
             meta: [
               `Thread: ${item.workflowThread.title}`,
+              workingSetName ? `Working set: ${workingSetName}` : null,
+              `Recorded ${formatRelativeTime(item.occurredAt)}`,
+              rerunDisabledReason ? `Unavailable: ${rerunDisabledReason}` : null,
               `Strict: ${rerunAction.contract.strictInvariants.join(" · ")}`,
               `May vary: ${rerunAction.contract.mayVary.join(" · ")}`,
               rerunAction.contract.freshnessLabel,
@@ -2401,12 +2411,12 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         } satisfies CommandPaletteCommand);
       }
 
-      if (undoAction && !undoAction.disabledReason) {
+      if (undoAction) {
         commands.push({
           id: `recent-undo-${item.id}`,
           group: "recent",
           title: `${undoAction.label}: ${item.workflowThread.title}`,
-          subtitle: undoAction.description,
+          subtitle: undoDisabledReason ?? undoAction.description,
           keywords: [
             "undo",
             "rollback",
@@ -2427,13 +2437,19 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             degraded: item.rankingSignals.degraded,
             recencyTieBreaker: item.rankingSignals.recencyTieBreaker,
           },
+          disabled: Boolean(undoDisabledReason),
           detail: {
-            eyebrow: undoAction.undo.kind === "planning_run" ? "Recent rollback" : "Recent undo",
-            description: undoAction.description,
+            eyebrow: undoDisabledReason
+              ? "Recent undo unavailable"
+              : undoAction.undo.kind === "planning_run"
+                ? "Recent rollback"
+                : "Recent undo",
+            description: undoDisabledReason ?? undoAction.description,
             meta: [
               `Thread: ${item.workflowThread.title}`,
               workingSetName ? `Working set: ${workingSetName}` : null,
               `Recorded ${formatRelativeTime(item.occurredAt)}`,
+              undoDisabledReason ? `Unavailable: ${undoDisabledReason}` : null,
               item.degradedLabel,
             ].filter((value): value is string => Boolean(value)),
           },
@@ -2503,10 +2519,14 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             `Thread: ${item.workflowThread.title}`,
             workingSetName ? `Working set: ${workingSetName}` : null,
             `Recorded ${formatRelativeTime(item.occurredAt)}`,
-            rerunAction && !rerunAction.disabledReason
-              ? `${rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun"} available`
-              : undoAction && !undoAction.disabledReason
-                ? "Undo available"
+            rerunAction
+              ? rerunDisabledReason
+                ? `${rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun"} unavailable: ${rerunDisabledReason}`
+                : `${rerunAction.contract.mode === "refresh" ? "Refresh" : "Rerun"} available`
+              : undoAction
+                ? undoDisabledReason
+                  ? `Undo unavailable: ${undoDisabledReason}`
+                  : "Undo available"
                 : "Resume only",
           ].filter((value): value is string => Boolean(value)),
           recovery: item.recovery ?? undefined,

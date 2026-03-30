@@ -315,5 +315,4 @@ The command palette should reuse the same executable undo handles already attach
 ## Open questions
 
 - Should planning rollback be presented as "Undo" when it is complete and as "Rollback" when it is best-effort, or should one label be used consistently?
-- Should stale undo handles remain visible but disabled for auditability, or disappear once unsafe?
 - For multi-resource outcomes, should the user get one top-level rollback action or an intermediate confirmation view listing the exact rollback operations that will run?
