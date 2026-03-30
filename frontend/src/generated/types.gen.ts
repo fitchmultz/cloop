@@ -806,6 +806,26 @@ export type ClarificationUndoResponse = {
 };
 
 /**
+ * ContinuityClarificationAnswerUndoHandle
+ *
+ * Exact handle for undoing one answer-only clarification submission.
+ */
+export type ContinuityClarificationAnswerUndoHandle = {
+    /**
+     * Clarification Ids
+     */
+    clarification_ids?: Array<number>;
+    /**
+     * Kind
+     */
+    kind?: 'clarification_answer';
+    /**
+     * Loop Id
+     */
+    loop_id: number;
+};
+
+/**
  * ContinuityDeliveryDecisionResponse
  *
  * One inspected continuity delivery decision with canonical reason.
@@ -1943,7 +1963,7 @@ export type ContinuityUndoActionInput = {
     /**
      * Undo
      */
-    undo: ContinuityLoopEventUndoHandle | ContinuityPlanningRunUndoHandle | ContinuityWorkingSetEventUndoHandle | ContinuityRelationshipDecisionUndoHandleInput;
+    undo: ContinuityLoopEventUndoHandle | ContinuityPlanningRunUndoHandle | ContinuityWorkingSetEventUndoHandle | ContinuityRelationshipDecisionUndoHandleInput | ContinuityClarificationAnswerUndoHandle;
 };
 
 /**
@@ -1976,7 +1996,7 @@ export type ContinuityUndoActionOutput = {
     /**
      * Undo
      */
-    undo: ContinuityLoopEventUndoHandle | ContinuityPlanningRunUndoHandle | ContinuityWorkingSetEventUndoHandle | ContinuityRelationshipDecisionUndoHandleOutput;
+    undo: ContinuityLoopEventUndoHandle | ContinuityPlanningRunUndoHandle | ContinuityWorkingSetEventUndoHandle | ContinuityRelationshipDecisionUndoHandleOutput | ContinuityClarificationAnswerUndoHandle;
 };
 
 /**

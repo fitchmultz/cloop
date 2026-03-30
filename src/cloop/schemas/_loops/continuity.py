@@ -206,11 +206,20 @@ class ContinuityRelationshipDecisionUndoHandle(BaseModel):
     )
 
 
+class ContinuityClarificationAnswerUndoHandle(BaseModel):
+    """Exact handle for undoing one answer-only clarification submission."""
+
+    kind: Literal["clarification_answer"] = "clarification_answer"
+    loop_id: int
+    clarification_ids: list[int] = Field(default_factory=list, min_length=1)
+
+
 ContinuityExecutableUndoHandle = (
     ContinuityLoopEventUndoHandle
     | ContinuityPlanningRunUndoHandle
     | ContinuityWorkingSetEventUndoHandle
     | ContinuityRelationshipDecisionUndoHandle
+    | ContinuityClarificationAnswerUndoHandle
 )
 
 
@@ -595,6 +604,7 @@ __all__ = [
     "ContinuityDeliveryInspectionContinuationResponse",
     "ContinuityDeliveryInspectionResponse",
     "ContinuityDeliveryReason",
+    "ContinuityClarificationAnswerUndoHandle",
     "ContinuityExecutableRerunHandle",
     "ContinuityExecutableUndoHandle",
     "ContinuityLoopEventUndoHandle",

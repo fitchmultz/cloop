@@ -11,6 +11,7 @@ import pytest
 
 from cloop import db
 from cloop.loops import enrichment_review, repo, review_workflows, service, working_sets
+from cloop.loops.errors import ValidationError
 from cloop.loops.models import LoopStatus
 from cloop.settings import Settings, get_settings
 
@@ -575,6 +576,65 @@ def test_enrichment_review_session_action_emits_complete_follow_through_contract
         assert updated_loop.title is None
     assert after["snapshot"]["loop_count"] == 0
     assert after["snapshot"]["session"]["current_loop_id"] is None
+
+
+def test_create_enrichment_review_action_rejects_empty_apply_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        with pytest.raises(ValidationError, match="at least one suggestion field must be selected"):
+            review_workflows.create_enrichment_review_action(
+                name="empty-apply",
+                action_type="apply",
+                fields=[],
+                description="Invalid empty apply action",
+                conn=conn,
+            )
+
+
+def test_enrichment_review_session_action_rejects_empty_apply_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        loop_record = _capture_loop("Plan launch retrospective", status=LoopStatus.INBOX, conn=conn)
+        suggestion_id = repo.insert_loop_suggestion(
+            loop_id=loop_record["id"],
+            suggestion_json={
+                "title": "Plan launch retrospective",
+                "confidence": {"title": 0.99},
+            },
+            model="test-model",
+            conn=conn,
+        )
+        conn.commit()
+
+        snapshot = review_workflows.create_enrichment_review_session(
+            name="pending-suggestions",
+            query="status:open",
+            pending_kind="suggestions",
+            suggestion_limit=3,
+            clarification_limit=3,
+            item_limit=25,
+            current_loop_id=loop_record["id"],
+            conn=conn,
+        )
+
+        with pytest.raises(ValidationError, match="at least one suggestion field must be selected"):
+            review_workflows.execute_enrichment_review_session_action(
+                session_id=snapshot["session"]["id"],
+                suggestion_id=suggestion_id,
+                action_preset_id=None,
+                action_type="apply",
+                fields=[],
+                conn=conn,
+                settings=settings,
+            )
 
 
 def test_enrichment_review_session_answers_clarifications_reruns_and_reenters_same_loop(

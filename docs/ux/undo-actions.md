@@ -156,6 +156,18 @@ Executable undo should appear in the same follow-through surfaces that already s
 
 The interaction model should stay consistent across surfaces: the same outcome should not be undoable in one place, rerunnable in another, and text-only somewhere else.
 
+## Review undo parity matrix
+
+| Outcome | Tier / handle | Transports | Receipt / recent / palette | Stale behavior |
+| --- | --- | --- | --- | --- |
+| Relationship confirm / dismiss | Reversible · `relationship_decision` | HTTP, web, CLI, MCP | Receipt cards, recent history, and command palette all reuse the same saved review follow-through handle. | Exact pair-state validation disables undo with the backend-provided stale reason if the relationship pair moved. |
+| Enrichment apply | Reversible · `loop_event` | HTTP, web, CLI, MCP | Receipt cards, recent history, and command palette all reuse the shared loop-event undo handle emitted by the applied outcome. | Loop-event freshness validation disables undo with the specific drift or not-found reason when newer loop work landed. |
+| Enrichment reject | Irreversible · — | HTTP, web, CLI, MCP | Receipt cards, recent history, and command palette show the generic irreversible rollback label only; no executable undo action is emitted. | Not applicable because no safe inverse exists. |
+| Clarification answer-only | Reversible with stale guard · `clarification_answer` | HTTP, web, CLI, MCP | Direct browser submissions, durable receipts, recent history, and command palette all reuse the same clarification-answer undo handle. | Undo is rejected with the specific stale-state reason when a later pending suggestion references the same question text. |
+| Clarification answer + rerun | Irreversible · — | HTTP, web, CLI, MCP | Review follow-through renders receipt metadata and recent history, but no receipt, recent-history, or command-palette undo control is exposed. | Not applicable because rerun refinement remains intentionally irreversible. |
+| Working-set mutation | Reversible · `working_set_event` | HTTP, web, CLI, MCP | Receipt cards, recent history, and command palette all reuse the exact working-set event handle. | Exact event freshness validation disables undo with the backend-provided drift reason if later working-set changes landed. |
+| Planning checkpoint | Reversible / best-effort rollback · `planning_run` | HTTP, web, CLI, MCP | Receipt cards, recent history, and command palette all reuse the backend-authored rollback handle and confirmation copy. | Only the latest active run can roll back; stale or superseded runs disable rollback with the backend-provided reason. |
+
 ## Surface-specific behavior
 
 ### Planning execution
@@ -289,6 +301,7 @@ The command palette should reuse the same executable undo handles already attach
 - Reopens suggestions that were superseded by those answers
 - **Stale-state guard**: if any pending suggestion now references the same question text, undo is rejected — the answer is irreversible because undoing would invalidate the new suggestion's context
 - HTTP: `POST /loops/{loop_id}/clarifications/undo`
+- Web: direct loop suggestion surface answer-only receipts reuse the same HTTP contract
 - MCP: `clarification.undo`
 - CLI: `cloop clarification undo --loop-id ID --clarification-id CID ...`
 

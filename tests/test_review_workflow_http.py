@@ -253,6 +253,77 @@ def test_review_session_move_endpoints(
     assert enrichment_refresh.json()["session"]["id"] == enrichment_session_id
 
 
+def test_enrichment_review_action_endpoint_rejects_empty_apply_fields(
+    make_test_client,
+) -> None:
+    client = make_test_client()
+
+    response = client.post(
+        "/loops/review/enrichment/actions",
+        json={
+            "name": "empty-apply",
+            "action_type": "apply",
+            "fields": [],
+            "description": "Should fail",
+        },
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"]["details"]["field"] == "fields"
+    assert "at least one suggestion field must be selected" in payload["error"]["message"]
+
+
+def test_enrichment_review_session_action_endpoint_rejects_empty_apply_fields(
+    make_test_client,
+) -> None:
+    client = make_test_client()
+
+    suggestion_loop_id = _capture(client, "Plan launch retrospective meeting")
+
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        suggestion_id = repo.insert_loop_suggestion(
+            loop_id=suggestion_loop_id,
+            suggestion_json={
+                "title": "Plan launch retrospective meeting",
+                "confidence": {"title": 0.99},
+            },
+            model="test-model",
+            conn=conn,
+        )
+        conn.commit()
+
+    session_response = client.post(
+        "/loops/review/enrichment/sessions",
+        json={
+            "name": "follow-up-pass",
+            "query": "status:open",
+            "pending_kind": "suggestions",
+            "suggestion_limit": 3,
+            "clarification_limit": 3,
+            "item_limit": 25,
+            "current_loop_id": suggestion_loop_id,
+        },
+    )
+    assert session_response.status_code == 201
+    session_id = session_response.json()["session"]["id"]
+
+    apply_response = client.post(
+        f"/loops/review/enrichment/sessions/{session_id}/action",
+        json={
+            "suggestion_id": suggestion_id,
+            "action_type": "apply",
+            "fields": [],
+        },
+    )
+
+    assert apply_response.status_code == 400
+    payload = apply_response.json()
+    assert payload["error"]["details"]["field"] == "fields"
+    assert "at least one suggestion field must be selected" in payload["error"]["message"]
+
+
 def test_enrichment_review_workflow_endpoints(
     make_test_client,
     monkeypatch: pytest.MonkeyPatch,

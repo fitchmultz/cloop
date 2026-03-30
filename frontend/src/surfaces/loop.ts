@@ -28,6 +28,7 @@ import { createLocation } from "../shell-routing";
 import * as api from "./api";
 import * as next from "./next";
 import * as render from "./render";
+import * as suggestions from "./suggestions";
 import * as timer from "./timer";
 import type { QueryMode, SurfaceLoop } from "./contracts";
 import {
@@ -161,6 +162,12 @@ function queueNextRefresh(): void {
   });
 }
 
+function renderInboxLoopCard(loop: SurfaceLoop): HTMLElement {
+  const card = render.renderLoop(loop);
+  suggestions.renderSuggestionPanel(card, loop);
+  return card;
+}
+
 function syncInboxLoop(loop: SurfaceLoop): void {
   if (!inbox) {
     return;
@@ -178,7 +185,7 @@ function syncInboxLoop(loop: SurfaceLoop): void {
     return;
   }
 
-  const rendered = render.renderLoop(loop);
+  const rendered = renderInboxLoopCard(loop);
   if (existingInbox) {
     existingInbox.replaceWith(rendered);
   } else {
@@ -270,7 +277,7 @@ export async function loadInbox(): Promise<void> {
       return;
     }
 
-    data.forEach((loopItem) => inboxEl.appendChild(render.renderLoop(loopItem)));
+    data.forEach((loopItem) => inboxEl.appendChild(renderInboxLoopCard(loopItem)));
     render.queueNextActionResize(inboxEl);
   } catch (error: unknown) {
     statusEl.textContent = messageFromError(error, "Failed to load inbox.");

@@ -422,6 +422,29 @@ function normalizeContinuityCardDisplay(value: unknown): ContinuityCardDisplay |
   };
 }
 
+function normalizePositiveIntegerIds(values: readonly number[]): number[] {
+  return Array.from(new Set(values.filter((value) => Number.isInteger(value) && value > 0))).sort((left, right) => left - right);
+}
+
+function isRelationshipDecisionStateValue(value: unknown): value is "active" | "dismissed" | "resolved" {
+  return value === "active" || value === "dismissed" || value === "resolved";
+}
+
+function pairStatePayloadIsValid(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  for (const candidate of [value["duplicate"], value["related"]]) {
+    if (candidate == null) {
+      continue;
+    }
+    if (!isRecord(candidate) || !isRelationshipDecisionStateValue(candidate["state"])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function parseUndoHandle(value: unknown): ExecutableUndoHandle | null {
   if (!isRecord(value) || typeof value["kind"] !== "string") {
     return null;
@@ -472,18 +495,44 @@ function parseUndoHandle(value: unknown): ExecutableUndoHandle | null {
       workingSetName: stringValue(value["workingSetName"]),
     };
   }
+  if (value["kind"] === "clarification_answer") {
+    const loopId = integerValue(value["loopId"]);
+    const clarificationIds = normalizePositiveIntegerIds(
+      Array.isArray(value["clarificationIds"])
+        ? value["clarificationIds"]
+          .map((clarificationId) => integerValue(clarificationId))
+          .filter((clarificationId): clarificationId is number => clarificationId != null && clarificationId > 0)
+        : [],
+    );
+    if (loopId == null || clarificationIds.length === 0) {
+      return null;
+    }
+    return {
+      kind: "clarification_answer",
+      loopId,
+      clarificationIds,
+    };
+  }
   if (value["kind"] === "relationship_decision") {
     const sessionId = integerValue(value["sessionId"]);
     const loopId = integerValue(value["loopId"]);
     const candidateLoopId = integerValue(value["candidateLoopId"]);
     const expectedPairState = isRecord(value["expectedPairState"]) ? value["expectedPairState"] : null;
     const restorePairState = isRecord(value["restorePairState"]) ? value["restorePairState"] : null;
-    if (sessionId == null || loopId == null || candidateLoopId == null || !expectedPairState || !restorePairState) {
+    if (
+      sessionId == null
+      || loopId == null
+      || candidateLoopId == null
+      || !expectedPairState
+      || !restorePairState
+      || !pairStatePayloadIsValid(expectedPairState)
+      || !pairStatePayloadIsValid(restorePairState)
+    ) {
       return null;
     }
-    const parseState = (raw: unknown) => isRecord(raw) && typeof raw["state"] === "string"
+    const parseState = (raw: unknown) => isRecord(raw) && isRelationshipDecisionStateValue(raw["state"])
       ? {
-          state: raw["state"] as "active" | "dismissed" | "resolved",
+          state: raw["state"],
           confidence: typeof raw["confidence"] === "number" ? raw["confidence"] : null,
           source: stringValue(raw["source"]),
         }
@@ -1230,6 +1279,21 @@ function mapUndoActionToApi(action: OperatorActionCardUndoAction | null | undefi
               }
             : null,
         },
+      },
+      requires_confirmation: action.requiresConfirmation ?? false,
+      confirm_title: action.confirmTitle ?? null,
+      confirm_description: action.confirmDescription ?? null,
+      success_location: mapLocationToApi(action.successLocation ?? null),
+    };
+  }
+  if (action.undo.kind === "clarification_answer") {
+    return {
+      label: action.label,
+      description: action.description,
+      undo: {
+        kind: "clarification_answer" as const,
+        loop_id: action.undo.loopId,
+        clarification_ids: normalizePositiveIntegerIds(action.undo.clarificationIds),
       },
       requires_confirmation: action.requiresConfirmation ?? false,
       confirm_title: action.confirmTitle ?? null,

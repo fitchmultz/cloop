@@ -21,6 +21,7 @@
  */
 
 import type {
+  ClarificationAnswerUndoHandle,
   ExecutableRerunHandle,
   OperatorActionCardRerunAction,
   OperatorActionCardUndoAction,
@@ -87,6 +88,58 @@ function parseDatasetJson<T>(raw: string | undefined): T | null {
   } catch {
     return null;
   }
+}
+
+function isClarificationAnswerUndoHandle(value: unknown): value is ClarificationAnswerUndoHandle {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const handle = value as Partial<ClarificationAnswerUndoHandle>;
+  return handle.kind === "clarification_answer"
+    && Number.isInteger(handle.loopId)
+    && Number(handle.loopId) > 0
+    && Array.isArray(handle.clarificationIds)
+    && handle.clarificationIds.length > 0
+    && handle.clarificationIds.every((clarificationId) => Number.isInteger(clarificationId) && clarificationId > 0);
+}
+
+function isRelationshipDecisionStateValue(value: unknown): value is "active" | "dismissed" | "resolved" {
+  return value === "active" || value === "dismissed" || value === "resolved";
+}
+
+function isRelationshipDecisionStateShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const state = value as Record<string, unknown>;
+  return isRelationshipDecisionStateValue(state["state"])
+    && (state["confidence"] == null || typeof state["confidence"] === "number")
+    && (state["source"] == null || typeof state["source"] === "string");
+}
+
+function isRelationshipDecisionPairStateShape(value: unknown): boolean {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const pair = value as Partial<RelationshipDecisionUndoHandle["expectedPairState"]>;
+  return (pair.duplicate == null || isRelationshipDecisionStateShape(pair.duplicate))
+    && (pair.related == null || isRelationshipDecisionStateShape(pair.related));
+}
+
+function isRelationshipDecisionUndoHandle(value: unknown): value is RelationshipDecisionUndoHandle {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const handle = value as Partial<RelationshipDecisionUndoHandle>;
+  return handle.kind === "relationship_decision"
+    && Number.isInteger(handle.sessionId)
+    && Number(handle.sessionId) > 0
+    && Number.isInteger(handle.loopId)
+    && Number(handle.loopId) > 0
+    && Number.isInteger(handle.candidateLoopId)
+    && Number(handle.candidateLoopId) > 0
+    && isRelationshipDecisionPairStateShape(handle.expectedPairState)
+    && isRelationshipDecisionPairStateShape(handle.restorePairState);
 }
 
 function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndoAction | null {
@@ -183,12 +236,32 @@ function undoActionFromButton(button: HTMLButtonElement): OperatorActionCardUndo
   }
   if (kind === "relationship_decision") {
     const undo = parseDatasetJson<RelationshipDecisionUndoHandle>(button.dataset["undoHandle"]);
-    if (!undo || undo.kind !== "relationship_decision") {
+    if (!isRelationshipDecisionUndoHandle(undo)) {
       return null;
     }
     return {
       type: "undo",
       label: button.textContent?.trim() || "Undo decision",
+      variant: button.classList.contains("secondary") ? "secondary" : "primary",
+      description,
+      undo,
+      confirmTitle: button.dataset["undoConfirmTitle"]?.trim() || null,
+      confirmDescription: button.dataset["undoConfirmDescription"]?.trim() || null,
+      requiresConfirmation: button.dataset["undoRequiresConfirmation"] === "true",
+      successLocation: button.hasAttribute("data-undo-success-state")
+        ? locationFromButton(button, "undoSuccess")
+        : null,
+      disabledReason: button.disabled ? button.title || "Undo is unavailable." : null,
+    };
+  }
+  if (kind === "clarification_answer") {
+    const undo = parseDatasetJson<ClarificationAnswerUndoHandle>(button.dataset["undoHandle"]);
+    if (!isClarificationAnswerUndoHandle(undo)) {
+      return null;
+    }
+    return {
+      type: "undo",
+      label: button.textContent?.trim() || "Undo answers",
       variant: button.classList.contains("secondary") ? "secondary" : "primary",
       description,
       undo,

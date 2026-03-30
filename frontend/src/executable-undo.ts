@@ -30,6 +30,7 @@ import type {
   WorkingSetEventUndoHandle,
 } from "./contracts-ui";
 import type {
+  ClarificationUndoResponse,
   LoopResponse,
   LoopUndoResponse,
   PlanningExecutionHistoryItemResponse,
@@ -67,6 +68,14 @@ function isHttpRequestError(error: unknown): error is HttpRequestError {
     );
 }
 
+function normalizeClarificationIds(clarificationIds: readonly number[]): number[] {
+  return Array.from(new Set(
+    clarificationIds
+      .filter((clarificationId) => Number.isInteger(clarificationId) && clarificationId > 0)
+      .map((clarificationId) => Number(clarificationId)),
+  )).sort((left, right) => left - right);
+}
+
 export function undoHandleIdentity(handle: ExecutableUndoHandle): string {
   if (handle.kind === "loop_event") {
     return `loop:${handle.loopId}:event:${handle.expectedEventId}`;
@@ -76,6 +85,9 @@ export function undoHandleIdentity(handle: ExecutableUndoHandle): string {
   }
   if (handle.kind === "relationship_decision") {
     return `review:relationship:${handle.sessionId}:${handle.loopId}:${handle.candidateLoopId}`;
+  }
+  if (handle.kind === "clarification_answer") {
+    return `clarification:${handle.loopId}:${normalizeClarificationIds(handle.clarificationIds).join(",")}`;
   }
   return `working-set:event:${handle.expectedEventId}`;
 }
@@ -208,6 +220,31 @@ export function buildWorkingSetUndoAction(
     undo,
     successLocation: options.successLocation
       ?? (undo.workingSetId != null ? workingSetResumeLocation(undo.workingSetId) : operatorResumeLocation()),
+  };
+}
+
+export function buildClarificationUndoAction(
+  loopId: number,
+  clarificationIds: readonly number[],
+): OperatorActionCardUndoAction | null {
+  const normalizedClarificationIds = normalizeClarificationIds(clarificationIds);
+  if (!Number.isInteger(loopId) || loopId <= 0 || normalizedClarificationIds.length === 0) {
+    return null;
+  }
+  const clarificationCount = normalizedClarificationIds.length;
+  return {
+    type: "undo",
+    label: clarificationCount === 1 ? "Undo answer" : "Undo answers",
+    variant: "secondary",
+    description: clarificationCount === 1
+      ? "Restore this clarification to its unanswered state."
+      : `Restore these ${clarificationCount} clarifications to their unanswered state.`,
+    undo: {
+      kind: "clarification_answer",
+      loopId,
+      clarificationIds: normalizedClarificationIds,
+    },
+    successLocation: loopResumeLocation({ id: loopId }),
   };
 }
 
@@ -534,6 +571,96 @@ function buildRelationshipDecisionUndoReceipt(
   });
 }
 
+function buildClarificationUndoReceipt(response: ClarificationUndoResponse): ExecutedUndoResult {
+  const resumeLocation = loopResumeLocation({ id: response.loop_id });
+  const restoredCount = response.restored_count;
+  const reopenedCount = response.reopened_suggestion_ids?.length ?? 0;
+  const summary = response.message?.trim()
+    || (restoredCount === 1
+      ? "Restored the clarification to its unanswered state."
+      : `Restored ${restoredCount} clarifications to their unanswered state.`);
+  const title = restoredCount === 1
+    ? `Restored clarification on Loop #${response.loop_id}`
+    : `Restored clarifications on Loop #${response.loop_id}`;
+  const card = createReceiptCard({
+    id: `undo-clarification-${response.loop_id}-${(response.restored_clarification_ids ?? []).join("-") || Date.now()}`,
+    eyebrow: "Undo receipt",
+    title,
+    summary,
+    rationale:
+      "Clarification undo receipts keep answer-only review work reversible without hiding which questions and suggestions were restored.",
+    tone: "progress",
+    preview: [
+      { label: "Loop", value: `Loop #${response.loop_id}` },
+      { label: "Restored clarifications", value: String(restoredCount) },
+      { label: "Reopened suggestions", value: String(reopenedCount) },
+    ],
+    trust: {
+      generationLabel: "Executed clarification undo",
+      generationTone: "progress",
+      contextSources: [`Loop #${response.loop_id}`, "Exact clarification-answer handle"],
+      assumptions: ["The loop remains available so you can review the restored unanswered clarification state."],
+      confidenceLabel: restoredCount === 1 ? "Clarification restored" : "Clarifications restored",
+      confidenceTone: "progress",
+      freshnessLabel: "Saved just now",
+      freshnessTone: "progress",
+      rollbackLabel: "Undo is no longer available for this restored answer-only clarification state.",
+      rollbackTone: "neutral",
+      impactSummary: reopenedCount > 0
+        ? `Reopened ${reopenedCount} superseded suggestion${reopenedCount === 1 ? "" : "s"} for review.`
+        : "The restored clarifications can be answered again before rerunning enrichment.",
+      impactTone: reopenedCount > 0 ? "attention" : "progress",
+    },
+    handoff: {
+      changeSummary: summary,
+      createdResources: [
+        restoredCount === 1 ? "1 restored clarification" : `${restoredCount} restored clarifications`,
+        ...(reopenedCount > 0
+          ? [reopenedCount === 1 ? "1 reopened suggestion" : `${reopenedCount} reopened suggestions`]
+          : []),
+      ],
+      nextStep: reopenedCount > 0
+        ? "Open the loop to review the reopened suggestions and restored questions together."
+        : "Open the loop and answer the restored clarification again when you are ready.",
+      breadcrumbs: ["Home", "Undo", `Loop #${response.loop_id}`],
+    },
+    resumeLocation,
+    resumeLabel: "Open loop",
+    resumeDescription: summary,
+    pinLabel: `Loop · #${response.loop_id}`,
+  });
+
+  return {
+    card,
+    resumeLocation,
+    entry: withReceiptOutcome(
+      {
+        kind: "review",
+        label: title,
+        description: summary,
+        location: resumeLocation,
+        metadata: {
+          source: "undo",
+          loopId: response.loop_id,
+          restoredClarificationIds: response.restored_clarification_ids ?? [],
+          reopenedSuggestionIds: response.reopened_suggestion_ids ?? [],
+        },
+      },
+      card,
+      resumeLocation,
+      {
+        workflowThread: {
+          id: `clarification-answer:loop:${response.loop_id}`,
+          kind: "ad_hoc",
+          title,
+          summary,
+          parentOutcomeId: null,
+        },
+      },
+    ),
+  };
+}
+
 export async function executeUndoAction(action: OperatorActionCardUndoAction): Promise<ExecutedUndoResult> {
   if (action.undo.kind === "loop_event") {
     const response = await requestJson<LoopUndoResponse, { expected_event_id: number; claim_token?: string | null }>(
@@ -614,6 +741,18 @@ export async function executeUndoAction(action: OperatorActionCardUndoAction): P
     return buildRelationshipDecisionUndoReceipt(response);
   }
 
+  if (action.undo.kind === "clarification_answer") {
+    const response = await requestJson<ClarificationUndoResponse, { clarification_ids: number[] }>(
+      `/loops/${action.undo.loopId}/clarifications/undo`,
+      {
+        method: "POST",
+        body: { clarification_ids: action.undo.clarificationIds },
+      },
+      "Failed to undo clarification answers",
+    );
+    return buildClarificationUndoReceipt(response);
+  }
+
   const response = await requestJson<PlanningSessionRollbackResponse, { run_id: number }>(
     `/loops/planning/sessions/${action.undo.sessionId}/rollback`,
     {
@@ -629,7 +768,7 @@ const MALFORMED_UNDO_CONFIRMATION_MESSAGE = "Undo action requires backend confir
 
 export function undoUnavailableReason(error: unknown): string | null {
   if (isHttpRequestError(error)) {
-    if (error.status === 400 || error.status === 404 || error.status === 409) {
+    if (error.status === 400 || error.status === 404 || error.status === 409 || error.status === 422) {
       return error.message;
     }
     return null;

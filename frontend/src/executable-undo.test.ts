@@ -22,7 +22,14 @@
 
 import { requestJson } from "./http";
 import type { PlanningExecutionHistoryItemResponse, PlanningSessionRollbackResponse } from "./domain";
-import { buildPlanningRollbackAction, executeUndoAction, undoConfirmationDialog, undoUnavailableReason } from "./executable-undo";
+import {
+  buildClarificationUndoAction,
+  buildPlanningRollbackAction,
+  executeUndoAction,
+  undoConfirmationDialog,
+  undoHandleIdentity,
+  undoUnavailableReason,
+} from "./executable-undo";
 import { createLocation } from "./shell-routing";
 import { vi } from "vitest";
 
@@ -153,6 +160,24 @@ describe("executable-undo", () => {
     ).toThrow("Undo action requires backend confirmation title and description.");
   });
 
+  it("builds normalized clarification-answer undo handles", () => {
+    const action = buildClarificationUndoAction(19, [11, 7, 11]);
+
+    expect(action).toMatchObject({
+      type: "undo",
+      label: "Undo answers",
+      description: "Restore these 2 clarifications to their unanswered state.",
+      undo: {
+        kind: "clarification_answer",
+        loopId: 19,
+        clarificationIds: [7, 11],
+      },
+      successLocation: createLocation({ state: "do", loopId: 19 }),
+    });
+    expect(action && undoHandleIdentity(action.undo)).toBe("clarification:19:7,11");
+    expect(buildClarificationUndoAction(19, [])).toBeNull();
+  });
+
   it("only marks unavailability for stale-or-malformed undo errors", () => {
     expect(undoUnavailableReason({
       name: "HttpRequestError",
@@ -166,6 +191,16 @@ describe("executable-undo", () => {
     })).toBe("Planning session not found");
     expect(undoUnavailableReason({
       name: "HttpRequestError",
+      message: "Cannot undo: a newer clarification suggestion now depends on this answer",
+      status: 400,
+    })).toBe("Cannot undo: a newer clarification suggestion now depends on this answer");
+    expect(undoUnavailableReason({
+      name: "HttpRequestError",
+      message: "Clarification undo is stale",
+      status: 422,
+    })).toBe("Clarification undo is stale");
+    expect(undoUnavailableReason({
+      name: "HttpRequestError",
       message: "Server exploded",
       status: 500,
     })).toBeNull();
@@ -173,6 +208,42 @@ describe("executable-undo", () => {
       "Undo action requires backend confirmation title and description.",
     );
     expect(undoUnavailableReason(new Error("Network down"))).toBeNull();
+  });
+
+  it("lands clarification undo receipts with restored clarification counts", async () => {
+    vi.mocked(requestJson).mockResolvedValueOnce({
+      loop_id: 19,
+      restored_count: 2,
+      restored_clarification_ids: [7, 11],
+      reopened_suggestion_ids: [44],
+      message: "Clarification answers undone. Questions are now unanswered again.",
+    });
+
+    const result = await executeUndoAction({
+      type: "undo",
+      label: "Undo answers",
+      variant: "secondary",
+      description: "Restore these clarifications to their unanswered state.",
+      undo: {
+        kind: "clarification_answer",
+        loopId: 19,
+        clarificationIds: [7, 11],
+      },
+      successLocation: createLocation({ state: "do", loopId: 19 }),
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/loops/19/clarifications/undo",
+      expect.objectContaining({
+        method: "POST",
+        body: { clarification_ids: [7, 11] },
+      }),
+      "Failed to undo clarification answers",
+    );
+    expect(result.card.id).toBe("undo-clarification-19-7-11");
+    expect(result.card.preview).toContainEqual({ label: "Restored clarifications", value: "2" });
+    expect(result.card.preview).toContainEqual({ label: "Reopened suggestions", value: "1" });
+    expect(result.resumeLocation).toEqual(createLocation({ state: "do", loopId: 19 }));
   });
 
   it("lands planning rollback receipts on the current checkpoint title", async () => {

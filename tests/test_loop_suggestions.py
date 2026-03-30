@@ -209,6 +209,29 @@ def test_service_list_loop_suggestions_links_clarifications(fresh_db, test_loop)
     assert suggestions[0]["clarifications"][0]["id"] == clarification_id
 
 
+def test_list_loop_suggestions_tolerates_malformed_suggestion_json(fresh_db, test_loop):
+    """Malformed suggestion JSON should not crash shared suggestion listing."""
+    cursor = fresh_db.execute(
+        """
+        INSERT INTO loop_suggestions (loop_id, suggestion_json, model)
+        VALUES (?, ?, ?)
+        """,
+        (test_loop["id"], "{not-json}", "test"),
+    )
+    suggestion_id = int(cursor.lastrowid)
+
+    suggestions = enrichment_review.list_loop_suggestions(
+        loop_id=test_loop["id"],
+        pending_only=True,
+        conn=fresh_db,
+    )
+
+    assert len(suggestions) == 1
+    assert suggestions[0]["id"] == suggestion_id
+    assert suggestions[0]["parsed"] == {}
+    assert suggestions[0]["clarifications"] == []
+
+
 def test_apply_suggestion_partial(fresh_db, test_loop):
     """Test applying only some fields from a suggestion."""
     suggestion_id = repo.insert_loop_suggestion(
@@ -236,6 +259,27 @@ def test_apply_suggestion_partial(fresh_db, test_loop):
     updated = repo.read_loop(loop_id=test_loop["id"], conn=fresh_db)
     assert updated is not None
     assert updated.title == "New Title"
+
+
+def test_apply_suggestion_rejects_empty_field_list(fresh_db, test_loop):
+    """Explicit empty field lists should fail instead of silently auto-applying."""
+    suggestion_id = repo.insert_loop_suggestion(
+        loop_id=test_loop["id"],
+        suggestion_json={
+            "title": "Complete Title",
+            "confidence": {"title": 0.95},
+        },
+        model="test",
+        conn=fresh_db,
+    )
+
+    with pytest.raises(ValidationError, match="at least one suggestion field must be selected"):
+        enrichment_review.apply_suggestion(
+            suggestion_id=suggestion_id,
+            fields=[],
+            conn=fresh_db,
+            settings=get_settings(),
+        )
 
 
 def test_apply_suggestion_all_fields(fresh_db, test_loop):
@@ -404,6 +448,51 @@ def test_suggestion_with_project(fresh_db, test_loop):
 
     project_id = repo.upsert_project(name="TestProject", conn=fresh_db)
     assert updated.project_id == project_id
+
+
+def test_api_apply_suggestion_rejects_empty_field_list(monkeypatch):
+    """POST /suggestions/{id}/apply returns 400 for explicit empty field lists."""
+    import tempfile
+
+    from fastapi.testclient import TestClient
+
+    from cloop.main import app
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        with db.core_connection(settings) as conn:
+            with conn:
+                loop = service.capture_loop(
+                    raw_text="Test loop for apply suggestion API",
+                    captured_at_iso="2026-02-18T12:00:00+00:00",
+                    client_tz_offset_min=0,
+                    status=service.LoopStatus.INBOX,
+                    conn=conn,
+                )
+                suggestion_id = repo.insert_loop_suggestion(
+                    loop_id=loop["id"],
+                    suggestion_json={
+                        "title": "Applied Title",
+                        "confidence": {"title": 0.95},
+                    },
+                    model="test",
+                    conn=conn,
+                )
+
+        client = TestClient(app)
+        response = client.post(
+            f"/loops/suggestions/{suggestion_id}/apply",
+            json={"fields": []},
+        )
+
+        assert response.status_code == 400
+        payload = response.json()
+        assert payload["error"]["details"]["field"] == "fields"
+        assert "at least one suggestion field must be selected" in payload["error"]["message"]
 
 
 class TestClarificationLifecycle:
@@ -749,6 +838,46 @@ class TestClarificationLifecycle:
 
         assert len(context.answered_clarifications) == 0
 
+    def test_api_list_suggestions_tolerates_malformed_suggestion_json(self, monkeypatch):
+        """GET /{loop_id}/suggestions stays readable for malformed stored suggestions."""
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from cloop.main import app
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+            get_settings.cache_clear()
+            settings = get_settings()
+            db.init_databases(settings)
+
+            with db.core_connection(settings) as conn:
+                with conn:
+                    loop = service.capture_loop(
+                        raw_text="Test loop for malformed suggestion API",
+                        captured_at_iso="2026-02-18T12:00:00+00:00",
+                        client_tz_offset_min=0,
+                        status=service.LoopStatus.INBOX,
+                        conn=conn,
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO loop_suggestions (loop_id, suggestion_json, model)
+                        VALUES (?, ?, ?)
+                        """,
+                        (loop["id"], "{not-json}", "test"),
+                    )
+
+            client = TestClient(app)
+            response = client.get(f"/loops/{loop['id']}/suggestions")
+
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["count"] == 1
+            assert payload["suggestions"][0]["parsed"] == {}
+            assert payload["suggestions"][0]["clarifications"] == []
+
     def test_api_submit_clarification_endpoint(self, monkeypatch):
         """POST /{loop_id}/clarifications/answer answers existing clarification rows."""
         import tempfile
@@ -836,6 +965,76 @@ class TestClarificationLifecycle:
             assert second_clarification["answer"] == "Friday"
             assert suggestion is not None
             assert suggestion["resolution"] == "superseded"
+
+    def test_api_undo_clarification_endpoint_rejects_stale_state(self, monkeypatch):
+        """POST /{loop_id}/clarifications/undo returns 400 for stale clarification undo handles."""
+        import tempfile
+
+        from fastapi.testclient import TestClient
+
+        from cloop.main import app
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+            get_settings.cache_clear()
+            settings = get_settings()
+            db.init_databases(settings)
+
+            with db.core_connection(settings) as conn:
+                with conn:
+                    loop = service.capture_loop(
+                        raw_text="Clarify launch date",
+                        captured_at_iso="2026-02-18T12:00:00+00:00",
+                        client_tz_offset_min=0,
+                        status=service.LoopStatus.INBOX,
+                        conn=conn,
+                    )
+                    repo.insert_loop_suggestion(
+                        loop_id=loop["id"],
+                        suggestion_json={
+                            "needs_clarification": ["When should this happen?"],
+                            "confidence": {},
+                        },
+                        model="test",
+                        conn=conn,
+                    )
+                    clarification_id = repo.insert_loop_clarification(
+                        loop_id=loop["id"],
+                        question="When should this happen?",
+                        conn=conn,
+                    )
+
+                enrichment_review.submit_clarification_answers(
+                    loop_id=loop["id"],
+                    answers=[
+                        enrichment_review.ClarificationAnswerInput(
+                            clarification_id=clarification_id,
+                            answer="Friday",
+                        )
+                    ],
+                    conn=conn,
+                )
+                repo.insert_loop_suggestion(
+                    loop_id=loop["id"],
+                    suggestion_json={
+                        "needs_clarification": ["When should this happen?"],
+                        "confidence": {},
+                    },
+                    model="test",
+                    conn=conn,
+                )
+                conn.commit()
+
+            client = TestClient(app)
+            response = client.post(
+                f"/loops/{loop['id']}/clarifications/undo",
+                json={"clarification_ids": [clarification_id]},
+            )
+
+            assert response.status_code == 400
+            payload = response.json()
+            assert "Cannot undo" in payload["error"]["message"]
+            assert payload["error"]["details"]["field"] == "clarification"
 
     def test_api_refine_clarification_endpoint(self, monkeypatch):
         """POST /{loop_id}/clarifications/refine answers and reruns enrichment."""

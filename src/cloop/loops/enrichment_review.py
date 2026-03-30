@@ -40,7 +40,7 @@ from .errors import (
 from .serialization import enrich_loop_records_batch
 from .write_ops import _apply_loop_update, _enrich_record
 
-SUGGESTION_APPLYABLE_FIELDS = frozenset(
+SUGGESTION_APPLICABLE_FIELDS = frozenset(
     {
         "title",
         "summary",
@@ -122,7 +122,11 @@ def _inflate_suggestion(
     suggestion: Mapping[str, Any],
     clarifications_by_question: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> dict[str, Any]:
-    parsed = json.loads(str(suggestion["suggestion_json"]))
+    try:
+        parsed_raw = json.loads(str(suggestion["suggestion_json"]))
+    except TypeError, json.JSONDecodeError:
+        parsed_raw = {}
+    parsed = parsed_raw if isinstance(parsed_raw, dict) else {}
     linked_clarifications: list[dict[str, Any]] = []
     seen_clarification_ids: set[int] = set()
 
@@ -222,9 +226,11 @@ def apply_suggestion(
     parsed = json.loads(str(suggestion["suggestion_json"]))
     applied_fields: list[str] = []
 
-    if fields:
+    if fields is not None:
         apply_set = set(fields)
-        invalid_fields = sorted(apply_set.difference(SUGGESTION_APPLYABLE_FIELDS))
+        if not apply_set:
+            raise ValidationError("fields", "at least one suggestion field must be selected")
+        invalid_fields = sorted(apply_set.difference(SUGGESTION_APPLICABLE_FIELDS))
         if invalid_fields:
             raise ValidationError(
                 "fields",

@@ -72,6 +72,7 @@ import type {
   RelationshipReviewSessionResponse,
   RelationshipReviewSessionSnapshotResponse,
   RelationshipReviewSessionUpdateRequest,
+  SuggestionListResponse,
   SuggestionResponse,
   TimeSessionResponse,
   TimerStatusResponse,
@@ -841,11 +842,12 @@ export async function mergeLoops(
 }
 
 export async function fetchSuggestions(loopId: number | string, pendingOnly = true): Promise<SurfaceSuggestion[]> {
-  return requestJson<SurfaceSuggestion[]>(
+  const response = await requestJson<SuggestionListResponse>(
     buildUrl(`/loops/${loopId}/suggestions`, { pending_only: pendingOnly }),
     {},
     "Failed to load suggestions",
   );
+  return response.suggestions as SurfaceSuggestion[];
 }
 
 export async function applySuggestion(
@@ -853,14 +855,14 @@ export async function applySuggestion(
   fields?: string[] | null,
 ): Promise<ApplySuggestionResponse> {
   return requestJson<ApplySuggestionResponse, { fields?: string[] }>(
-    `/suggestions/${suggestionId}/apply`,
+    `/loops/suggestions/${suggestionId}/apply`,
     { method: "POST", ...withJsonBody(fields && fields.length > 0 ? { fields } : {}) },
     "Failed to apply suggestion",
   );
 }
 
 export async function rejectSuggestion(suggestionId: number | string): Promise<JsonObject> {
-  return requestJson<JsonObject>(`/suggestions/${suggestionId}/reject`, { method: "POST" }, "Failed to reject suggestion");
+  return requestJson<JsonObject>(`/loops/suggestions/${suggestionId}/reject`, { method: "POST" }, "Failed to reject suggestion");
 }
 
 export async function submitClarification(

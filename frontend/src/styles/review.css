@@ -1156,6 +1156,8 @@
   font-weight: var(--font-semibold);
   cursor: pointer;
   transition: all 150ms ease;
+  appearance: none;
+  font: inherit;
 }
 
 .suggestion-badge:hover {
@@ -1176,6 +1178,11 @@
 .suggestion-panel.visible {
   display: block;
   animation: rise 200ms ease;
+}
+
+.suggestion-empty {
+  font-size: 13px;
+  color: var(--color-text-muted);
 }
 
 .suggestion-header {

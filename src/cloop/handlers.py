@@ -6,7 +6,7 @@ Purpose:
 
 Responsibilities:
     - Map NotFoundError -> 404 responses
-    - Map ValidationError -> 422 responses
+    - Map domain ValidationError -> 400 responses
     - Handle unexpected exceptions -> 500 responses
 
 Non-scope:

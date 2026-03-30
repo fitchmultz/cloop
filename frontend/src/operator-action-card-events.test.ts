@@ -406,6 +406,134 @@ describe("handleOperatorActionCardClick", () => {
     expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
   });
 
+  it("ignores malformed clarification-answer undo handles", async () => {
+    document.body.innerHTML = `
+      <button
+        id="clarification-undo-malformed"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="clarification_answer"
+        data-undo-handle='{"kind":"clarification_answer","loopId":19,"clarificationIds":[]}'
+        data-undo-description="Restore the clarification answers to unanswered state."
+      >Undo answers</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("clarification-undo-malformed");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing malformed clarification undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).not.toHaveBeenCalled();
+  });
+
+  it("dispatches clarification-answer undo actions from encoded handles", async () => {
+    document.body.innerHTML = `
+      <button
+        id="clarification-undo"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="clarification_answer"
+        data-undo-handle='{"kind":"clarification_answer","loopId":19,"clarificationIds":[7,11]}'
+        data-undo-description="Restore the clarification answers to unanswered state."
+        data-undo-success-state="do"
+        data-undo-success-loop-id="19"
+      >Undo answers</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("clarification-undo");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing clarification undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).toHaveBeenCalledTimes(1);
+    expect(executeUndoAction.mock.calls[0]?.[0]).toMatchObject({
+      type: "undo",
+      description: "Restore the clarification answers to unanswered state.",
+      undo: {
+        kind: "clarification_answer",
+        loopId: 19,
+        clarificationIds: [7, 11],
+      },
+      successLocation: expect.objectContaining({
+        state: "do",
+        loopId: 19,
+      }),
+    });
+    expect(applyLocation).not.toHaveBeenCalled();
+    expect(pinLocationToWorkingSet).not.toHaveBeenCalled();
+  });
+
+  it("ignores malformed relationship-decision undo handles", async () => {
+    document.body.innerHTML = `
+      <button
+        id="relationship-undo-malformed"
+        type="button"
+        data-card-action="undo"
+        data-undo-kind="relationship_decision"
+        data-undo-handle='{"kind":"relationship_decision","sessionId":12,"loopId":5,"candidateLoopId":9,"expectedPairState":{"duplicate":{"state":"bogus","confidence":null,"source":"user"},"related":null},"restorePairState":{"duplicate":null,"related":null}}'
+        data-undo-description="Restore the relationship pair to the queue."
+      >Undo decision</button>
+    `;
+
+    const applyLocation = vi.fn().mockResolvedValue(undefined);
+    const pinLocationToWorkingSet = vi.fn().mockResolvedValue(undefined);
+    const executeUndoAction = vi.fn().mockResolvedValue(undefined);
+    const executeRerunAction = vi.fn().mockResolvedValue(undefined);
+    const button = document.getElementById("relationship-undo-malformed");
+    if (!(button instanceof HTMLButtonElement)) {
+      throw new Error("Missing malformed relationship undo button");
+    }
+    const event = new MouseEvent("click", { bubbles: true, composed: true });
+    Object.defineProperty(event, "target", { value: button });
+
+    const result = await handleOperatorActionCardClick(event, {
+      applyLocation,
+      pinLocationToWorkingSet,
+      executeUndoAction,
+      executeRerunAction,
+      acknowledgeContinuityRecovery: vi.fn(),
+      acknowledgeContinuityNotification: vi.fn(),
+      suppressContinuityNotification: vi.fn(),
+    });
+
+    expect(result).toBe(true);
+    expect(executeUndoAction).not.toHaveBeenCalled();
+  });
+
   it("dispatches relationship-decision undo actions from encoded handles", async () => {
     document.body.innerHTML = `
       <button

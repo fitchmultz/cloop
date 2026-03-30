@@ -681,6 +681,79 @@ describe("continuity-intelligence", () => {
     );
   });
 
+  it("persists clarification-answer undo handles through recent-action storage", () => {
+    recordRecentShellAction({
+      kind: "review",
+      label: "Saved clarification answers",
+      description: "Clarifications recorded. Re-enrich to generate an updated suggestion.",
+      location: location({ state: "do", loopId: 19 }),
+      metadata: {
+        loopId: 19,
+        reviewFocus: "enrichment",
+      },
+      outcome: {
+        card: {
+          id: "clarification-answer-19-7-11",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Suggestion receipt",
+          title: "Saved clarification answers",
+          summary: "Clarifications recorded. Re-enrich to generate an updated suggestion.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            generationLabel: "Recorded clarification answers",
+            generationTone: "progress",
+            contextSources: ["Loop suggestion surface"],
+            assumptions: [],
+            confidenceLabel: "Answers saved",
+            confidenceTone: "progress",
+            freshnessLabel: "Saved just now",
+            freshnessTone: "progress",
+            rollbackLabel: "Undo restores these clarifications to their unanswered state.",
+            rollbackTone: "caution",
+            impactSummary: "The answers are saved without rerunning enrichment.",
+            impactTone: "progress",
+          },
+          handoff: null,
+          actionContextLabel: null,
+          actionWarning: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "do", loopId: 19 }),
+        rollbackLabel: "Undo restores these clarifications to their unanswered state.",
+        undoAction: {
+          type: "undo",
+          label: "Undo answers",
+          variant: "secondary",
+          description: "Restore these 2 clarifications to their unanswered state.",
+          undo: {
+            kind: "clarification_answer",
+            loopId: 19,
+            clarificationIds: [7, 11],
+          },
+          successLocation: location({ state: "do", loopId: 19 }),
+        },
+        rerunAction: null,
+        workflowThread: {
+          id: "clarification-answer:loop:19",
+          kind: "ad_hoc",
+          title: "Saved clarification answers",
+          summary: "Clarifications recorded. Re-enrich to generate an updated suggestion.",
+          parentOutcomeId: null,
+        },
+        resolvedResume: null,
+      },
+    });
+
+    expect(readRecentShellActions()[0]?.outcome?.undoAction?.undo.kind).toBe("clarification_answer");
+    expect(readRecentShellActions()[0]?.outcome?.undoAction?.undo).toEqual({
+      kind: "clarification_answer",
+      loopId: 19,
+      clarificationIds: [7, 11],
+    });
+  });
+
   it("hydrates enrichment review outcomes with executable reopen, undo, and rerun state", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(buildReviewContinuitySnapshot({
@@ -1008,6 +1081,66 @@ describe("continuity-intelligence", () => {
 
     expect(readRecentShellActions()).toHaveLength(1);
     expect(readRecentShellActions()[0]?.outcome?.card.title).toBe("Applied enrichment suggestion");
+  });
+
+  it("drops malformed stored relationship undo handles from recent actions", () => {
+    window.localStorage.setItem("cloop.continuity.recent-actions.cache.v4", JSON.stringify([
+      {
+        kind: "review",
+        label: "Undo relationship decision",
+        description: "Restore the relationship pair.",
+        location: location({ state: "decide", reviewFocus: "relationship", sessionId: 17 }),
+        occurredAt: "2026-03-17T12:00:00Z",
+        outcome: {
+          card: {
+            id: "receipt-relationship-undo-invalid",
+            kind: "receipt",
+            tone: "progress",
+            eyebrow: "Relationship receipt",
+            title: "Undo relationship decision",
+            summary: "Restore the relationship pair.",
+            rationale: "Receipt",
+            preview: [],
+            trust: {
+              contextSources: ["Relationship review"],
+              assumptions: [],
+              confidenceLabel: "Recorded",
+              freshnessLabel: "Saved just now",
+              rollbackLabel: "Undo remains available.",
+            },
+            handoff: null,
+            actions: [],
+          },
+          resumeLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 17 }),
+          rollbackLabel: "Undo remains available.",
+          undoAction: {
+            type: "undo",
+            label: "Undo decision",
+            variant: "secondary",
+            description: "Restore the relationship pair.",
+            undo: {
+              kind: "relationship_decision",
+              sessionId: 17,
+              loopId: 8,
+              candidateLoopId: 11,
+              expectedPairState: {
+                duplicate: { state: "bogus", confidence: 1, source: "human_review" },
+                related: null,
+              },
+              restorePairState: {
+                duplicate: null,
+                related: null,
+              },
+            },
+            successLocation: location({ state: "decide", reviewFocus: "relationship", sessionId: 17 }),
+          },
+        },
+      },
+    ]));
+
+    const recent = readRecentShellActions();
+    expect(recent).toHaveLength(1);
+    expect(recent[0]?.outcome?.undoAction).toBeNull();
   });
 
   it("does not infer typed follow-through from stored receipt card actions", () => {

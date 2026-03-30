@@ -298,6 +298,103 @@ describe("follow-through-adapters", () => {
     });
   });
 
+  it("maps clarification undo handles through the shared continuity adapter", () => {
+    const action = mapApiUndoAction({
+      label: "Undo answers",
+      description: "Restore the saved clarification answers.",
+      undo: {
+        kind: "clarification_answer",
+        loop_id: 19,
+        clarification_ids: [11, 7],
+      },
+      success_location: {
+        state: "do",
+        recall_tool: "chat",
+        review_focus: null,
+        session_id: null,
+        loop_id: 19,
+        view_id: null,
+        memory_id: null,
+        working_set_id: null,
+        query: null,
+      },
+    } as unknown as ContinuityOutcomeRecordResponse["undo_action"]);
+
+    expect(action).toMatchObject({
+      type: "undo",
+      label: "Undo answers",
+      description: "Restore the saved clarification answers.",
+      undo: {
+        kind: "clarification_answer",
+        loopId: 19,
+        clarificationIds: [7, 11],
+      },
+      successLocation: createLocation({
+        state: "do",
+        loopId: 19,
+      }),
+    });
+  });
+
+  it("drops malformed clarification undo handles through the shared continuity adapter", () => {
+    const action = mapApiUndoAction({
+      label: "Undo answers",
+      description: "Restore the saved clarification answers.",
+      undo: {
+        kind: "clarification_answer",
+        loop_id: 19,
+        clarification_ids: [],
+      },
+      success_location: {
+        state: "do",
+        recall_tool: "chat",
+        review_focus: null,
+        session_id: null,
+        loop_id: 19,
+        view_id: null,
+        memory_id: null,
+        working_set_id: null,
+        query: null,
+      },
+    } as unknown as ContinuityOutcomeRecordResponse["undo_action"]);
+
+    expect(action).toBeNull();
+  });
+
+  it("drops relationship undo handles with invalid pair-state values", () => {
+    const action = mapApiUndoAction({
+      label: "Undo decision",
+      description: "Restore the relationship pair.",
+      undo: {
+        kind: "relationship_decision",
+        session_id: 17,
+        loop_id: 8,
+        candidate_loop_id: 11,
+        expected_pair_state: {
+          duplicate: { state: "bogus", confidence: 1, source: "human_review" },
+          related: null,
+        },
+        restore_pair_state: {
+          duplicate: { state: "active", confidence: 0.82, source: "similarity" },
+          related: null,
+        },
+      },
+      success_location: {
+        state: "decide",
+        recall_tool: "chat",
+        review_focus: "relationship",
+        session_id: 17,
+        loop_id: null,
+        view_id: null,
+        memory_id: null,
+        working_set_id: 9,
+        query: null,
+      },
+    } as unknown as ContinuityOutcomeRecordResponse["undo_action"]);
+
+    expect(action).toBeNull();
+  });
+
   it("maps durable relationship undo handles through the shared continuity adapter", () => {
     const action = mapApiUndoAction({
       label: "Undo decision",

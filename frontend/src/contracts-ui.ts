@@ -311,6 +311,12 @@ export interface WorkingSetEventUndoHandle {
   workingSetName: string | null;
 }
 
+export interface ClarificationAnswerUndoHandle {
+  kind: "clarification_answer";
+  loopId: number;
+  clarificationIds: number[];
+}
+
 export interface RelationshipDecisionState {
   state: "active" | "dismissed" | "resolved";
   confidence: number | null;
@@ -335,6 +341,7 @@ export type ExecutableUndoHandle =
   | LoopEventUndoHandle
   | PlanningRunUndoHandle
   | WorkingSetEventUndoHandle
+  | ClarificationAnswerUndoHandle
   | RelationshipDecisionUndoHandle;
 
 export interface RerunPostRunBehavior {

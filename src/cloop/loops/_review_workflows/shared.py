@@ -208,7 +208,7 @@ def _normalize_enrichment_fields(fields: Sequence[str] | None) -> list[str] | No
     normalized = [str(field).strip() for field in fields if str(field).strip()]
     unique_fields = list(dict.fromkeys(normalized))
     invalid_fields = sorted(
-        set(unique_fields).difference(enrichment_review.SUGGESTION_APPLYABLE_FIELDS)
+        set(unique_fields).difference(enrichment_review.SUGGESTION_APPLICABLE_FIELDS)
     )
     if invalid_fields:
         raise ValidationError(
@@ -230,6 +230,8 @@ def _validate_enrichment_action(
         raise ValidationError("action_type", "must be apply or reject")
 
     normalized_fields = _normalize_enrichment_fields(fields)
+    if normalized_action == "apply" and fields is not None and normalized_fields is None:
+        raise ValidationError("fields", "at least one suggestion field must be selected")
     if normalized_action == "reject" and normalized_fields:
         raise ValidationError("fields", "reject actions cannot define fields")
     return normalized_action, normalized_fields

@@ -22,6 +22,7 @@ from .health import HealthResponse
 from .loops import (
     BulkEnrichRequest,
     BulkEnrichResponse,
+    ContinuityClarificationAnswerUndoHandle,
     ContinuityExecutableRerunHandle,
     ContinuityExecutableUndoHandle,
     ContinuityLastSeenBatchUpsertRequest,
@@ -133,6 +134,7 @@ from .memory import (
 from .rag import AskResponse, FailedFileInfo, IngestMode, IngestRequest, IngestResponse
 
 __all__ = [
+    "ContinuityClarificationAnswerUndoHandle",
     "ContinuityExecutableRerunHandle",
     "ContinuityExecutableUndoHandle",
     "ContinuityLastSeenBatchUpsertRequest",

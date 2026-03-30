@@ -144,6 +144,16 @@ export function mapApiDisplayCard(response: ApiDisplayCard): ContinuityCardDispl
   };
 }
 
+function normalizePositiveIntegerIds(values: readonly number[]): number[] {
+  return Array.from(new Set(values.filter((value) => Number.isInteger(value) && value > 0))).sort((left, right) => left - right);
+}
+
+function isRelationshipDecisionState(
+  value: unknown,
+): value is RelationshipDecisionState["state"] {
+  return value === "active" || value === "dismissed" || value === "resolved";
+}
+
 function mapPairState(
   response:
     | { state: RelationshipDecisionState["state"]; confidence?: number | null; source?: string | null }
@@ -153,11 +163,34 @@ function mapPairState(
   if (!response) {
     return null;
   }
+  if (!isRelationshipDecisionState(response.state)) {
+    return null;
+  }
   return {
     state: response.state,
     confidence: response.confidence ?? null,
     source: response.source ?? null,
   };
+}
+
+function pairStatePayloadIsValid(
+  payload:
+    | { duplicate?: { state: unknown } | null; related?: { state: unknown } | null }
+    | null
+    | undefined,
+): boolean {
+  if (!payload) {
+    return true;
+  }
+  for (const candidate of [payload.duplicate, payload.related]) {
+    if (candidate == null) {
+      continue;
+    }
+    if (!isRelationshipDecisionState(candidate.state)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 export function mapApiUndoAction(action: ApiUndoAction): OperatorActionCardUndoAction | null {
@@ -191,23 +224,40 @@ export function mapApiUndoAction(action: ApiUndoAction): OperatorActionCardUndoA
       workingSetId: action.undo.working_set_id ?? null,
       workingSetName: action.undo.working_set_name ?? null,
     };
+  } else if (action.undo.kind === "clarification_answer") {
+    const clarificationIds = normalizePositiveIntegerIds(
+      Array.isArray(action.undo.clarification_ids)
+        ? action.undo.clarification_ids.filter(
+            (clarificationId): clarificationId is number => Number.isInteger(clarificationId) && clarificationId > 0,
+          )
+        : [],
+    );
+    if (clarificationIds.length > 0) {
+      undo = {
+        kind: "clarification_answer",
+        loopId: action.undo.loop_id,
+        clarificationIds,
+      };
+    }
   } else if (action.undo.kind === "relationship_decision") {
     const expectedPairState = action.undo.expected_pair_state ?? { duplicate: null, related: null };
     const restorePairState = action.undo.restore_pair_state ?? { duplicate: null, related: null };
-    undo = {
-      kind: "relationship_decision",
-      sessionId: action.undo.session_id,
-      loopId: action.undo.loop_id,
-      candidateLoopId: action.undo.candidate_loop_id,
-      expectedPairState: {
-        duplicate: mapPairState(expectedPairState.duplicate),
-        related: mapPairState(expectedPairState.related),
-      },
-      restorePairState: {
-        duplicate: mapPairState(restorePairState.duplicate),
-        related: mapPairState(restorePairState.related),
-      },
-    };
+    if (pairStatePayloadIsValid(expectedPairState) && pairStatePayloadIsValid(restorePairState)) {
+      undo = {
+        kind: "relationship_decision",
+        sessionId: action.undo.session_id,
+        loopId: action.undo.loop_id,
+        candidateLoopId: action.undo.candidate_loop_id,
+        expectedPairState: {
+          duplicate: mapPairState(expectedPairState.duplicate),
+          related: mapPairState(expectedPairState.related),
+        },
+        restorePairState: {
+          duplicate: mapPairState(restorePairState.duplicate),
+          related: mapPairState(restorePairState.related),
+        },
+      };
+    }
   }
   if (!undo) {
     return null;
