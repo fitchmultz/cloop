@@ -9,6 +9,7 @@ Responsibilities:
     - List clarifications for a loop
     - Record clarification answers against existing clarification IDs
     - Optionally answer clarifications and rerun enrichment in one mutation
+    - Undo clarification answers (answer-only) with stale-state guard
 
 Non-scope:
     - Triggering enrichment generation itself
@@ -40,6 +41,8 @@ from ...schemas.loops import (
     ClarificationSubmitBatchRequest,
     ClarificationSubmitRequest,
     ClarificationSubmitResponse,
+    ClarificationUndoRequest,
+    ClarificationUndoResponse,
     RejectSuggestionResponse,
     SuggestionListResponse,
     SuggestionResponse,
@@ -50,6 +53,7 @@ from ._common import (
     build_clarification_refinement_response,
     build_clarification_responses,
     build_clarification_submit_response,
+    build_clarification_undo_response,
     build_suggestion_list_response,
     build_suggestion_response,
     map_not_found_to_404,
@@ -274,6 +278,48 @@ def answer_loop_clarifications_endpoint(
     if isinstance(result, JSONResponse):
         return result
     return build_clarification_submit_response(result)
+
+
+@router.post("/{loop_id}/clarifications/undo", response_model=ClarificationUndoResponse)
+def undo_loop_clarifications_endpoint(
+    loop_id: int,
+    request: ClarificationUndoRequest,
+    settings: SettingsDep,
+) -> ClarificationUndoResponse | JSONResponse:
+    """Undo previously submitted clarification answers on one loop.
+
+    Restores each clarification row to its unanswered state and reopens any
+    suggestions that were superseded because of those answers.
+
+    Raises 400 if a later pending suggestion now references one of the
+    answered questions (stale-state guard).
+    """
+    try:
+        result = run_idempotent_loop_route(
+            settings=settings,
+            method="POST",
+            path=f"/loops/{loop_id}/clarifications/undo",
+            idempotency_key=None,
+            payload={
+                "loop_id": loop_id,
+                "clarification_ids": list(request.clarification_ids),
+            },
+            execute=lambda conn: enrichment_review.undo_clarification_answers(
+                loop_id=loop_id,
+                clarification_ids=request.clarification_ids,
+                conn=conn,
+            ).to_payload(),
+        )
+    except LoopNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="loop") from None
+    except ClarificationNotFoundError as exc:
+        raise map_not_found_to_404(exc, resource_type="clarification") from None
+    except ValidationError as exc:
+        raise map_validation_to_400(exc) from None
+
+    if isinstance(result, JSONResponse):
+        return result
+    return build_clarification_undo_response(result)
 
 
 @router.post("/{loop_id}/clarifications/refine", response_model=ClarificationRefinementResponse)

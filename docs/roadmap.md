@@ -1,6 +1,6 @@
 # Cloop Roadmap
 
-Execution focus: settle clarification-answer reversibility with the smallest end-to-end slices, then bring the rest of review follow-through to parity.
+Execution focus: ship the review undo parity matrix and land a consistent reversibility reference across all surfaces.
 
 ## Direction
 
@@ -35,23 +35,15 @@ Current product goals:
 
 ## Execution order
 
-### Slice 2 — Clarification-answer restore viability probe
+### Slice 1 — Review undo parity matrix
 
-1. Prototype the minimum stale-state validation against the stored state from Slice 1.
-2. Prove or disprove exact restore for one clarification-answer operation, including rerun side effects and saved-session cursor position.
-3. End with one decision only: exact undo ships, or clarification answers are irreversible.
+Review undo is nearly at parity. Relationship decisions, enrichment apply, working-set mutations, planning rollback, and loop-event undo all have real backend undo with exact-handle freshness guards. Enrichment reject is trivially irreversible (sets one column, no side effects). This slice closes the remaining labeling gaps and lands a shared reference matrix.
 
-### Slice 3 — Clarification-answer contract hard cut
+1. Verify enrichment reject follow-through already uses correct `undo_action: None` + explicit `rollback_label`. If the label is vague, tighten it to say "Reject is irreversible."
+2. Verify stale undo handles across relationship, enrichment, and working-set surfaces return specific reasons (not generic failures). Close any gaps.
+3. Write one shared review follow-through matrix documenting the reversibility tier (reversible / irreversible / best-effort) for every review outcome, covering HTTP, web, CLI, and MCP. Land it in `docs/ux/undo-actions.md` as a reference table.
 
-1. If exact undo is viable, add one backend-owned undo handle plus restore path and thread it through review follow-through, continuity, frontend undo, CLI, and MCP.
-2. If exact undo is not viable, mark clarification-answer receipts and continuity outcomes explicitly irreversible and remove any implied undo affordances.
-3. Regenerate contracts only after the chosen contract is consistent across backend and frontend surfaces.
-
-### Slice 4 — Review outcome parity sweep
-
-1. Audit the remaining review outcomes for mixed reversibility rules, stale-handle behavior, and advisory-only rollback copy.
-2. Mark every non-restorable outcome explicitly irreversible and disable stale handles with specific reasons.
-3. Land one shared review follow-through matrix across HTTP, web, CLI, and MCP.
+Outcome: every review receipt is honest about reversibility; one reference matrix documents the current state.
 
 ## Guardrails
 

@@ -8,7 +8,7 @@ Responsibilities:
     - Define argument parsers for export and import commands
     - Define argument parsers for loop subcommands: review, events, undo, metrics
     - Define argument parsers for suggestion subcommands (list, show, apply, reject)
-    - Define argument parsers for clarification subcommands (list, answer, answer-many)
+    - Define argument parsers for clarification subcommands (list, answer, answer-many, undo)
     - Configure help text, descriptions, and examples for all misc loop CLI operations
 
 Non-scope:
@@ -652,3 +652,29 @@ Examples:
         help="Answer item formatted as <clarification_id>=<answer>",
     )
     add_format_option(refine_parser)
+
+    undo_parser = clarification_subparsers.add_parser(
+        "undo",
+        help="Undo clarification answers",
+        description=(
+            "Restore answered clarification rows to unanswered state. "
+            "Reopens suggestions that were superseded by those answers. "
+            "Fails if a later pending suggestion now references one of the questions."
+        ),
+        epilog="""
+Examples:
+  # Undo answers for clarifications 456 and 457 on loop 123
+  cloop clarification undo --loop-id 123 --clarification-id 456 --clarification-id 457
+        """,
+        formatter_class=RawDescriptionHelpFormatter,
+    )
+    undo_parser.add_argument("--loop-id", type=int, required=True, help="Loop ID")
+    undo_parser.add_argument(
+        "--clarification-id",
+        action="append",
+        type=int,
+        required=True,
+        dest="clarification_ids",
+        help="Clarification ID to undo (repeatable)",
+    )
+    add_format_option(undo_parser)

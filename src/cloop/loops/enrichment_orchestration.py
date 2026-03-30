@@ -192,17 +192,31 @@ def orchestrate_clarification_refinement(
     conn: sqlite3.Connection,
     settings: Settings,
 ) -> ClarificationRefinementResult:
-    """Answer clarifications for one loop and immediately rerun enrichment."""
+    """Answer clarifications for one loop and immediately rerun enrichment.
+
+    If the rerun fails, restore the clarification batch to its pre-submit pending
+    state so the operator can retry without losing the queued review item.
+    """
     clarification_result = enrichment_review.submit_clarification_answers(
         loop_id=loop_id,
         answers=answers,
         conn=conn,
     )
-    enrichment_result = orchestrate_loop_enrichment(
-        loop_id=loop_id,
-        conn=conn,
-        settings=settings,
-    )
+    try:
+        enrichment_result = orchestrate_loop_enrichment(
+            loop_id=loop_id,
+            conn=conn,
+            settings=settings,
+        )
+    except Exception:
+        enrichment_review.rollback_clarification_submission(
+            clarification_ids=[
+                int(clarification["id"]) for clarification in clarification_result.clarifications
+            ],
+            superseded_suggestion_ids=clarification_result.superseded_suggestion_ids,
+            conn=conn,
+        )
+        raise
     return ClarificationRefinementResult(
         loop_id=loop_id,
         clarification_result=clarification_result,

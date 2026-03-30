@@ -10,6 +10,7 @@ Responsibilities:
     - List clarifications for a loop
     - Submit one or many clarification answers idempotently
     - Answer clarifications and rerun enrichment in one idempotent mutation
+    - Undo clarification answers (answer-only path) with stale-state guard
 
 Non-scope:
     - Triggering enrichment generation itself (see loop.enrich)
@@ -291,6 +292,46 @@ def clarification_refine(
     )
 
 
+@with_mcp_error_handling
+def clarification_undo(
+    loop_id: int,
+    clarification_ids: list[int],
+) -> dict[str, Any]:
+    """Undo previously submitted clarification answers on one loop.
+
+    Restores each clarification row to its unanswered state and reopens any
+    suggestions that were superseded because of those answers.
+
+    Raises ToolError if a later pending suggestion now references one of the
+    answered questions (stale-state guard) or if any clarification is not
+    found / not answered.
+
+    Args:
+        loop_id: Loop identifier.
+        clarification_ids: IDs of answered clarifications to restore.
+
+    Returns:
+        Dict with `loop_id`, `restored_count`, `restored_clarification_ids`,
+        `reopened_suggestion_ids`, and `message`.
+
+    Raises:
+        ToolError: If the loop or clarification is missing, not answered, or
+            a stale-state guard prevents undo.
+    """
+    from .. import db
+    from ..settings import get_settings
+
+    settings = get_settings()
+    with db.core_connection(settings) as conn:
+        result = enrichment_review.undo_clarification_answers(
+            loop_id=loop_id,
+            clarification_ids=clarification_ids,
+            conn=conn,
+        )
+        conn.commit()
+        return result.to_payload()
+
+
 def register_suggestion_tools(mcp: "FastMCP") -> None:
     """Register suggestion and clarification review tools."""
     from ._runtime import with_db_init
@@ -303,3 +344,4 @@ def register_suggestion_tools(mcp: "FastMCP") -> None:
     mcp.tool(name="clarification.answer")(with_db_init(clarification_answer))
     mcp.tool(name="clarification.answer_many")(with_db_init(clarification_answer_many))
     mcp.tool(name="clarification.refine")(with_db_init(clarification_refine))
+    mcp.tool(name="clarification.undo")(with_db_init(clarification_undo))

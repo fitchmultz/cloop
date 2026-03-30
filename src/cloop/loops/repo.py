@@ -71,6 +71,7 @@ from ._repo.embeddings import (
 )
 from ._repo.events import (
     answer_loop_clarification,
+    clear_loop_clarification_answer,
     get_latest_reversible_event,
     insert_loop_clarification,
     insert_loop_event,
@@ -87,6 +88,7 @@ from ._repo.events import (
     list_unanswered_clarifications_for_loops,
     read_loop_clarification,
     read_loop_suggestion,
+    reopen_superseded_loop_suggestion,
     resolve_loop_suggestion,
 )
 from ._repo.metadata import (
@@ -219,12 +221,14 @@ __all__ = [
     "list_pending_suggestions",
     "list_pending_suggestions_for_loops",
     "resolve_loop_suggestion",
+    "reopen_superseded_loop_suggestion",
     "insert_loop_clarification",
     "read_loop_clarification",
     "list_loop_clarifications",
     "list_loop_clarifications_for_loops",
     "list_unanswered_clarifications_for_loops",
     "answer_loop_clarification",
+    "clear_loop_clarification_answer",
     "list_answered_clarifications",
     "list_unanswered_clarification_questions",
     "upsert_project",

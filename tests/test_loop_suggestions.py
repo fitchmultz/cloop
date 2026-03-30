@@ -156,6 +156,29 @@ def test_list_loop_suggestions_with_filters(fresh_db, test_loop):
     assert resolved[0]["id"] == suggestion_id2
 
 
+def test_list_loop_suggestions_supports_limit_none(fresh_db, test_loop):
+    """Repo listing should allow `limit=None` for full suggestion scans."""
+    with fresh_db:
+        fresh_db.executemany(
+            """
+            INSERT INTO loop_suggestions (loop_id, suggestion_json, model)
+            VALUES (?, ?, ?)
+            """,
+            [
+                (test_loop["id"], json.dumps({"title": "Sug1"}), "test"),
+                (test_loop["id"], json.dumps({"title": "Sug2"}), "test"),
+            ],
+        )
+
+    suggestions = repo.list_loop_suggestions(
+        loop_id=test_loop["id"],
+        limit=None,
+        conn=fresh_db,
+    )
+
+    assert len(suggestions) == 2
+
+
 def test_service_list_loop_suggestions_links_clarifications(fresh_db, test_loop):
     """Shared suggestion listing should parse payloads and link clarification rows."""
     suggestion_id = repo.insert_loop_suggestion(

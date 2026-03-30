@@ -171,11 +171,14 @@ def list_loop_suggestions(
     *,
     loop_id: int | None = None,
     resolution: str | None = None,
-    limit: int = 50,
+    limit: int | None = 50,
     offset: int = 0,
     conn: sqlite3.Connection,
 ) -> list[dict[str, Any]]:
-    """List suggestions, optionally filtered by loop_id and resolution status."""
+    """List suggestions, optionally filtered by loop_id and resolution status.
+
+    Pass `limit=None` to return all matching suggestions.
+    """
     conditions = []
     params: list[Any] = []
 
@@ -187,7 +190,10 @@ def list_loop_suggestions(
         params.append(resolution)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    params.extend([limit, offset])
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
     rows = conn.execute(
         f"""
@@ -196,7 +202,7 @@ def list_loop_suggestions(
         FROM loop_suggestions
         {where_clause}
         ORDER BY created_at DESC, id DESC
-        LIMIT ? OFFSET ?
+        {limit_clause}
         """,
         params,
     ).fetchall()
@@ -285,6 +291,19 @@ def resolve_loop_suggestion(
             json.dumps(applied_fields) if applied_fields else None,
             suggestion_id,
         ),
+    )
+    return cursor.rowcount == 1
+
+
+def reopen_superseded_loop_suggestion(*, suggestion_id: int, conn: sqlite3.Connection) -> bool:
+    """Clear superseded resolution state so a suggestion becomes pending again."""
+    cursor = conn.execute(
+        """
+        UPDATE loop_suggestions
+        SET resolution = NULL, resolved_at = NULL, resolved_fields_json = NULL
+        WHERE id = ? AND resolution = 'superseded'
+        """,
+        (suggestion_id,),
     )
     return cursor.rowcount == 1
 
@@ -401,6 +420,23 @@ def answer_loop_clarification(
         WHERE id = ? AND answer IS NULL
         """,
         (answer, format_utc_datetime(utc_now()), clarification_id),
+    )
+    return cursor.rowcount == 1
+
+
+def clear_loop_clarification_answer(
+    *,
+    clarification_id: int,
+    conn: sqlite3.Connection,
+) -> bool:
+    """Clear a recorded answer so the clarification becomes unanswered again."""
+    cursor = conn.execute(
+        """
+        UPDATE loop_clarifications
+        SET answer = NULL, answered_at = NULL
+        WHERE id = ? AND answer IS NOT NULL
+        """,
+        (clarification_id,),
     )
     return cursor.rowcount == 1
 

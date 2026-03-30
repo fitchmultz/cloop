@@ -764,6 +764,48 @@ export type ClarificationSubmitResponse = {
 };
 
 /**
+ * ClarificationUndoRequest
+ *
+ * Request to undo previously submitted clarification answers.
+ */
+export type ClarificationUndoRequest = {
+    /**
+     * Clarification Ids
+     *
+     * IDs of answered clarifications to restore to unanswered state
+     */
+    clarification_ids: Array<number>;
+};
+
+/**
+ * ClarificationUndoResponse
+ *
+ * Response after undoing clarification answers.
+ */
+export type ClarificationUndoResponse = {
+    /**
+     * Loop Id
+     */
+    loop_id: number;
+    /**
+     * Message
+     */
+    message?: string;
+    /**
+     * Reopened Suggestion Ids
+     */
+    reopened_suggestion_ids?: Array<number>;
+    /**
+     * Restored Clarification Ids
+     */
+    restored_clarification_ids?: Array<number>;
+    /**
+     * Restored Count
+     */
+    restored_count: number;
+};
+
+/**
  * ContinuityDeliveryDecisionResponse
  *
  * One inspected continuity delivery decision with canonical reason.
@@ -10736,6 +10778,36 @@ export type RefineLoopClarificationsEndpointLoopsLoopIdClarificationsRefinePostR
 };
 
 export type RefineLoopClarificationsEndpointLoopsLoopIdClarificationsRefinePostResponse = RefineLoopClarificationsEndpointLoopsLoopIdClarificationsRefinePostResponses[keyof RefineLoopClarificationsEndpointLoopsLoopIdClarificationsRefinePostResponses];
+
+export type UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostData = {
+    body: ClarificationUndoRequest;
+    path: {
+        /**
+         * Loop Id
+         */
+        loop_id: number;
+    };
+    query?: never;
+    url: '/loops/{loop_id}/clarifications/undo';
+};
+
+export type UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostError = UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostErrors[keyof UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostErrors];
+
+export type UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ClarificationUndoResponse;
+};
+
+export type UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostResponse = UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostResponses[keyof UndoLoopClarificationsEndpointLoopsLoopIdClarificationsUndoPostResponses];
 
 export type LoopCloseEndpointLoopsLoopIdClosePostData = {
     body: LoopCloseRequest;

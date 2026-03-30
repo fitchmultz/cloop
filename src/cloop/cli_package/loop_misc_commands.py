@@ -574,3 +574,34 @@ def clarification_refine_command(args: Namespace, settings: Settings) -> int:
             *_standard_error_handlers(),
         ],
     )
+
+
+def clarification_undo_command(args: Namespace, settings: Settings) -> int:
+    """Handle 'cloop clarification undo' command."""
+    return run_cli_db_action(
+        settings=settings,
+        action=lambda conn: enrichment_review.undo_clarification_answers(
+            loop_id=args.loop_id,
+            clarification_ids=args.clarification_ids,
+            conn=conn,
+        ).to_payload(),
+        output_format=args.format,
+        error_handlers=[
+            error_handler(
+                LoopNotFoundError,
+                lambda _exc: cli_error(f"loop {args.loop_id} not found", exit_code=2),
+            ),
+            error_handler(
+                ClarificationNotFoundError,
+                lambda exc: cli_error(
+                    f"clarification {exc.clarification_id} not found",
+                    exit_code=2,
+                ),
+            ),
+            error_handler(
+                ValidationError,
+                lambda exc: cli_error(str(exc.message), exit_code=2),
+            ),
+            *_standard_error_handlers(),
+        ],
+    )

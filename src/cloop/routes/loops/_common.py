@@ -42,6 +42,7 @@ from ...schemas.loops import (
     ClarificationRefinementResponse,
     ClarificationResponse,
     ClarificationSubmitResponse,
+    ClarificationUndoResponse,
     ContinuityRerunAction,
     DependencyInfo,
     EnrichmentReviewActionResponse,
@@ -210,6 +211,22 @@ def build_clarification_responses(
 ) -> list[ClarificationResponse]:
     """Convert multiple clarification payloads into route response models."""
     return [build_clarification_response(clarification) for clarification in clarifications]
+
+
+def build_clarification_undo_response(
+    result: Mapping[str, Any],
+) -> ClarificationUndoResponse:
+    """Convert a clarification-undo payload into the route response model."""
+    return ClarificationUndoResponse(
+        loop_id=result["loop_id"],
+        restored_count=result["restored_count"],
+        restored_clarification_ids=list(result.get("restored_clarification_ids") or []),
+        reopened_suggestion_ids=list(result.get("reopened_suggestion_ids") or []),
+        message=result.get(
+            "message",
+            "Clarification answers undone. Questions are now unanswered again.",
+        ),
+    )
 
 
 def build_clarification_submit_response(

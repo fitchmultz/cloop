@@ -691,3 +691,187 @@ def test_enrichment_review_session_answers_clarifications_reruns_and_reenters_sa
         second_suggestion_id
         not in after["result"]["clarification_result"]["superseded_suggestion_ids"]
     )
+
+
+def test_enrichment_review_session_failed_clarification_rerun_restores_retryable_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "cloop.loops.enrichment.chat_completion",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    with db.core_connection(settings) as conn:
+        loop_record = _capture_loop("Clarify launch date", status=LoopStatus.INBOX, conn=conn)
+        suggestion_id = repo.insert_loop_suggestion(
+            loop_id=loop_record["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=loop_record["id"],
+            question="When should this happen?",
+            conn=conn,
+        )
+        snapshot = review_workflows.create_enrichment_review_session(
+            name="clarification-pass",
+            query="status:open",
+            pending_kind="all",
+            suggestion_limit=3,
+            clarification_limit=3,
+            item_limit=25,
+            current_loop_id=loop_record["id"],
+            conn=conn,
+        )
+        conn.commit()
+
+        with pytest.raises(RuntimeError, match="boom"):
+            review_workflows.answer_enrichment_review_session_clarifications(
+                session_id=snapshot["session"]["id"],
+                loop_id=loop_record["id"],
+                answers=[
+                    enrichment_review.ClarificationAnswerInput(
+                        clarification_id=clarification_id,
+                        answer="Friday",
+                    )
+                ],
+                conn=conn,
+                settings=settings,
+            )
+
+        clarification = repo.read_loop_clarification(
+            clarification_id=clarification_id,
+            conn=conn,
+        )
+        pending = enrichment_review.list_loop_suggestions(
+            loop_id=loop_record["id"],
+            pending_only=True,
+            conn=conn,
+        )
+        refreshed = review_workflows.get_enrichment_review_session(
+            session_id=snapshot["session"]["id"],
+            conn=conn,
+        )
+
+    assert clarification is not None
+    assert clarification["answer"] is None
+    assert [suggestion["id"] for suggestion in pending] == [suggestion_id]
+    assert pending[0]["resolution"] is None
+    assert refreshed["session"]["current_loop_id"] == loop_record["id"]
+    assert refreshed["current_item"]["loop"]["id"] == loop_record["id"]
+    assert refreshed["current_item"]["pending_clarifications"][0]["id"] == clarification_id
+
+
+def test_undo_clarification_answers_restores_unanswered_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        loop = _capture_loop("Clarify launch date", status=LoopStatus.INBOX, conn=conn)
+
+        suggestion_id = repo.insert_loop_suggestion(
+            loop_id=loop["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=loop["id"],
+            question="When should this happen?",
+            conn=conn,
+        )
+        conn.commit()
+
+        # Answer the clarification
+        result = enrichment_review.submit_clarification_answers(
+            loop_id=loop["id"],
+            answers=[
+                enrichment_review.ClarificationAnswerInput(
+                    clarification_id=clarification_id,
+                    answer="Friday",
+                )
+            ],
+            conn=conn,
+        )
+        assert result.answered_count == 1
+        assert result.superseded_suggestion_ids == [suggestion_id]
+
+        # Undo the answer
+        undo_result = enrichment_review.undo_clarification_answers(
+            loop_id=loop["id"],
+            clarification_ids=[clarification_id],
+            conn=conn,
+        )
+        assert undo_result.restored_count == 1
+        assert undo_result.restored_clarification_ids == [clarification_id]
+        assert undo_result.reopened_suggestion_ids == [suggestion_id]
+
+        # Verify clarification is now unanswered
+        clarification = repo.read_loop_clarification(clarification_id=clarification_id, conn=conn)
+        assert clarification is not None
+        assert clarification["answer"] is None
+        assert clarification["answered_at"] is None
+
+        # Verify suggestion is now pending again
+        suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=conn)
+        assert suggestion is not None
+        assert suggestion["resolution"] is None
+
+
+def test_undo_clarification_answers_rejects_if_pending_suggestion_references_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        loop = _capture_loop("Clarify launch date", status=LoopStatus.INBOX, conn=conn)
+
+        first_suggestion_id = repo.insert_loop_suggestion(
+            loop_id=loop["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        clarification_id = repo.insert_loop_clarification(
+            loop_id=loop["id"],
+            question="When should this happen?",
+            conn=conn,
+        )
+        conn.commit()
+
+        # Answer the clarification — this supersedes first_suggestion
+        result = enrichment_review.submit_clarification_answers(
+            loop_id=loop["id"],
+            answers=[
+                enrichment_review.ClarificationAnswerInput(
+                    clarification_id=clarification_id,
+                    answer="Friday",
+                )
+            ],
+            conn=conn,
+        )
+        assert result.superseded_suggestion_ids == [first_suggestion_id]
+
+        # A new pending suggestion appears referencing the same question
+        # (simulating what happens after a rerun)
+        repo.insert_loop_suggestion(
+            loop_id=loop["id"],
+            suggestion_json={"needs_clarification": ["When should this happen?"]},
+            model="test-model",
+            conn=conn,
+        )
+        conn.commit()
+
+        # Undo should fail: the stale-state guard detects the new suggestion
+        with pytest.raises(enrichment_review.ValidationError, match="Cannot undo"):
+            enrichment_review.undo_clarification_answers(
+                loop_id=loop["id"],
+                clarification_ids=[clarification_id],
+                conn=conn,
+            )

@@ -10,6 +10,7 @@ Responsibilities:
     - Link suggestion questions to persisted clarification records
     - Apply or reject suggestions using shared loop update semantics
     - Record clarification answers against existing clarification rows
+    - Undo clarification answers (answer-only path) with stale-state guard
     - Mark clarification-dependent suggestions as superseded once answers land
 
 Non-scope:
@@ -82,6 +83,27 @@ class ClarificationSubmissionResult:
             "answered_count": self.answered_count,
             "clarifications": self.clarifications,
             "superseded_suggestion_ids": self.superseded_suggestion_ids,
+            "message": self.message,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ClarificationUndoResult:
+    """Canonical result of undoing clarification answers."""
+
+    loop_id: int
+    restored_count: int
+    restored_clarification_ids: list[int]
+    reopened_suggestion_ids: list[int]
+    message: str = "Clarification answers undone. Questions are now unanswered again."
+
+    def to_payload(self) -> dict[str, Any]:
+        """Convert the undo result into a transport-ready payload."""
+        return {
+            "loop_id": self.loop_id,
+            "restored_count": self.restored_count,
+            "restored_clarification_ids": self.restored_clarification_ids,
+            "reopened_suggestion_ids": self.reopened_suggestion_ids,
             "message": self.message,
         }
 
@@ -490,6 +512,141 @@ def _supersede_answered_suggestions(
         )
         superseded_ids.append(int(suggestion["id"]))
     return superseded_ids
+
+
+@typingx.validate_io()
+def has_pending_suggestions_referencing_questions(
+    *,
+    loop_id: int,
+    questions: set[str],
+    conn: sqlite3.Connection,
+) -> bool:
+    """Check whether any pending suggestion references one of the given questions.
+
+    Used as a stale-state guard before restoring clarification answers.
+    If a later rerun produced a new suggestion whose ``needs_clarification``
+    overlaps the answered questions, un-answering would invalidate that
+    suggestion's context.
+    """
+    if not questions:
+        return False
+    pending_suggestions = repo.list_pending_suggestions(loop_id=loop_id, conn=conn, limit=None)
+    for suggestion in pending_suggestions:
+        parsed = json.loads(str(suggestion["suggestion_json"]))
+        needs_clarification = {
+            str(question) for question in parsed.get("needs_clarification") or []
+        }
+        if needs_clarification.intersection(questions):
+            return True
+    return False
+
+
+def rollback_clarification_submission(
+    *,
+    clarification_ids: Sequence[int],
+    superseded_suggestion_ids: Sequence[int],
+    conn: sqlite3.Connection,
+) -> None:
+    """Restore a just-submitted clarification batch to its pre-submit pending state."""
+    if not clarification_ids and not superseded_suggestion_ids:
+        return
+    with conn:
+        for clarification_id in clarification_ids:
+            repo.clear_loop_clarification_answer(
+                clarification_id=int(clarification_id),
+                conn=conn,
+            )
+        for suggestion_id in superseded_suggestion_ids:
+            repo.reopen_superseded_loop_suggestion(
+                suggestion_id=int(suggestion_id),
+                conn=conn,
+            )
+
+
+@typingx.validate_io()
+def undo_clarification_answers(
+    *,
+    loop_id: int,
+    clarification_ids: Sequence[int],
+    conn: sqlite3.Connection,
+) -> ClarificationUndoResult:
+    """Undo previously submitted clarification answers on one loop.
+
+    Restores each clarification row to its unanswered state and reopens any
+    suggestions that were superseded because of those answers.
+
+    Raises ``ValidationError`` if a later pending suggestion now references
+    one of the answered questions, making exact restore unsafe.
+    """
+    if not clarification_ids:
+        raise ValidationError("clarification_ids", "at least one clarification ID is required")
+
+    loop = repo.read_loop(loop_id=loop_id, conn=conn)
+    if not loop:
+        raise LoopNotFoundError(loop_id)
+
+    # Validate every clarification belongs to this loop and is answered.
+    answered_questions: set[str] = set()
+    superseded_suggestion_ids: list[int] = []
+    for clarification_id in clarification_ids:
+        clarification = repo.read_loop_clarification(
+            clarification_id=int(clarification_id),
+            conn=conn,
+        )
+        if clarification is None:
+            raise ClarificationNotFoundError(int(clarification_id))
+        if int(clarification["loop_id"]) != loop_id:
+            raise ValidationError(
+                "clarification_id",
+                f"clarification {clarification_id} does not belong to loop {loop_id}",
+            )
+        if clarification.get("answer") is None:
+            raise ValidationError(
+                "clarification",
+                f"Clarification {clarification_id} is not answered",
+            )
+        answered_questions.add(str(clarification["question"]))
+
+    # Stale-state guard: a later rerun may have produced a new suggestion
+    # whose needs_clarification overlaps the questions being restored.
+    if has_pending_suggestions_referencing_questions(
+        loop_id=loop_id, questions=answered_questions, conn=conn
+    ):
+        raise ValidationError(
+            "clarification",
+            (
+                "Cannot undo: a pending enrichment suggestion now references "
+                "one of these questions. The answer is irreversible."
+            ),
+        )
+
+    # Find superseded suggestions whose resolution was triggered by the
+    # answered questions, so we can reopen them.
+    resolved_suggestions = repo.list_loop_suggestions(
+        loop_id=loop_id, resolution="superseded", limit=None, conn=conn
+    )
+    for suggestion in resolved_suggestions:
+        parsed = json.loads(str(suggestion["suggestion_json"]))
+        needs_clarification = {
+            str(question) for question in parsed.get("needs_clarification") or []
+        }
+        if needs_clarification.intersection(answered_questions):
+            superseded_suggestion_ids.append(int(suggestion["id"]))
+
+    # Execute the restore.
+    with conn:
+        rollback_clarification_submission(
+            clarification_ids=list(clarification_ids),
+            superseded_suggestion_ids=superseded_suggestion_ids,
+            conn=conn,
+        )
+
+    return ClarificationUndoResult(
+        loop_id=loop_id,
+        restored_count=len(clarification_ids),
+        restored_clarification_ids=list(clarification_ids),
+        reopened_suggestion_ids=superseded_suggestion_ids,
+    )
 
 
 @typingx.validate_io()

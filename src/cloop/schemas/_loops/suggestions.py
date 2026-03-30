@@ -107,3 +107,23 @@ class ClarificationSubmitResponse(BaseModel):
     clarifications: List[ClarificationResponse]
     superseded_suggestion_ids: List[int] = Field(default_factory=list)
     message: str = "Clarifications recorded. Re-enrich to generate an updated suggestion."
+
+
+class ClarificationUndoRequest(BaseModel):
+    """Request to undo previously submitted clarification answers."""
+
+    clarification_ids: List[int] = Field(
+        ...,
+        min_length=1,
+        description="IDs of answered clarifications to restore to unanswered state",
+    )
+
+
+class ClarificationUndoResponse(BaseModel):
+    """Response after undoing clarification answers."""
+
+    loop_id: int
+    restored_count: int
+    restored_clarification_ids: List[int] = Field(default_factory=list)
+    reopened_suggestion_ids: List[int] = Field(default_factory=list)
+    message: str = "Clarification answers undone. Questions are now unanswered again."

@@ -54,7 +54,7 @@ The executable undo model is a first-class shared workflow contract.
 - loop undo is freshness-safe and exact-handle only:
   - `POST /loops/{loop_id}/undo`
   - body requires `expected_event_id`
-  - stale handles are rejected explicitly instead of undoing “whatever is latest”
+  - stale handles are rejected explicitly instead of undoing "whatever is latest"
 - loop undo responses return enough data to land a fresh receipt:
   - restored loop payload
   - `undone_event_id`
@@ -94,7 +94,7 @@ Executable undo appears anywhere the backend already exposes a safe inverse cont
 - enrichment apply receipts
 - working-set continuity receipts for create/update/delete/focus/pin/stage/defer/reorder/remove/bulk-add flows
 - recent shell-action continuity entries
-- operator “since last” outcome cards
+- operator "since last" outcome cards
 - command-palette quick undo commands
 
 Successful undo or rollback creates a new landed receipt with a clear resume target. Stale or drifted handles are disabled with explicit reasons instead of silently failing.
@@ -139,7 +139,7 @@ In this case:
 
 Undo must never be inferred from label text alone.
 
-An executable undo action must be backed by structured backend-aware data, not by guessing from `rollbackLabel`. The system should treat “rollback supported” as different from “safe to execute this exact undo now.”
+An executable undo action must be backed by structured backend-aware data, not by guessing from `rollbackLabel`. The system should treat "rollback supported" as different from "safe to execute this exact undo now."
 
 That means the UI needs a real undo handle or validated target, not only a string.
 
@@ -149,7 +149,7 @@ Executable undo should appear in the same follow-through surfaces that already s
 
 - receipt cards rendered from `OperatorActionCard`
 - recent-action history entries built from `RecentShellActionEntry`
-- operator workspace “Since last visit” items when a landed receipt is shown there
+- operator workspace "Since last visit" items when a landed receipt is shown there
 - review workspace post-action follow-through
 - working-set follow-through receipts
 - command-palette recent actions and quick undo commands
@@ -201,7 +201,7 @@ The command palette should reuse the same executable undo handles already attach
 
 ### Undo from recent history
 
-1. User opens recent actions or “Since last visit.”
+1. User opens recent actions or "Since last visit."
 2. A prior landed receipt still has a valid executable undo handle.
 3. User triggers undo from that history entry.
 4. If the handle is still valid, undo runs and emits a fresh receipt.
@@ -278,8 +278,30 @@ The command palette should reuse the same executable undo handles already attach
 - [`state-navigation.md`](state-navigation.md)
 - [`outcome-continuity.md`](outcome-continuity.md)
 
+## Clarification-answer reversibility
+
+### Answer-only (no rerun)
+
+**Tier**: Reversible with stale-state guard
+
+- Backend: `undo_clarification_answers` in `enrichment_review.py`
+- Restores clarification rows to unanswered state
+- Reopens suggestions that were superseded by those answers
+- **Stale-state guard**: if any pending suggestion now references the same question text, undo is rejected — the answer is irreversible because undoing would invalidate the new suggestion's context
+- HTTP: `POST /loops/{loop_id}/clarifications/undo`
+- MCP: `clarification.undo`
+- CLI: `cloop clarification undo --loop-id ID --clarification-id CID ...`
+
+### Answer + rerun (refinement)
+
+**Tier**: Irreversible
+
+- The cascading 8-step rollback (new suggestions, loop field mutations, enrichment state, events, embeddings, webhooks) is too fragile to expose as a single atomic undo
+- Review-session follow-through carries `undo_action=None` with explicit `rollback_label`: "Undo is not available for clarification answer+rerun outcomes."
+- Source inventory: `docs/clarification-answer-write-path-inventory.md`
+
 ## Open questions
 
-- Should planning rollback be presented as “Undo” when it is complete and as “Rollback” when it is best-effort, or should one label be used consistently?
+- Should planning rollback be presented as "Undo" when it is complete and as "Rollback" when it is best-effort, or should one label be used consistently?
 - Should stale undo handles remain visible but disabled for auditability, or disappear once unsafe?
 - For multi-resource outcomes, should the user get one top-level rollback action or an intermediate confirmation view listing the exact rollback operations that will run?

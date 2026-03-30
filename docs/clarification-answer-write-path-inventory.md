@@ -52,6 +52,8 @@ Call chain:
 
 `orchestrate_clarification_refinement` calls `submit_clarification_answers()` (Writes 1.1, 1.2) then `orchestrate_loop_enrichment()` (Writes 2.1–2.11 below).
 
+Failure behavior: if the rerun raises, the clarification answers and superseded suggestion resolutions are restored so the queued review item stays retryable. The failed enrichment state/event still land.
+
 ### Write 2.1 — enrichment_state → PENDING
 
 - **Table**: `loops`
@@ -61,12 +63,12 @@ Call chain:
 ### Write 2.2 — ENRICH_REQUEST event INSERT
 
 - **Table**: `loop_events`
-- **Restore**: `DELETE FROM loop_events WHERE id = ?`. Safe for the most recent event if nothing downstream consumed it.
+- **Restore**: `DELETE FROM loop_events WHERE id = ?`. This also cascades webhook deliveries for that event.
 
 ### Write 2.3 — Webhook delivery queue INSERTs (request event)
 
 - **Table**: `webhook_deliveries`
-- **GUARDED** — `DELETE FROM webhook_deliveries WHERE event_id = ?` works locally, but any delivery already sent to an external endpoint is irreversible.
+- **GUARDED** — the rows are removed automatically when the parent `loop_events` row is deleted; if any delivery already reached an external endpoint, that external side effect is irreversible.
 
 ### Write 2.4 — New suggestion INSERT
 
@@ -99,11 +101,11 @@ Call chain:
 
 - **Table**: `loop_events`
 - **Payload**: `{suggestion_id, applied_fields, generation_metadata}`
-- **Restore**: `DELETE FROM loop_events WHERE id = ?`.
+- **Restore**: `DELETE FROM loop_events WHERE id = ?`. This also cascades webhook deliveries for that event.
 
 ### Write 2.8 — Webhook delivery queue INSERTs (success event)
 
-- Same shape as 2.3. **GUARDED** — same caveat.
+- Same shape as 2.3. **GUARDED** — removed automatically with the parent event row; external sends remain irreversible.
 
 ### Write 2.9 — New clarification row INSERTs (conditional)
 
@@ -132,7 +134,7 @@ Call chain:
 
 Delegates to `orchestrate_clarification_refinement` (Flow 2). Additional behavior:
 
-- Review session snapshot rebuilt from live data after refinement (`enrichment_review_sessions.updated_at` changes, queue may advance). No separate session-row undo needed — restoring underlying data naturally restores the session view.
+- Review session snapshot rebuilt from live data after refinement. If the current queue cursor changes, the persisted `review_sessions` row for the enrichment session updates `current_loop_id` and `updated_at`; the next snapshot will reflect restored underlying data.
 - `follow_through` payload built with `undo_action: None` and `rollback_label: "Undo is not available for this enrichment outcome."` — display-only, nothing persisted.
 
 ---
@@ -141,24 +143,24 @@ Delegates to `orchestrate_clarification_refinement` (Flow 2). Additional behavio
 
 | # | Write | Table | Restorable | Guard |
 |---|-------|-------|-----------|-------|
-| 1.1 | Answer clarification | `loop_clarifications` | YES | No new suggestion depends on this answer |
-| 1.2 | Supersede suggestion | `loop_suggestions` | YES | Low — no automation on superseded |
+| 1.1 | Answer clarification | `loop_clarifications` | YES | Rolled back automatically if rerun fails |
+| 1.2 | Supersede suggestion | `loop_suggestions` | YES | Rolled back automatically if rerun fails |
 | 1.3 | Idempotency record | `idempotency_requests` | NO | Append-only; stale replay acceptable |
 | 2.1 | enrichment_state → PENDING | `loops` | YES | Snapshot prior state |
-| 2.2 | ENRICH_REQUEST event | `loop_events` | YES | Delete if not consumed downstream |
-| 2.3 | Webhook deliveries (request) | `webhook_deliveries` | GUARDED | May have been sent externally |
+| 2.2 | ENRICH_REQUEST event | `loop_events` | YES | Delete cascades webhook deliveries |
+| 2.3 | Webhook deliveries (request) | `webhook_deliveries` | GUARDED | Auto-removed by parent delete; external sends may already exist |
 | 2.4 | New suggestion INSERT | `loop_suggestions` | YES | Delete before restoring old |
 | 2.5 | Loop field UPDATE | `loops` | YES | Snapshot fields + provenance |
 | 2.5a | Tag REPLACE | `loop_tags` | YES | Snapshot prior tags |
 | 2.5b | Project UPSERT | `projects` | GUARDED | Check FK refs before deleting |
 | 2.6 | enrichment_state → COMPLETE | `loops` | YES | Snapshot prior state |
-| 2.7 | ENRICH_SUCCESS event | `loop_events` | YES | Delete if not consumed downstream |
-| 2.8 | Webhook deliveries (success) | `webhook_deliveries` | GUARDED | May have been sent externally |
+| 2.7 | ENRICH_SUCCESS event | `loop_events` | YES | Delete cascades webhook deliveries |
+| 2.8 | Webhook deliveries (success) | `webhook_deliveries` | GUARDED | Auto-removed by parent delete; external sends may already exist |
 | 2.9 | New clarification INSERTs | `loop_clarifications` | YES | Delete before restoring superseded (unique index) |
 | 2.10 | Interaction log | `interactions` | NO | Append-only analytics |
 | 2.11 | Embeddings + similarity | `loop_embeddings`, `loop_links` | GUARDED | Non-deterministic — best-effort |
 | 2.12 | Idempotency record | `idempotency_requests` | NO | Same as 1.3 |
-| 3.1 | Review session snapshot | `enrichment_review_sessions` | GUARDED | Derived — restore underlying data |
+| 3.1 | Review session cursor snapshot | `review_sessions` | GUARDED | Derived from live queue; restore underlying data first |
 | 3.2 | Continuity follow-through | display-only | N/A | Nothing persisted |
 
 Counts: **10 restorable**, **5 guarded**, **3 irreversible** (idempotency × 2, interaction log)
@@ -173,9 +175,8 @@ Execute in this exact order:
 4. Restore clarification answers to NULL (1.1 reverse) — verify no other pending suggestion references same question first
 5. Restore loop fields, tags, project, provenance (2.5 reverse)
 6. Restore enrichment_state to prior value (2.1/2.6 reverse)
-7. Delete ENRICH_SUCCESS and ENRICH_REQUEST events (2.2, 2.7 reverse)
-8. Delete webhook deliveries for those events (2.3, 2.8 reverse)
-9. Idempotency records and interaction logs remain (irreversible, acceptable)
+7. Delete ENRICH_SUCCESS and ENRICH_REQUEST events (2.2, 2.7 reverse); webhook deliveries cascade
+8. Idempotency records and interaction logs remain (irreversible, acceptable)
 
 ## Source Files
 
