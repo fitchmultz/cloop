@@ -275,11 +275,14 @@ def apply_suggestion(
             updated_loop_payload = _enrich_record(record=updated_record, conn=conn)
 
         resolution = "applied" if len(applied_fields) == len(apply_set) else "partial"
-        repo.resolve_loop_suggestion(
+        _resolve_suggestion_or_raise(
             suggestion_id=suggestion_id,
             resolution=resolution,
             applied_fields=applied_fields,
             conn=conn,
+            failure_message=(
+                f"suggestion {suggestion_id} changed before it could be marked {resolution}"
+            ),
         )
 
     return {
@@ -307,10 +310,13 @@ def reject_suggestion(
         )
 
     with conn:
-        repo.resolve_loop_suggestion(
+        _resolve_suggestion_or_raise(
             suggestion_id=suggestion_id,
             resolution="rejected",
             conn=conn,
+            failure_message=(
+                f"suggestion {suggestion_id} changed before it could be marked rejected"
+            ),
         )
 
     return {"suggestion_id": suggestion_id, "resolution": "rejected"}
@@ -490,6 +496,57 @@ def _validate_clarification_answers(
     return clarifications
 
 
+def _suggestion_clarification_questions(suggestion: Mapping[str, Any]) -> set[str]:
+    parsed = json.loads(str(suggestion["suggestion_json"]))
+    return {str(question) for question in parsed.get("needs_clarification") or []}
+
+
+def _resolve_suggestion_or_raise(
+    *,
+    suggestion_id: int,
+    resolution: str,
+    conn: sqlite3.Connection,
+    applied_fields: list[str] | None = None,
+    failure_message: str,
+) -> None:
+    if repo.resolve_loop_suggestion(
+        suggestion_id=suggestion_id,
+        resolution=resolution,
+        applied_fields=applied_fields,
+        conn=conn,
+    ):
+        return
+    raise ValidationError("suggestion", failure_message)
+
+
+def _clear_clarification_answer_or_raise(
+    *,
+    clarification_id: int,
+    conn: sqlite3.Connection,
+) -> None:
+    if repo.clear_loop_clarification_answer(
+        clarification_id=clarification_id,
+        conn=conn,
+    ):
+        return
+    raise RuntimeError(
+        f"clarification {clarification_id} changed before the answer could be restored"
+    )
+
+
+def _reopen_superseded_suggestion_or_raise(
+    *,
+    suggestion_id: int,
+    conn: sqlite3.Connection,
+) -> None:
+    if repo.reopen_superseded_loop_suggestion(
+        suggestion_id=suggestion_id,
+        conn=conn,
+    ):
+        return
+    raise RuntimeError(f"suggestion {suggestion_id} changed before it could be reopened")
+
+
 def _supersede_answered_suggestions(
     *,
     loop_id: int,
@@ -499,18 +556,19 @@ def _supersede_answered_suggestions(
     superseded_ids: list[int] = []
     pending_suggestions = repo.list_pending_suggestions(loop_id=loop_id, conn=conn, limit=None)
     for suggestion in pending_suggestions:
-        parsed = json.loads(str(suggestion["suggestion_json"]))
-        needs_clarification = {
-            str(question) for question in parsed.get("needs_clarification") or []
-        }
-        if not needs_clarification.intersection(answered_questions):
+        if not _suggestion_clarification_questions(suggestion).intersection(answered_questions):
             continue
-        repo.resolve_loop_suggestion(
-            suggestion_id=int(suggestion["id"]),
+        suggestion_id = int(suggestion["id"])
+        _resolve_suggestion_or_raise(
+            suggestion_id=suggestion_id,
             resolution="superseded",
             conn=conn,
+            failure_message=(
+                f"suggestion {suggestion_id} changed before the clarification answer "
+                "could supersede it"
+            ),
         )
-        superseded_ids.append(int(suggestion["id"]))
+        superseded_ids.append(suggestion_id)
     return superseded_ids
 
 
@@ -531,14 +589,10 @@ def has_pending_suggestions_referencing_questions(
     if not questions:
         return False
     pending_suggestions = repo.list_pending_suggestions(loop_id=loop_id, conn=conn, limit=None)
-    for suggestion in pending_suggestions:
-        parsed = json.loads(str(suggestion["suggestion_json"]))
-        needs_clarification = {
-            str(question) for question in parsed.get("needs_clarification") or []
-        }
-        if needs_clarification.intersection(questions):
-            return True
-    return False
+    return any(
+        _suggestion_clarification_questions(suggestion).intersection(questions)
+        for suggestion in pending_suggestions
+    )
 
 
 def rollback_clarification_submission(
@@ -547,20 +601,22 @@ def rollback_clarification_submission(
     superseded_suggestion_ids: Sequence[int],
     conn: sqlite3.Connection,
 ) -> None:
-    """Restore a just-submitted clarification batch to its pre-submit pending state."""
+    """Restore a clarification batch to its pre-submit pending state.
+
+    The caller owns the surrounding transaction.
+    """
     if not clarification_ids and not superseded_suggestion_ids:
         return
-    with conn:
-        for clarification_id in clarification_ids:
-            repo.clear_loop_clarification_answer(
-                clarification_id=int(clarification_id),
-                conn=conn,
-            )
-        for suggestion_id in superseded_suggestion_ids:
-            repo.reopen_superseded_loop_suggestion(
-                suggestion_id=int(suggestion_id),
-                conn=conn,
-            )
+    for clarification_id in clarification_ids:
+        _clear_clarification_answer_or_raise(
+            clarification_id=int(clarification_id),
+            conn=conn,
+        )
+    for suggestion_id in superseded_suggestion_ids:
+        _reopen_superseded_suggestion_or_raise(
+            suggestion_id=int(suggestion_id),
+            conn=conn,
+        )
 
 
 @typingx.validate_io()
@@ -578,73 +634,92 @@ def undo_clarification_answers(
     Raises ``ValidationError`` if a later pending suggestion now references
     one of the answered questions, making exact restore unsafe.
     """
-    if not clarification_ids:
+    clarification_ids_list = [int(clarification_id) for clarification_id in clarification_ids]
+    if not clarification_ids_list:
         raise ValidationError("clarification_ids", "at least one clarification ID is required")
 
-    loop = repo.read_loop(loop_id=loop_id, conn=conn)
-    if not loop:
-        raise LoopNotFoundError(loop_id)
-
-    # Validate every clarification belongs to this loop and is answered.
-    answered_questions: set[str] = set()
     superseded_suggestion_ids: list[int] = []
-    for clarification_id in clarification_ids:
-        clarification = repo.read_loop_clarification(
-            clarification_id=int(clarification_id),
-            conn=conn,
-        )
-        if clarification is None:
-            raise ClarificationNotFoundError(int(clarification_id))
-        if int(clarification["loop_id"]) != loop_id:
-            raise ValidationError(
-                "clarification_id",
-                f"clarification {clarification_id} does not belong to loop {loop_id}",
+    with conn:
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+
+        loop = repo.read_loop(loop_id=loop_id, conn=conn)
+        if not loop:
+            raise LoopNotFoundError(loop_id)
+
+        # Validate every clarification belongs to this loop, is answered, and is unique.
+        target_questions: set[str] = set()
+        seen_clarification_ids: set[int] = set()
+        for clarification_id in clarification_ids_list:
+            if clarification_id in seen_clarification_ids:
+                raise ValidationError(
+                    "clarification_id",
+                    f"duplicate clarification_id in request: {clarification_id}",
+                )
+            seen_clarification_ids.add(clarification_id)
+            clarification = repo.read_loop_clarification(
+                clarification_id=clarification_id,
+                conn=conn,
             )
-        if clarification.get("answer") is None:
+            if clarification is None:
+                raise ClarificationNotFoundError(int(clarification_id))
+            if int(clarification["loop_id"]) != loop_id:
+                raise ValidationError(
+                    "clarification_id",
+                    f"clarification {clarification_id} does not belong to loop {loop_id}",
+                )
+            if clarification.get("answer") is None:
+                raise ValidationError(
+                    "clarification",
+                    f"Clarification {clarification_id} is not answered",
+                )
+            target_questions.add(str(clarification["question"]))
+
+        remaining_answered_questions = {
+            str(clarification["question"])
+            for clarification in repo.list_answered_clarifications(loop_id=loop_id, conn=conn)
+            if int(clarification["id"]) not in seen_clarification_ids
+        }
+        questions_becoming_unanswered = target_questions.difference(remaining_answered_questions)
+
+        # Stale-state guard: if a question would become unanswered again, any newer
+        # pending suggestion that still references it makes the undo unsafe.
+        if has_pending_suggestions_referencing_questions(
+            loop_id=loop_id,
+            questions=questions_becoming_unanswered,
+            conn=conn,
+        ):
             raise ValidationError(
                 "clarification",
-                f"Clarification {clarification_id} is not answered",
+                (
+                    "Cannot undo: a pending enrichment suggestion now references "
+                    "one of these questions. The answer is irreversible."
+                ),
             )
-        answered_questions.add(str(clarification["question"]))
 
-    # Stale-state guard: a later rerun may have produced a new suggestion
-    # whose needs_clarification overlaps the questions being restored.
-    if has_pending_suggestions_referencing_questions(
-        loop_id=loop_id, questions=answered_questions, conn=conn
-    ):
-        raise ValidationError(
-            "clarification",
-            (
-                "Cannot undo: a pending enrichment suggestion now references "
-                "one of these questions. The answer is irreversible."
-            ),
+        # Reopen only suggestions that depended on a question that actually becomes
+        # unanswered again and no longer depend on any still-answered question.
+        resolved_suggestions = repo.list_loop_suggestions(
+            loop_id=loop_id, resolution="superseded", limit=None, conn=conn
         )
-
-    # Find superseded suggestions whose resolution was triggered by the
-    # answered questions, so we can reopen them.
-    resolved_suggestions = repo.list_loop_suggestions(
-        loop_id=loop_id, resolution="superseded", limit=None, conn=conn
-    )
-    for suggestion in resolved_suggestions:
-        parsed = json.loads(str(suggestion["suggestion_json"]))
-        needs_clarification = {
-            str(question) for question in parsed.get("needs_clarification") or []
-        }
-        if needs_clarification.intersection(answered_questions):
+        for suggestion in resolved_suggestions:
+            suggestion_questions = _suggestion_clarification_questions(suggestion)
+            if not suggestion_questions.intersection(questions_becoming_unanswered):
+                continue
+            if suggestion_questions.intersection(remaining_answered_questions):
+                continue
             superseded_suggestion_ids.append(int(suggestion["id"]))
 
-    # Execute the restore.
-    with conn:
         rollback_clarification_submission(
-            clarification_ids=list(clarification_ids),
+            clarification_ids=clarification_ids_list,
             superseded_suggestion_ids=superseded_suggestion_ids,
             conn=conn,
         )
 
     return ClarificationUndoResult(
         loop_id=loop_id,
-        restored_count=len(clarification_ids),
-        restored_clarification_ids=list(clarification_ids),
+        restored_count=len(clarification_ids_list),
+        restored_clarification_ids=clarification_ids_list,
         reopened_suggestion_ids=superseded_suggestion_ids,
     )
 

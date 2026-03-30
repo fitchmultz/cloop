@@ -1,7 +1,5 @@
 # Cloop Roadmap
 
-Execution focus: ship the review undo parity matrix and land a consistent reversibility reference across all surfaces.
-
 ## Direction
 
 Cloop should feel like a local-first execution OS for human + AI operational work.
@@ -33,17 +31,85 @@ Current product goals:
 - Update the relevant UX spec when behavior changes materially.
 - Ship end-to-end slices (contract + storage + transport + UI), not isolated polish.
 
-## Execution order
+## Done
 
-### Slice 1 — Review undo parity matrix
+### Backend clarification-answer undo (HTTP, CLI, MCP)
 
-Review undo is nearly at parity. Relationship decisions, enrichment apply, working-set mutations, planning rollback, and loop-event undo all have real backend undo with exact-handle freshness guards. Enrichment reject is trivially irreversible (sets one column, no side effects). This slice closes the remaining labeling gaps and lands a shared reference matrix.
+- HTTP: `POST /loops/{loop_id}/clarifications/undo`
+- MCP: `clarification.undo`
+- CLI: `cloop clarification undo`
+- Stale-state guard, duplicate-ID validation, partial-undo semantics, rowcount integrity checks
+- Tests for all transports and service-layer edge cases
 
-1. Verify enrichment reject follow-through already uses correct `undo_action: None` + explicit `rollback_label`. If the label is vague, tighten it to say "Reject is irreversible."
-2. Verify stale undo handles across relationship, enrichment, and working-set surfaces return specific reasons (not generic failures). Close any gaps.
-3. Write one shared review follow-through matrix documenting the reversibility tier (reversible / irreversible / best-effort) for every review outcome, covering HTTP, web, CLI, and MCP. Land it in `docs/ux/undo-actions.md` as a reference table.
+## Remaining work
 
-Outcome: every review receipt is honest about reversibility; one reference matrix documents the current state.
+### Slice 1 — Frontend clarification-answer undo contract and dispatcher
+
+Add `ClarificationAnswerUndoHandle` to the shared frontend types and executable undo helpers so the browser can represent and execute answer-only clarification undo from receipts and recent history.
+
+**Why this slice first:** the backend contract is already done. The frontend still cannot represent clarification undo as a typed action, so nothing else can render or execute it safely until the handle exists.
+
+**Changes:**
+
+1. `frontend/src/contracts-ui.ts` — add `ClarificationAnswerUndoHandle`:
+   ```
+   { kind: "clarification_answer"; loopId: number; clarificationIds: number[] }
+   ```
+   Extend `ExecutableUndoHandle` to include it.
+
+2. `frontend/src/executable-undo.ts` — add a shared builder and dispatcher support:
+   - `buildClarificationUndoAction(loopId, clarificationIds)` → `OperatorActionCardUndoAction | null`
+   - `clarification_answer` branch in `executeUndoAction` that POSTs to `/loops/{loopId}/clarifications/undo`
+   - post-undo receipt shaping for restored clarifications and reopened suggestions
+
+3. `frontend/src/executable-undo.test.ts` — regression tests for the new handle, builder, dispatcher, and stale-state 422 handling.
+
+**Acceptance:**
+- `pnpm --dir frontend typecheck` passes
+- `vitest run` passes for the new builder and dispatcher
+- Existing undo flows remain unaffected
+
+### Slice 2 — Browser direct-answer clarification receipt emission
+
+Add the browser-facing answer-only clarification entrypoint on the loop suggestion surface and emit a landed receipt outcome that carries the clarification undo action, so recent history and the command palette can surface it automatically.
+
+**Changes:**
+
+1. Use the existing direct clarification submit helper from `frontend/src/surfaces/api.ts` in the browser surface that owns answer-only clarification entrypoints (the loop suggestion flow, likely `frontend/src/surfaces/suggestions.ts`).
+2. Shape a receipt/outcome from `ClarificationSubmitResponse` and attach the `clarification_answer` undo action to the recorded recent shell action.
+3. Keep the review-session answer+rerun path in the review workspace unchanged and irreversible.
+
+**Acceptance:**
+- A direct answer-only clarification action lands a receipt with Undo available
+- The recent-action feed picks up the answer-only clarification outcome automatically
+- The command palette shows a recent clarification undo command without a separate palette-only code path
+
+### Slice 3 — Review undo parity matrix
+
+Document the reversibility tier, handle kind, transport availability, and stale-state behavior for every review outcome in one reference table in `docs/ux/undo-actions.md`.
+
+**Changes:**
+
+1. Verify enrichment reject uses `undo_action: None` with the generic irreversible rollback label (already done).
+2. Verify stale undo handles across relationship, enrichment, and working-set surfaces return specific reasons (already done in code; verify in docs).
+3. Write one reversibility matrix table in `docs/ux/undo-actions.md` covering all seven review-outcome categories:
+
+| Outcome | Tier | Handle kind | Transports |
+|--------|------|-------------|-----------|
+| Relationship confirm/dismiss | Reversible | `relationship_decision` | HTTP, web, CLI, MCP |
+| Enrichment apply | Reversible | `loop_event` | HTTP, web, CLI, MCP |
+| Enrichment reject | Irreversible | — | HTTP, web, CLI, MCP |
+| Clarification answer-only | Reversible (stale guard) | `clarification_answer` | HTTP, CLI, MCP |
+| Clarification answer+rerun | Irreversible | — | HTTP, web, CLI, MCP |
+| Working-set mutation | Reversible | `working_set_event` | HTTP, web, CLI, MCP |
+| Planning checkpoint | Reversible | `planning_run` | HTTP, web, CLI, MCP |
+
+Each cell documents: whether undo is available from receipt cards, recent history, and command palette; what happens on stale state.
+
+**Acceptance:**
+- Matrix is complete for all seven categories
+- Every cell specifies tier, handle kind, transport availability, and stale-state behavior
+- `make ci` passes
 
 ## Guardrails
 

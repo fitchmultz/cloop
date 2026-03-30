@@ -318,18 +318,16 @@ def clarification_undo(
         ToolError: If the loop or clarification is missing, not answered, or
             a stale-state guard prevents undo.
     """
-    from .. import db
-    from ..settings import get_settings
-
-    settings = get_settings()
-    with db.core_connection(settings) as conn:
-        result = enrichment_review.undo_clarification_answers(
+    return run_idempotent_tool_mutation(
+        tool_name="clarification.undo",
+        request_id=None,
+        payload={"loop_id": loop_id, "clarification_ids": clarification_ids},
+        execute=lambda conn, settings: enrichment_review.undo_clarification_answers(
             loop_id=loop_id,
             clarification_ids=clarification_ids,
             conn=conn,
-        )
-        conn.commit()
-        return result.to_payload()
+        ).to_payload(),
+    )
 
 
 def register_suggestion_tools(mcp: "FastMCP") -> None:

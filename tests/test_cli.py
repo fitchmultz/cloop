@@ -2315,6 +2315,21 @@ def test_clarification_commands(
     exit_code = cli.main(
         [
             "clarification",
+            "undo",
+            "--loop-id",
+            "1",
+            "--clarification-id",
+            str(first_clarification_id),
+        ]
+    )
+    assert exit_code == 0
+    undone = _get_last_json(capsys)
+    assert undone["restored_count"] == 1
+    assert undone["reopened_suggestion_ids"] == [first_suggestion_id]
+
+    exit_code = cli.main(
+        [
+            "clarification",
             "answer-many",
             "--loop-id",
             "1",
@@ -2378,8 +2393,10 @@ def test_clarification_commands(
     exit_code = cli.main(["suggestion", "list", "--loop-id", "1", "--pending"])
     assert exit_code == 0
     pending = _get_last_json(capsys)
-    assert len(pending) == 1
-    assert pending[0]["id"] == refined["enrichment_result"]["suggestion_id"]
+    assert {item["id"] for item in pending} == {
+        first_suggestion_id,
+        refined["enrichment_result"]["suggestion_id"],
+    }
 
 
 def test_memory_commands(

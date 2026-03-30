@@ -209,13 +209,15 @@ def orchestrate_clarification_refinement(
             settings=settings,
         )
     except Exception:
-        enrichment_review.rollback_clarification_submission(
-            clarification_ids=[
-                int(clarification["id"]) for clarification in clarification_result.clarifications
-            ],
-            superseded_suggestion_ids=clarification_result.superseded_suggestion_ids,
-            conn=conn,
-        )
+        with conn:
+            enrichment_review.rollback_clarification_submission(
+                clarification_ids=[
+                    int(clarification["id"])
+                    for clarification in clarification_result.clarifications
+                ],
+                superseded_suggestion_ids=clarification_result.superseded_suggestion_ids,
+                conn=conn,
+            )
         raise
     return ClarificationRefinementResult(
         loop_id=loop_id,

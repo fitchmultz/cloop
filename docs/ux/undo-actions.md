@@ -297,8 +297,7 @@ The command palette should reuse the same executable undo handles already attach
 **Tier**: Irreversible
 
 - The cascading 8-step rollback (new suggestions, loop field mutations, enrichment state, events, embeddings, webhooks) is too fragile to expose as a single atomic undo
-- Review-session follow-through carries `undo_action=None` with explicit `rollback_label`: "Undo is not available for clarification answer+rerun outcomes."
-- Source inventory: `docs/clarification-answer-write-path-inventory.md`
+- Review-session follow-through carries `undo_action=None` with explicit `rollback_label`: "Undo is not available for this enrichment outcome."
 
 ## Open questions
 

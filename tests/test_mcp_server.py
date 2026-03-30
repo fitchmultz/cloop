@@ -82,6 +82,7 @@ from cloop.mcp_tools.suggestion_tools import (
     clarification_answer_many,
     clarification_list,
     clarification_refine,
+    clarification_undo,
     suggestion_apply,
     suggestion_get,
     suggestion_list,
@@ -3498,6 +3499,7 @@ def test_mcp_server_registers_memory_and_review_tools() -> None:
     assert "clarification.answer" in tool_names
     assert "clarification.answer_many" in tool_names
     assert "clarification.refine" in tool_names
+    assert "clarification.undo" in tool_names
     assert "review.relationship_action.create" in tool_names
     assert "review.relationship_action.list" in tool_names
     assert "review.relationship_action.get" in tool_names
@@ -3783,9 +3785,13 @@ def test_clarification_answer_and_answer_many_via_mcp(
     assert batch_result["answered_count"] == 2
     assert batch_result["superseded_suggestion_ids"] == [batch_suggestion_id]
 
+    undo_result = clarification_undo(loop_id=loop_id, clarification_ids=[single_clarification_id])
+    assert undo_result["restored_count"] == 1
+    assert undo_result["reopened_suggestion_ids"] == [single_suggestion_id]
+
     listed_clarifications = clarification_list(loop_id=loop_id)
     answers_by_id = {item["id"]: item["answer"] for item in listed_clarifications["clarifications"]}
-    assert answers_by_id[single_clarification_id] == "Friday"
+    assert answers_by_id[single_clarification_id] is None
     assert answers_by_id[owner_clarification_id] == "Finance"
     assert answers_by_id[cost_clarification_id] == "$500"
 

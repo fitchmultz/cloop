@@ -286,6 +286,68 @@ def test_reject_suggestion(fresh_db, test_loop):
     assert unchanged.title is None
 
 
+def test_apply_suggestion_rolls_back_if_resolution_write_fails(
+    fresh_db,
+    test_loop,
+    monkeypatch,
+):
+    """Applying should roll back loop-field writes if suggestion resolution fails."""
+    suggestion_id = repo.insert_loop_suggestion(
+        loop_id=test_loop["id"],
+        suggestion_json={
+            "title": "New Title",
+            "confidence": {"title": 0.95},
+        },
+        model="test",
+        conn=fresh_db,
+    )
+
+    fresh_db.commit()
+
+    monkeypatch.setattr(enrichment_review.repo, "resolve_loop_suggestion", lambda **kwargs: False)
+
+    with pytest.raises(ValidationError, match="marked applied"):
+        enrichment_review.apply_suggestion(
+            suggestion_id=suggestion_id,
+            fields=["title"],
+            conn=fresh_db,
+            settings=get_settings(),
+        )
+
+    unchanged_loop = repo.read_loop(loop_id=test_loop["id"], conn=fresh_db)
+    suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+
+    assert unchanged_loop is not None
+    assert unchanged_loop.title is None
+    assert suggestion is not None
+    assert suggestion["resolution"] is None
+
+
+def test_reject_suggestion_raises_if_resolution_write_fails(
+    fresh_db,
+    test_loop,
+    monkeypatch,
+):
+    """Rejecting should fail honestly if the suggestion row no longer updates."""
+    suggestion_id = repo.insert_loop_suggestion(
+        loop_id=test_loop["id"],
+        suggestion_json={"title": "Rejected Title"},
+        model="test",
+        conn=fresh_db,
+    )
+
+    fresh_db.commit()
+
+    monkeypatch.setattr(enrichment_review.repo, "resolve_loop_suggestion", lambda **kwargs: False)
+
+    with pytest.raises(ValidationError, match="marked rejected"):
+        enrichment_review.reject_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+
+    suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=fresh_db)
+    assert suggestion is not None
+    assert suggestion["resolution"] is None
+
+
 def test_cannot_resolve_twice(fresh_db, test_loop):
     """Test that a suggestion cannot be resolved twice."""
     suggestion_id = repo.insert_loop_suggestion(
@@ -747,6 +809,33 @@ class TestClarificationLifecycle:
             assert data["answered_count"] == 2
             assert len(data["clarifications"]) == 2
             assert data["superseded_suggestion_ids"] == [suggestion_id]
+
+            undo_response = client.post(
+                f"/loops/{loop['id']}/clarifications/undo",
+                json={"clarification_ids": [first_clarification_id]},
+            )
+            assert undo_response.status_code == 200
+            undo_data = undo_response.json()
+            assert undo_data["restored_count"] == 1
+            assert undo_data["reopened_suggestion_ids"] == []
+
+            with db.core_connection(settings) as conn:
+                first_clarification = repo.read_loop_clarification(
+                    clarification_id=first_clarification_id,
+                    conn=conn,
+                )
+                second_clarification = repo.read_loop_clarification(
+                    clarification_id=second_clarification_id,
+                    conn=conn,
+                )
+                suggestion = repo.read_loop_suggestion(suggestion_id=suggestion_id, conn=conn)
+
+            assert first_clarification is not None
+            assert first_clarification["answer"] is None
+            assert second_clarification is not None
+            assert second_clarification["answer"] == "Friday"
+            assert suggestion is not None
+            assert suggestion["resolution"] == "superseded"
 
     def test_api_refine_clarification_endpoint(self, monkeypatch):
         """POST /{loop_id}/clarifications/refine answers and reruns enrichment."""

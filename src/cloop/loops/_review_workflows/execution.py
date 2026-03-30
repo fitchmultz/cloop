@@ -401,7 +401,7 @@ def _enrichment_follow_through(
                 "rollback_label": (
                     "Undo remains available for this enrichment change."
                     if undo_action is not None
-                    else "Undo is not available for clarification answer+rerun outcomes."
+                    else "Undo is not available for this enrichment outcome."
                 ),
                 "rollback_tone": "attention" if undo_action is not None else "neutral",
                 "impact_summary": summary,
