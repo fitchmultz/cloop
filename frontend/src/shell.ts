@@ -48,6 +48,7 @@ import {
 import {
   createLocation,
   DEFAULT_LOCATION,
+  isWorkState,
   locationToHash,
   locationsMatch,
   normalizeLocation,
@@ -153,6 +154,20 @@ function syncNavState(location: ShellLocation): void {
   elements.recallSubnav.hidden = !showRecallSubnav;
   elements.recallButtons.forEach((button) => {
     const isActive = button.dataset["recallTool"] === location.recallTool;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+
+  const showWorkSubnav = isWorkState(location.state);
+  elements.workSubnav.hidden = !showWorkSubnav;
+  elements.mobileWorkButton.classList.toggle("active", showWorkSubnav);
+  if (showWorkSubnav) {
+    elements.mobileWorkButton.setAttribute("aria-current", "page");
+  } else {
+    elements.mobileWorkButton.removeAttribute("aria-current");
+  }
+  elements.workButtons.forEach((button) => {
+    const isActive = button.dataset["workState"] === location.state;
     button.classList.toggle("active", isActive);
     button.setAttribute("aria-pressed", isActive ? "true" : "false");
   });

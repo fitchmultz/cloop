@@ -90,7 +90,7 @@ Within any state, the user can jump to concrete objects:
 - **No saved sessions in a state**: state still explains purpose and offers setup actions.
 - **Deep-linked object**: shell still reflects the parent work state.
 - **Unavailable AI/RAG**: state remains usable with deterministic tools.
-- **Mobile layout**: states must remain clear without forcing dense tab rows.
+- **Mobile layout**: small screens collapse Do, Decide, Plan, and Review under a single top-level Work entry with a secondary mode switcher, while deep links and desktop states remain unchanged.
 
 ## Contract implications
 
@@ -112,5 +112,4 @@ Within any state, the user can jump to concrete objects:
 
 ## Open questions
 
-- Should Do and Review remain distinct top-level states on small screens or collapse into a single Work state with strong filters?
 - Where should grounded chat live in the new shell: as a Recall tool, a persistent assistant, or both?

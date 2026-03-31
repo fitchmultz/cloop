@@ -127,6 +127,11 @@
   box-shadow: var(--shadow-sm);
 }
 
+.state-nav-btn--mobile-work,
+.state-subnav--work {
+  display: none;
+}
+
 .state-nav-btn:hover {
   background: rgba(214, 107, 63, 0.08);
 }
@@ -819,6 +824,15 @@ body.shell-focus-mode .operator-grid {
     text-align: left;
   }
 
+  .state-nav-btn--desktop-work {
+    display: none;
+  }
+
+  .state-nav-btn--mobile-work,
+  .state-subnav--work {
+    display: flex;
+  }
+
   .state-nav {
     display: flex;
     overflow-x: auto;
@@ -834,6 +848,10 @@ body.shell-focus-mode .operator-grid {
 
   .state-subnav {
     align-items: start;
+  }
+
+  .state-subnav--work {
+    padding-top: var(--space-2);
   }
 
   .command-palette-panel {

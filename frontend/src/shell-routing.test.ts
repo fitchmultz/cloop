@@ -21,7 +21,15 @@
  *   - Hash routes remain the canonical shareable shell URL format.
  */
 
-import { createLocation, locationToHash, locationsMatch, parseHash, workingSetSessionLocation } from "./shell-routing";
+import {
+  createLocation,
+  defaultLocationForState,
+  isWorkState,
+  locationToHash,
+  locationsMatch,
+  parseHash,
+  workingSetSessionLocation,
+} from "./shell-routing";
 
 describe("createLocation", () => {
   it("fills in shell defaults for omitted fields", () => {
@@ -36,6 +44,28 @@ describe("createLocation", () => {
       workingSetId: null,
       query: null,
     });
+  });
+});
+
+describe("defaultLocationForState", () => {
+  it("preserves working-set scope when switching between states", () => {
+    expect(
+      defaultLocationForState("review", createLocation({ state: "do", loopId: 42, workingSetId: 9 })),
+    ).toEqual(createLocation({ state: "review", reviewFocus: "cohorts", workingSetId: 9 }));
+  });
+
+  it("preserves the current work deep link when reopening the same work state", () => {
+    expect(
+      defaultLocationForState("plan", createLocation({ state: "plan", reviewFocus: "planning", sessionId: 12, workingSetId: 4 })),
+    ).toEqual(createLocation({ state: "plan", reviewFocus: "planning", sessionId: 12, workingSetId: 4 }));
+  });
+});
+
+describe("isWorkState", () => {
+  it("recognizes the mobile work-state cluster", () => {
+    expect(isWorkState("do")).toBe(true);
+    expect(isWorkState("review")).toBe(true);
+    expect(isWorkState("recall")).toBe(false);
   });
 });
 

@@ -37,6 +37,8 @@ const DECISION_REVIEW_FOCI: Array<Extract<ReviewFocus, "relationship" | "enrichm
   "enrichment",
   "cohorts",
 ];
+export const WORK_STATES = ["do", "decide", "plan", "review"] as const satisfies readonly ShellState[];
+export type WorkState = (typeof WORK_STATES)[number];
 
 export const DEFAULT_LOCATION: ShellLocation = {
   state: "operator",
@@ -182,6 +184,75 @@ export function workingSetSessionLocation(workingSetId: number | null): ShellLoc
     state: "working_set",
     workingSetId,
   });
+}
+
+export function isWorkState(state: ShellState | null | undefined): state is WorkState {
+  return state != null && WORK_STATES.includes(state as WorkState);
+}
+
+export function defaultLocationForState(
+  state: ShellState,
+  currentLocation: Partial<ShellLocationInput> = {},
+): ShellLocation {
+  const workingSetId = currentLocation.workingSetId ?? null;
+
+  switch (state) {
+    case "operator":
+      return createLocation({ state, workingSetId });
+    case "capture":
+      return createLocation({
+        state,
+        viewId: currentLocation.state === "capture" ? (currentLocation.viewId ?? null) : null,
+        query: currentLocation.state === "capture" ? (currentLocation.query ?? null) : null,
+        workingSetId,
+      });
+    case "do":
+      return createLocation({
+        state,
+        loopId: currentLocation.state === "do" ? (currentLocation.loopId ?? null) : null,
+        query: currentLocation.state === "do" ? (currentLocation.query ?? null) : null,
+        workingSetId,
+      });
+    case "decide":
+      return createLocation({
+        state,
+        reviewFocus:
+          currentLocation.state === "decide"
+            ? (currentLocation.reviewFocus ?? "relationship")
+            : "relationship",
+        sessionId: currentLocation.state === "decide" ? (currentLocation.sessionId ?? null) : null,
+        workingSetId,
+      });
+    case "plan":
+      return createLocation({
+        state,
+        reviewFocus: "planning",
+        sessionId: currentLocation.state === "plan" ? (currentLocation.sessionId ?? null) : null,
+        workingSetId,
+      });
+    case "review":
+      return createLocation({
+        state,
+        reviewFocus: "cohorts",
+        query: currentLocation.state === "review" ? (currentLocation.query ?? null) : null,
+        workingSetId,
+      });
+    case "recall":
+      return createLocation({
+        state,
+        recallTool: currentLocation.recallTool ?? DEFAULT_LOCATION.recallTool,
+        memoryId: currentLocation.state === "recall" && currentLocation.recallTool === "memory"
+          ? (currentLocation.memoryId ?? null)
+          : null,
+        query: currentLocation.state === "recall" ? (currentLocation.query ?? null) : null,
+        workingSetId,
+      });
+    case "working_set":
+      return createLocation({
+        state,
+        workingSetId: currentLocation.workingSetId ?? null,
+      });
+  }
 }
 
 export function openLocationAttributes(location: ShellLocationContract): string {

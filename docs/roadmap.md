@@ -44,11 +44,7 @@ Current product goals:
 
 ## Next execution slices
 
-1. **Small-screen Work-state cutover**
-   - Collapse `Do` and `Review` into a mobile-first `Work` state while preserving desktop separation, deep links, working-set context, and command-palette navigation.
-   - Finish the shell/state-routing copy and surface wiring so small screens stop paying for desktop navigation complexity.
-   - Acceptance source: `docs/ux/state-navigation.md`, `docs/ux/operator-workspace.md`, `docs/ux/working-sets.md`.
-2. **Grounded Recall chat handoffs**
+1. **Grounded Recall chat handoffs**
    - Make grounded chat a first-class Recall destination that can launch from operator cards, planning follow-through, and review outcomes with preserved loop/memory/RAG context.
    - Keep the handoff contract shared across HTTP, web, CLI, and MCP so recall-oriented chat stops drifting from other workflow surfaces.
    - Acceptance source: `docs/ux/state-navigation.md`, `docs/ux/workflow-handoffs.md`, `docs/ux/experience-vision.md`.

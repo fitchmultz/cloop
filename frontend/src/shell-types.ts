@@ -84,8 +84,11 @@ export interface ShellElements {
   commandPaletteButton: HTMLButtonElement;
   createWorkingSetButton: HTMLButtonElement;
   stateButtons: HTMLButtonElement[];
+  mobileWorkButton: HTMLButtonElement;
   recallSubnav: HTMLElement;
   recallButtons: HTMLButtonElement[];
+  workSubnav: HTMLElement;
+  workButtons: HTMLButtonElement[];
   operatorNow: HTMLElement;
   operatorDecisions: HTMLElement;
   operatorPlan: HTMLElement;

@@ -38,7 +38,15 @@ import {
   REVIEW_FOCUS_EVENT,
   WORKSPACE_REFRESH_EVENT,
 } from "./shell-core";
-import { createLocation, DEFAULT_LOCATION, parseHash, readPersistedLocation, workingSetSessionLocation } from "./shell-routing";
+import {
+  createLocation,
+  DEFAULT_LOCATION,
+  defaultLocationForState,
+  isWorkState,
+  parseHash,
+  readPersistedLocation,
+  workingSetSessionLocation,
+} from "./shell-routing";
 import type { ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
 
 export interface ShellEventController {
@@ -133,8 +141,18 @@ export function createShellEventController(
 
     const recallButton = target.closest<HTMLButtonElement>("[data-recall-tool]");
     if (recallButton) {
-      const recallTool = (recallButton.dataset["recallTool"] as RecallTool | undefined) ?? options.getCurrentLocation().recallTool;
-      await options.applyLocation(createLocation({ state: "recall", recallTool }));
+      const currentLocation = options.getCurrentLocation();
+      const recallTool = (recallButton.dataset["recallTool"] as RecallTool | undefined) ?? currentLocation.recallTool;
+      await options.applyLocation(defaultLocationForState("recall", { ...currentLocation, recallTool }));
+      return;
+    }
+
+    const workButton = target.closest<HTMLButtonElement>("[data-work-state]");
+    if (workButton) {
+      const workState = workButton.dataset["workState"] as ShellState | undefined;
+      if (workState) {
+        await options.applyLocation(defaultLocationForState(workState, options.getCurrentLocation()));
+      }
       return;
     }
 
@@ -267,15 +285,10 @@ export function createShellEventController(
       return;
     }
     const currentLocation = options.getCurrentLocation();
-    const nextLocation =
-      state === "recall"
-        ? createLocation({ state, recallTool: currentLocation.recallTool })
-        : state === "plan"
-          ? createLocation({ state, reviewFocus: "planning" })
-          : state === "review"
-            ? createLocation({ state, reviewFocus: "cohorts" })
-            : createLocation({ state });
-    void options.applyLocation(nextLocation);
+    const nextState = button.dataset["shellMobileWork"]
+      ? (isWorkState(currentLocation.state) ? currentLocation.state : "do")
+      : state;
+    void options.applyLocation(defaultLocationForState(nextState, currentLocation));
   }
 
   function handlePrimaryActionClick(): void {
@@ -332,13 +345,13 @@ export function createShellEventController(
 
     const currentLocation = options.getCurrentLocation();
     const mapping: Record<string, ShellLocation> = {
-      "1": DEFAULT_LOCATION,
-      "2": createLocation({ state: "capture" }),
-      "3": createLocation({ state: "do" }),
-      "4": createLocation({ state: "decide", reviewFocus: currentLocation.reviewFocus ?? "relationship" }),
-      "5": createLocation({ state: "plan", reviewFocus: "planning" }),
-      "6": createLocation({ state: "review", reviewFocus: "cohorts" }),
-      "7": createLocation({ state: "recall", recallTool: currentLocation.recallTool }),
+      "1": defaultLocationForState("operator", currentLocation),
+      "2": defaultLocationForState("capture", currentLocation),
+      "3": defaultLocationForState("do", currentLocation),
+      "4": defaultLocationForState("decide", currentLocation),
+      "5": defaultLocationForState("plan", currentLocation),
+      "6": defaultLocationForState("review", currentLocation),
+      "7": defaultLocationForState("recall", currentLocation),
     };
 
     const location = mapping[event.key];

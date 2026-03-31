@@ -23,7 +23,7 @@
       <div>
         <p class="shell-kicker">Cloop operator system</p>
         <h1>Cloop Loops <span id="sse-status" class="sse-status reconnecting" title="Connecting..."></span></h1>
-        <p id="shell-description">Open to one calm workspace, then move through capture, do, decide, plan, review, and recall without translating subsystem names.</p>
+        <p id="shell-description">Open to one calm workspace, then move through capture, work, and recall without translating subsystem names.</p>
       </div>
       <div class="shell-header-actions">
         <button type="button" id="shell-primary-action" data-shell-primary-action>Capture something</button>
@@ -65,12 +65,23 @@
     <nav class="state-nav" aria-label="Work states">
       <button class="state-nav-btn active" type="button" data-shell-state="operator" aria-current="page">Home<span class="shortcut-hint">1</span></button>
       <button class="state-nav-btn" type="button" data-shell-state="capture">Capture<span class="shortcut-hint">2</span></button>
-      <button class="state-nav-btn" type="button" data-shell-state="do">Do<span class="shortcut-hint">3</span></button>
-      <button class="state-nav-btn" type="button" data-shell-state="decide">Decide<span class="shortcut-hint">4</span></button>
-      <button class="state-nav-btn" type="button" data-shell-state="plan">Plan<span class="shortcut-hint">5</span></button>
-      <button class="state-nav-btn" type="button" data-shell-state="review">Review<span class="shortcut-hint">6</span></button>
+      <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="do">Do<span class="shortcut-hint">3</span></button>
+      <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="decide">Decide<span class="shortcut-hint">4</span></button>
+      <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="plan">Plan<span class="shortcut-hint">5</span></button>
+      <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="review">Review<span class="shortcut-hint">6</span></button>
+      <button class="state-nav-btn state-nav-btn--mobile-work" type="button" id="shell-mobile-work-btn" data-shell-state="do" data-shell-mobile-work="true">Work<span class="shortcut-hint">3–6</span></button>
       <button class="state-nav-btn" type="button" data-shell-state="recall">Recall<span class="shortcut-hint">7</span></button>
     </nav>
+
+    <div id="work-subnav" class="state-subnav state-subnav--work" hidden>
+      <p class="support-eyebrow">Work modes</p>
+      <div class="state-subnav-actions" role="group" aria-label="Work modes">
+        <button class="secondary state-subnav-btn" type="button" data-work-state="do">Do</button>
+        <button class="secondary state-subnav-btn" type="button" data-work-state="decide">Decide</button>
+        <button class="secondary state-subnav-btn" type="button" data-work-state="plan">Plan</button>
+        <button class="secondary state-subnav-btn" type="button" data-work-state="review">Review</button>
+      </div>
+    </div>
 
     <div id="recall-subnav" class="state-subnav" hidden>
       <p class="support-eyebrow">Recall tools</p>
