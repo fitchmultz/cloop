@@ -107,6 +107,15 @@ function activeCommandButton(): HTMLButtonElement {
   return match;
 }
 
+function activeCommandGroup(): string {
+  const group = activeCommandButton().closest<HTMLElement>(".command-palette-group");
+  const label = group?.getAttribute("aria-label")?.trim();
+  if (!label) {
+    throw new Error("Missing active command group");
+  }
+  return label;
+}
+
 async function settle(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -608,5 +617,25 @@ describe("command-palette keyboard navigation", () => {
 
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true }));
     expect(activeCommandButton().dataset["commandId"]).toBe(initial);
+  });
+
+  it("jumps between result groups with PageDown and PageUp while keeping focus in the search field", async () => {
+    buildPaletteDom();
+    const controller = createController();
+
+    controller.open();
+    await settle();
+
+    const input = document.getElementById("command-palette-input") as HTMLInputElement;
+    const initialGroup = activeCommandGroup();
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "PageDown", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(input);
+    const nextGroup = activeCommandGroup();
+    expect(nextGroup).not.toBe(initialGroup);
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "PageUp", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(input);
+    expect(activeCommandGroup()).toBe(initialGroup);
   });
 });

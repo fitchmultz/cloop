@@ -2632,7 +2632,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     elements.detail.innerHTML = current
       ? buildDetailHtml(current, selectedLoopIdList().length)
       : '<p class="command-palette-empty-detail">Choose a command to see detail.</p>';
-    elements.status.textContent = `${commands.length} command${commands.length === 1 ? "" : "s"} ranked by current state, focus context, and recent usage.`;
+    elements.status.textContent = `${commands.length} command${commands.length === 1 ? "" : "s"} ranked by current state, focus context, and recent usage. Use ↑↓, Tab, Ctrl+N/P, or PageUp/PageDown to move.`;
   }
 
   function syncActiveCommand(nextId: string): void {
@@ -2648,25 +2648,76 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       : '<p class="command-palette-empty-detail">Choose a command to see detail.</p>';
   }
 
-  function moveSelection(step: 1 | -1): void {
-    if (!visibleCommands.length) {
-      return;
+  function scrollCommandIntoView(commandId: string): void {
+    const activeButton = elements.results.querySelector<HTMLElement>(
+      `[data-command-id="${escapeAttributeSelector(commandId)}"]`,
+    );
+    if (typeof activeButton?.scrollIntoView === "function") {
+      activeButton.scrollIntoView({ block: "nearest" });
     }
-    const index = visibleCommands.findIndex((command) => command.id === activeCommandId);
-    const nextIndex = index < 0
-      ? 0
-      : (index + step + visibleCommands.length) % visibleCommands.length;
+  }
+
+  function activeCommandIndex(): number {
+    return visibleCommands.findIndex((command) => command.id === activeCommandId);
+  }
+
+  function moveSelectionToIndex(nextIndex: number): void {
     const nextCommand = visibleCommands[nextIndex] ?? null;
     if (!nextCommand) {
       return;
     }
     syncActiveCommand(nextCommand.id);
-    const activeButton = elements.results.querySelector<HTMLElement>(
-      `[data-command-id="${escapeAttributeSelector(nextCommand.id)}"]`,
-    );
-    if (typeof activeButton?.scrollIntoView === "function") {
-      activeButton.scrollIntoView({ block: "nearest" });
+    scrollCommandIntoView(nextCommand.id);
+  }
+
+  function moveSelection(step: 1 | -1): void {
+    if (!visibleCommands.length) {
+      return;
     }
+    const index = activeCommandIndex();
+    const nextIndex = index < 0
+      ? 0
+      : (index + step + visibleCommands.length) % visibleCommands.length;
+    moveSelectionToIndex(nextIndex);
+  }
+
+  function moveSelectionByGroup(step: 1 | -1): void {
+    if (!visibleCommands.length) {
+      return;
+    }
+    const index = activeCommandIndex();
+    if (index < 0) {
+      moveSelectionToIndex(step === 1 ? 0 : visibleCommands.length - 1);
+      return;
+    }
+
+    const currentGroup = visibleCommands[index]?.group ?? null;
+    if (!currentGroup) {
+      return;
+    }
+
+    if (step === 1) {
+      const nextIndex = visibleCommands.findIndex((command, commandIndex) => {
+        return commandIndex > index && command.group !== currentGroup;
+      });
+      moveSelectionToIndex(nextIndex >= 0 ? nextIndex : visibleCommands.length - 1);
+      return;
+    }
+
+    for (let commandIndex = index - 1; commandIndex >= 0; commandIndex -= 1) {
+      const candidateGroup = visibleCommands[commandIndex]?.group;
+      if (!candidateGroup || candidateGroup === currentGroup) {
+        continue;
+      }
+      let groupStartIndex = commandIndex;
+      while (groupStartIndex > 0 && visibleCommands[groupStartIndex - 1]?.group === candidateGroup) {
+        groupStartIndex -= 1;
+      }
+      moveSelectionToIndex(groupStartIndex);
+      return;
+    }
+
+    moveSelectionToIndex(0);
   }
 
   async function runCommand(command: CommandPaletteCommand | null): Promise<void> {
@@ -2736,6 +2787,16 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     if (event.key === "ArrowUp" || (event.shiftKey && event.key === "Tab") || (ctrlNavigation && key === "p")) {
       event.preventDefault();
       moveSelection(-1);
+      return;
+    }
+    if (event.key === "PageDown") {
+      event.preventDefault();
+      moveSelectionByGroup(1);
+      return;
+    }
+    if (event.key === "PageUp") {
+      event.preventDefault();
+      moveSelectionByGroup(-1);
       return;
     }
     if (event.key === "Enter") {

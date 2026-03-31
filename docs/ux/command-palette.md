@@ -99,6 +99,7 @@ The palette should rank using:
 ## Contract defaults
 
 - The web shell exposes a global palette via the header button, `⌘K` / `Ctrl+K`, and `/`.
+- While the palette is open, result focus stays in the search field and supports `↑` / `↓`, `Tab` / `Shift+Tab`, `Ctrl+N` / `Ctrl+P`, and `PageUp` / `PageDown` group jumps.
 - Result ranking is deterministic and combines query match, current shell state, active working-set focus locations and filters, selected loops, local recent-command history, and canonical landed-outcome continuity rank.
 - The Recent group derives from the same ranked landed-outcome feed that powers operator home and the receipt rail, so resume and undo affordances stay ordered and worded consistently across surfaces.
 - When a bounded working set is active, working-set-scoped plan/review resumes outrank generic saved-session resumes when the canonical follow-through feed says that scope is the real landed context.
