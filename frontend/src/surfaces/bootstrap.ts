@@ -53,6 +53,7 @@ import { updateBulkActionBar } from "./bulk";
 
 interface ActivateSurfaceOptions {
   doQuery?: string;
+  doLoopId?: number | null;
 }
 
 type CaptureResult = SurfaceLoop & {
@@ -234,7 +235,11 @@ async function activateSurfaceInternal(
     ]);
   }
   if (tabName === "next") {
-    await next.loadNext({ query: options.doQuery ?? "" });
+    if (options.doLoopId != null) {
+      await next.loadFocusedLoop(options.doLoopId);
+    } else {
+      await next.loadNext({ query: options.doQuery ?? "" });
+    }
   }
   if (tabName === "memory") {
     await memory.loadMemories();
@@ -1294,17 +1299,26 @@ export async function activateSurface(
   await activateSurfaceInternal(requestedTabName, options);
 }
 
-export async function refreshSurface(requestedTabName: unknown): Promise<void> {
+export async function refreshSurface(
+  requestedTabName: unknown,
+  options: ActivateSurfaceOptions = {},
+): Promise<void> {
   initializeSurfaceRuntime();
-  await activateSurfaceInternal(requestedTabName, {
-    doQuery: elements.nextQueryFilter.value.trim(),
-  });
+  const nextOptions: ActivateSurfaceOptions = {
+    doQuery: options.doQuery ?? elements.nextQueryFilter.value.trim(),
+    doLoopId: options.doLoopId ?? null,
+  };
+  await activateSurfaceInternal(requestedTabName, nextOptions);
   if (requestedTabName === "inbox") {
     await loop.loadInbox();
     return;
   }
   if (requestedTabName === "next") {
-    await next.loadNext({ query: elements.nextQueryFilter.value.trim() });
+    if (nextOptions.doLoopId != null) {
+      await next.loadFocusedLoop(nextOptions.doLoopId);
+      return;
+    }
+    await next.loadNext({ query: nextOptions.doQuery ?? "" });
     return;
   }
   if (requestedTabName === "memory") {

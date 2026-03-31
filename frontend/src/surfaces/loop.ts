@@ -24,7 +24,7 @@
 
 import { createReceiptCard, withReceiptOutcome } from "../action-receipts";
 import { recordRecentShellAction } from "../continuity-intelligence";
-import { createLocation } from "../shell-routing";
+import { createLocation, parseHash } from "../shell-routing";
 import * as api from "./api";
 import * as next from "./next";
 import * as render from "./render";
@@ -158,7 +158,12 @@ function queueNextRefresh(): void {
     if (!nextBuckets) {
       return;
     }
-    await next.loadNext();
+    const location = parseHash(window.location.hash);
+    if (location?.state === "do" && location.loopId != null) {
+      await next.loadFocusedLoop(location.loopId);
+      return;
+    }
+    await next.loadNext(location?.state === "do" ? { query: location.query ?? "" } : {});
   });
 }
 

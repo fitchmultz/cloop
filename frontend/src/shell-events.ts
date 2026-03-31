@@ -125,6 +125,43 @@ export function createShellEventController(
       return;
     }
 
+    const stateButton = target.closest<HTMLButtonElement>("[data-shell-state]");
+    if (stateButton) {
+      handleStateButtonClick(stateButton);
+      return;
+    }
+
+    const recallButton = target.closest<HTMLButtonElement>("[data-recall-tool]");
+    if (recallButton) {
+      const recallTool = (recallButton.dataset["recallTool"] as RecallTool | undefined) ?? options.getCurrentLocation().recallTool;
+      await options.applyLocation(createLocation({ state: "recall", recallTool }));
+      return;
+    }
+
+    const primaryActionButton = target.closest<HTMLButtonElement>("#shell-primary-action");
+    if (primaryActionButton) {
+      handlePrimaryActionClick();
+      return;
+    }
+
+    if (target.closest<HTMLButtonElement>("#shell-refresh-workspace-btn")) {
+      await options.renderOperatorWorkspace();
+      return;
+    }
+
+    if (target.closest<HTMLButtonElement>("#shell-command-palette-btn")) {
+      commandPaletteController?.open();
+      return;
+    }
+
+    if (target.closest<HTMLButtonElement>("#operator-create-working-set-btn")) {
+      const created = await options.createWorkingSetViaDialog();
+      if (created) {
+        await options.applyLocation(workingSetSessionLocation(created.id));
+      }
+      return;
+    }
+
     const createButton = target.closest<HTMLButtonElement>("[data-working-set-create]");
     if (createButton) {
       const created = await options.createWorkingSetViaDialog();
@@ -344,31 +381,8 @@ export function createShellEventController(
       runDocumentAsk: async (query) => options.openDocumentAskWithQuery(query),
     });
 
-    elements.stateButtons.forEach((button) => {
-      if (button.dataset["shellState"]) {
-        button.addEventListener("click", () => handleStateButtonClick(button));
-      }
-    });
-    elements.recallButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const recallTool = (button.dataset["recallTool"] as RecallTool | undefined) ?? options.getCurrentLocation().recallTool;
-        void options.applyLocation(createLocation({ state: "recall", recallTool }));
-      });
-    });
-    elements.shellPrimaryAction.addEventListener("click", handlePrimaryActionClick);
-    elements.refreshWorkspaceButton.addEventListener("click", () => {
-      void options.renderOperatorWorkspace();
-    });
-    elements.commandPaletteButton.addEventListener("click", () => {
-      commandPaletteController?.open();
-    });
-    elements.createWorkingSetButton.addEventListener("click", () => {
-      void (async () => {
-        const created = await options.createWorkingSetViaDialog();
-        if (created) {
-          await options.applyLocation(workingSetSessionLocation(created.id));
-        }
-      })();
+    document.addEventListener("click", (event) => {
+      void handleShellClick(event);
     });
     elements.workingSetFocusToggleButton.addEventListener("click", () => {
       const activeId = options.getWorkingSetContext()?.active_working_set_id ?? null;
@@ -379,19 +393,6 @@ export function createShellEventController(
     });
     elements.workingSetExitFocusButton.addEventListener("click", () => {
       void options.setWorkingSetContext(null, false);
-    });
-    [
-      elements.operatorMain,
-      elements.operatorWorkingSet,
-      elements.workingSetMain,
-      elements.workingSetFocusItems,
-      elements.chatMain,
-      elements.memoryMain,
-      elements.ragMain,
-    ].forEach((element) => {
-      element.addEventListener("click", (event) => {
-        void handleShellClick(event);
-      });
     });
     window.addEventListener("hashchange", handleHashChange);
     window.addEventListener("keydown", handleShellHotkeys, { capture: true });

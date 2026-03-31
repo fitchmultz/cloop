@@ -284,6 +284,11 @@ async function focusLoopCard(loopId: number): Promise<void> {
   emphasizeElement(card);
 }
 
+async function activateFocusedDoLoop(loopId: number): Promise<void> {
+  const module = await import("./surfaces/bootstrap");
+  await module.activateSurface("next", { doLoopId: loopId });
+}
+
 async function selectViewFilter(viewId: number | null): Promise<void> {
   if (viewId == null) {
     return;
@@ -578,6 +583,7 @@ async function applyLocation(
 
   if (currentLocation.state === "do") {
     if (currentLocation.loopId != null) {
+      await activateFocusedDoLoop(currentLocation.loopId);
       void focusLoopCard(currentLocation.loopId);
     }
     if (currentLocation.query) {

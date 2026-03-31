@@ -81,6 +81,37 @@ export async function loadNext(options: NextLoadOptions = {}): Promise<void> {
   }
 }
 
+export async function loadFocusedLoop(loopId: number): Promise<void> {
+  if (!nextBucketsEl) {
+    return;
+  }
+
+  if (nextQueryFilterEl && nextQueryFilterEl.value) {
+    nextQueryFilterEl.value = "";
+  }
+
+  try {
+    const loop = await api.fetchLoop(loopId);
+    if (!loop) {
+      nextBucketsEl.innerHTML = `
+        <section class="next-bucket bucket-query-results">
+          <div class="next-bucket-header">
+            <div>
+              <h3 class="next-bucket-title">Focused loop</h3>
+              <p class="next-bucket-description">Loop #${loopId} is no longer available.</p>
+            </div>
+            <span class="next-bucket-count">0</span>
+          </div>
+        </section>
+      `;
+      return;
+    }
+    renderFocusedLoop(loop);
+  } catch (error: unknown) {
+    nextBucketsEl.innerHTML = `<p class="error">Failed to load focused loop: ${escapeHtml(messageFromError(error, `Failed to load loop #${loopId}.`))}</p>`;
+  }
+}
+
 function normalizeBuckets(data: NextLoopsResponse): NextBucket[] {
   const bucketTitles: Record<keyof NextLoopsResponse, string> = {
     due_soon: "Due soon",
@@ -178,6 +209,31 @@ function renderQueryResults(items: SurfaceLoop[], query: string): void {
   items.forEach((item) => {
     list.appendChild(renderLoop(item, { surface: "next" }));
   });
+}
+
+function renderFocusedLoop(loop: SurfaceLoop): void {
+  if (!nextBucketsEl) {
+    return;
+  }
+
+  nextBucketsEl.innerHTML = `
+    <section class="next-bucket bucket-query-results">
+      <div class="next-bucket-header">
+        <div>
+          <h3 class="next-bucket-title">Focused loop</h3>
+          <p class="next-bucket-description">Direct handoff from review or operator context.</p>
+        </div>
+        <span class="next-bucket-count">1</span>
+      </div>
+      <div class="next-bucket-list"></div>
+    </section>
+  `;
+
+  const list = nextBucketsEl.querySelector(".next-bucket-list");
+  if (!(list instanceof HTMLElement)) {
+    return;
+  }
+  list.appendChild(renderLoop(loop, { surface: "next" }));
 }
 
 function handleNextBucketClick(event: MouseEvent): void {

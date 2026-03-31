@@ -32,6 +32,8 @@ export interface CaptureSurfaceContract {
 
 export interface DoSurfaceContract {
   state: "do";
+  loopId?: number | null;
+  query?: string | null;
 }
 
 export interface RecallSurfaceContract {
@@ -58,6 +60,8 @@ export interface FrontendSurfaceRegistry {
 interface ShellSurfaceLocation {
   state: ShellState;
   recallTool: RecallTool;
+  loopId?: number | null;
+  query?: string | null;
   workingSetId?: number | null;
 }
 
@@ -91,7 +95,11 @@ export function contractFromLocation(location: ShellSurfaceLocation): SurfaceLau
     return { state: "capture" };
   }
   if (location.state === "do") {
-    return { state: "do" };
+    return {
+      state: "do",
+      loopId: location.loopId ?? null,
+      query: location.query ?? null,
+    };
   }
   if (location.state === "recall") {
     return {
@@ -116,7 +124,9 @@ export function bootstrapFrontendSurfaceRegistry(): FrontendSurfaceRegistry {
         return;
       }
       const module = await loadSurfaceRuntimeModule();
-      await module.activateSurface(key);
+      await module.activateSurface(key, contract.state === "do"
+        ? { doLoopId: contract.loopId ?? null, doQuery: contract.query ?? "" }
+        : {});
     },
     async refresh(contract: SurfaceLaunchContract): Promise<void> {
       const key = surfaceKeyFromContract(contract);
@@ -124,7 +134,9 @@ export function bootstrapFrontendSurfaceRegistry(): FrontendSurfaceRegistry {
         return;
       }
       const module = await loadSurfaceRuntimeModule();
-      await module.refreshSurface(key);
+      await module.refreshSurface(key, contract.state === "do"
+        ? { doLoopId: contract.loopId ?? null, doQuery: contract.query ?? "" }
+        : {});
     },
   };
 }
