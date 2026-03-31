@@ -44,4 +44,7 @@ Current product goals:
 
 ## Next execution slices
 
-No queued execution slices right now. Add the next acceptance-backed end-to-end slice here.
+1. **Recall landed receipts + continuity cutover**
+   - Record recall-side landed outcomes as first-class receipts so grounded chat, memory, and document follow-through reopen from the landed result instead of the entry query or launch surface.
+   - Keep the receipt, continuity, command-palette Recent, and operator receipt-rail contracts aligned across HTTP, web, CLI, and MCP so recall-side outcomes stop drifting from planning/review continuity behavior.
+   - Acceptance source: `docs/ux/outcome-continuity.md`, `docs/ux/ai-action-cards.md`, `docs/ux/command-palette.md`.
