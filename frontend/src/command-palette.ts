@@ -247,6 +247,13 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function escapeAttributeSelector(value: string): string {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(value);
+  }
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
 function normalizeText(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -2654,8 +2661,12 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       return;
     }
     syncActiveCommand(nextCommand.id);
-    const activeButton = elements.results.querySelector<HTMLElement>(`[data-command-id="${CSS.escape(nextCommand.id)}"]`);
-    activeButton?.scrollIntoView({ block: "nearest" });
+    const activeButton = elements.results.querySelector<HTMLElement>(
+      `[data-command-id="${escapeAttributeSelector(nextCommand.id)}"]`,
+    );
+    if (typeof activeButton?.scrollIntoView === "function") {
+      activeButton.scrollIntoView({ block: "nearest" });
+    }
   }
 
   async function runCommand(command: CommandPaletteCommand | null): Promise<void> {
@@ -2714,12 +2725,15 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     void renderCommands();
   });
   elements.input.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowDown") {
+    const key = event.key.toLowerCase();
+    const ctrlNavigation = event.ctrlKey && !event.metaKey && !event.altKey;
+
+    if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey) || (ctrlNavigation && key === "n")) {
       event.preventDefault();
       moveSelection(1);
       return;
     }
-    if (event.key === "ArrowUp") {
+    if (event.key === "ArrowUp" || (event.shiftKey && event.key === "Tab") || (ctrlNavigation && key === "p")) {
       event.preventDefault();
       moveSelection(-1);
       return;

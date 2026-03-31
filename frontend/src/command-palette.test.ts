@@ -99,6 +99,14 @@ function findCommandButton(label: string): HTMLButtonElement {
   return match;
 }
 
+function activeCommandButton(): HTMLButtonElement {
+  const match = document.querySelector<HTMLButtonElement>('button[data-command-id].is-active');
+  if (!match) {
+    throw new Error("Missing active command button");
+  }
+  return match;
+}
+
 async function settle(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -527,4 +535,78 @@ describe("command-palette notification commands", () => {
     expect(refreshWorkspace).toHaveBeenCalledTimes(2);
   });
 
+});
+
+describe("command-palette keyboard navigation", () => {
+  beforeEach(() => {
+    originalLocalStorage = window.localStorage as Storage;
+    Object.defineProperty(window, "localStorage", {
+      value: memoryStorage(),
+      configurable: true,
+      writable: true,
+    });
+    originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn((input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/loops/views")) {
+        return Promise.resolve(new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    globalThis.fetch = originalFetch as typeof fetch;
+    Object.defineProperty(window, "localStorage", {
+      value: originalLocalStorage,
+      configurable: true,
+      writable: true,
+    });
+    document.body.innerHTML = "";
+    vi.useRealTimers();
+  });
+
+  it("cycles results with Tab and Shift+Tab without leaving the search field", async () => {
+    buildPaletteDom();
+    const controller = createController();
+
+    controller.open();
+    await settle();
+
+    const input = document.getElementById("command-palette-input") as HTMLInputElement;
+    const initial = activeCommandButton().dataset["commandId"];
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(input);
+    expect(activeCommandButton().dataset["commandId"]).not.toBe(initial);
+
+    const afterForward = activeCommandButton().dataset["commandId"];
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(input);
+    expect(activeCommandButton().dataset["commandId"]).toBe(initial);
+    expect(activeCommandButton().dataset["commandId"]).not.toBe(afterForward);
+  });
+
+  it("supports Ctrl+N and Ctrl+P result movement for keyboard-only workflows", async () => {
+    buildPaletteDom();
+    const controller = createController();
+
+    controller.open();
+    await settle();
+
+    const input = document.getElementById("command-palette-input") as HTMLInputElement;
+    const initial = activeCommandButton().dataset["commandId"];
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "n", ctrlKey: true, bubbles: true, cancelable: true }));
+    const afterForward = activeCommandButton().dataset["commandId"];
+    expect(afterForward).not.toBe(initial);
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "p", ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(activeCommandButton().dataset["commandId"]).toBe(initial);
+  });
 });
