@@ -42,6 +42,7 @@ import type {
   LoopViewResponse,
   MemoryEntryResponse,
   MemorySearchResponse,
+  NowFeedItemResponse,
   PlanningSessionCreateRequest,
   PlanningSessionSnapshotResponse,
   PlanningSessionResponse,
@@ -74,7 +75,7 @@ import {
   resolveDurableReopenLocation,
   type RankedWorkflowSummary,
 } from "./continuity-follow-through";
-import { derivePrimaryRecommendation } from "./continuity-recommendations";
+import { nowFeedFreshnessLabel, nowFeedLocation } from "./now-feed";
 import { renderTrustSurface } from "./trust-surface";
 import {
   rankPaletteItems,
@@ -112,6 +113,7 @@ export interface CommandPaletteContext {
   loops: LoopResponse[];
   workingSets: WorkingSetResponse[];
   workingSetContext: WorkingSetContextResponse | null;
+  nowFeed: NowFeedItemResponse[];
   planningSessions: PlanningSessionResponse[];
   relationshipSessions: RelationshipReviewSessionResponse[];
   enrichmentSessions: EnrichmentReviewSessionResponse[];
@@ -947,13 +949,6 @@ function rankingContext(
 
 function rankedFollowThrough(_context: CommandPaletteContext): RankedWorkflowSummary[] {
   return readMergedRankedWorkflowSummaries();
-}
-
-function primaryRecommendationForContext(
-  _context: CommandPaletteContext,
-  summaries: readonly RankedWorkflowSummary[],
-) {
-  return derivePrimaryRecommendation(summaries);
 }
 
 function commandItemHtml(command: CommandPaletteCommand, active: boolean): string {
@@ -2232,74 +2227,31 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     } satisfies CommandPaletteCommand;
   }
 
-  function recommendedCommands(
-    context: CommandPaletteContext,
-    summaries: readonly RankedWorkflowSummary[],
-    recommendation = primaryRecommendationForContext(context, summaries),
-  ): CommandPaletteCommand[] {
-    if (!recommendation) {
+  function recommendedCommands(context: CommandPaletteContext): CommandPaletteCommand[] {
+    const item = context.nowFeed[0];
+    if (!item) {
       return [];
     }
 
-    const summary = recommendation.summary;
-    if (recommendation.recovery && !recommendation.recovery.acknowledged) {
-      return [buildRecoveryPaletteCommand({
-        id: `recommended-recovery-${summary.id}`,
-        group: "recommended",
-        title: summary.workflowThread.title,
-        recovery: recommendation.recovery,
-        keywords: [
-          summary.workflowThread.title,
-          recommendation.card.summary,
-          summary.displayTitle,
-          summary.displaySummary,
-          ...recommendation.whyNow,
-          ...recommendation.changedSinceLastSeen,
-        ],
-        continuityRank: summary.rank + 400,
-        continuitySignals: summary.rankingSignals,
-      })];
-    }
-
+    const location = nowFeedLocation(item);
+    const reasonLabels = item.reason_labels ?? [];
     return [{
-      id: `recommended-${summary.id}`,
+      id: `recommended-now-${item.id}`,
       group: "recommended",
-      title: `Next move · ${summary.workflowThread.title}`,
-      subtitle: recommendation.card.summary,
-      keywords: [
-        summary.workflowThread.title,
-        recommendation.card.summary,
-        summary.displayTitle,
-        summary.displaySummary,
-        ...recommendation.whyNow,
-        ...recommendation.changedSinceLastSeen,
-      ],
+      title: `Next move · ${item.title}`,
+      subtitle: item.summary,
+      keywords: [item.title, item.summary, item.eyebrow, ...reasonLabels],
       badge: "Next move",
-      location: summary.resolvedResume.resolvedLocation,
-      continuityRank: summary.rank + 400,
-      continuitySignals: {
-        driftScore: summary.rankingSignals.driftScore,
-        workingSetRelevant: summary.rankingSignals.workingSetRelevant,
-        downstreamReady: summary.rankingSignals.downstreamReady,
-        degraded: summary.rankingSignals.degraded,
-        recencyTieBreaker: summary.rankingSignals.recencyTieBreaker,
-      },
+      location,
+      continuityRank: (item.rank ?? 0) + 400,
       detail: {
-        eyebrow: "Recommended next move",
-        description: recommendation.card.rationale,
-        meta: [
-          ...recommendation.whyNow,
-          ...recommendation.changedSinceLastSeen,
-          recommendation.priorState
-            ? `${recommendation.priorState.kind === "gone" ? "Prior path gone" : "Prior path replaced"}: ${recommendation.priorState.summary}`
-            : null,
-        ].filter((value): value is string => Boolean(value)),
-        trust: recommendation.card.trust,
-        recovery: recommendation.recovery ?? undefined,
+        eyebrow: item.eyebrow,
+        description: item.rationale,
+        meta: [...reasonLabels, nowFeedFreshnessLabel(item)].filter((value): value is string => Boolean(value)),
       },
-      recentAction: { kind: "open-location", location: summary.resolvedResume.resolvedLocation },
+      recentAction: { kind: "open-location", location },
       execute: async () => {
-        await bindings.openLocation(summary.resolvedResume.resolvedLocation);
+        await bindings.openLocation(location);
       },
     } satisfies CommandPaletteCommand];
   }
@@ -2552,11 +2504,10 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const normalizedQuery = query.trim();
     const views = await ensureViewsLoaded().catch(() => [] as LoopViewResponse[]);
     const summaries = rankedFollowThrough(context);
-    const recommendation = primaryRecommendationForContext(context, summaries);
     const commands: CommandPaletteCommand[] = [
-      ...recommendedCommands(context, summaries, recommendation),
+      ...recommendedCommands(context),
       ...notificationCommands(summaries),
-      ...recentCommands(context, summaries, recommendation?.summary.id ?? null),
+      ...recentCommands(context, summaries, null),
       ...baseNavigationCommands(context),
       ...baseCaptureCommands(),
       ...baseActCommands(context),

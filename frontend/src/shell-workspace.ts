@@ -39,7 +39,7 @@ import type {
   LoopMetricsResponse,
   LoopResponse,
   LoopReviewResponse,
-  NextLoopsResponse,
+  NowFeedResponse,
   PlanningSessionResponse,
   PlanningSessionSnapshotResponse,
   RelationshipReviewSessionResponse,
@@ -96,7 +96,7 @@ export function createShellWorkspaceController(
 
   async function loadWorkspaceData(): Promise<WorkspaceData> {
     const [
-      nextLoops,
+      nowFeed,
       reviewData,
       metrics,
       planningSessionsRaw,
@@ -105,8 +105,8 @@ export function createShellWorkspaceController(
       allLoops,
     ] = await Promise.all([
       safeRequest(
-        () => requestJson<NextLoopsResponse>("/loops/next?limit=8", {}, "Failed to load next actions"),
-        { due_soon: [], high_leverage: [], quick_wins: [], standard: [] },
+        () => requestJson<NowFeedResponse>("/loops/now?limit=8", {}, "Failed to load now feed"),
+        { generated_at_utc: new Date(0).toISOString(), items: [] },
       ),
       safeRequest(
         () =>
@@ -214,7 +214,7 @@ export function createShellWorkspaceController(
     ]);
 
     return {
-      nextLoops,
+      nowFeed,
       reviewData,
       metrics,
       planningSessions,

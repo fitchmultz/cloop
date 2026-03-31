@@ -31,6 +31,7 @@ from ...loops.errors import ValidationError
 from ...loops.models import LoopStatus
 from ...loops.review import compute_review_cohorts
 from ...loops.utils import normalize_tag
+from ...operator_now import read_operator_now_feed
 from ...schemas.loops import (
     LoopNextResponse,
     LoopRelationshipReviewQueueItemResponse,
@@ -43,6 +44,7 @@ from ...schemas.loops import (
     LoopSearchResponse,
     LoopSemanticSearchRequest,
     LoopSemanticSearchResponse,
+    NowFeedResponse,
     RelationshipReviewCandidateResponse,
     SemanticSearchLoopResponse,
 )
@@ -154,6 +156,14 @@ def loop_next_endpoint(
         high_leverage=build_loop_responses(result["high_leverage"]),
         standard=build_loop_responses(result["standard"]),
     )
+
+
+@router.get("/now", response_model=NowFeedResponse)
+def loop_now_endpoint(
+    settings: SettingsDep,
+    limit: Annotated[int, Query(ge=1, le=20)] = DEFAULT_LOOP_NEXT_LIMIT,
+) -> NowFeedResponse:
+    return read_operator_now_feed(limit=limit, settings=settings)
 
 
 @router.get(

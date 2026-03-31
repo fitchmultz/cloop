@@ -27,7 +27,7 @@ import type {
   LoopMetricsResponse,
   LoopResponse,
   LoopReviewResponse,
-  NextLoopsResponse,
+  NowFeedResponse,
   PlanningSessionResponse,
   RelationshipReviewSessionResponse,
   WorkingSetContextResponse,
@@ -105,8 +105,8 @@ function createElements(): ShellElements {
   };
 }
 
-function emptyNextLoops(): NextLoopsResponse {
-  return { due_soon: [], high_leverage: [], quick_wins: [], standard: [] };
+function emptyNowFeed(): NowFeedResponse {
+  return { generated_at_utc: "2026-03-27T00:00:00Z", items: [] };
 }
 
 function emptyReviewData(): LoopReviewResponse {
@@ -140,8 +140,8 @@ function emptyMetrics(): LoopMetricsResponse {
 
 function mockWorkspaceRequest(url: string): Promise<unknown> {
   switch (url) {
-    case "/loops/next?limit=8":
-      return Promise.resolve(emptyNextLoops());
+    case "/loops/now?limit=8":
+      return Promise.resolve(emptyNowFeed());
     case "/loops/review?daily=true&weekly=true&limit=50":
       return Promise.resolve(emptyReviewData());
     case "/loops/metrics":
@@ -236,15 +236,15 @@ describe("shell-workspace", () => {
   });
 
   it("waits for continuity hydration and replays queued refresh requests", async () => {
-    const nextLoopsDeferred = deferred<NextLoopsResponse>();
+    const nextLoopsDeferred = deferred<NowFeedResponse>();
     const continuityDeferred = deferred<void>();
     let nextRequestCount = 0;
     let continuityRequestCount = 0;
 
     vi.mocked(requestJson).mockImplementation((url: string) => {
-      if (url === "/loops/next?limit=8") {
+      if (url === "/loops/now?limit=8") {
         nextRequestCount += 1;
-        return nextRequestCount === 1 ? nextLoopsDeferred.promise : Promise.resolve(emptyNextLoops());
+        return nextRequestCount === 1 ? nextLoopsDeferred.promise : Promise.resolve(emptyNowFeed());
       }
       return mockWorkspaceRequest(url);
     });
@@ -260,7 +260,7 @@ describe("shell-workspace", () => {
 
     expect(renderOperatorZones).not.toHaveBeenCalled();
 
-    nextLoopsDeferred.resolve(emptyNextLoops());
+    nextLoopsDeferred.resolve(emptyNowFeed());
     continuityDeferred.resolve();
 
     await firstRefresh;
@@ -281,15 +281,15 @@ describe("shell-workspace", () => {
     await controller.renderOperatorWorkspace();
     expect(elements.operatorNow.innerHTML).toBe("ready card 0");
 
-    const nextLoopsDeferred = deferred<NextLoopsResponse>();
+    const nextLoopsDeferred = deferred<NowFeedResponse>();
     const continuityDeferred = deferred<void>();
     let nextRequestCount = 0;
     let continuityRequestCount = 0;
 
     vi.mocked(requestJson).mockImplementation((url: string) => {
-      if (url === "/loops/next?limit=8") {
+      if (url === "/loops/now?limit=8") {
         nextRequestCount += 1;
-        return nextRequestCount === 1 ? nextLoopsDeferred.promise : Promise.resolve(emptyNextLoops());
+        return nextRequestCount === 1 ? nextLoopsDeferred.promise : Promise.resolve(emptyNowFeed());
       }
       return mockWorkspaceRequest(url);
     });
@@ -303,7 +303,7 @@ describe("shell-workspace", () => {
     expect(elements.operatorNow.innerHTML).toBe("ready card 0");
     expect(elements.operatorNow.textContent).not.toContain("Loading prioritized work");
 
-    nextLoopsDeferred.resolve(emptyNextLoops());
+    nextLoopsDeferred.resolve(emptyNowFeed());
     continuityDeferred.resolve();
     await pendingRefresh;
 

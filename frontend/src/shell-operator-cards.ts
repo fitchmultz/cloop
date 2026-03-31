@@ -61,6 +61,7 @@ import {
   rememberContinuityObservation,
 } from "./continuity-intelligence";
 import { continuitySurfaceCard, readMergedRankedWorkflowSummaries } from "./continuity-follow-through";
+import { buildNowFeedActionCard } from "./now-feed";
 import {
   buildPrimaryRecommendationDigestCard,
   derivePrimaryRecommendation,
@@ -365,74 +366,8 @@ export function createShellOperatorCardRenderer(
     return clarification.question;
   }
 
-  function buildLoopNowCards(data: WorkspaceData): OperatorActionCard[] {
-    const buckets: Array<{ label: string; tone: OperatorActionCard["tone"]; items: LoopResponse[] }> = [
-      { label: "Due soon", tone: "attention", items: data.nextLoops.due_soon ?? [] },
-      { label: "Quick wins", tone: "progress", items: data.nextLoops.quick_wins ?? [] },
-      { label: "High leverage", tone: "progress", items: data.nextLoops.high_leverage ?? [] },
-      { label: "Standard", tone: "neutral", items: data.nextLoops.standard ?? [] },
-    ];
-
-    return buckets.flatMap((bucket) => {
-      return bucket.items.slice(0, 2).map((loop) => {
-        const location = createLocation({ state: "do", loopId: loop.id });
-        const dueMeta =
-          loop.due_at_utc || loop.due_date
-            ? `Due ${formatRelativeTime(loop.due_at_utc ?? loop.due_date ?? null)}`
-            : "No due date";
-        const nextStep = loop.next_action?.trim() || "Open the loop to choose the next concrete move.";
-        return {
-          id: `now-${bucket.label}-${loop.id}`,
-          kind: "mutation",
-          tone: bucket.tone,
-          eyebrow: bucket.label,
-          title: loopTitle(loop),
-          summary: loopPreview(loop),
-          rationale:
-            bucket.label === "Due soon"
-              ? "This loop is surfacing because timing pressure is higher than the rest of the queue."
-              : bucket.label === "Quick wins"
-                ? "This loop looks easy to move quickly, so it is a strong momentum candidate."
-                : bucket.label === "High leverage"
-                  ? "This loop appears to unlock outsized value relative to the rest of the queue."
-                  : "This loop is ready enough to work without waiting on additional system preparation.",
-          preview: [
-            { label: "Loop", value: loopTitle(loop) },
-            { label: "Status", value: loop.status },
-            { label: "Timing", value: dueMeta },
-            { label: "Next step", value: nextStep },
-          ],
-          trust: {
-            contextSources: [
-              "Live /loops/next prioritization",
-              `Bucket: ${bucket.label}`,
-              loop.project ? `Project: ${loop.project}` : "Loop-level prioritization only",
-            ],
-            assumptions: [
-              loop.next_action ? "Existing next action remains valid." : "A new next action may still need operator clarification.",
-            ],
-            confidenceLabel: bucket.label === "Standard" ? "Ready-work signal" : `${bucket.label} priority signal`,
-            rollbackLabel: "This card launches the loop; no mutation happens until you act inside Do.",
-            freshnessLabel: `Updated ${formatRelativeTime(loop.updated_at_utc)}`,
-          },
-          handoff: {
-            changeSummary: "Opening this card hands off into the exact loop detail inside the Do workspace.",
-            createdResources: [],
-            nextStep: "Review the loop, then execute or edit the next action in-context.",
-            breadcrumbs: ["Home", "Do", `Loop #${loop.id}`],
-          },
-          actions: [
-            buildOpenAction("Open in Do", location, loopPreview(loop)),
-            buildPinAction("Pin for later", location, loopPreview(loop), loopTitle(loop)),
-          ],
-        } satisfies OperatorActionCard;
-      });
-    });
-  }
-
   function buildNowCards(data: WorkspaceData): OperatorActionCard[] {
-    const recommendation = followThroughModel(data).recommendation;
-    return recommendation ? [recommendation.card, ...buildLoopNowCards(data)] : buildLoopNowCards(data);
+    return (data.nowFeed.items ?? []).map((item) => buildNowFeedActionCard(item));
   }
 
   function buildRelationshipDecisionCard(

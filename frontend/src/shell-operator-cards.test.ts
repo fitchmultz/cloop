@@ -308,7 +308,7 @@ function makePlanningSnapshot(executionHistory: PlanningExecutionHistoryItemResp
 
 function makeWorkspaceData(planningSnapshot: PlanningSessionSnapshotResponse | null): WorkspaceData {
   return {
-    nextLoops: {} as WorkspaceData["nextLoops"],
+    nowFeed: { generated_at_utc: "2026-03-18T18:10:00Z", items: [] },
     reviewData: {
       generated_at_utc: "2026-03-18T18:10:00Z",
       daily: [],
@@ -631,79 +631,45 @@ describe("shell-operator-cards", () => {
     expect(button?.getAttribute("data-open-working-set-id")).toBe("2");
   });
 
-  it("renders a primary next move at the top of the Now zone", () => {
-    recordRecentShellAction({
-      kind: "planning",
-      label: "Created launch review queue",
-      description: "Created the downstream queue.",
-      location: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41 }),
-      outcome: {
-        card: {
-          id: "receipt-primary",
-          kind: "receipt",
-          tone: "progress",
-          eyebrow: "Planning receipt",
-          title: "Launch review queue is ready",
-          summary: "Open the prepared queue.",
-          rationale: "Receipt",
-          preview: [],
-          trust: {
-            contextSources: ["Planning session"],
-            assumptions: [],
-            confidenceLabel: "Recorded",
-            freshnessLabel: "Saved just now",
-            rollbackLabel: "Undo remains available.",
-          },
-          handoff: {
-            changeSummary: "Queue created",
-            createdResources: ["Launch review queue"],
-            nextStep: "Open the queue.",
-            breadcrumbs: ["Home", "Plan"],
-          },
-          actions: [],
-        },
-        resumeLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
-        rollbackLabel: "Undo remains available.",
-        undoAction: null,
-        workflowThread: {
-          id: "planning:41",
-          kind: "planning_checkpoint",
-          title: "Weekly reset",
-          summary: "Planning checkpoint thread",
-          parentOutcomeId: null,
-        },
-        resolvedResume: {
-          requestedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
-          resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
-          status: "ok",
-          message: null,
-          successor: null,
-        },
-      },
-      persistence: { status: "synced", persistedOutcomeId: 12, syncedAtUtc: "2026-03-18T18:10:00Z" },
-    });
-    seedWorkflowSummaries([
-      summaryRecord({
-        id: "planning:41",
-        rank: 5400,
-        occurredAt: "2026-03-18T18:10:00Z",
-        workflowThreadId: "planning:41",
-        workflowThreadTitle: "Weekly reset",
-        workflowThreadSummary: "Planning checkpoint thread",
-        representativeOutcomeId: 12,
-        resolvedLocation: createLocation({ state: "decide", reviewFocus: "enrichment", sessionId: 52 }),
-        displayTitle: "Launch review queue is ready",
-        displaySummary: "Open the prepared queue.",
-      }),
-    ]);
-
+  it("renders backend-ranked now-feed cards in the Now zone", () => {
     const { elements, renderer } = createHarness({
       visitBaseline: new Date("2026-03-18T18:00:00Z"),
     });
+    const data = makeWorkspaceData(null);
 
-    renderer.renderNowZone(makeWorkspaceData(null));
+    data.nowFeed.items = [
+      {
+        id: "planning:41",
+        rank: 5400,
+        source: "planning_session",
+        display_kind: "handoff",
+        display_tone: "attention",
+        eyebrow: "Plan in motion",
+        title: "Launch review queue is ready",
+        summary: "Open the prepared queue.",
+        rationale: "Backend-ranked now feed rationale.",
+        reason_labels: ["Queue is prepared", "Resume from the saved session"],
+        freshness_at_utc: "2026-03-18T18:10:00Z",
+        freshness_prefix: "Updated",
+        action_label: "Open decision queue",
+        launch_location: {
+          state: "decide",
+          recall_tool: "chat",
+          review_focus: "enrichment",
+          session_id: 52,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: null,
+        },
+        working_set_id: null,
+      },
+    ];
 
-    expect(elements.operatorNow.querySelector(".operator-action-card--primary h3")?.textContent)
+    renderer.renderNowZone(data);
+
+    expect(elements.operatorNow.querySelector(".operator-action-card h3")?.textContent)
       .toBe("Launch review queue is ready");
   });
 

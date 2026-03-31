@@ -4576,6 +4576,87 @@ export type MergeResultResponse = {
 };
 
 /**
+ * NowFeedItemResponse
+ *
+ * One backend-ranked Now-feed item.
+ */
+export type NowFeedItemResponse = {
+    /**
+     * Action Label
+     */
+    action_label: string;
+    /**
+     * Display Kind
+     */
+    display_kind?: 'handoff' | 'decision' | 'mutation' | 'context';
+    /**
+     * Display Tone
+     */
+    display_tone?: 'neutral' | 'progress' | 'attention' | 'caution';
+    /**
+     * Eyebrow
+     */
+    eyebrow: string;
+    /**
+     * Freshness At Utc
+     */
+    freshness_at_utc?: string | null;
+    /**
+     * Freshness Prefix
+     */
+    freshness_prefix?: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    launch_location: ContinuityLocationResponse;
+    /**
+     * Rank
+     */
+    rank: number;
+    /**
+     * Rationale
+     */
+    rationale: string;
+    /**
+     * Reason Labels
+     */
+    reason_labels?: Array<string>;
+    /**
+     * Source
+     */
+    source: 'continuity' | 'planning_session' | 'relationship_review_session' | 'enrichment_review_session' | 'loop';
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Working Set Id
+     */
+    working_set_id?: number | null;
+};
+
+/**
+ * NowFeedResponse
+ *
+ * Canonical backend-ranked operator Now feed.
+ */
+export type NowFeedResponse = {
+    /**
+     * Generated At Utc
+     */
+    generated_at_utc: string;
+    /**
+     * Items
+     */
+    items?: Array<NowFeedItemResponse>;
+};
+
+/**
  * PlanningCheckpointExecutionResultResponse
  *
  * One operation result from executing a planning checkpoint.
@@ -8102,6 +8183,36 @@ export type LoopNextEndpointLoopsNextGetResponses = {
 };
 
 export type LoopNextEndpointLoopsNextGetResponse = LoopNextEndpointLoopsNextGetResponses[keyof LoopNextEndpointLoopsNextGetResponses];
+
+export type LoopNowEndpointLoopsNowGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/loops/now';
+};
+
+export type LoopNowEndpointLoopsNowGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LoopNowEndpointLoopsNowGetError = LoopNowEndpointLoopsNowGetErrors[keyof LoopNowEndpointLoopsNowGetErrors];
+
+export type LoopNowEndpointLoopsNowGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: NowFeedResponse;
+};
+
+export type LoopNowEndpointLoopsNowGetResponse = LoopNowEndpointLoopsNowGetResponses[keyof LoopNowEndpointLoopsNowGetResponses];
 
 export type ListPlanningSessionsEndpointLoopsPlanningSessionsGetData = {
     body?: never;

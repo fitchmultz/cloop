@@ -141,6 +141,13 @@ from ._loops.metrics import (
     TrendMetricsResponse,
     TrendPointResponse,
 )
+from ._loops.now import (
+    NowFeedDisplayKind,
+    NowFeedDisplayTone,
+    NowFeedItemResponse,
+    NowFeedItemSource,
+    NowFeedResponse,
+)
 from ._loops.planning import (
     PlanningCheckpointExecutionResultResponse,
     PlanningCheckpointResponse,
@@ -391,6 +398,11 @@ __all__ = [
     "TrendPointResponse",
     "TrendMetricsResponse",
     "LoopMetricsResponse",
+    "NowFeedItemSource",
+    "NowFeedDisplayKind",
+    "NowFeedDisplayTone",
+    "NowFeedItemResponse",
+    "NowFeedResponse",
     "DuplicateCandidateResponse",
     "DuplicatesListResponse",
     "MergePreviewResponse",

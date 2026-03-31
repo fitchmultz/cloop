@@ -134,6 +134,7 @@ function createController(overrides: {
       loops: [],
       workingSets: [],
       workingSetContext: null,
+      nowFeed: [],
       planningSessions: [],
       relationshipSessions: [],
       enrichmentSessions: [],
@@ -221,6 +222,63 @@ describe("command-palette notification commands", () => {
 
     expect(openLocation).toHaveBeenCalledWith(location({ state: "operator" }));
     expect(readRecentActions()).toEqual([]);
+  });
+
+  it("reuses the backend-ranked now feed for the recommended next move", async () => {
+    buildPaletteDom();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const controller = createController({
+      openLocation,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [],
+        workingSetContext: null,
+        nowFeed: [
+          {
+            id: "planning:41",
+            rank: 5400,
+            source: "planning_session",
+            display_kind: "handoff",
+            display_tone: "attention",
+            eyebrow: "Plan in motion",
+            title: "Launch review queue is ready",
+            summary: "Open the prepared queue.",
+            rationale: "Backend-ranked rationale.",
+            reason_labels: ["Queue is prepared", "Resume from the saved session"],
+            freshness_at_utc: "2026-03-20T12:00:00Z",
+            freshness_prefix: "Updated",
+            action_label: "Open decision queue",
+            launch_location: {
+              state: "decide",
+              recall_tool: "chat",
+              review_focus: "enrichment",
+              session_id: 52,
+              loop_id: null,
+              view_id: null,
+              memory_id: null,
+              working_set_id: null,
+              query: null,
+            },
+            working_set_id: null,
+          },
+        ],
+        planningSessions: [],
+        relationshipSessions: [],
+        enrichmentSessions: [],
+      }),
+    });
+
+    controller.open();
+    await settle();
+    findCommandButton("Next move · Launch review queue is ready").click();
+    await settle();
+
+    expect(openLocation).toHaveBeenCalledWith(location({
+      state: "decide",
+      reviewFocus: "enrichment",
+      sessionId: 52,
+    }));
   });
 
   it("surfaces fresh local receipts in recent commands before durable sync", async () => {

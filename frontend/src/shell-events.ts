@@ -364,6 +364,7 @@ export function createShellEventController(
         loops: options.getLatestWorkspaceData()?.allLoops ?? [],
         workingSets: options.getLatestWorkingSets(),
         workingSetContext: options.getWorkingSetContext(),
+        nowFeed: options.getLatestWorkspaceData()?.nowFeed.items ?? [],
         planningSessions: options.getLatestWorkspaceData()?.planningSessions ?? [],
         relationshipSessions: options.getLatestWorkspaceData()?.relationshipSessions ?? [],
         enrichmentSessions: options.getLatestWorkspaceData()?.enrichmentSessions ?? [],

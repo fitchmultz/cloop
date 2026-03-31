@@ -28,7 +28,7 @@ import type {
   LoopMetricsResponse,
   LoopResponse,
   LoopReviewResponse,
-  NextLoopsResponse,
+  NowFeedResponse,
   PlanningSessionResponse,
   PlanningSessionSnapshotResponse,
   RelationshipReviewSessionResponse,
@@ -52,7 +52,7 @@ export interface ShellLocationInput {
 }
 
 export interface WorkspaceData {
-  nextLoops: NextLoopsResponse;
+  nowFeed: NowFeedResponse;
   reviewData: LoopReviewResponse;
   metrics: LoopMetricsResponse;
   planningSessions: PlanningSessionResponse[];
