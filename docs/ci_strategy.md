@@ -15,7 +15,7 @@ Runtime and resource controls:
 - Matrix `max-parallel: 2` to avoid runner saturation
 - Concurrency cancellation for superseded runs
 - Locked dependency installs via `uv sync --locked`
-- Pinned `pnpm` 10.32.1 with `pnpm-lock.yaml` caching/frozen installs for the Node bridge
+- Pinned `pnpm` 10.33.0 with `pnpm-lock.yaml` caching/frozen installs for the Node bridge
 - Pinned `uv` CLI version for reproducible runners
 
 Typical runtime target:
@@ -43,7 +43,7 @@ Runtime and resource controls:
 - Matrix `max-parallel: 2`
 - Concurrency cancellation for stale runs
 - Locked dependency installs via `uv sync --locked`
-- Pinned `pnpm` 10.32.1 with `pnpm-lock.yaml` caching/frozen installs for the Node bridge
+- Pinned `pnpm` 10.33.0 with `pnpm-lock.yaml` caching/frozen installs for the Node bridge
 - Pinned `uv` CLI version for reproducible runners
 
 Typical runtime target:

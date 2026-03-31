@@ -32,7 +32,7 @@ Cloop does not implement provider-specific auth or billing for generative calls.
 The bridge depends on local tools, not hosted infrastructure:
 
 - Python 3.14+
-- Node 25.8.1+
+- Node 25.8.2+
 - `uv`
 - `pi` installed locally
 - `pi` authenticated for the selectors you plan to use
