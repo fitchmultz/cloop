@@ -79,6 +79,9 @@ class WorkingSetLaunchLocationResponse(BaseModel):
     memory_id: int | None = Field(default=None, ge=1)
     working_set_id: int | None = Field(default=None, ge=1)
     query: str | None = None
+    include_loop_context: bool | None = None
+    include_memory_context: bool | None = None
+    include_rag_context: bool | None = None
 
 
 class WorkingSetItemCreateRequest(BaseModel):

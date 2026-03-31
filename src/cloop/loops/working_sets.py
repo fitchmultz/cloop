@@ -124,6 +124,9 @@ def _build_launch(
     memory_id: int | None = None,
     working_set_id: int | None = None,
     query: str | None = None,
+    include_loop_context: bool | None = None,
+    include_memory_context: bool | None = None,
+    include_rag_context: bool | None = None,
 ) -> dict[str, Any]:
     """Create the frontend launch payload for one working-set item."""
     return {
@@ -136,6 +139,9 @@ def _build_launch(
         "memory_id": memory_id,
         "working_set_id": working_set_id,
         "query": query,
+        "include_loop_context": include_loop_context,
+        "include_memory_context": include_memory_context,
+        "include_rag_context": include_rag_context,
     }
 
 
@@ -207,6 +213,15 @@ def _validate_state_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, An
     if query_value is not None and not isinstance(query_value, str):
         raise ValidationError("metadata.query", "must be a string when provided")
     parsed["query"] = query_value.strip() if isinstance(query_value, str) else None
+    for boolean_key in (
+        "include_loop_context",
+        "include_memory_context",
+        "include_rag_context",
+    ):
+        boolean_value = metadata.get(boolean_key)
+        if boolean_value is not None and not isinstance(boolean_value, bool):
+            raise ValidationError(f"metadata.{boolean_key}", "must be a boolean when provided")
+        parsed[boolean_key] = boolean_value if isinstance(boolean_value, bool) else None
 
     if state == "working_set" and parsed["working_set_id"] is None:
         raise ValidationError(
@@ -229,11 +244,23 @@ def _validate_query_anchor_metadata(metadata: Mapping[str, Any]) -> dict[str, An
     if state == "recall" and recall_tool not in _RECALL_TOOLS:
         raise ValidationError("metadata.recall_tool", f"unsupported recall tool: {recall_tool}")
 
-    return {
+    parsed: dict[str, Any] = {
         "query": query,
         "state": state,
         "recall_tool": recall_tool if state == "recall" else "chat",
     }
+    for boolean_key in (
+        "include_loop_context",
+        "include_memory_context",
+        "include_rag_context",
+    ):
+        boolean_value = metadata.get(boolean_key)
+        if boolean_value is not None and not isinstance(boolean_value, bool):
+            raise ValidationError(f"metadata.{boolean_key}", "must be a boolean when provided")
+        parsed[boolean_key] = (
+            boolean_value if state == "recall" and isinstance(boolean_value, bool) else None
+        )
+    return parsed
 
 
 def _resolve_working_set_item(
@@ -511,6 +538,9 @@ def _resolve_working_set_item(
                 recall_tool=anchor["recall_tool"],
                 query=anchor["query"],
                 working_set_id=working_set_id,
+                include_loop_context=anchor["include_loop_context"],
+                include_memory_context=anchor["include_memory_context"],
+                include_rag_context=anchor["include_rag_context"],
             ),
         }
 
@@ -538,6 +568,9 @@ def _resolve_working_set_item(
                 memory_id=anchor["memory_id"],
                 working_set_id=anchor["working_set_id"] or working_set_id,
                 query=anchor["query"],
+                include_loop_context=anchor["include_loop_context"],
+                include_memory_context=anchor["include_memory_context"],
+                include_rag_context=anchor["include_rag_context"],
             ),
         }
 

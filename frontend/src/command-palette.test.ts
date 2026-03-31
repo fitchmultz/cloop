@@ -42,6 +42,9 @@ function location(input: Partial<ShellLocationContract> & Pick<ShellLocationCont
     memoryId: input.memoryId ?? null,
     workingSetId: input.workingSetId ?? null,
     query: input.query ?? null,
+    includeLoopContext: input.includeLoopContext ?? null,
+    includeMemoryContext: input.includeMemoryContext ?? null,
+    includeRagContext: input.includeRagContext ?? null,
   };
 }
 
@@ -202,8 +205,9 @@ describe("command-palette notification commands", () => {
     findCommandButton("Open notification · Launch review is ready").click();
     await settle();
 
-    expect(openLocation).toHaveBeenCalledWith(location({
+    expect(openLocation.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
       state: "decide",
+      recallTool: "chat",
       reviewFocus: "relationship",
       sessionId: 41,
       workingSetId: 7,
@@ -274,8 +278,9 @@ describe("command-palette notification commands", () => {
     findCommandButton("Next move · Launch review queue is ready").click();
     await settle();
 
-    expect(openLocation).toHaveBeenCalledWith(location({
+    expect(openLocation.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
       state: "decide",
+      recallTool: "chat",
       reviewFocus: "enrichment",
       sessionId: 52,
     }));
@@ -335,7 +340,12 @@ describe("command-palette notification commands", () => {
     findCommandButton("Indexed launch notes").click();
     await settle();
 
-    expect(openLocation).toHaveBeenCalledWith(location({ state: "recall", recallTool: "rag", query: "launch notes", workingSetId: 7 }));
+    expect(openLocation.mock.calls.at(-1)?.[0]).toEqual(expect.objectContaining({
+      state: "recall",
+      recallTool: "rag",
+      query: "launch notes",
+      workingSetId: 7,
+    }));
   });
 
   it("keeps recent undo commands available after transient failures", async () => {

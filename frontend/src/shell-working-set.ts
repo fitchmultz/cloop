@@ -186,6 +186,9 @@ export function createShellWorkingSetController(
       memoryId: launch.memory_id,
       workingSetId: launch.working_set_id,
       query: launch.query,
+      includeLoopContext: launch.include_loop_context ?? null,
+      includeMemoryContext: launch.include_memory_context ?? null,
+      includeRagContext: launch.include_rag_context ?? null,
     });
   }
 
@@ -900,6 +903,9 @@ export function createShellWorkingSetController(
       metadata["state"] = pinnedLocation.state;
       if (pinnedLocation.state === "recall") {
         metadata["recall_tool"] = pinnedLocation.recallTool;
+        metadata["include_loop_context"] = pinnedLocation.includeLoopContext;
+        metadata["include_memory_context"] = pinnedLocation.includeMemoryContext;
+        metadata["include_rag_context"] = pinnedLocation.includeRagContext;
       }
       metadata["label"] = label;
       if (description) {
@@ -916,6 +922,9 @@ export function createShellWorkingSetController(
       metadata["memory_id"] = pinnedLocation.memoryId;
       metadata["working_set_id"] = pinnedLocation.workingSetId;
       metadata["query"] = pinnedLocation.query;
+      metadata["include_loop_context"] = pinnedLocation.includeLoopContext;
+      metadata["include_memory_context"] = pinnedLocation.includeMemoryContext;
+      metadata["include_rag_context"] = pinnedLocation.includeRagContext;
     }
 
     const updatedWorkingSet = await requestJson<WorkingSetResponse, WorkingSetItemCreateRequest>(

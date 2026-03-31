@@ -47,6 +47,9 @@ export const DEFAULT_LOCATION: ShellLocation = {
   sessionId: null,
   loopId: null,
   workingSetId: null,
+  includeLoopContext: null,
+  includeMemoryContext: null,
+  includeRagContext: null,
 };
 
 export const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
@@ -176,6 +179,9 @@ export function createLocation(overrides: ShellLocationInput = {}): ShellLocatio
     memoryId: overrides.memoryId ?? null,
     workingSetId: overrides.workingSetId ?? null,
     query: overrides.query ?? null,
+    includeLoopContext: overrides.includeLoopContext ?? null,
+    includeMemoryContext: overrides.includeMemoryContext ?? null,
+    includeRagContext: overrides.includeRagContext ?? null,
   };
 }
 
@@ -246,6 +252,9 @@ export function defaultLocationForState(
           : null,
         query: currentLocation.state === "recall" ? (currentLocation.query ?? null) : null,
         workingSetId,
+        includeLoopContext: currentLocation.state === "recall" ? (currentLocation.includeLoopContext ?? null) : null,
+        includeMemoryContext: currentLocation.state === "recall" ? (currentLocation.includeMemoryContext ?? null) : null,
+        includeRagContext: currentLocation.state === "recall" ? (currentLocation.includeRagContext ?? null) : null,
       });
     case "working_set":
       return createLocation({
@@ -266,6 +275,9 @@ export function openLocationAttributes(location: ShellLocationContract): string 
     ["memory-id", location.memoryId != null ? String(location.memoryId) : ""],
     ["working-set-id", location.workingSetId != null ? String(location.workingSetId) : ""],
     ["query", location.query ?? ""],
+    ["include-loop-context", location.includeLoopContext == null ? "" : String(location.includeLoopContext)],
+    ["include-memory-context", location.includeMemoryContext == null ? "" : String(location.includeMemoryContext)],
+    ["include-rag-context", location.includeRagContext == null ? "" : String(location.includeRagContext)],
   ] as const;
 
   return attributes
@@ -294,6 +306,9 @@ export function normalizeLocation(value: Partial<ShellLocationInput>): ShellLoca
         ? value.workingSetId
         : null,
     query: typeof value.query === "string" && value.query.trim() ? value.query.trim() : null,
+    includeLoopContext: typeof value.includeLoopContext === "boolean" ? value.includeLoopContext : null,
+    includeMemoryContext: typeof value.includeMemoryContext === "boolean" ? value.includeMemoryContext : null,
+    includeRagContext: typeof value.includeRagContext === "boolean" ? value.includeRagContext : null,
   };
 }
 
@@ -306,10 +321,32 @@ export function persistLocation(location: ShellLocation): void {
   window.localStorage.setItem(SHELL_LOCATION_STORAGE_KEY, JSON.stringify(location));
 }
 
-function splitHashQuery(hash: string): { path: string; workingSetId: number | null } {
+function parseBooleanQueryParam(value: string | null): boolean | null {
+  if (value === "1" || value === "true") {
+    return true;
+  }
+  if (value === "0" || value === "false") {
+    return false;
+  }
+  return null;
+}
+
+function splitHashQuery(hash: string): {
+  path: string;
+  workingSetId: number | null;
+  includeLoopContext: boolean | null;
+  includeMemoryContext: boolean | null;
+  includeRagContext: boolean | null;
+} {
   const cleaned = hash.replace(/^#/, "").trim();
   if (!cleaned) {
-    return { path: "", workingSetId: null };
+    return {
+      path: "",
+      workingSetId: null,
+      includeLoopContext: null,
+      includeMemoryContext: null,
+      includeRagContext: null,
+    };
   }
   const [rawPath, query = ""] = cleaned.split("?", 2);
   const path = rawPath ?? "";
@@ -321,14 +358,28 @@ function splitHashQuery(hash: string): { path: string; workingSetId: number | nu
     workingSetId: Number.isInteger(parsedWorkingSetId) && parsedWorkingSetId > 0
       ? parsedWorkingSetId
       : null,
+    includeLoopContext: parseBooleanQueryParam(params.get("lc")),
+    includeMemoryContext: parseBooleanQueryParam(params.get("mc")),
+    includeRagContext: parseBooleanQueryParam(params.get("rc")),
   };
 }
 
-function appendWorkingSetHash(baseHash: string, workingSetId: number | null): string {
-  if (workingSetId == null || baseHash.startsWith("#working-set")) {
-    return baseHash;
+function appendLocationHash(baseHash: string, location: ShellLocation): string {
+  const params = new URLSearchParams();
+  if (location.workingSetId != null && !baseHash.startsWith("#working-set")) {
+    params.set("ws", String(location.workingSetId));
   }
-  return `${baseHash}?ws=${workingSetId}`;
+  if (location.includeLoopContext != null) {
+    params.set("lc", location.includeLoopContext ? "1" : "0");
+  }
+  if (location.includeMemoryContext != null) {
+    params.set("mc", location.includeMemoryContext ? "1" : "0");
+  }
+  if (location.includeRagContext != null) {
+    params.set("rc", location.includeRagContext ? "1" : "0");
+  }
+  const suffix = params.toString();
+  return suffix ? `${baseHash}?${suffix}` : baseHash;
 }
 
 export function locationToHash(location: ShellLocation): string {
@@ -377,11 +428,11 @@ export function locationToHash(location: ShellLocation): string {
     }
   })();
 
-  return appendWorkingSetHash(baseHash, location.workingSetId ?? null);
+  return appendLocationHash(baseHash, location);
 }
 
 export function parseHash(hash: string): ShellLocation | null {
-  const { path, workingSetId } = splitHashQuery(hash);
+  const { path, workingSetId, includeLoopContext, includeMemoryContext, includeRagContext } = splitHashQuery(hash);
   if (!path) {
     return null;
   }
@@ -465,6 +516,9 @@ export function parseHash(hash: string): ShellLocation | null {
         memoryId: second === "memory" && third && parts[3] !== "query" ? Number.parseInt(third, 10) || null : null,
         query: parts[2] === "query" && parts[3] ? decodeURIComponent(parts[3]) : null,
         workingSetId,
+        includeLoopContext,
+        includeMemoryContext,
+        includeRagContext,
       });
     }
     case "working-set":
@@ -492,5 +546,8 @@ export function locationsMatch(
     && (left.viewId ?? null) === (right.viewId ?? null)
     && (left.memoryId ?? null) === (right.memoryId ?? null)
     && (left.workingSetId ?? null) === (right.workingSetId ?? null)
-    && (left.query ?? null) === (right.query ?? null);
+    && (left.query ?? null) === (right.query ?? null)
+    && (left.includeLoopContext ?? null) === (right.includeLoopContext ?? null)
+    && (left.includeMemoryContext ?? null) === (right.includeMemoryContext ?? null)
+    && (left.includeRagContext ?? null) === (right.includeRagContext ?? null);
 }

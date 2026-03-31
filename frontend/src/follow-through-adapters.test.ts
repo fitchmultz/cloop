@@ -124,6 +124,20 @@ describe("follow-through-adapters", () => {
         working_set_id: 9,
         query: null,
       },
+      grounded_chat_location: {
+        state: "recall",
+        recall_tool: "chat",
+        review_focus: null,
+        session_id: null,
+        loop_id: null,
+        view_id: null,
+        memory_id: null,
+        working_set_id: 9,
+        query: "What changed after this review outcome?",
+        include_loop_context: true,
+        include_memory_context: true,
+        include_rag_context: false,
+      },
       workflow_thread: {
         id: "review:relationship:17",
         kind: "review_session",
@@ -155,9 +169,23 @@ describe("follow-through-adapters", () => {
     expect(receipt.entry.outcome?.card.actions.map((action) => action.type)).toEqual([
       "open",
       "pin",
+      "open",
       "rerun",
       "undo",
     ]);
+    expect(receipt.entry.outcome?.card.actions[2]).toMatchObject({
+      type: "open",
+      label: "Ask grounded chat",
+      location: createLocation({
+        state: "recall",
+        recallTool: "chat",
+        workingSetId: 9,
+        query: "What changed after this review outcome?",
+        includeLoopContext: true,
+        includeMemoryContext: true,
+        includeRagContext: false,
+      }),
+    });
   });
 
   it("fails fast when backend review follow-through omits resume_location", () => {
@@ -193,6 +221,7 @@ describe("follow-through-adapters", () => {
           undo_action: null,
           rerun_action: null,
           resume_location: null,
+          grounded_chat_location: null,
           workflow_thread: {
             id: "review:relationship:17",
             kind: "review_session",

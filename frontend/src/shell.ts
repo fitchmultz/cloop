@@ -416,6 +416,17 @@ async function runDocumentAskSurface(query: string | null): Promise<void> {
   emphasizeElement(input);
 }
 
+function applyGroundedChatLocationPreferences(location: ShellLocation): void {
+  const updates = {
+    ...(location.includeLoopContext != null ? { includeLoopContext: location.includeLoopContext } : {}),
+    ...(location.includeMemoryContext != null ? { includeMemoryContext: location.includeMemoryContext } : {}),
+    ...(location.includeRagContext != null ? { includeRagContext: location.includeRagContext } : {}),
+  };
+  if (Object.keys(updates).length > 0) {
+    updateChatPreferences(updates);
+  }
+}
+
 async function askGroundedChatSurface(query: string): Promise<void> {
   const available = await waitForCondition(() => {
     return document.getElementById("chat-input") instanceof HTMLInputElement
@@ -615,6 +626,7 @@ async function applyLocation(
   }
 
   if (currentLocation.state === "recall" && currentLocation.recallTool === "chat" && currentLocation.query) {
+    applyGroundedChatLocationPreferences(currentLocation);
     window.setTimeout(() => {
       void askGroundedChatSurface(currentLocation.query ?? "");
     }, 140);

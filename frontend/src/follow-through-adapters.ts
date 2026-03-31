@@ -84,6 +84,9 @@ export function mapApiLocation(location: ApiLocation | null | undefined): ShellL
     memoryId: location.memory_id ?? null,
     workingSetId: location.working_set_id ?? null,
     query: location.query ?? null,
+    includeLoopContext: location.include_loop_context ?? null,
+    includeMemoryContext: location.include_memory_context ?? null,
+    includeRagContext: location.include_rag_context ?? null,
   });
 }
 
@@ -276,10 +279,20 @@ export function mapApiUndoAction(action: ApiUndoAction): OperatorActionCardUndoA
 }
 
 export function buildFollowThroughActions(input: {
+  groundedChatLocation: ShellLocationContract | null;
   undoAction: OperatorActionCardUndoAction | null | undefined;
   rerunAction: OperatorActionCardRerunAction | null | undefined;
 }): OperatorActionCardAction[] {
   const actions: OperatorActionCardAction[] = [];
+  if (input.groundedChatLocation) {
+    actions.push({
+      type: "open",
+      label: "Ask grounded chat",
+      variant: "secondary",
+      description: "Open grounded chat with the landed review context preserved.",
+      location: input.groundedChatLocation,
+    });
+  }
   if (input.rerunAction) {
     actions.push(input.rerunAction);
   }
@@ -310,6 +323,7 @@ export function buildReviewFollowThroughReceipt(input: {
   const displayCard = mapApiDisplayCard(input.followThrough.display_card);
   const resumeLocation = requireReviewResumeLocation(input.followThrough.resume_location);
   const workflowThread = mapApiWorkflowThread(input.followThrough.workflow_thread);
+  const groundedChatLocation = mapApiLocation(input.followThrough.grounded_chat_location);
   const undoAction = mapApiUndoAction(input.followThrough.undo_action);
   const rerunAction = mapApiRerunAction(input.followThrough.rerun_action);
   const description = input.description ?? displayCard.summary;
@@ -320,7 +334,7 @@ export function buildReviewFollowThroughReceipt(input: {
     resumeLocation,
     resumeDescription: description,
     pinLabel: displayCard.title,
-    actions: buildFollowThroughActions({ undoAction, rerunAction }),
+    actions: buildFollowThroughActions({ groundedChatLocation, undoAction, rerunAction }),
   });
   return {
     card,

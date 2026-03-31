@@ -58,6 +58,9 @@ export interface ShellLocationContract {
   memoryId?: number | null;
   workingSetId?: number | null;
   query?: string | null;
+  includeLoopContext?: boolean | null;
+  includeMemoryContext?: boolean | null;
+  includeRagContext?: boolean | null;
 }
 
 export interface ContinuityCohortBaseline {

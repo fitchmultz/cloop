@@ -73,6 +73,10 @@ def _assert_review_follow_through_contract(
     assert follow_through["resume_location"]["session_id"] == session_id
     assert follow_through["workflow_thread"]["kind"] == "review_session"
     assert follow_through["workflow_thread"]["id"] == f"review:{review_focus}:session:{session_id}"
+    assert follow_through["grounded_chat_location"]["state"] == "recall"
+    assert follow_through["grounded_chat_location"]["recall_tool"] == "chat"
+    assert follow_through["grounded_chat_location"]["query"]
+    assert follow_through["grounded_chat_location"]["include_loop_context"] is True
     assert follow_through["rerun_action"]["rerun"]["kind"] == "review_session"
     assert follow_through["rerun_action"]["rerun"]["review_focus"] == review_focus
     assert follow_through["rerun_action"]["rerun"]["session_id"] == session_id

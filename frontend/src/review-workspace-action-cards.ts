@@ -147,6 +147,17 @@ function launchSurfaceToLocation(
   if (web?.["surface"] === "review_session" && reviewKind === "enrichment") {
     return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId, workingSetId });
   }
+  if (web?.["surface"] === "recall_chat") {
+    return createLocation({
+      state: "recall",
+      recallTool: "chat",
+      workingSetId,
+      query: typeof web["query"] === "string" ? web["query"] : null,
+      includeLoopContext: typeof web["include_loop_context"] === "boolean" ? web["include_loop_context"] : null,
+      includeMemoryContext: typeof web["include_memory_context"] === "boolean" ? web["include_memory_context"] : null,
+      includeRagContext: typeof web["include_rag_context"] === "boolean" ? web["include_rag_context"] : null,
+    });
+  }
   return null;
 }
 

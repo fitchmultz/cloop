@@ -43,6 +43,9 @@ describe("createLocation", () => {
       memoryId: null,
       workingSetId: null,
       query: null,
+      includeLoopContext: null,
+      includeMemoryContext: null,
+      includeRagContext: null,
     });
   });
 });
@@ -102,9 +105,12 @@ describe("locationToHash / parseHash", () => {
       recallTool: "rag",
       query: "what changed today",
       workingSetId: 5,
+      includeLoopContext: true,
+      includeMemoryContext: false,
+      includeRagContext: true,
     });
-    expect(locationToHash(location)).toBe("#recall/rag/query/what%20changed%20today?ws=5");
-    expect(parseHash("#recall/rag/query/what%20changed%20today?ws=5")).toEqual(location);
+    expect(locationToHash(location)).toBe("#recall/rag/query/what%20changed%20today?ws=5&lc=1&mc=0&rc=1");
+    expect(parseHash("#recall/rag/query/what%20changed%20today?ws=5&lc=1&mc=0&rc=1")).toEqual(location);
   });
 
   it("parses review query routes into cohort review focus", () => {

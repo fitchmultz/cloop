@@ -162,7 +162,13 @@ def test_planning_workflow_endpoints(
     assert success_location["review_focus"] == "planning"
     assert success_location["session_id"] == session_id
     assert first_execute_payload["execution"]["follow_up_resources"] == []
-    assert first_execute_payload["execution"]["launch_surfaces"] == []
+    assert [
+        surface["surface"] for surface in first_execute_payload["execution"]["launch_surfaces"]
+    ] == ["recall_chat"]
+    assert (
+        first_execute_payload["execution"]["launch_surfaces"][0]["web"]["include_loop_context"]
+        is True
+    )
     assert (
         first_execute_payload["execution"]["results"][0]["rollback_actions"][0]["kind"]
         == "loop.undo"
@@ -205,6 +211,7 @@ def test_planning_workflow_endpoints(
     assert second_execute_payload["execution"]["launch_surfaces"][0]["http"]["path"] == (
         f"/loops/review/enrichment/sessions/{created_review_session_id}"
     )
+    assert second_execute_payload["execution"]["launch_surfaces"][-1]["surface"] == "recall_chat"
     resource_summary = second_execute_payload["execution"]["resource_change_summary"]
     assert resource_summary["downstream_change_count"] == 1
     assert any(group["resource_type"] == "loop" for group in resource_summary["groups"])

@@ -1206,6 +1206,18 @@ export type ContinuityLastSeenMarkerUpsertRequest = {
  */
 export type ContinuityLocationResponse = {
     /**
+     * Include Loop Context
+     */
+    include_loop_context?: boolean | null;
+    /**
+     * Include Memory Context
+     */
+    include_memory_context?: boolean | null;
+    /**
+     * Include Rag Context
+     */
+    include_rag_context?: boolean | null;
+    /**
      * Loop Id
      */
     loop_id?: number | null;
@@ -6292,6 +6304,7 @@ export type ResolvedContinuityTargetResponse = {
  */
 export type ReviewFollowThroughResponse = {
     display_card: ContinuityDisplayCardResponseOutput;
+    grounded_chat_location?: ContinuityLocationResponse | null;
     rerun_action?: ContinuityRerunActionOutput | null;
     resume_location?: ContinuityLocationResponse | null;
     undo_action?: ContinuityUndoActionOutput | null;
@@ -7143,6 +7156,18 @@ export type WorkingSetItemResponse = {
  * Frontend launch target for one working-set item or the set itself.
  */
 export type WorkingSetLaunchLocationResponse = {
+    /**
+     * Include Loop Context
+     */
+    include_loop_context?: boolean | null;
+    /**
+     * Include Memory Context
+     */
+    include_memory_context?: boolean | null;
+    /**
+     * Include Rag Context
+     */
+    include_rag_context?: boolean | null;
     /**
      * Loop Id
      */

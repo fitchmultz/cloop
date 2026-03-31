@@ -35,6 +35,7 @@ from typing import Any
 from pydantic import ValidationError as PydanticValidationError
 
 from ... import typingx
+from ...recall_handoffs import planning_grounded_chat_launch_surface
 from ...settings import Settings
 from .. import repo, working_sets
 from ..errors import ResourceNotFoundError, ValidationError
@@ -279,6 +280,21 @@ def execute_planning_session_checkpoint(
     follow_up_resources = _build_follow_up_resources(results)
     resource_change_summary = _build_resource_change_summary(results)
     rollback_cues = _build_rollback_cues(results)
+    launch_surfaces = _build_launch_surfaces(
+        results=results,
+        follow_up_resources=follow_up_resources,
+    )
+    launch_surfaces.append(
+        planning_grounded_chat_launch_surface(
+            session_id=session_id,
+            session_name=str(session["name"]),
+            checkpoint_title=checkpoint.title,
+            checkpoint_summary=checkpoint.summary,
+            working_set_id=resolved_working_set_id,
+            include_memory_context=bool(session.get("include_memory_context", False)),
+            include_rag_context=bool(session.get("include_rag_context", False)),
+        )
+    )
     execution_payload: dict[str, Any] = {
         "session_id": session_id,
         "checkpoint_index": checkpoint_index,
@@ -289,10 +305,7 @@ def execute_planning_session_checkpoint(
         "summary": _build_execution_summary(results),
         "resource_change_summary": resource_change_summary,
         "follow_up_resources": follow_up_resources,
-        "launch_surfaces": _build_launch_surfaces(
-            results=results,
-            follow_up_resources=follow_up_resources,
-        ),
+        "launch_surfaces": launch_surfaces,
         "rollback_cues": rollback_cues,
     }
 

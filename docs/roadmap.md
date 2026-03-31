@@ -44,7 +44,4 @@ Current product goals:
 
 ## Next execution slices
 
-1. **Grounded Recall chat handoffs**
-   - Make grounded chat a first-class Recall destination that can launch from operator cards, planning follow-through, and review outcomes with preserved loop/memory/RAG context.
-   - Keep the handoff contract shared across HTTP, web, CLI, and MCP so recall-oriented chat stops drifting from other workflow surfaces.
-   - Acceptance source: `docs/ux/state-navigation.md`, `docs/ux/workflow-handoffs.md`, `docs/ux/experience-vision.md`.
+No queued execution slices right now. Add the next acceptance-backed end-to-end slice here.

@@ -58,6 +58,9 @@ export function continuityLocationIdentity(location: ShellLocationContract | nul
     location.memoryId ?? "-",
     location.workingSetId ?? "-",
     location.query ?? "-",
+    location.includeLoopContext ?? "-",
+    location.includeMemoryContext ?? "-",
+    location.includeRagContext ?? "-",
   ].join("|");
 }
 

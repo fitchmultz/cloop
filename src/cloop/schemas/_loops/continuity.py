@@ -108,6 +108,9 @@ class ContinuityLocationResponse(BaseModel):
     memory_id: int | None = None
     working_set_id: int | None = None
     query: str | None = None
+    include_loop_context: bool | None = None
+    include_memory_context: bool | None = None
+    include_rag_context: bool | None = None
 
 
 class WorkflowThreadRefResponse(BaseModel):
@@ -365,6 +368,7 @@ class ReviewFollowThroughResponse(BaseModel):
     undo_action: ContinuityUndoAction | None = None
     rerun_action: ContinuityRerunAction | None = None
     resume_location: ContinuityLocationResponse | None = None
+    grounded_chat_location: ContinuityLocationResponse | None = None
     workflow_thread: WorkflowThreadRefResponse
     working_set_id: int | None = None
 

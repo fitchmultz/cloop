@@ -65,6 +65,16 @@ type ActionPrefix = "open" | "pin" | "stage" | "edit" | "defer" | "undoSuccess" 
 
 const NOTIFICATION_ACKNOWLEDGEMENT_PREFIX = "notification:";
 
+function parseOptionalBoolean(value: string | undefined): boolean | null {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  return null;
+}
+
 function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): ShellLocation {
   return createLocation({
     state: button.dataset[`${prefix}State`] as ShellState | undefined,
@@ -76,6 +86,9 @@ function locationFromButton(button: HTMLButtonElement, prefix: ActionPrefix): Sh
     memoryId: parseOptionalInteger(button.dataset[`${prefix}MemoryId`]),
     workingSetId: parseOptionalInteger(button.dataset[`${prefix}WorkingSetId`]),
     query: button.dataset[`${prefix}Query`]?.trim() || null,
+    includeLoopContext: parseOptionalBoolean(button.dataset[`${prefix}IncludeLoopContext`]),
+    includeMemoryContext: parseOptionalBoolean(button.dataset[`${prefix}IncludeMemoryContext`]),
+    includeRagContext: parseOptionalBoolean(button.dataset[`${prefix}IncludeRagContext`]),
   });
 }
 

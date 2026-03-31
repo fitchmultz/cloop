@@ -254,7 +254,13 @@ def test_planning_sessions_create_move_execute_refresh_and_delete(
         assert first_execution["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
         assert first_execution["execution"]["undo_action"]["undo"]["run_id"] > 0
         assert first_execution["execution"]["follow_up_resources"] == []
-        assert first_execution["execution"]["launch_surfaces"] == []
+        assert [
+            surface["surface"] for surface in first_execution["execution"]["launch_surfaces"]
+        ] == ["recall_chat"]
+        assert (
+            first_execution["execution"]["launch_surfaces"][0]["web"]["include_loop_context"]
+            is True
+        )
         assert first_execution["execution"]["results"][0]["rollback_supported"] is True
         assert (
             first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
@@ -476,6 +482,7 @@ def test_planning_session_executes_expanded_deterministic_operations(
         assert second_execution["execution"]["launch_surfaces"][0]["surface"] == (
             "enrichment_review_session"
         )
+        assert second_execution["execution"]["launch_surfaces"][-1]["surface"] == "recall_chat"
 
         created_view = repo.get_loop_view_by_name(name="launch-open", conn=conn)
         assert created_view is not None

@@ -161,6 +161,9 @@ def _location_identity(location: ContinuityLocationResponse) -> tuple[object, ..
         location.memory_id,
         location.working_set_id,
         location.query,
+        location.include_loop_context,
+        location.include_memory_context,
+        location.include_rag_context,
     )
 
 

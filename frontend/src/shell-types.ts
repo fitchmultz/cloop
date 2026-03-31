@@ -49,6 +49,9 @@ export interface ShellLocationInput {
   memoryId?: number | null | undefined;
   workingSetId?: number | null | undefined;
   query?: string | null | undefined;
+  includeLoopContext?: boolean | null | undefined;
+  includeMemoryContext?: boolean | null | undefined;
+  includeRagContext?: boolean | null | undefined;
 }
 
 export interface WorkspaceData {

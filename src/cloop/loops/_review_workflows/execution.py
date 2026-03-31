@@ -36,6 +36,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
 from ... import typingx
+from ...recall_handoffs import review_grounded_chat_handoff
 from .. import enrichment_orchestration, enrichment_review, relationship_review, repo, working_sets
 from ..errors import ValidationError
 from .shared import (
@@ -342,6 +343,14 @@ def _relationship_follow_through(
             session_id=int(session["id"]),
             working_set_id=working_set_id,
         ),
+        "grounded_chat_location": review_grounded_chat_handoff(
+            review_focus="relationship",
+            session=session,
+            current_loop_label=(
+                _loop_label(current_loop, fallback="") if current_loop is not None else None
+            ),
+            working_set_id=working_set_id,
+        ),
         "workflow_thread": _review_workflow_thread(session=session, review_focus="relationship"),
         "working_set_id": working_set_id,
     }
@@ -424,6 +433,14 @@ def _enrichment_follow_through(
         "resume_location": _review_resume_location(
             review_focus="enrichment",
             session_id=int(session["id"]),
+            working_set_id=working_set_id,
+        ),
+        "grounded_chat_location": review_grounded_chat_handoff(
+            review_focus="enrichment",
+            session=session,
+            current_loop_label=(
+                _loop_label(current_loop, fallback="") if current_loop is not None else None
+            ),
             working_set_id=working_set_id,
         ),
         "workflow_thread": _review_workflow_thread(session=session, review_focus="enrichment"),

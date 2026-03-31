@@ -934,6 +934,9 @@ function rankingContext(
       memoryId: item.launch.memory_id ?? null,
       workingSetId: item.launch.working_set_id ?? null,
       query: item.launch.query ?? null,
+      includeLoopContext: item.launch.include_loop_context ?? null,
+      includeMemoryContext: item.launch.include_memory_context ?? null,
+      includeRagContext: item.launch.include_rag_context ?? null,
     });
   });
   return {

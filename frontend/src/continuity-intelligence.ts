@@ -1181,6 +1181,9 @@ function mapLocationToApi(location: ShellLocationContract | null): ContinuityLoc
     memory_id: location.memoryId ?? null,
     working_set_id: location.workingSetId ?? null,
     query: location.query ?? null,
+    include_loop_context: location.includeLoopContext ?? null,
+    include_memory_context: location.includeMemoryContext ?? null,
+    include_rag_context: location.includeRagContext ?? null,
   };
 }
 
@@ -1410,7 +1413,7 @@ function outcomeCardFollowThroughActions(input: {
   undoAction: OperatorActionCardUndoAction | null | undefined;
   rerunAction: OperatorActionCardRerunAction | null | undefined;
 }): OperatorActionCardAction[] {
-  return buildFollowThroughActions(input);
+  return buildFollowThroughActions({ groundedChatLocation: null, ...input });
 }
 
 export function buildOutcomeCardFromDisplayCard(

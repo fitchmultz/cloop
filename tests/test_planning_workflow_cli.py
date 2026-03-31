@@ -183,7 +183,9 @@ def test_planning_workflow_cli(
     assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
     assert first_execution["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
     assert first_execution["execution"]["undo_action"]["undo"]["run_id"] > 0
-    assert first_execution["execution"]["launch_surfaces"] == []
+    assert [surface["surface"] for surface in first_execution["execution"]["launch_surfaces"]] == [
+        "recall_chat"
+    ]
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert (
         first_execution["execution"]["results"][0]["rollback_actions"][0]["payload"][
@@ -204,6 +206,7 @@ def test_planning_workflow_cli(
         second_execution["execution"]["launch_surfaces"][0]["surface"]
         == "enrichment_review_session"
     )
+    assert second_execution["execution"]["launch_surfaces"][-1]["surface"] == "recall_chat"
 
     with db.core_connection(settings) as conn:
         created_loop = repo.find_loop_by_raw_text(

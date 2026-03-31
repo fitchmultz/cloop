@@ -235,6 +235,17 @@ export function createShellOperatorCardRenderer(
     if (web?.["surface"] === "review_session" && reviewKind === "enrichment") {
       return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId, workingSetId });
     }
+    if (web?.["surface"] === "recall_chat") {
+      return createLocation({
+        state: "recall",
+        recallTool: "chat",
+        workingSetId,
+        query: typeof web["query"] === "string" ? web["query"] : null,
+        includeLoopContext: typeof web["include_loop_context"] === "boolean" ? web["include_loop_context"] : null,
+        includeMemoryContext: typeof web["include_memory_context"] === "boolean" ? web["include_memory_context"] : null,
+        includeRagContext: typeof web["include_rag_context"] === "boolean" ? web["include_rag_context"] : null,
+      });
+    }
     return null;
   }
 
@@ -770,7 +781,15 @@ export function createShellOperatorCardRenderer(
     const planAssumptions = data.planningSnapshot?.assumptions ?? [];
     const latestExecution = data.planningSnapshot?.execution_history?.at(-1) ?? null;
 
-    const chatLocation = createLocation({ state: "recall", recallTool: "chat" });
+    const chatLocation = createLocation({
+      state: "recall",
+      recallTool: "chat",
+      workingSetId: workingSetContext?.active_working_set_id ?? null,
+      query: "What changed, what is blocked, and what should I do now?",
+      includeLoopContext: true,
+      includeMemoryContext: true,
+      includeRagContext: false,
+    });
     const memoryLocation = createLocation({ state: "recall", recallTool: "memory" });
     const ragLocation = createLocation({ state: "recall", recallTool: "rag" });
 

@@ -161,7 +161,10 @@ def test_planning_workflow_tools(
     assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
     assert first_execution["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
     assert first_execution["execution"]["undo_action"]["undo"]["run_id"] > 0
-    assert first_execution["execution"]["launch_surfaces"] == []
+    assert [surface["surface"] for surface in first_execution["execution"]["launch_surfaces"]] == [
+        "recall_chat"
+    ]
+    assert first_execution["execution"]["launch_surfaces"][0]["mcp"]["tool"] == "chat.complete"
     assert first_execution["execution"]["results"][0]["rollback_actions"][0]["kind"] == "loop.undo"
     assert (
         first_execution["execution"]["results"][0]["rollback_actions"][0]["payload"][
@@ -192,6 +195,7 @@ def test_planning_workflow_tools(
         second_execution["execution"]["launch_surfaces"][0]["mcp"]["tool"]
         == "review.enrichment_session.get"
     )
+    assert second_execution["execution"]["launch_surfaces"][-1]["surface"] == "recall_chat"
     resource_summary = second_execution["execution"]["resource_change_summary"]
     assert resource_summary["downstream_change_count"] == 1
     assert any(group["resource_type"] == "loop" for group in resource_summary["groups"])
