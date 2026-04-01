@@ -43,9 +43,3 @@ Current product goals:
 - Treat `make ci` as the release gate for every milestone.
 
 ## Next execution slices
-
-1. **Command-palette preview-rich keyboard listbox for saved review targets**
-   - Replace the native select-only saved-review target picker with a first-class keyboard listbox that shows the selected target's preview details, current-focus badge, and high-signal queue metadata while the operator moves through candidates or suggestions.
-   - Reuse saved review snapshots plus existing trust/preview shaping so relationship scores, suggested fields, and drift cues stay canonical instead of being re-derived in ad-hoc palette copy.
-   - Why: searchable refresh now works, but the picker still compresses each target into one long line and hides the preview cues operators need before running destructive or high-impact saved review actions from the keyboard.
-   - Acceptance source: `docs/ux/command-palette.md`, `docs/ux/workflow-handoffs.md`.

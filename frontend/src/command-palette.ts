@@ -490,20 +490,40 @@ function relationshipTargetOptionKey(target: RelationshipActionTarget): string {
 }
 
 function relationshipTargetOptionLabel(target: RelationshipActionTarget): string {
-  return `${loopTitle(target.loop)} → ${candidateTitle(target.candidate)} · ${target.relationshipType}${target.isCurrent ? " · Current focus" : ""}`;
+  return `${loopTitle(target.loop)} → ${candidateTitle(target.candidate)}`;
+}
+
+function relationshipSimilarityLabel(score: number): string {
+  return `${Math.round(score * 100)}% similarity`;
 }
 
 function relationshipTargetOptions(targets: readonly RelationshipActionTarget[]): SearchableDialogOption[] {
   return targets.map((target) => ({
     value: relationshipTargetOptionKey(target),
     label: relationshipTargetOptionLabel(target),
+    description: `${target.relationshipType} · ${relationshipSimilarityLabel(target.candidate.score)}`,
+    badge: target.isCurrent ? "Current focus" : undefined,
     searchText: [
       loopTitle(target.loop),
       loopSummary(target.loop),
       candidateTitle(target.candidate),
+      target.candidate.raw_text.trim(),
       target.relationshipType,
       target.candidate.relationship_type,
+      relationshipSimilarityLabel(target.candidate.score),
     ].join("\n"),
+    preview: {
+      eyebrow: "Relationship candidate",
+      title: candidateTitle(target.candidate),
+      description: target.candidate.raw_text.trim() || loopSummary(target.loop),
+      badges: [target.relationshipType],
+      meta: [
+        { label: "Queue loop", value: loopTitle(target.loop) },
+        { label: "Similarity", value: relationshipSimilarityLabel(target.candidate.score) },
+        { label: "Saved type", value: target.candidate.relationship_type },
+        { label: "Loop status", value: target.loop.status },
+      ],
+    },
   }));
 }
 
@@ -610,23 +630,51 @@ function enrichmentActionTargets(input: {
   } satisfies EnrichmentActionTarget)));
 }
 
+function enrichmentSuggestionConfidence(
+  suggestion: EnrichmentReviewSessionSnapshotResponse["items"][number]["pending_suggestions"][number],
+): string | null {
+  if (typeof suggestion.parsed !== "object" || !suggestion.parsed) {
+    return null;
+  }
+  const confidence = (suggestion.parsed as Record<string, unknown>)["confidence"];
+  return typeof confidence === "number" ? `${Math.round(confidence * 100)}% confidence` : null;
+}
+
 function enrichmentTargetOptionLabel(target: EnrichmentActionTarget): string {
-  const fields = target.suggestedFields.slice(0, 3).join(", ");
-  const summary = enrichmentSuggestionLabel(target.suggestion);
-  return `${loopTitle(target.loop)} → ${summary}${fields ? ` · ${fields}` : ""}${target.isCurrent ? " · Current focus" : ""}`;
+  return loopTitle(target.loop);
 }
 
 function enrichmentTargetOptions(targets: readonly EnrichmentActionTarget[]): SearchableDialogOption[] {
-  return targets.map((target) => ({
-    value: String(target.suggestion.id),
-    label: enrichmentTargetOptionLabel(target),
-    searchText: [
-      loopTitle(target.loop),
-      loopSummary(target.loop),
-      enrichmentSuggestionLabel(target.suggestion),
-      ...target.suggestedFields,
-    ].join("\n"),
-  }));
+  return targets.map((target) => {
+    const fields = target.suggestedFields.slice(0, 3);
+    const summary = enrichmentSuggestionLabel(target.suggestion);
+    const confidence = enrichmentSuggestionConfidence(target.suggestion);
+    return {
+      value: String(target.suggestion.id),
+      label: enrichmentTargetOptionLabel(target),
+      description: [summary, fields.join(", "), confidence].filter((value): value is string => Boolean(value)).join(" · "),
+      badge: target.isCurrent ? "Current focus" : undefined,
+      searchText: [
+        loopTitle(target.loop),
+        loopSummary(target.loop),
+        summary,
+        ...target.suggestedFields,
+        confidence ?? "",
+      ].join("\n"),
+      preview: {
+        eyebrow: "Enrichment suggestion",
+        title: loopTitle(target.loop),
+        description: summary,
+        badges: fields.length ? [`${fields.length} field${fields.length === 1 ? "" : "s"}`] : undefined,
+        meta: [
+          { label: "Suggested fields", value: fields.length ? fields.join(", ") : "No structured fields" },
+          { label: "Confidence", value: confidence ?? "No confidence score" },
+          { label: "Loop status", value: target.loop.status },
+          { label: "Suggestion", value: `#${target.suggestion.id}` },
+        ],
+      },
+    } satisfies SearchableDialogOption;
+  });
 }
 
 async function chooseEnrichmentPaletteTarget(input: {

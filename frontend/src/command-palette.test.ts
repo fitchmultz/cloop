@@ -2317,6 +2317,20 @@ describe("command-palette keyboard navigation", () => {
     await settle();
 
     expect(promptSpy).toHaveBeenCalled();
+    const relationshipPickerConfig = promptSpy.mock.calls[0]?.[0];
+    expect(relationshipPickerConfig?.options[0]).toEqual(expect.objectContaining({
+      label: "Launch checklist → Launch checklist duplicate",
+      description: "duplicate · 99% similarity",
+      badge: "Current focus",
+      preview: expect.objectContaining({
+        eyebrow: "Relationship candidate",
+        title: "Launch checklist duplicate",
+        meta: expect.arrayContaining([
+          expect.objectContaining({ label: "Queue loop", value: "Launch checklist" }),
+          expect.objectContaining({ label: "Similarity", value: "99% similarity" }),
+        ]),
+      }),
+    }));
     expect(confirmSpy).toHaveBeenCalled();
     expect(actionBodies[0]).toEqual(expect.objectContaining({
       loop_id: 12,
@@ -2562,6 +2576,20 @@ describe("command-palette keyboard navigation", () => {
     await settle();
 
     expect(promptSpy).toHaveBeenCalled();
+    const enrichmentPickerConfig = promptSpy.mock.calls[0]?.[0];
+    expect(enrichmentPickerConfig?.options[0]).toEqual(expect.objectContaining({
+      label: "Inbox note",
+      description: "Condense note · summary, next_action · 90% confidence",
+      badge: "Current focus",
+      preview: expect.objectContaining({
+        eyebrow: "Enrichment suggestion",
+        title: "Inbox note",
+        meta: expect.arrayContaining([
+          expect.objectContaining({ label: "Suggested fields", value: "summary, next_action" }),
+          expect.objectContaining({ label: "Confidence", value: "90% confidence" }),
+        ]),
+      }),
+    }));
     expect(confirmSpy).toHaveBeenCalled();
     expect(actionBodies[0]).toEqual(expect.objectContaining({
       suggestion_id: 32,

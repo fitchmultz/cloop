@@ -71,10 +71,26 @@ export interface DialogConfig {
   dismissible?: boolean | undefined;
 }
 
+export interface SearchableDialogPreviewMeta {
+  label: string;
+  value: string;
+}
+
+export interface SearchableDialogOptionPreview {
+  eyebrow?: string | undefined;
+  title?: string | undefined;
+  description?: string | undefined;
+  badges?: string[] | undefined;
+  meta?: SearchableDialogPreviewMeta[] | undefined;
+}
+
 export interface SearchableDialogOption {
   value: string;
   label: string;
   searchText?: string | undefined;
+  description?: string | undefined;
+  badge?: string | undefined;
+  preview?: SearchableDialogOptionPreview | undefined;
 }
 
 export interface SearchableDialogRefreshResult {
@@ -587,69 +603,289 @@ export async function chooseOptionDialog(options: SearchableDialogConfig): Promi
   const optionWrapper = optionSelect?.closest<HTMLElement>(".app-dialog-field") ?? null;
   const optionHelp = optionWrapper?.querySelector<HTMLElement>(".app-dialog-help") ?? null;
 
-  if (!searchInput || !optionSelect || !searchWrapper) {
+  if (!searchInput || !optionSelect || !searchWrapper || !optionWrapper) {
     const fallback = await resultPromise;
     return fallback?.[optionFieldName] ?? null;
   }
 
+  const hiddenInput = document.createElement("input");
+  hiddenInput.type = "hidden";
+  hiddenInput.id = optionSelect.id;
+  hiddenInput.name = optionFieldName;
+  optionSelect.replaceWith(hiddenInput);
+
+  const pickerShell = document.createElement("div");
+  pickerShell.className = "app-dialog-picker-shell";
+  const listbox = document.createElement("div");
+  listbox.className = "app-dialog-picker-listbox";
+  listbox.tabIndex = 0;
+  listbox.setAttribute("role", "listbox");
+  listbox.setAttribute("aria-label", options.optionLabel ?? "Target");
+  const preview = document.createElement("section");
+  preview.className = "app-dialog-picker-preview";
+  preview.setAttribute("aria-live", "polite");
+  pickerShell.append(listbox, preview);
+  optionWrapper.insertBefore(pickerShell, optionHelp ?? null);
+
   let sourceOptions = [...options.options];
   let preferredValue = options.value ?? sourceOptions[0]?.value ?? "";
+  let filteredOptions = [...sourceOptions];
   let disposed = false;
 
   const optionMatchesQuery = (option: SearchableDialogOption, query: string): boolean => {
     if (!query) {
       return true;
     }
-    const haystack = `${option.label}\n${option.searchText ?? ""}`.toLowerCase();
+    const haystack = `${option.label}\n${option.description ?? ""}\n${option.searchText ?? ""}`.toLowerCase();
     return haystack.includes(query);
+  };
+
+  const selectedOption = (): SearchableDialogOption | null => {
+    return filteredOptions.find((option) => option.value === hiddenInput.value)
+      ?? filteredOptions[0]
+      ?? null;
+  };
+
+  const updatePreview = (): void => {
+    preview.innerHTML = "";
+    const option = selectedOption();
+    if (!option) {
+      const empty = document.createElement("p");
+      empty.className = "app-dialog-picker-preview-empty";
+      empty.textContent = options.emptyStateLabel ?? "No targets match the current search.";
+      preview.appendChild(empty);
+      return;
+    }
+
+    const previewContent = option.preview;
+    if (previewContent?.eyebrow) {
+      const eyebrow = document.createElement("p");
+      eyebrow.className = "app-dialog-picker-preview-eyebrow";
+      eyebrow.textContent = previewContent.eyebrow;
+      preview.appendChild(eyebrow);
+    }
+
+    const title = document.createElement("h3");
+    title.className = "app-dialog-picker-preview-title";
+    title.textContent = previewContent?.title ?? option.label;
+    preview.appendChild(title);
+
+    const description = previewContent?.description ?? option.description ?? "";
+    if (description) {
+      const descriptionElement = document.createElement("p");
+      descriptionElement.className = "app-dialog-picker-preview-description";
+      descriptionElement.textContent = description;
+      preview.appendChild(descriptionElement);
+    }
+
+    const badges = [option.badge, ...(previewContent?.badges ?? [])].filter((value): value is string => Boolean(value));
+    if (badges.length) {
+      const badgeRow = document.createElement("div");
+      badgeRow.className = "app-dialog-picker-preview-badges";
+      badges.forEach((badgeLabel) => {
+        const badge = document.createElement("span");
+        badge.className = "app-dialog-picker-preview-badge";
+        badge.textContent = badgeLabel;
+        badgeRow.appendChild(badge);
+      });
+      preview.appendChild(badgeRow);
+    }
+
+    if (previewContent?.meta?.length) {
+      const metaList = document.createElement("dl");
+      metaList.className = "app-dialog-picker-preview-meta";
+      previewContent.meta.forEach((meta) => {
+        const row = document.createElement("div");
+        row.className = "app-dialog-picker-preview-meta-row";
+
+        const label = document.createElement("dt");
+        label.textContent = meta.label;
+        row.appendChild(label);
+
+        const value = document.createElement("dd");
+        value.textContent = meta.value;
+        row.appendChild(value);
+
+        metaList.appendChild(row);
+      });
+      preview.appendChild(metaList);
+    }
+  };
+
+  const syncSelectedValue = (nextValue: string, focusOption = false): void => {
+    if (!filteredOptions.some((option) => option.value === nextValue)) {
+      return;
+    }
+    hiddenInput.value = nextValue;
+    listbox.querySelectorAll<HTMLElement>("[role='option']").forEach((option) => {
+      const isSelected = option.dataset["optionValue"] === nextValue;
+      option.classList.toggle("is-selected", isSelected);
+      option.setAttribute("aria-selected", isSelected ? "true" : "false");
+      option.tabIndex = isSelected ? 0 : -1;
+      if (focusOption && isSelected) {
+        option.focus();
+      }
+    });
+    updatePreview();
+  };
+
+  const moveSelection = (step: -1 | 1, focusOption = false): void => {
+    if (!filteredOptions.length) {
+      return;
+    }
+    const currentIndex = filteredOptions.findIndex((option) => option.value === hiddenInput.value);
+    const nextIndex = currentIndex < 0
+      ? 0
+      : (currentIndex + step + filteredOptions.length) % filteredOptions.length;
+    const nextValue = filteredOptions[nextIndex]?.value ?? filteredOptions[0]?.value ?? "";
+    if (nextValue) {
+      syncSelectedValue(nextValue, focusOption);
+    }
   };
 
   const renderOptions = (): void => {
     const query = searchInput.value.trim().toLowerCase();
-    const filtered = sourceOptions.filter((option) => optionMatchesQuery(option, query));
-    const previousValue = optionSelect.value;
-    optionSelect.innerHTML = "";
+    filteredOptions = sourceOptions.filter((option) => optionMatchesQuery(option, query));
+    listbox.innerHTML = "";
 
-    if (!filtered.length) {
-      const emptyOption = document.createElement("option");
-      emptyOption.value = "";
-      emptyOption.textContent = options.emptyStateLabel ?? "No targets match the current search.";
-      emptyOption.selected = true;
-      emptyOption.disabled = true;
-      optionSelect.appendChild(emptyOption);
-      optionSelect.disabled = true;
+    if (!filteredOptions.length) {
+      hiddenInput.value = "";
+      listbox.classList.add("is-empty");
+      listbox.setAttribute("aria-disabled", "true");
+      const empty = document.createElement("p");
+      empty.className = "app-dialog-picker-listbox-empty";
+      empty.textContent = options.emptyStateLabel ?? "No targets match the current search.";
+      listbox.appendChild(empty);
       if (optionHelp) {
         optionHelp.textContent = query
           ? `0 matches for “${searchInput.value.trim()}”. Refresh the queue or broaden the search.`
           : `0 available targets. Refresh the queue to pull the latest saved-session state.`;
       }
+      updatePreview();
       return;
     }
 
-    filtered.forEach((option) => {
-      const optionElement = document.createElement("option");
-      optionElement.value = option.value;
-      optionElement.textContent = option.label;
-      optionSelect.appendChild(optionElement);
+    listbox.classList.remove("is-empty");
+    listbox.setAttribute("aria-disabled", "false");
+
+    filteredOptions.forEach((option) => {
+      const optionButton = document.createElement("button");
+      optionButton.type = "button";
+      optionButton.className = "app-dialog-picker-option";
+      optionButton.dataset["optionValue"] = option.value;
+      optionButton.setAttribute("role", "option");
+      optionButton.setAttribute("aria-selected", "false");
+      optionButton.tabIndex = -1;
+
+      const header = document.createElement("div");
+      header.className = "app-dialog-picker-option-header";
+      const label = document.createElement("span");
+      label.className = "app-dialog-picker-option-label";
+      label.textContent = option.label;
+      header.appendChild(label);
+      if (option.badge) {
+        const badge = document.createElement("span");
+        badge.className = "app-dialog-picker-option-badge";
+        badge.textContent = option.badge;
+        header.appendChild(badge);
+      }
+      optionButton.appendChild(header);
+
+      if (option.description) {
+        const description = document.createElement("span");
+        description.className = "app-dialog-picker-option-description";
+        description.textContent = option.description;
+        optionButton.appendChild(description);
+      }
+
+      optionButton.addEventListener("click", () => {
+        syncSelectedValue(option.value, true);
+      });
+      optionButton.addEventListener("dblclick", () => {
+        syncSelectedValue(option.value, true);
+        current.appDialogForm?.requestSubmit();
+      });
+      optionButton.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          moveSelection(1, true);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          moveSelection(-1, true);
+          return;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          syncSelectedValue(option.value, true);
+          current.appDialogForm?.requestSubmit();
+        }
+      });
+      listbox.appendChild(optionButton);
     });
 
-    optionSelect.disabled = false;
-    const nextValue = [previousValue, preferredValue, filtered[0]?.value ?? ""]
-      .find((value) => value && filtered.some((option) => option.value === value))
-      ?? filtered[0]?.value
+    const nextValue = [hiddenInput.value, preferredValue, filteredOptions[0]?.value ?? ""]
+      .find((value) => value && filteredOptions.some((option) => option.value === value))
+      ?? filteredOptions[0]?.value
       ?? "";
-    optionSelect.value = nextValue;
+    hiddenInput.value = nextValue;
     if (optionHelp) {
       optionHelp.textContent = query
-        ? `${filtered.length} match${filtered.length === 1 ? "" : "es"} for “${searchInput.value.trim()}”.`
-        : `${filtered.length} target${filtered.length === 1 ? "" : "s"} available.`;
+        ? `${filteredOptions.length} match${filteredOptions.length === 1 ? "" : "es"} for “${searchInput.value.trim()}”.`
+        : `${filteredOptions.length} target${filteredOptions.length === 1 ? "" : "s"} available.`;
     }
+    syncSelectedValue(nextValue);
   };
 
   const handleSearchInput = (): void => {
     renderOptions();
   };
+  const handleSearchKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveSelection(1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveSelection(-1);
+      return;
+    }
+    if (event.key === "Home" && filteredOptions.length) {
+      event.preventDefault();
+      syncSelectedValue(filteredOptions[0]?.value ?? "");
+      return;
+    }
+    if (event.key === "End" && filteredOptions.length) {
+      event.preventDefault();
+      syncSelectedValue(filteredOptions[filteredOptions.length - 1]?.value ?? "");
+    }
+  };
+  const handleListboxKeydown = (event: KeyboardEvent): void => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      moveSelection(1, true);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      moveSelection(-1, true);
+      return;
+    }
+    if (event.key === "Home" && filteredOptions.length) {
+      event.preventDefault();
+      syncSelectedValue(filteredOptions[0]?.value ?? "", true);
+      return;
+    }
+    if (event.key === "End" && filteredOptions.length) {
+      event.preventDefault();
+      syncSelectedValue(filteredOptions[filteredOptions.length - 1]?.value ?? "", true);
+    }
+  };
   searchInput.addEventListener("input", handleSearchInput);
+  searchInput.addEventListener("keydown", handleSearchKeydown);
+  listbox.addEventListener("keydown", handleListboxKeydown);
 
   let refreshButton: HTMLButtonElement | null = null;
   if (options.onRefresh) {
@@ -704,6 +940,8 @@ export async function chooseOptionDialog(options: SearchableDialogConfig): Promi
   } finally {
     disposed = true;
     searchInput.removeEventListener("input", handleSearchInput);
+    searchInput.removeEventListener("keydown", handleSearchKeydown);
+    listbox.removeEventListener("keydown", handleListboxKeydown);
     refreshButton?.remove();
   }
 }
