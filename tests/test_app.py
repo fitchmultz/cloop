@@ -83,6 +83,13 @@ def test_ingest_and_ask(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert answer_payload["rerun_action"]["rerun"]["kind"] == "recall_query"
     assert answer_payload["rerun_action"]["rerun"]["recall_tool"] == "rag"
     assert answer_payload["rerun_action"]["rerun"]["query"] == "What does FastAPI help with?"
+    assert answer_payload["follow_through"]["display_card"]["eyebrow"] == "Recall receipt"
+    assert answer_payload["follow_through"]["resume_location"]["state"] == "recall"
+    assert (
+        answer_payload["follow_through"]["resume_location"]["query"]
+        == "What does FastAPI help with?"
+    )
+    assert answer_payload["follow_through"]["workflow_thread"]["kind"] == "recall"
     for chunk in answer_payload["chunks"]:
         assert "embedding_blob" not in chunk
 
@@ -412,6 +419,8 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert final_payload["metadata"]["model"] == "mock-llm"
     assert final_payload["rerun_action"]["rerun"]["kind"] == "recall_query"
     assert final_payload["rerun_action"]["rerun"]["recall_tool"] == "chat"
+    assert final_payload["follow_through"]["display_card"]["eyebrow"] == "Recall receipt"
+    assert final_payload["follow_through"]["resume_location"]["state"] == "recall"
     assert final_payload["options"]["tool_mode"] == "none"
     assert final_payload["options"]["include_loop_context"] is True
     assert final_payload["options"]["include_memory_context"] is True
@@ -430,6 +439,7 @@ def test_chat_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert recorded["context"]["embed_model"] == get_settings().embed_model
     assert recorded["options"]["tool_mode"] == "none"
     assert recorded["rerun_action"]["rerun"]["kind"] == "recall_query"
+    assert recorded["follow_through"]["workflow_thread"]["kind"] == "recall"
     assert recorded["context_summary"]["memory_context_applied"] in {True, False}
 
 
@@ -501,6 +511,8 @@ def test_chat_response_exposes_effective_options_metadata_and_sources(
     assert payload["rerun_action"]["rerun"]["kind"] == "recall_query"
     assert payload["rerun_action"]["rerun"]["recall_tool"] == "chat"
     assert payload["rerun_action"]["rerun"]["query"] == "Where is the launch checklist?"
+    assert payload["follow_through"]["display_card"]["title"].startswith("Grounded answer ·")
+    assert payload["follow_through"]["resume_location"]["query"] == "Where is the launch checklist?"
     assert payload["rerun_action"]["rerun"]["include_loop_context"] is True
     assert payload["rerun_action"]["rerun"]["include_memory_context"] is True
     assert payload["rerun_action"]["rerun"]["include_rag_context"] is True
@@ -529,6 +541,7 @@ def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert final_payload["sources"]
     assert final_payload["rerun_action"]["rerun"]["kind"] == "recall_query"
     assert final_payload["rerun_action"]["rerun"]["recall_tool"] == "rag"
+    assert final_payload["follow_through"]["display_card"]["title"].startswith("Evidence answer ·")
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
@@ -540,6 +553,7 @@ def test_ask_streaming(test_client: TestClient, tmp_data_dir: Path) -> None:
     assert recorded["answer"] == "".join(STREAM_TOKENS)
     assert recorded["context"]["vector_search_mode"] == get_settings().vector_search_mode.value
     assert recorded["rerun_action"]["rerun"]["kind"] == "recall_query"
+    assert recorded["follow_through"]["workflow_thread"]["kind"] == "recall"
 
 
 def test_rag_streaming_post_start_failure_emits_error_event(

@@ -21,7 +21,7 @@
  */
 
 import type { ContinuityOutcomeRecordResponse, ReviewFollowThroughResponse } from "./domain";
-import { buildReviewFollowThroughReceipt, mapApiDisplayCard, mapApiUndoAction } from "./follow-through-adapters";
+import { buildFollowThroughReceipt, mapApiDisplayCard, mapApiUndoAction } from "./follow-through-adapters";
 import { createLocation } from "./shell-routing";
 
 describe("follow-through-adapters", () => {
@@ -147,7 +147,7 @@ describe("follow-through-adapters", () => {
       },
     } as unknown as ReviewFollowThroughResponse;
 
-    const receipt = buildReviewFollowThroughReceipt({
+    const receipt = buildFollowThroughReceipt({
       followThrough,
       id: "review-follow-through-17",
       metadata: { source: "review-workspace", sessionId: 17 },
@@ -188,9 +188,116 @@ describe("follow-through-adapters", () => {
     });
   });
 
+  it("overlays browser-owned working-set scope onto recall follow-through receipts", () => {
+    const receipt = buildFollowThroughReceipt({
+      followThrough: {
+        display_card: {
+          kind: "receipt",
+          tone: "attention",
+          eyebrow: "Recall receipt",
+          title: "Evidence answer · launch checklist",
+          summary: "The launch checklist lives in docs/launch.md.",
+          rationale: "Document answers should reopen the landed result.",
+          preview: [{ label: "Question", value: "Where is the launch checklist?" }],
+          trust: {
+            generation_label: "Recall receipt",
+            generation_tone: "attention",
+            context_sources: ["Indexed local documents"],
+            assumptions: [],
+            confidence_label: "1 retrieved source",
+            confidence_tone: "attention",
+            freshness_label: "Saved just now",
+            freshness_tone: "progress",
+            rollback_label: "Rerun the same document question to refresh this answer.",
+            rollback_tone: "progress",
+            impact_summary: "The launch checklist lives in docs/launch.md.",
+            impact_tone: "attention",
+          },
+          handoff: null,
+          action_context_label: "Continue from here",
+          action_warning: null,
+        },
+        undo_action: null,
+        rerun_action: {
+          label: "Refresh evidence",
+          description: "Land back in Recall with a fresh evidence-backed result.",
+          rerun: {
+            kind: "recall_query",
+            recall_tool: "rag",
+            query: "Where is the launch checklist?",
+            working_set_id: null,
+            include_loop_context: null,
+            include_memory_context: null,
+            include_rag_context: true,
+          },
+          contract: {
+            mode: "rerun",
+            provenance_label: "Document-backed recall result",
+            freshness_label: "1 retrieved source in the prior answer",
+            strategy_summary: "Reuse the same document question against the current indexed evidence.",
+            strict_invariants: ["Same document recall surface"],
+            may_vary: ["Retrieved source set"],
+            post_run: {
+              summary: "Land back in Recall with a fresh evidence-backed result.",
+              location: {
+                state: "recall",
+                recall_tool: "rag",
+                review_focus: null,
+                session_id: null,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: null,
+                query: "Where is the launch checklist?",
+              },
+            },
+          },
+        },
+        resume_location: {
+          state: "recall",
+          recall_tool: "rag",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: "Where is the launch checklist?",
+        },
+        grounded_chat_location: null,
+        workflow_thread: {
+          id: "recall:rag:where is the launch checklist?",
+          kind: "recall",
+          title: "Evidence answer · launch checklist",
+          summary: "The launch checklist lives in docs/launch.md.",
+          parent_outcome_id: null,
+        },
+        working_set_id: null,
+      } as unknown as ReviewFollowThroughResponse,
+      id: "recall-follow-through-1",
+      kind: "recall",
+      workingSetIdOverride: 7,
+      metadata: { source: "recall-rag" },
+    });
+
+    expect(receipt.resumeLocation).toEqual(createLocation({
+      state: "recall",
+      recallTool: "rag",
+      workingSetId: 7,
+      query: "Where is the launch checklist?",
+    }));
+    expect(receipt.entry.outcome?.rerunAction?.rerun).toMatchObject({
+      kind: "recall_query",
+      recallTool: "rag",
+      workingSetId: 7,
+      query: "Where is the launch checklist?",
+    });
+    expect(receipt.entry.metadata).toEqual({ source: "recall-rag" });
+  });
+
   it("fails fast when backend review follow-through omits resume_location", () => {
     expect(() =>
-      buildReviewFollowThroughReceipt({
+      buildFollowThroughReceipt({
         followThrough: {
           display_card: {
             kind: "receipt",

@@ -112,6 +112,8 @@ def chat_complete(
         - `context`: Summary of applied grounding inputs
         - `sources`: Retrieved document sources used for grounding
         - `rerun_action`: Shared rerun affordance for the grounded answer
+        - `follow_through`: Backend-authored landed receipt metadata for
+          reopening the exact answer result
 
     Raises:
         ToolError: If request validation fails, tool usage is invalid, or chat

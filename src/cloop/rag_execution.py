@@ -34,6 +34,7 @@ from .rag import (
     prepare_ask_context,
 )
 from .rag.ask_orchestration import PreparedAskContext
+from .recall_follow_through import build_rag_follow_through
 from .schemas.rag import AskResponse, IngestResponse
 from .settings import PiToolBudgetSurface, Settings
 from .storage import interaction_store
@@ -120,6 +121,17 @@ def _ask_rerun_action(*, question: str, sources: list[dict[str, Any]]):
     )
 
 
+def _ask_follow_through(*, answer: str, question: str, sources: list[dict[str, Any]]):
+    if answer == NO_KNOWLEDGE_MESSAGE:
+        return None
+    return build_rag_follow_through(
+        question=question,
+        answer=answer,
+        sources=sources,
+        rerun_action=_ask_rerun_action(question=question, sources=sources),
+    )
+
+
 def _ask_response_payload(
     *,
     answer: str,
@@ -129,11 +141,15 @@ def _ask_response_payload(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rerun_action = _ask_rerun_action(question=question, sources=sources)
+    follow_through = _ask_follow_through(answer=answer, question=question, sources=sources)
     payload = {
         "answer": answer,
         "sources": sources,
         "context": context,
         "rerun_action": rerun_action.model_dump(mode="python"),
+        "follow_through": follow_through.model_dump(mode="python")
+        if follow_through is not None
+        else None,
     }
     if metadata:
         payload["metadata"] = metadata
@@ -209,6 +225,7 @@ def execute_ask_request(
             chunks=[],
             metadata={},
             rerun_action=_ask_rerun_action(question=question, sources=[]),
+            follow_through=None,
         )
         return RagAskExecutionResult(
             response=response,
@@ -241,6 +258,11 @@ def execute_ask_request(
         sources=answer.sources,
         metadata=answer.metadata,
         rerun_action=_ask_rerun_action(question=question, sources=answer.sources),
+        follow_through=_ask_follow_through(
+            answer=answer.answer,
+            question=question,
+            sources=answer.sources,
+        ),
     )
     return RagAskExecutionResult(
         response=response,
@@ -292,6 +314,7 @@ def stream_ask_request(
                 chunks=[],
                 metadata={},
                 rerun_action=_ask_rerun_action(question=question, sources=[]),
+                follow_through=None,
             ).model_dump(mode="json"),
         )
         return
@@ -374,6 +397,11 @@ def stream_ask_request(
             sources=prepared.sources,
             metadata=metadata,
             rerun_action=_ask_rerun_action(question=question, sources=prepared.sources),
+            follow_through=_ask_follow_through(
+                answer=final_answer,
+                question=question,
+                sources=prepared.sources,
+            ),
         ).model_dump(mode="json"),
     )
 

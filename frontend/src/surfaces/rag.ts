@@ -23,8 +23,9 @@
 
 import { recordRecentShellAction } from "../continuity-intelligence";
 import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
-import type { AskResponse } from "../domain";
+import type { AskResponse, ReviewFollowThroughResponse } from "../domain";
 import { mapApiRerunAction } from "../executable-rerun";
+import { buildFollowThroughReceipt } from "../follow-through-adapters";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import { buildRecallIngestReceiptEntry } from "./recall-receipts";
@@ -211,6 +212,7 @@ export async function submitRagQuestion(question: string): Promise<void> {
     const response = await api.submitRagQuestion(question, true);
     let accumulated = "";
     let finalAnswer = "";
+    let finalPayload: SurfaceChatEventPayload | undefined;
     let sources: RagSource[] = [];
     let chunks: RagChunk[] = [];
     let rerunAction: AskResponse["rerun_action"] | undefined;
@@ -225,6 +227,7 @@ export async function submitRagQuestion(question: string): Promise<void> {
       }
 
       if (eventName === "done") {
+        finalPayload = payload;
         sources = Array.isArray(payload.sources) ? payload.sources : [];
         chunks = Array.isArray(payload.chunks) ? payload.chunks : [];
         finalAnswer = typeof payload.answer === "string" ? payload.answer : "";
@@ -233,6 +236,16 @@ export async function submitRagQuestion(question: string): Promise<void> {
     });
 
     renderAnswer(finalAnswer || accumulated || ragAnswerText.textContent || "", sources, chunks, question, rerunAction);
+    const followThrough = (finalPayload?.follow_through ?? null) as ReviewFollowThroughResponse | null;
+    if (followThrough) {
+      recordRecentShellAction(buildFollowThroughReceipt({
+        followThrough,
+        id: `rag-follow-through-${Date.now()}`,
+        kind: "recall",
+        metadata: { source: "recall-rag" },
+        workingSetIdOverride: currentWorkingSetId(),
+      }).entry);
+    }
     ragAnswer.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (error: unknown) {
     ragAnswer.classList.remove("hidden");

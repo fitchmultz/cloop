@@ -77,7 +77,7 @@ import { renderActionCardDeck } from "./operator-action-cards";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
 import { renderTrustSurface } from "./trust-surface";
-import { buildReviewFollowThroughReceipt } from "./follow-through-adapters";
+import { buildFollowThroughReceipt } from "./follow-through-adapters";
 import {
   buildCohortImpactCard,
   buildEnrichmentImpactCard,
@@ -873,7 +873,7 @@ function recordBackendReviewFollowThrough(input: {
     | EnrichmentReviewSessionClarificationResponse["follow_through"];
   metadata: Record<string, unknown>;
 }): void {
-  const receipt = buildReviewFollowThroughReceipt({
+  const receipt = buildFollowThroughReceipt({
     followThrough: input.followThrough,
     id: `review-follow-through-${input.followThrough.workflow_thread.id}-${Date.now()}`,
     metadata: input.metadata,

@@ -7,8 +7,8 @@
  *
  * Responsibilities:
  *   - Map backend location, workflow-thread, display-card, and undo payloads.
- *   - Build one receipt outcome path for backend review `follow_through` payloads.
- *   - Keep immediate review receipts aligned with durable continuity hydration.
+ *   - Build one receipt outcome path for backend-authored landed `follow_through` payloads.
+ *   - Keep immediate review and recall receipts aligned with durable continuity hydration.
  *
  * Scope:
  *   - Frontend-only adapter helpers for landed outcomes and follow-through.
@@ -61,7 +61,7 @@ type ApiUndoAction =
   | null
   | undefined;
 
-export interface ReviewFollowThroughReceiptResult {
+export interface FollowThroughReceiptResult {
   card: OperatorActionCard;
   entry: Omit<RecentShellActionEntry, "occurredAt">;
   resumeLocation: ShellLocationContract | null;
@@ -302,30 +302,46 @@ export function buildFollowThroughActions(input: {
   return actions;
 }
 
-function requireReviewResumeLocation(
+function withWorkingSetLocation(
+  location: ShellLocationContract | null,
+  workingSetId: number | null | undefined,
+): ShellLocationContract | null {
+  return location && workingSetId != null ? { ...location, workingSetId } : location;
+}
+
+function requireFollowThroughResumeLocation(
   location: ReviewFollowThroughResponse["resume_location"] | null | undefined,
+  workingSetId: number | null | undefined,
 ): ShellLocationContract {
-  const mapped = mapApiLocation(location);
+  const mapped = withWorkingSetLocation(mapApiLocation(location), workingSetId);
   if (!mapped) {
-    throw new Error("review follow_through.resume_location is required");
+    throw new Error("follow_through.resume_location is required");
   }
   return mapped;
 }
 
-export function buildReviewFollowThroughReceipt(input: {
+export function buildFollowThroughReceipt(input: {
   followThrough: ReviewFollowThroughResponse;
   id: string;
   label?: string;
   description?: string;
   kind?: RecentShellActionEntry["kind"];
   metadata?: Record<string, unknown> | null;
-}): ReviewFollowThroughReceiptResult {
+  workingSetIdOverride?: number | null;
+}): FollowThroughReceiptResult {
+  const workingSetId = input.workingSetIdOverride ?? input.followThrough.working_set_id ?? null;
   const displayCard = mapApiDisplayCard(input.followThrough.display_card);
-  const resumeLocation = requireReviewResumeLocation(input.followThrough.resume_location);
+  const resumeLocation = requireFollowThroughResumeLocation(
+    input.followThrough.resume_location,
+    workingSetId,
+  );
   const workflowThread = mapApiWorkflowThread(input.followThrough.workflow_thread);
-  const groundedChatLocation = mapApiLocation(input.followThrough.grounded_chat_location);
+  const groundedChatLocation = withWorkingSetLocation(
+    mapApiLocation(input.followThrough.grounded_chat_location),
+    workingSetId,
+  );
   const undoAction = mapApiUndoAction(input.followThrough.undo_action);
-  const rerunAction = mapApiRerunAction(input.followThrough.rerun_action);
+  const rerunAction = mapApiRerunAction(input.followThrough.rerun_action, { workingSetId });
   const description = input.description ?? displayCard.summary;
   const label = input.label ?? displayCard.title;
   const card = createReceiptCardFromDisplayCard({

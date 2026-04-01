@@ -58,6 +58,7 @@ export type AskResponse = {
     chunks: Array<{
         [key: string]: unknown;
     }>;
+    follow_through?: ReviewFollowThroughResponse | null;
     /**
      * Metadata
      */
@@ -604,6 +605,7 @@ export type ChatRequest = {
  */
 export type ChatResponse = {
     context?: ChatContextResponse;
+    follow_through?: ReviewFollowThroughResponse | null;
     /**
      * Message
      */

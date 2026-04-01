@@ -43,7 +43,7 @@ import type {
   WorkingSetUndoRequest,
   WorkingSetUndoResponse,
 } from "./domain";
-import { buildReviewFollowThroughReceipt, mapApiLocation } from "./follow-through-adapters";
+import { buildFollowThroughReceipt, mapApiLocation } from "./follow-through-adapters";
 import { HttpRequestError, requestJson } from "./http";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { loopTitle } from "./shell-core";
@@ -563,7 +563,7 @@ function buildRelationshipDecisionUndoReceipt(
   response: RelationshipReviewSessionUndoResponse,
 ): ExecutedUndoResult {
   const summary = response.result.summary?.trim() || "Relationship decision undo completed.";
-  return buildReviewFollowThroughReceipt({
+  return buildFollowThroughReceipt({
     followThrough: response.follow_through,
     id: `undo-review-relationship-${response.result.loop_id}-${response.result.candidate_loop_id}`,
     label: response.follow_through.display_card.title,

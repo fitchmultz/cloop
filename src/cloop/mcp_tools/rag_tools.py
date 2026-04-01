@@ -58,6 +58,8 @@ def rag_ask(
         - model: Generative model name when an answer was generated
         - sources: Source references derived from the retrieved chunks
         - metadata: Generation provenance including selector and strategy attempts
+        - follow_through: Backend-authored landed receipt metadata for
+          reopening the exact evidence-backed answer
 
     Raises:
         ToolError: If retrieval or answer generation fails, or if `top_k` is invalid.

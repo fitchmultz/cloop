@@ -22,9 +22,11 @@
  */
 
 import type { ChatMessage, ChatPreferences } from "../contracts-ui";
+import { recordRecentShellAction } from "../continuity-intelligence";
 import { continuityRecoveryForLocation } from "../continuity-surface-recovery";
-import type { ChatResponse } from "../domain";
+import type { ChatResponse, ReviewFollowThroughResponse } from "../domain";
 import { mapApiRerunAction } from "../executable-rerun";
+import { buildFollowThroughReceipt } from "../follow-through-adapters";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
 import * as api from "./api";
@@ -666,6 +668,16 @@ export async function submitChat(text: string): Promise<void> {
       rerunAction: mapChatRerunAction(resolvedPayload?.rerun_action as ChatResponse["rerun_action"] | undefined),
       error: null,
     });
+    const followThrough = resolvedPayload?.follow_through as ReviewFollowThroughResponse | undefined;
+    if (followThrough) {
+      recordRecentShellAction(buildFollowThroughReceipt({
+        followThrough,
+        id: `chat-follow-through-${Date.now()}`,
+        kind: "recall",
+        metadata: { source: "recall-chat" },
+        workingSetIdOverride: currentWorkingSetId(),
+      }).entry);
+    }
   } catch (error: unknown) {
     const errorMessage = messageFromError(error, "Chat request failed.");
     updateLastAssistantBubble({

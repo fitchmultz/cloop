@@ -44,7 +44,15 @@ Current product goals:
 
 ## Next execution slices
 
-1. **Recall landed receipts + continuity cutover**
-   - Record recall-side landed outcomes as first-class receipts so grounded chat, memory, and document follow-through reopen from the landed result instead of the entry query or launch surface.
-   - Keep the receipt, continuity, command-palette Recent, and operator receipt-rail contracts aligned across HTTP, web, CLI, and MCP so recall-side outcomes stop drifting from planning/review continuity behavior.
-   - Acceptance source: `docs/ux/outcome-continuity.md`, `docs/ux/ai-action-cards.md`, `docs/ux/command-palette.md`.
+1. **Recall working-set provenance + transport handoff parity**
+   - Thread optional working-set context through chat and document-recall HTTP, CLI, and MCP requests so backend-authored recall follow-through and rerun contracts stop depending on browser-only working-set overlays.
+   - Surface the landed recall `follow_through` summary, resume target, and rerun affordances directly in CLI and MCP-facing recall outputs so non-web transports stop lagging the web continuity contract.
+   - Acceptance source: `docs/ux/outcome-continuity.md`, `docs/ux/command-palette.md`.
+
+2. **Durable recall-outcome hydration verification**
+   - Add cross-device-style verification for recall outcomes so operator home, the receipt rail, and command-palette Recent keep preferring synced durable recall receipts after hydration instead of relying on fresh local-only entries.
+   - Acceptance source: `docs/ux/outcome-continuity.md`, `docs/ux/command-palette.md`.
+
+3. **Recall mutation follow-through cutover**
+   - Move direct memory and document-ingest recall mutations onto the same backend-authored landed `follow_through` contract already used by review outcomes and recall answers so transport behavior stops splitting between frontend-shaped and backend-shaped receipts.
+   - Acceptance source: `docs/ux/outcome-continuity.md`, `docs/ux/ai-action-cards.md`.

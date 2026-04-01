@@ -181,6 +181,7 @@ export interface SurfaceChatEventPayload {
   tool_calls?: Array<{ name: string; arguments: Record<string, unknown> }>;
   tool_results?: Record<string, unknown>[];
   rerun_action?: Record<string, unknown> | null;
+  follow_through?: Record<string, unknown> | null;
 }
 
 export interface SurfaceMemoryQueryOptions {
