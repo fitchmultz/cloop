@@ -37,16 +37,24 @@ import type {
   BulkEnrichResponse,
   BulkSnoozeRequest,
   BulkSnoozeResponse,
+  EnrichmentReviewActionResponse,
+  EnrichmentReviewSessionActionResponse,
+  EnrichmentReviewSessionSnapshotResponse,
   LoopCaptureRequest,
   LoopResponse,
   LoopViewResponse,
   MemoryEntryResponse,
   MemorySearchResponse,
   NowFeedItemResponse,
+  PlanningExecutionHistoryItemResponse,
   PlanningSessionCreateRequest,
   PlanningSessionSnapshotResponse,
   PlanningSessionResponse,
+  RelationshipReviewActionResponse,
+  RelationshipReviewCandidateResponse,
+  RelationshipReviewSessionActionResponse,
   RelationshipReviewSessionResponse,
+  RelationshipReviewSessionSnapshotResponse,
   EnrichmentReviewSessionResponse,
   WorkingSetContextResponse,
   WorkingSetResponse,
@@ -70,6 +78,7 @@ import {
   recordRecentShellAction,
   suppressContinuityNotification,
 } from "./continuity-intelligence";
+import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
 import {
   readMergedRankedWorkflowSummaries,
   resolveDurableReopenLocation,
@@ -92,7 +101,22 @@ import {
   undoConfirmationDialog,
   undoUnavailableReason,
 } from "./executable-undo";
+import { buildFollowThroughReceipt } from "./follow-through-adapters";
 import * as modals from "./modals";
+import {
+  buildPlanningExecutionReceiptCard,
+} from "./review-workspace-action-cards";
+import type { ReviewWorkspaceHandoffContext } from "./review-workspace-handoffs";
+import {
+  executePlanningSession,
+  fetchEnrichmentActions,
+  fetchEnrichmentSession,
+  fetchPlanningSession,
+  fetchRelationshipActions,
+  fetchRelationshipSession,
+  runEnrichmentSessionAction,
+  runRelationshipSessionAction,
+} from "./review-workflow-client";
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { updateBulkActionBar } from "./bulk-actions";
 import { clearLoopSelection, selectedLoopIds } from "./selection-state";
@@ -231,6 +255,12 @@ const GROUP_LABELS = {
   recall: "Recall",
   search: "Search",
 } as const satisfies Record<PaletteGroup, string>;
+const CONTEXTUAL_COMMAND_CACHE_TTL_MS = 10_000;
+
+type CachedPaletteValue<T> = {
+  loadedAt: number;
+  value: T;
+};
 
 function requireElement<T extends HTMLElement>(id: string, ctor: { new (): T }): T {
   const element = document.getElementById(id);
@@ -286,6 +316,168 @@ function loopTitle(loop: LoopResponse): string {
 
 function loopSummary(loop: LoopResponse): string {
   return loop.summary?.trim() || loop.next_action?.trim() || loop.raw_text.trim();
+}
+
+function readCachedPaletteValue<T>(entry: CachedPaletteValue<T> | null): T | null {
+  if (!entry) {
+    return null;
+  }
+  return Date.now() - entry.loadedAt <= CONTEXTUAL_COMMAND_CACHE_TTL_MS ? entry.value : null;
+}
+
+function candidateTitle(candidate: RelationshipReviewCandidateResponse): string {
+  return candidate.title?.trim() || candidate.raw_text.trim() || `Loop #${candidate.id}`;
+}
+
+function contextualWorkingSetId(context: CommandPaletteContext): number | null {
+  return context.currentLocation.workingSetId
+    ?? context.workingSetContext?.active_working_set_id
+    ?? null;
+}
+
+function paletteHandoffContext(context: CommandPaletteContext): ReviewWorkspaceHandoffContext {
+  return {
+    breadcrumbPrefix: ["Home", "Command palette"],
+    fallbackWorkingSetId: contextualWorkingSetId(context),
+    workingSets: context.workingSets,
+  };
+}
+
+function recordPaletteFollowThroughReceipt(input: {
+  followThrough:
+    | RelationshipReviewSessionActionResponse["follow_through"]
+    | EnrichmentReviewSessionActionResponse["follow_through"];
+  metadata: Record<string, unknown>;
+  workingSetId: number | null;
+}): void {
+  const receipt = buildFollowThroughReceipt({
+    followThrough: input.followThrough,
+    id: `command-palette-follow-through-${input.followThrough.workflow_thread.id}-${Date.now()}`,
+    kind: "review",
+    metadata: input.metadata,
+    workingSetIdOverride: input.workingSetId,
+  });
+  recordRecentShellAction(receipt.entry);
+}
+
+function recordPlanningExecutionReceipt(input: {
+  context: CommandPaletteContext;
+  snapshot: PlanningSessionSnapshotResponse;
+  latestExecution: PlanningExecutionHistoryItemResponse;
+}): void {
+  const planLocation = createLocation({
+    state: "plan",
+    reviewFocus: "planning",
+    sessionId: input.snapshot.session.id,
+    workingSetId: contextualWorkingSetId(input.context),
+  });
+  const receiptCard = buildPlanningExecutionReceiptCard({
+    snapshot: input.snapshot,
+    latestExecution: input.latestExecution,
+    context: {
+      ...paletteHandoffContext(input.context),
+      sessionName: input.snapshot.session.name,
+    },
+    recovery: continuityRecoveryForLocation({
+      location: planLocation,
+      workflowThreadId: `planning:${input.snapshot.session.id}`,
+    }),
+  });
+  recordRecentShellAction(
+    withReceiptOutcome(
+      {
+        kind: "planning",
+        label: receiptCard.title,
+        description: receiptCard.summary,
+        location: planLocation,
+        metadata: {
+          source: "command-palette",
+          sessionId: input.snapshot.session.id,
+          checkpointIndex: input.latestExecution.checkpoint_index,
+        },
+      },
+      receiptCard,
+      planLocation,
+    ),
+  );
+}
+
+function compareRelationshipCandidates(
+  left: RelationshipReviewCandidateResponse,
+  right: RelationshipReviewCandidateResponse,
+): number {
+  return right.score - left.score;
+}
+
+function resolveRelationshipActionCandidate(input: {
+  snapshot: RelationshipReviewSessionSnapshotResponse;
+  action: RelationshipReviewActionResponse;
+}): RelationshipReviewCandidateResponse | null {
+  const currentItem = input.snapshot.current_item;
+  if (!currentItem) {
+    return null;
+  }
+  if (input.action.relationship_type === "duplicate") {
+    return currentItem.duplicate_candidates[0] ?? null;
+  }
+  if (input.action.relationship_type === "related") {
+    return currentItem.related_candidates[0] ?? null;
+  }
+  const sessionKind = input.snapshot.session.relationship_kind;
+  if (sessionKind === "duplicate") {
+    return currentItem.duplicate_candidates[0] ?? null;
+  }
+  if (sessionKind === "related") {
+    return currentItem.related_candidates[0] ?? null;
+  }
+  return [...currentItem.duplicate_candidates, ...currentItem.related_candidates]
+    .sort(compareRelationshipCandidates)[0] ?? null;
+}
+
+function resolvedRelationshipActionType(input: {
+  action: RelationshipReviewActionResponse;
+  candidate: RelationshipReviewCandidateResponse;
+}): "duplicate" | "related" {
+  return input.action.relationship_type === "suggested"
+    ? input.candidate.relationship_type
+    : input.action.relationship_type;
+}
+
+async function confirmRelationshipPaletteAction(input: {
+  action: RelationshipReviewActionResponse;
+  candidate: RelationshipReviewCandidateResponse;
+  relationshipType: "duplicate" | "related";
+}): Promise<boolean> {
+  if (input.action.action_type !== "confirm" || input.relationshipType !== "duplicate") {
+    return true;
+  }
+  return modals.confirmDialog({
+    eyebrow: "Relationship review",
+    title: "Confirm duplicate relationship",
+    description: `This records “${candidateTitle(input.candidate)}” as a duplicate and is not reversible in-place. Continue only if both loops truly represent the same work.`,
+    confirmLabel: "Confirm duplicate",
+    confirmVariant: "danger",
+  });
+}
+
+async function confirmEnrichmentPaletteAction(input: {
+  action: EnrichmentReviewActionResponse;
+  suggestionId: number;
+  suggestedFields: string[];
+}): Promise<boolean> {
+  if (input.action.action_type !== "apply") {
+    return true;
+  }
+  const fields = input.suggestedFields.slice(0, 3);
+  return modals.confirmDialog({
+    eyebrow: "Enrichment review",
+    title: "Apply suggestion",
+    description: fields.length
+      ? `Applying suggestion #${input.suggestionId} will mutate ${fields.join(", ")} immediately and may supersede current loop context. Continue?`
+      : `Applying suggestion #${input.suggestionId} mutates loop fields immediately and may supersede current loop context. Continue?`,
+    confirmLabel: "Apply suggestion",
+    confirmVariant: "danger",
+  });
 }
 
 function formatRelativeTime(value: string | null | undefined): string {
@@ -1007,6 +1199,11 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
   let searchNonce = 0;
   let cachedViews: LoopViewResponse[] = [];
   let viewsLoadedAt = 0;
+  const cachedPlanningSnapshots = new Map<number, CachedPaletteValue<PlanningSessionSnapshotResponse>>();
+  const cachedRelationshipSnapshots = new Map<number, CachedPaletteValue<RelationshipReviewSessionSnapshotResponse>>();
+  const cachedEnrichmentSnapshots = new Map<number, CachedPaletteValue<EnrichmentReviewSessionSnapshotResponse>>();
+  let cachedRelationshipActions: CachedPaletteValue<RelationshipReviewActionResponse[]> | null = null;
+  let cachedEnrichmentActions: CachedPaletteValue<EnrichmentReviewActionResponse[]> | null = null;
 
   function activeCommand(): CommandPaletteCommand | null {
     if (!visibleCommands.length) {
@@ -1027,6 +1224,56 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     );
     viewsLoadedAt = Date.now();
     return cachedViews;
+  }
+
+  async function loadPlanningSnapshot(sessionId: number): Promise<PlanningSessionSnapshotResponse> {
+    const cached = readCachedPaletteValue(cachedPlanningSnapshots.get(sessionId) ?? null);
+    if (cached) {
+      return cached;
+    }
+    const snapshot = await fetchPlanningSession(sessionId);
+    cachedPlanningSnapshots.set(sessionId, { loadedAt: Date.now(), value: snapshot });
+    return snapshot;
+  }
+
+  async function loadRelationshipSnapshot(sessionId: number): Promise<RelationshipReviewSessionSnapshotResponse> {
+    const cached = readCachedPaletteValue(cachedRelationshipSnapshots.get(sessionId) ?? null);
+    if (cached) {
+      return cached;
+    }
+    const snapshot = await fetchRelationshipSession(sessionId);
+    cachedRelationshipSnapshots.set(sessionId, { loadedAt: Date.now(), value: snapshot });
+    return snapshot;
+  }
+
+  async function loadEnrichmentSnapshot(sessionId: number): Promise<EnrichmentReviewSessionSnapshotResponse> {
+    const cached = readCachedPaletteValue(cachedEnrichmentSnapshots.get(sessionId) ?? null);
+    if (cached) {
+      return cached;
+    }
+    const snapshot = await fetchEnrichmentSession(sessionId);
+    cachedEnrichmentSnapshots.set(sessionId, { loadedAt: Date.now(), value: snapshot });
+    return snapshot;
+  }
+
+  async function loadRelationshipActions(): Promise<RelationshipReviewActionResponse[]> {
+    const cached = readCachedPaletteValue(cachedRelationshipActions);
+    if (cached) {
+      return cached;
+    }
+    const actions = await fetchRelationshipActions();
+    cachedRelationshipActions = { loadedAt: Date.now(), value: actions };
+    return actions;
+  }
+
+  async function loadEnrichmentActions(): Promise<EnrichmentReviewActionResponse[]> {
+    const cached = readCachedPaletteValue(cachedEnrichmentActions);
+    if (cached) {
+      return cached;
+    }
+    const actions = await fetchEnrichmentActions();
+    cachedEnrichmentActions = { loadedAt: Date.now(), value: actions };
+    return actions;
   }
 
   async function executeRecentAction(action: RecentAction): Promise<void> {
@@ -1850,6 +2097,236 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     return commands;
   }
 
+  async function contextualExecutionCommands(
+    context: CommandPaletteContext,
+  ): Promise<CommandPaletteCommand[]> {
+    const sessionId = context.currentLocation.sessionId;
+    if (sessionId == null) {
+      return [];
+    }
+    const workingSetId = contextualWorkingSetId(context);
+
+    if (context.currentLocation.state === "plan" && context.currentLocation.reviewFocus === "planning") {
+      const snapshot = await loadPlanningSnapshot(sessionId).catch(() => null);
+      const checkpoint = snapshot?.current_checkpoint ?? null;
+      if (!snapshot || !checkpoint) {
+        return [];
+      }
+      const sessionLocation = createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId,
+        workingSetId,
+      });
+      return [{
+        id: `planning-execute-${sessionId}-${checkpoint.title}`,
+        group: "act",
+        title: `Execute checkpoint · ${checkpoint.title}`,
+        subtitle: checkpoint.summary,
+        keywords: [
+          "plan",
+          "planning",
+          "checkpoint",
+          "execute",
+          snapshot.session.name,
+          checkpoint.title,
+          checkpoint.summary,
+        ],
+        badge: "Plan",
+        location: sessionLocation,
+        contextBoost: 120,
+        detail: {
+          eyebrow: "Act",
+          description: "Execute the current planning checkpoint through the same stored mutation contract the planning workspace uses.",
+          meta: [
+            `Session: ${snapshot.session.name}`,
+            `Success criteria: ${checkpoint.success_criteria}`,
+            `${checkpoint.operations?.length ?? 0} deterministic operation${checkpoint.operations?.length === 1 ? "" : "s"}`,
+            workingSetId != null ? `Working set: ${workingSetId}` : null,
+          ].filter((value): value is string => Boolean(value)),
+        },
+        skipAutomaticReceipt: true,
+        execute: async () => {
+          const payload = await executePlanningSession(sessionId);
+          cachedPlanningSnapshots.set(sessionId, { loadedAt: Date.now(), value: payload.snapshot });
+          await bindings.openLocation(context.currentLocation);
+          await bindings.refreshWorkspace();
+          recordPlanningExecutionReceipt({
+            context,
+            snapshot: payload.snapshot,
+            latestExecution: payload.execution,
+          });
+        },
+      } satisfies CommandPaletteCommand];
+    }
+
+    if (context.currentLocation.state === "decide" && context.currentLocation.reviewFocus === "relationship") {
+      const [snapshot, actions] = await Promise.all([
+        loadRelationshipSnapshot(sessionId).catch(() => null),
+        loadRelationshipActions().catch(() => [] as RelationshipReviewActionResponse[]),
+      ]);
+      const currentItem = snapshot?.current_item ?? null;
+      if (!snapshot || !currentItem || !actions.length) {
+        return [];
+      }
+      const sessionLocation = createLocation({
+        state: "decide",
+        reviewFocus: "relationship",
+        sessionId,
+        workingSetId,
+      });
+      const commands: CommandPaletteCommand[] = [];
+      actions.slice(0, 4).forEach((action) => {
+        const candidate = resolveRelationshipActionCandidate({ snapshot, action });
+        if (!candidate) {
+          return;
+        }
+        const relationshipType = resolvedRelationshipActionType({ action, candidate });
+        commands.push({
+          id: `relationship-action-${sessionId}-${action.id}-${candidate.id}`,
+          group: "act",
+          title: `Use saved action · ${action.name}`,
+          subtitle: `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${relationshipType} for ${loopTitle(currentItem.loop)}`,
+          keywords: [
+            "review",
+            "relationship",
+            action.name,
+            action.action_type,
+            relationshipType,
+            loopTitle(currentItem.loop),
+            candidateTitle(candidate),
+          ],
+          badge: "Decide",
+          location: sessionLocation,
+          contextBoost: 118,
+          detail: {
+            eyebrow: "Act",
+            description: "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette.",
+            meta: [
+              `Session: ${snapshot.session.name}`,
+              `Current loop: ${loopTitle(currentItem.loop)}`,
+              `Candidate: ${candidateTitle(candidate)}`,
+              `Decision: ${action.action_type} ${relationshipType}`,
+            ],
+          },
+          skipAutomaticReceipt: true,
+          execute: async () => {
+            const confirmed = await confirmRelationshipPaletteAction({ action, candidate, relationshipType });
+            if (!confirmed) {
+              return;
+            }
+            const response = await runRelationshipSessionAction(sessionId, {
+              loop_id: currentItem.loop.id,
+              candidate_loop_id: candidate.id,
+              candidate_relationship_type: candidate.relationship_type,
+              action_preset_id: action.id,
+            });
+            cachedRelationshipSnapshots.set(sessionId, { loadedAt: Date.now(), value: response.snapshot });
+            await bindings.openLocation(context.currentLocation);
+            await bindings.refreshWorkspace();
+            recordPaletteFollowThroughReceipt({
+              followThrough: response.follow_through,
+              metadata: {
+                source: "command-palette",
+                sessionId,
+                loopId: currentItem.loop.id,
+                candidateId: candidate.id,
+                actionPresetId: action.id,
+                actionType: action.action_type,
+                relationshipType,
+              },
+              workingSetId,
+            });
+          },
+        });
+      });
+      return commands;
+    }
+
+    if (context.currentLocation.state === "decide" && context.currentLocation.reviewFocus === "enrichment") {
+      const [snapshot, actions] = await Promise.all([
+        loadEnrichmentSnapshot(sessionId).catch(() => null),
+        loadEnrichmentActions().catch(() => [] as EnrichmentReviewActionResponse[]),
+      ]);
+      const currentItem = snapshot?.current_item ?? null;
+      const topSuggestion = currentItem?.pending_suggestions[0] ?? null;
+      if (!snapshot || !currentItem || !topSuggestion || !actions.length) {
+        return [];
+      }
+      const suggestedFields = typeof topSuggestion.parsed === "object" && topSuggestion.parsed
+        ? Object.keys(topSuggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
+        : [];
+      const sessionLocation = createLocation({
+        state: "decide",
+        reviewFocus: "enrichment",
+        sessionId,
+        workingSetId,
+      });
+      return actions.slice(0, 4).map((action) => {
+        return {
+          id: `enrichment-action-${sessionId}-${action.id}-${topSuggestion.id}`,
+          group: "act",
+          title: `Use saved action · ${action.name}`,
+          subtitle: `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${loopTitle(currentItem.loop)}`,
+          keywords: [
+            "review",
+            "enrichment",
+            action.name,
+            action.action_type,
+            loopTitle(currentItem.loop),
+            ...suggestedFields,
+          ],
+          badge: "Decide",
+          location: sessionLocation,
+          contextBoost: 118,
+          detail: {
+            eyebrow: "Act",
+            description: "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses.",
+            meta: [
+              `Session: ${snapshot.session.name}`,
+              `Current loop: ${loopTitle(currentItem.loop)}`,
+              `Suggestion: #${topSuggestion.id}`,
+              suggestedFields.length ? `Suggested fields: ${suggestedFields.join(", ")}` : "Suggested fields: loop update",
+              action.fields?.length ? `Preset fields: ${action.fields.join(", ")}` : null,
+            ].filter((value): value is string => Boolean(value)),
+          },
+          skipAutomaticReceipt: true,
+          execute: async () => {
+            const confirmed = await confirmEnrichmentPaletteAction({
+              action,
+              suggestionId: topSuggestion.id,
+              suggestedFields,
+            });
+            if (!confirmed) {
+              return;
+            }
+            const response = await runEnrichmentSessionAction(sessionId, {
+              suggestion_id: topSuggestion.id,
+              action_preset_id: action.id,
+            });
+            cachedEnrichmentSnapshots.set(sessionId, { loadedAt: Date.now(), value: response.snapshot });
+            await bindings.openLocation(context.currentLocation);
+            await bindings.refreshWorkspace();
+            recordPaletteFollowThroughReceipt({
+              followThrough: response.follow_through,
+              metadata: {
+                source: "command-palette",
+                sessionId,
+                loopId: currentItem.loop.id,
+                suggestionId: topSuggestion.id,
+                actionPresetId: action.id,
+                actionType: action.action_type,
+              },
+              workingSetId,
+            });
+          },
+        } satisfies CommandPaletteCommand;
+      });
+    }
+
+    return [];
+  }
+
   function savedViewCommands(views: readonly LoopViewResponse[]): CommandPaletteCommand[] {
     return views.slice(0, 8).map((view) => {
       const location = createLocation({ state: "capture", viewId: view.id });
@@ -2507,6 +2984,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const normalizedQuery = query.trim();
     const views = await ensureViewsLoaded().catch(() => [] as LoopViewResponse[]);
     const summaries = rankedFollowThrough(context);
+    const contextualCommands = await contextualExecutionCommands(context).catch(() => [] as CommandPaletteCommand[]);
     const commands: CommandPaletteCommand[] = [
       ...recommendedCommands(context),
       ...notificationCommands(summaries),
@@ -2514,6 +2992,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       ...baseNavigationCommands(context),
       ...baseCaptureCommands(),
       ...baseActCommands(context),
+      ...contextualCommands,
       ...sessionCommands(context, summaries),
       ...savedViewCommands(views),
       ...recallQueryCommands(normalizedQuery),
@@ -2541,6 +3020,11 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       elements.input.value = "";
       activeCommandId = null;
       visibleCommands = [];
+      cachedPlanningSnapshots.clear();
+      cachedRelationshipSnapshots.clear();
+      cachedEnrichmentSnapshots.clear();
+      cachedRelationshipActions = null;
+      cachedEnrichmentActions = null;
       elements.results.innerHTML = "";
       elements.detail.innerHTML = '<p class="command-palette-empty-detail">Choose a command to see why it belongs here and what it will do.</p>';
       elements.status.textContent = "Closed.";

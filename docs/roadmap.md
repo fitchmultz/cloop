@@ -43,3 +43,9 @@ Current product goals:
 - Treat `make ci` as the release gate for every milestone.
 
 ## Next execution slices
+
+1. **Command-palette cross-session execution without pre-opening the workspace**
+   - Extend saved session entries so the palette can surface the executable current checkpoint or saved review action directly from operator home and other non-session surfaces, not only after the user has already opened the plan or review workspace.
+   - Reuse the same shared planning and review execution contracts plus continuity receipts so the palette can launch or execute from one keyboard surface while still preserving working-set scope and follow-through.
+   - Why: this change shipped context-sensitive execution inside active plan/review surfaces, but the palette still downgrades saved-session commands elsewhere to plain resume navigation. The next gap is truly cross-session keyboard execution.
+   - Acceptance source: `docs/ux/command-palette.md`, `docs/ux/workflow-handoffs.md`.

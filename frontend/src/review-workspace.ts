@@ -89,6 +89,16 @@ import {
   describePlanningRollbackCue,
   buildRelationshipImpactCard,
 } from "./review-workspace-action-cards";
+import {
+  executePlanningSession,
+  fetchEnrichmentActions,
+  fetchEnrichmentSession,
+  fetchPlanningSession,
+  fetchRelationshipActions,
+  fetchRelationshipSession,
+  runEnrichmentSessionAction,
+  runRelationshipSessionAction,
+} from "./review-workflow-client";
 import * as modals from "./modals";
 import { openMergeModal, setupMergeHandlers } from "./duplicates";
 
@@ -596,14 +606,6 @@ async function fetchPlanningSessions(): Promise<PlanningSessionResponse[]> {
   );
 }
 
-async function fetchPlanningSession(sessionId: number): Promise<PlanningSessionSnapshotResponse> {
-  return requestJson<PlanningSessionSnapshotResponse>(
-    `/loops/planning/sessions/${sessionId}`,
-    {},
-    "Failed to load planning session",
-  );
-}
-
 async function createPlanningSession(payload: PlanningSessionCreateRequest): Promise<PlanningSessionSnapshotResponse> {
   return requestJson<PlanningSessionSnapshotResponse, PlanningSessionCreateRequest>(
     "/loops/planning/sessions",
@@ -624,27 +626,11 @@ async function refreshPlanningSession(sessionId: number): Promise<PlanningSessio
   );
 }
 
-async function executePlanningSession(sessionId: number): Promise<PlanningSessionExecuteResponse> {
-  return requestJson<PlanningSessionExecuteResponse>(
-    `/loops/planning/sessions/${sessionId}/execute`,
-    { method: "POST" },
-    "Failed to execute planning checkpoint",
-  );
-}
-
 async function movePlanningSession(sessionId: number, direction: "next" | "previous"): Promise<PlanningSessionSnapshotResponse> {
   return requestJson<PlanningSessionSnapshotResponse, { direction: "next" | "previous" }>(
     `/loops/planning/sessions/${sessionId}/move`,
     { method: "POST", body: { direction } },
     "Failed to move planning session",
-  );
-}
-
-async function fetchRelationshipActions(): Promise<RelationshipReviewActionResponse[]> {
-  return requestJson<RelationshipReviewActionResponse[]>(
-    "/loops/review/relationship/actions",
-    {},
-    "Failed to load relationship review actions",
   );
 }
 
@@ -695,14 +681,6 @@ async function createRelationshipSession(
   );
 }
 
-async function fetchRelationshipSession(sessionId: number): Promise<RelationshipReviewSessionSnapshotResponse> {
-  return requestJson<RelationshipReviewSessionSnapshotResponse>(
-    `/loops/review/relationship/sessions/${sessionId}`,
-    {},
-    "Failed to load relationship review session",
-  );
-}
-
 async function updateRelationshipSession(
   sessionId: number,
   payload: RelationshipReviewSessionUpdateRequest,
@@ -730,25 +708,6 @@ async function moveRelationshipSession(
     `/loops/review/relationship/sessions/${sessionId}/move`,
     { method: "POST", body: { direction } },
     "Failed to move relationship review session",
-  );
-}
-
-async function runRelationshipSessionAction(
-  sessionId: number,
-  payload: RelationshipReviewSessionActionRequest,
-): Promise<RelationshipReviewSessionActionResponse> {
-  return requestJson<RelationshipReviewSessionActionResponse, RelationshipReviewSessionActionRequest>(
-    `/loops/review/relationship/sessions/${sessionId}/action`,
-    { method: "POST", body: payload },
-    "Failed to run relationship review action",
-  );
-}
-
-async function fetchEnrichmentActions(): Promise<EnrichmentReviewActionResponse[]> {
-  return requestJson<EnrichmentReviewActionResponse[]>(
-    "/loops/review/enrichment/actions",
-    {},
-    "Failed to load enrichment review actions",
   );
 }
 
@@ -799,14 +758,6 @@ async function createEnrichmentSession(
   );
 }
 
-async function fetchEnrichmentSession(sessionId: number): Promise<EnrichmentReviewSessionSnapshotResponse> {
-  return requestJson<EnrichmentReviewSessionSnapshotResponse>(
-    `/loops/review/enrichment/sessions/${sessionId}`,
-    {},
-    "Failed to load enrichment review session",
-  );
-}
-
 async function updateEnrichmentSession(
   sessionId: number,
   payload: EnrichmentReviewSessionUpdateRequest,
@@ -834,17 +785,6 @@ async function moveEnrichmentSession(
     `/loops/review/enrichment/sessions/${sessionId}/move`,
     { method: "POST", body: { direction } },
     "Failed to move enrichment review session",
-  );
-}
-
-async function runEnrichmentSessionAction(
-  sessionId: number,
-  payload: EnrichmentReviewSessionActionRequest,
-): Promise<EnrichmentReviewSessionActionResponse> {
-  return requestJson<EnrichmentReviewSessionActionResponse, EnrichmentReviewSessionActionRequest>(
-    `/loops/review/enrichment/sessions/${sessionId}/action`,
-    { method: "POST", body: payload },
-    "Failed to run enrichment review action",
   );
 }
 
