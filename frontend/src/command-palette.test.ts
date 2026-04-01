@@ -2096,7 +2096,7 @@ describe("command-palette keyboard navigation", () => {
     const workingSet = workingSetFixture();
     const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
     const refreshWorkspace = vi.fn(async () => undefined);
-    const promptSpy = vi.spyOn(modals, "promptDialog").mockResolvedValue({ target: "12:22:duplicate" });
+    const promptSpy = vi.spyOn(modals, "chooseOptionDialog").mockResolvedValue("12:22:duplicate");
     const confirmSpy = vi.spyOn(modals, "confirmDialog").mockResolvedValue(true);
     const actionBodies: Array<Record<string, unknown>> = [];
 
@@ -2338,7 +2338,7 @@ describe("command-palette keyboard navigation", () => {
     const workingSet = workingSetFixture();
     const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
     const refreshWorkspace = vi.fn(async () => undefined);
-    const promptSpy = vi.spyOn(modals, "promptDialog").mockResolvedValue({ target: "32" });
+    const promptSpy = vi.spyOn(modals, "chooseOptionDialog").mockResolvedValue("32");
     const confirmSpy = vi.spyOn(modals, "confirmDialog").mockResolvedValue(true);
     const actionBodies: Array<Record<string, unknown>> = [];
 
@@ -2574,5 +2574,499 @@ describe("command-palette keyboard navigation", () => {
       workingSetId: 7,
     }));
     expect(refreshWorkspace).toHaveBeenCalled();
+  });
+
+  it("refreshes the saved relationship target picker before execution when the cached queue is empty", async () => {
+    buildPaletteDom();
+    const workingSet = workingSetFixture();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const refreshWorkspace = vi.fn(async () => undefined);
+    const confirmSpy = vi.spyOn(modals, "confirmDialog").mockResolvedValue(true);
+    const pickerSpy = vi.spyOn(modals, "chooseOptionDialog").mockImplementation(async (config) => {
+      const refreshed = await config.onRefresh?.();
+      return refreshed?.options[0]?.value ?? null;
+    });
+    const actionBodies: Array<Record<string, unknown>> = [];
+    let refreshCount = 0;
+
+    globalThis.fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/loops/views")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.endsWith("/loops/review/relationship/actions")) {
+        return Promise.resolve(jsonResponse([
+          {
+            id: 5,
+            name: "Confirm duplicate",
+            action_type: "confirm",
+            relationship_type: "duplicate",
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ]));
+      }
+      if (url.endsWith("/loops/review/relationship/sessions/18") && (!init?.method || init.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 18,
+            name: "Duplicate queue",
+            query: "status:actionable",
+            relationship_kind: "all",
+            candidate_limit: 5,
+            item_limit: 5,
+            current_loop_id: null,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+          items: [],
+          loop_count: 0,
+          current_index: null,
+          current_item: null,
+          rerun_action: null,
+        }));
+      }
+      if (url.endsWith("/loops/review/relationship/sessions/18/refresh") && init?.method === "POST") {
+        refreshCount += 1;
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 18,
+            name: "Duplicate queue",
+            query: "status:actionable",
+            relationship_kind: "all",
+            candidate_limit: 5,
+            item_limit: 5,
+            current_loop_id: 12,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:03:00Z",
+          },
+          items: [
+            {
+              loop: { id: 12, title: "QA checklist", raw_text: "QA checklist", status: "actionable" },
+              duplicate_candidates: [
+                {
+                  id: 22,
+                  title: "QA checklist duplicate",
+                  raw_text: "QA checklist duplicate",
+                  relationship_type: "duplicate",
+                  score: 0.97,
+                  status: "actionable",
+                  captured_at_utc: "2026-03-21T12:00:00Z",
+                  captured_tz_offset_min: 0,
+                  created_at_utc: "2026-03-21T12:00:00Z",
+                  updated_at_utc: "2026-03-21T12:00:00Z",
+                },
+              ],
+              related_candidates: [],
+              duplicate_count: 1,
+              related_count: 0,
+              top_score: 0.97,
+            },
+          ],
+          loop_count: 1,
+          current_index: 0,
+          current_item: {
+            loop: { id: 12, title: "QA checklist", raw_text: "QA checklist", status: "actionable" },
+            duplicate_candidates: [
+              {
+                id: 22,
+                title: "QA checklist duplicate",
+                raw_text: "QA checklist duplicate",
+                relationship_type: "duplicate",
+                score: 0.97,
+                status: "actionable",
+                captured_at_utc: "2026-03-21T12:00:00Z",
+                captured_tz_offset_min: 0,
+                created_at_utc: "2026-03-21T12:00:00Z",
+                updated_at_utc: "2026-03-21T12:00:00Z",
+              },
+            ],
+            related_candidates: [],
+            duplicate_count: 1,
+            related_count: 0,
+            top_score: 0.97,
+          },
+          rerun_action: null,
+        }));
+      }
+      if (url.endsWith("/loops/review/relationship/sessions/18/action") && init?.method === "POST") {
+        actionBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Promise.resolve(jsonResponse({
+          snapshot: {
+            session: {
+              id: 18,
+              name: "Duplicate queue",
+              query: "status:actionable",
+              relationship_kind: "all",
+              candidate_limit: 5,
+              item_limit: 5,
+              current_loop_id: 12,
+              created_at_utc: "2026-03-21T12:00:00Z",
+              updated_at_utc: "2026-03-21T12:04:00Z",
+            },
+            items: [],
+            loop_count: 0,
+            current_index: null,
+            current_item: null,
+            rerun_action: null,
+          },
+          result: { resolution: "confirmed", relationship_type: "duplicate" },
+          follow_through: {
+            working_set_id: 7,
+            display_card: {
+              title: "Duplicate recorded",
+              summary: "The duplicate decision was stored.",
+              rationale: "Review receipt",
+              preview: [],
+              trust: {
+                generation_label: "Saved review action",
+                generation_tone: "progress",
+                context_sources: ["Duplicate queue"],
+                assumptions: [],
+                confidence_label: "Recorded",
+                confidence_tone: "progress",
+                freshness_label: "Saved just now",
+                freshness_tone: "progress",
+                rollback_label: "Resume the queue",
+                rollback_tone: "caution",
+              },
+              handoff: {
+                change_summary: "Duplicate recorded",
+                created_resources: [],
+                next_step: "Continue the queue.",
+                breadcrumbs: ["Home", "Review", "Relationship review"],
+                working_set: {
+                  working_set_id: 7,
+                  working_set_name: "Launch Prep",
+                  item_count: 3,
+                  missing_item_count: 0,
+                },
+              },
+              tone: "progress",
+            },
+            resume_location: {
+              state: "decide",
+              review_focus: "relationship",
+              session_id: 18,
+              working_set_id: 7,
+            },
+            workflow_thread: {
+              id: "review:18",
+              kind: "review_session",
+              title: "Duplicate queue",
+              summary: "Review the current relationship candidates.",
+              parent_outcome_id: null,
+            },
+            grounded_chat_location: null,
+            undo_action: null,
+            rerun_action: null,
+          },
+        }));
+      }
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = createController({
+      openLocation,
+      refreshWorkspace,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [workingSet],
+        workingSetContext: {
+          active_working_set: workingSet,
+          active_working_set_id: workingSet.id,
+          focus_mode_enabled: true,
+          latest_reversible_event_id: null,
+          latest_reversible_event_type: null,
+          updated_at_utc: "2026-03-21T12:00:00Z",
+        },
+        nowFeed: [],
+        planningSessions: [],
+        relationshipSessions: [
+          {
+            id: 18,
+            name: "Duplicate queue",
+            query: "status:actionable",
+            relationship_kind: "all",
+            candidate_limit: 5,
+            item_limit: 5,
+            current_loop_id: null,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ],
+        enrichmentSessions: [],
+      }),
+    });
+
+    controller.open();
+    await settle();
+    findCommandButton("Use saved action · Confirm duplicate · Duplicate queue").click();
+    await settle();
+
+    expect(pickerSpy).toHaveBeenCalled();
+    expect(refreshCount).toBe(1);
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(actionBodies[0]).toEqual(expect.objectContaining({
+      loop_id: 12,
+      candidate_loop_id: 22,
+      candidate_relationship_type: "duplicate",
+      action_preset_id: 5,
+    }));
+    expect(openLocation).toHaveBeenCalledWith(expect.objectContaining({
+      state: "decide",
+      reviewFocus: "relationship",
+      sessionId: 18,
+      workingSetId: 7,
+    }));
+  });
+
+  it("refreshes the saved enrichment target picker before execution when the cached queue is empty", async () => {
+    buildPaletteDom();
+    const workingSet = workingSetFixture();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const refreshWorkspace = vi.fn(async () => undefined);
+    const confirmSpy = vi.spyOn(modals, "confirmDialog").mockResolvedValue(true);
+    const pickerSpy = vi.spyOn(modals, "chooseOptionDialog").mockImplementation(async (config) => {
+      const refreshed = await config.onRefresh?.();
+      return refreshed?.options[0]?.value ?? null;
+    });
+    const actionBodies: Array<Record<string, unknown>> = [];
+    let refreshCount = 0;
+
+    globalThis.fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/loops/views")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.endsWith("/loops/review/enrichment/actions")) {
+        return Promise.resolve(jsonResponse([
+          {
+            id: 9,
+            name: "Apply core fields",
+            action_type: "apply",
+            fields: ["summary", "next_action"],
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ]));
+      }
+      if (url.endsWith("/loops/review/enrichment/sessions/22") && (!init?.method || init.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 22,
+            name: "Enrichment queue",
+            query: "status:inbox",
+            pending_kind: "suggestions",
+            suggestion_limit: 5,
+            clarification_limit: 3,
+            item_limit: 5,
+            current_loop_id: null,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+          items: [],
+          loop_count: 0,
+          current_index: null,
+          current_item: null,
+          rerun_action: null,
+        }));
+      }
+      if (url.endsWith("/loops/review/enrichment/sessions/22/refresh") && init?.method === "POST") {
+        refreshCount += 1;
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 22,
+            name: "Enrichment queue",
+            query: "status:inbox",
+            pending_kind: "suggestions",
+            suggestion_limit: 5,
+            clarification_limit: 3,
+            item_limit: 5,
+            current_loop_id: 15,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:03:00Z",
+          },
+          items: [
+            {
+              loop: { id: 15, title: "Retro notes", raw_text: "Retro notes", status: "inbox" },
+              newest_pending_at: "2026-03-21T12:00:00Z",
+              pending_clarification_count: 0,
+              pending_clarifications: [],
+              pending_suggestion_count: 1,
+              pending_suggestions: [
+                {
+                  id: 32,
+                  loop_id: 15,
+                  model: "pi",
+                  created_at: "2026-03-21T12:00:00Z",
+                  parsed: { summary: "Summarize retro", next_action: "Share action items", confidence: 0.85 },
+                  suggestion_json: "{}",
+                  resolution: null,
+                  resolved_at: null,
+                  resolved_fields_json: null,
+                  clarifications: [],
+                },
+              ],
+            },
+          ],
+          loop_count: 1,
+          current_index: 0,
+          current_item: {
+            loop: { id: 15, title: "Retro notes", raw_text: "Retro notes", status: "inbox" },
+            newest_pending_at: "2026-03-21T12:00:00Z",
+            pending_clarification_count: 0,
+            pending_clarifications: [],
+            pending_suggestion_count: 1,
+            pending_suggestions: [
+              {
+                id: 32,
+                loop_id: 15,
+                model: "pi",
+                created_at: "2026-03-21T12:00:00Z",
+                parsed: { summary: "Summarize retro", next_action: "Share action items", confidence: 0.85 },
+                suggestion_json: "{}",
+                resolution: null,
+                resolved_at: null,
+                resolved_fields_json: null,
+                clarifications: [],
+              },
+            ],
+          },
+          rerun_action: null,
+        }));
+      }
+      if (url.endsWith("/loops/review/enrichment/sessions/22/action") && init?.method === "POST") {
+        actionBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Promise.resolve(jsonResponse({
+          snapshot: {
+            session: {
+              id: 22,
+              name: "Enrichment queue",
+              query: "status:inbox",
+              pending_kind: "suggestions",
+              suggestion_limit: 5,
+              clarification_limit: 3,
+              item_limit: 5,
+              current_loop_id: 15,
+              created_at_utc: "2026-03-21T12:00:00Z",
+              updated_at_utc: "2026-03-21T12:04:00Z",
+            },
+            items: [],
+            loop_count: 0,
+            current_index: null,
+            current_item: null,
+            rerun_action: null,
+          },
+          result: { resolution: "applied", suggestion_id: 32 },
+          follow_through: {
+            working_set_id: 7,
+            display_card: {
+              title: "Suggestion applied",
+              summary: "The enrichment suggestion was applied.",
+              rationale: "Review receipt",
+              preview: [],
+              trust: {
+                generation_label: "Saved review action",
+                generation_tone: "progress",
+                context_sources: ["Enrichment queue"],
+                assumptions: [],
+                confidence_label: "Recorded",
+                confidence_tone: "progress",
+                freshness_label: "Saved just now",
+                freshness_tone: "progress",
+                rollback_label: "Resume the queue",
+                rollback_tone: "caution",
+              },
+              handoff: {
+                change_summary: "Suggestion applied",
+                created_resources: [],
+                next_step: "Continue the queue.",
+                breadcrumbs: ["Home", "Review", "Enrichment review"],
+                working_set: {
+                  working_set_id: 7,
+                  working_set_name: "Launch Prep",
+                  item_count: 3,
+                  missing_item_count: 0,
+                },
+              },
+              tone: "progress",
+            },
+            resume_location: {
+              state: "decide",
+              review_focus: "enrichment",
+              session_id: 22,
+              working_set_id: 7,
+            },
+            workflow_thread: {
+              id: "review:22",
+              kind: "review_session",
+              title: "Enrichment queue",
+              summary: "Review the current enrichment suggestions.",
+              parent_outcome_id: null,
+            },
+            grounded_chat_location: null,
+            undo_action: null,
+            rerun_action: null,
+          },
+        }));
+      }
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = createController({
+      openLocation,
+      refreshWorkspace,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [workingSet],
+        workingSetContext: {
+          active_working_set: workingSet,
+          active_working_set_id: workingSet.id,
+          focus_mode_enabled: true,
+          latest_reversible_event_id: null,
+          latest_reversible_event_type: null,
+          updated_at_utc: "2026-03-21T12:00:00Z",
+        },
+        nowFeed: [],
+        planningSessions: [],
+        relationshipSessions: [],
+        enrichmentSessions: [
+          {
+            id: 22,
+            name: "Enrichment queue",
+            query: "status:inbox",
+            pending_kind: "suggestions",
+            suggestion_limit: 5,
+            clarification_limit: 3,
+            item_limit: 5,
+            current_loop_id: null,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ],
+      }),
+    });
+
+    controller.open();
+    await settle();
+    findCommandButton("Use saved action · Apply core fields · Enrichment queue").click();
+    await settle();
+
+    expect(pickerSpy).toHaveBeenCalled();
+    expect(refreshCount).toBe(1);
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(actionBodies[0]).toEqual(expect.objectContaining({
+      suggestion_id: 32,
+      action_preset_id: 9,
+    }));
+    expect(openLocation).toHaveBeenCalledWith(expect.objectContaining({
+      state: "decide",
+      reviewFocus: "enrichment",
+      sessionId: 22,
+      workingSetId: 7,
+    }));
   });
 });

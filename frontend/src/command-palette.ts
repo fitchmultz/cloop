@@ -103,6 +103,7 @@ import {
 } from "./executable-undo";
 import { buildFollowThroughReceipt } from "./follow-through-adapters";
 import * as modals from "./modals";
+import type { SearchableDialogOption } from "./modals";
 import {
   buildPlanningExecutionReceiptCard,
 } from "./review-workspace-action-cards";
@@ -114,6 +115,8 @@ import {
   fetchPlanningSession,
   fetchRelationshipActions,
   fetchRelationshipSession,
+  refreshEnrichmentSession,
+  refreshRelationshipSession,
   runEnrichmentSessionAction,
   runRelationshipSessionAction,
 } from "./review-workflow-client";
@@ -490,6 +493,20 @@ function relationshipTargetOptionLabel(target: RelationshipActionTarget): string
   return `${loopTitle(target.loop)} → ${candidateTitle(target.candidate)} · ${target.relationshipType}${target.isCurrent ? " · Current focus" : ""}`;
 }
 
+function relationshipTargetOptions(targets: readonly RelationshipActionTarget[]): SearchableDialogOption[] {
+  return targets.map((target) => ({
+    value: relationshipTargetOptionKey(target),
+    label: relationshipTargetOptionLabel(target),
+    searchText: [
+      loopTitle(target.loop),
+      loopSummary(target.loop),
+      candidateTitle(target.candidate),
+      target.relationshipType,
+      target.candidate.relationship_type,
+    ].join("\n"),
+  }));
+}
+
 function resolvedRelationshipActionType(input: {
   action: RelationshipReviewActionResponse;
   candidate: RelationshipReviewCandidateResponse;
@@ -502,34 +519,42 @@ function resolvedRelationshipActionType(input: {
 async function chooseRelationshipPaletteTarget(input: {
   action: RelationshipReviewActionResponse;
   snapshot: RelationshipReviewSessionSnapshotResponse;
-  targets: readonly RelationshipActionTarget[];
+  refreshSnapshot: () => Promise<RelationshipReviewSessionSnapshotResponse>;
 }): Promise<RelationshipActionTarget | null> {
-  if (input.targets.length === 1) {
-    return input.targets[0] ?? null;
+  let latestSnapshot = input.snapshot;
+  let targets = relationshipActionTargets({ snapshot: latestSnapshot, action: input.action });
+  if (targets.length === 1) {
+    return targets[0] ?? null;
   }
-  const options = input.targets.map((target) => ({
-    value: relationshipTargetOptionKey(target),
-    label: relationshipTargetOptionLabel(target),
-  }));
-  const values = await modals.promptDialog({
+  const selection = await modals.chooseOptionDialog({
     eyebrow: "Relationship review",
     title: "Choose queue target",
     description: `Apply “${input.action.name}” to the exact saved relationship candidate in “${input.snapshot.session.name}”.`,
     confirmLabel: "Use target",
-    fields: [{
-      name: "target",
-      label: "Queue target",
-      type: "select",
-      value: options[0]?.value,
-      options,
-      helpText: "The queue stays keyboard-first: pick the exact loop/candidate pair without opening the review workspace.",
-    }],
-    validate: (values) => values["target"] ? null : "Choose a queue target.",
+    searchPlaceholder: "Search loops or relationship candidates",
+    searchHelpText: "Filter by loop title, candidate title, or relationship type.",
+    optionLabel: "Queue target",
+    optionHelpText: targets.length
+      ? "Pick the exact loop/candidate pair without opening the review workspace."
+      : "No saved candidates are available yet. Refresh the queue to pull the latest session state.",
+    emptyStateLabel: "No relationship targets match the current search.",
+    options: relationshipTargetOptions(targets),
+    value: relationshipTargetOptions(targets)[0]?.value,
+    refreshLabel: "Refresh queue",
+    onRefresh: async () => {
+      latestSnapshot = await input.refreshSnapshot();
+      targets = relationshipActionTargets({ snapshot: latestSnapshot, action: input.action });
+      return {
+        options: relationshipTargetOptions(targets),
+        value: relationshipTargetOptions(targets)[0]?.value,
+        description: `Apply “${input.action.name}” to the exact saved relationship candidate in “${latestSnapshot.session.name}”.`,
+      };
+    },
   });
-  if (!values) {
+  if (!selection) {
     return null;
   }
-  return input.targets.find((target) => relationshipTargetOptionKey(target) === values["target"]) ?? null;
+  return targets.find((target) => relationshipTargetOptionKey(target) === selection) ?? null;
 }
 
 async function confirmRelationshipPaletteAction(input: {
@@ -591,37 +616,58 @@ function enrichmentTargetOptionLabel(target: EnrichmentActionTarget): string {
   return `${loopTitle(target.loop)} → ${summary}${fields ? ` · ${fields}` : ""}${target.isCurrent ? " · Current focus" : ""}`;
 }
 
+function enrichmentTargetOptions(targets: readonly EnrichmentActionTarget[]): SearchableDialogOption[] {
+  return targets.map((target) => ({
+    value: String(target.suggestion.id),
+    label: enrichmentTargetOptionLabel(target),
+    searchText: [
+      loopTitle(target.loop),
+      loopSummary(target.loop),
+      enrichmentSuggestionLabel(target.suggestion),
+      ...target.suggestedFields,
+    ].join("\n"),
+  }));
+}
+
 async function chooseEnrichmentPaletteTarget(input: {
   action: EnrichmentReviewActionResponse;
   snapshot: EnrichmentReviewSessionSnapshotResponse;
-  targets: readonly EnrichmentActionTarget[];
+  refreshSnapshot: () => Promise<EnrichmentReviewSessionSnapshotResponse>;
 }): Promise<EnrichmentActionTarget | null> {
-  if (input.targets.length === 1) {
-    return input.targets[0] ?? null;
+  let latestSnapshot = input.snapshot;
+  let targets = enrichmentActionTargets({ snapshot: latestSnapshot });
+  if (targets.length === 1) {
+    return targets[0] ?? null;
   }
-  const options = input.targets.map((target) => ({
-    value: String(target.suggestion.id),
-    label: enrichmentTargetOptionLabel(target),
-  }));
-  const values = await modals.promptDialog({
+  const selection = await modals.chooseOptionDialog({
     eyebrow: "Enrichment review",
     title: "Choose queue target",
     description: `Apply “${input.action.name}” to the exact saved enrichment suggestion in “${input.snapshot.session.name}”.`,
     confirmLabel: "Use target",
-    fields: [{
-      name: "target",
-      label: "Queue target",
-      type: "select",
-      value: options[0]?.value,
-      options,
-      helpText: "Pick the exact suggestion from the saved queue without leaving the keyboard-first palette.",
-    }],
-    validate: (values) => values["target"] ? null : "Choose a queue target.",
+    searchPlaceholder: "Search loops, summaries, or suggested fields",
+    searchHelpText: "Filter by loop title, suggestion summary, or the fields the suggestion would change.",
+    optionLabel: "Queue target",
+    optionHelpText: targets.length
+      ? "Pick the exact suggestion from the saved queue without leaving the keyboard-first palette."
+      : "No saved suggestions are available yet. Refresh the queue to pull the latest session state.",
+    emptyStateLabel: "No enrichment targets match the current search.",
+    options: enrichmentTargetOptions(targets),
+    value: enrichmentTargetOptions(targets)[0]?.value,
+    refreshLabel: "Refresh queue",
+    onRefresh: async () => {
+      latestSnapshot = await input.refreshSnapshot();
+      targets = enrichmentActionTargets({ snapshot: latestSnapshot });
+      return {
+        options: enrichmentTargetOptions(targets),
+        value: enrichmentTargetOptions(targets)[0]?.value,
+        description: `Apply “${input.action.name}” to the exact saved enrichment suggestion in “${latestSnapshot.session.name}”.`,
+      };
+    },
   });
-  if (!values) {
+  if (!selection) {
     return null;
   }
-  return input.targets.find((target) => String(target.suggestion.id) === values["target"]) ?? null;
+  return targets.find((target) => String(target.suggestion.id) === selection) ?? null;
 }
 
 async function confirmEnrichmentPaletteAction(input: {
@@ -1410,12 +1456,24 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     return snapshot;
   }
 
+  async function refreshRelationshipSnapshot(sessionId: number): Promise<RelationshipReviewSessionSnapshotResponse> {
+    const snapshot = await refreshRelationshipSession(sessionId);
+    cachedRelationshipSnapshots.set(sessionId, { loadedAt: Date.now(), value: snapshot });
+    return snapshot;
+  }
+
   async function loadEnrichmentSnapshot(sessionId: number): Promise<EnrichmentReviewSessionSnapshotResponse> {
     const cached = readCachedPaletteValue(cachedEnrichmentSnapshots.get(sessionId) ?? null);
     if (cached) {
       return cached;
     }
     const snapshot = await fetchEnrichmentSession(sessionId);
+    cachedEnrichmentSnapshots.set(sessionId, { loadedAt: Date.now(), value: snapshot });
+    return snapshot;
+  }
+
+  async function refreshEnrichmentSnapshot(sessionId: number): Promise<EnrichmentReviewSessionSnapshotResponse> {
+    const snapshot = await refreshEnrichmentSession(sessionId);
     cachedEnrichmentSnapshots.set(sessionId, { loadedAt: Date.now(), value: snapshot });
     return snapshot;
   }
@@ -2208,20 +2266,19 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const commands: CommandPaletteCommand[] = [];
     actions.slice(0, input.actionLimit).forEach((action) => {
       const targets = relationshipActionTargets({ snapshot, action });
-      if (!targets.length) {
-        return;
-      }
       const currentTarget = targets.find((target) => target.isCurrent) ?? targets[0] ?? null;
-      const exactTargetSelection = targets.length > 1;
+      const exactTargetSelection = targets.length !== 1;
       commands.push({
         id: `relationship-action-${input.sessionId}-${action.id}-${input.sessionLocation.workingSetId ?? "none"}`,
         group: "act",
         title: input.includeSessionNameInTitle
           ? `Use saved action · ${action.name} · ${snapshot.session.name}`
           : `Use saved action · ${action.name}`,
-        subtitle: exactTargetSelection
-          ? `Choose exact target from ${targets.length} queued candidate${targets.length === 1 ? "" : "s"}`
-          : `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${currentTarget?.relationshipType ?? "relationship"} for ${currentTarget ? loopTitle(currentTarget.loop) : snapshot.session.name}`,
+        subtitle: !targets.length
+          ? "Refresh queue to choose an exact saved relationship target"
+          : exactTargetSelection
+            ? `Choose exact target from ${targets.length} queued candidate${targets.length === 1 ? "" : "s"}`
+            : `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${currentTarget?.relationshipType ?? "relationship"} for ${currentTarget ? loopTitle(currentTarget.loop) : snapshot.session.name}`,
         keywords: [
           "review",
           "relationship",
@@ -2241,25 +2298,33 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         contextBoost: input.contextBoost,
         detail: {
           eyebrow: "Act",
-          description: exactTargetSelection
-            ? (input.includeSessionNameInTitle
-              ? "Pick the exact saved relationship candidate from the queue, then apply the preset without opening the relationship workspace first."
-              : "Pick the exact relationship candidate from the queue and keep the saved-review action fully keyboard-first.")
-            : (input.includeSessionNameInTitle
-              ? "Apply this saved relationship-review action to the preserved queue item without opening the relationship workspace first."
-              : "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette."),
+          description: !targets.length
+            ? "This saved queue currently has no eligible relationship target in the cached snapshot. Refresh it in-place, search, and pick the exact candidate without opening the relationship workspace."
+            : exactTargetSelection
+              ? (input.includeSessionNameInTitle
+                ? "Pick the exact saved relationship candidate from the queue, then apply the preset without opening the relationship workspace first."
+                : "Pick the exact relationship candidate from the queue and keep the saved-review action fully keyboard-first.")
+              : (input.includeSessionNameInTitle
+                ? "Apply this saved relationship-review action to the preserved queue item without opening the relationship workspace first."
+                : "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette."),
           meta: [
             `Session: ${snapshot.session.name}`,
             currentTarget ? `Current loop: ${loopTitle(currentTarget.loop)}` : null,
             currentTarget && !exactTargetSelection ? `Candidate: ${candidateTitle(currentTarget.candidate)}` : null,
-            exactTargetSelection ? `Eligible targets: ${targets.length}` : null,
+            !targets.length ? "Eligible targets: refresh required" : exactTargetSelection ? `Eligible targets: ${targets.length}` : null,
             `Decision: ${action.action_type}${currentTarget ? ` ${currentTarget.relationshipType}` : ""}`,
             input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
           ].filter((value): value is string => Boolean(value)),
         },
         skipAutomaticReceipt: true,
         execute: async () => {
-          const target = await chooseRelationshipPaletteTarget({ action, snapshot, targets });
+          const target = exactTargetSelection
+            ? await chooseRelationshipPaletteTarget({
+              action,
+              snapshot,
+              refreshSnapshot: () => refreshRelationshipSnapshot(input.sessionId),
+            })
+            : currentTarget;
           if (!target) {
             return;
           }
@@ -2315,20 +2380,19 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     }
     return actions.slice(0, input.actionLimit).flatMap((action) => {
       const targets = enrichmentActionTargets({ snapshot });
-      if (!targets.length) {
-        return [];
-      }
       const currentTarget = targets.find((target) => target.isCurrent) ?? targets[0] ?? null;
-      const exactTargetSelection = targets.length > 1;
+      const exactTargetSelection = targets.length !== 1;
       return [{
         id: `enrichment-action-${input.sessionId}-${action.id}-${input.sessionLocation.workingSetId ?? "none"}`,
         group: "act",
         title: input.includeSessionNameInTitle
           ? `Use saved action · ${action.name} · ${snapshot.session.name}`
           : `Use saved action · ${action.name}`,
-        subtitle: exactTargetSelection
-          ? `Choose exact target from ${targets.length} queued suggestion${targets.length === 1 ? "" : "s"}`
-          : `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${currentTarget ? loopTitle(currentTarget.loop) : snapshot.session.name}`,
+        subtitle: !targets.length
+          ? "Refresh queue to choose an exact saved enrichment target"
+          : exactTargetSelection
+            ? `Choose exact target from ${targets.length} queued suggestion${targets.length === 1 ? "" : "s"}`
+            : `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${currentTarget ? loopTitle(currentTarget.loop) : snapshot.session.name}`,
         keywords: [
           "review",
           "enrichment",
@@ -2348,13 +2412,15 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         contextBoost: input.contextBoost,
         detail: {
           eyebrow: "Act",
-          description: exactTargetSelection
-            ? (input.includeSessionNameInTitle
-              ? "Pick the exact saved enrichment suggestion from the queue, then apply the preset without opening the enrichment workspace first."
-              : "Pick the exact enrichment suggestion from the queue and keep the saved-review action fully keyboard-first.")
-            : (input.includeSessionNameInTitle
-              ? "Apply this saved enrichment action to the preserved suggestion queue without opening the enrichment workspace first."
-              : "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses."),
+          description: !targets.length
+            ? "This saved queue currently has no eligible enrichment target in the cached snapshot. Refresh it in-place, search, and pick the exact suggestion without opening the enrichment workspace."
+            : exactTargetSelection
+              ? (input.includeSessionNameInTitle
+                ? "Pick the exact saved enrichment suggestion from the queue, then apply the preset without opening the enrichment workspace first."
+                : "Pick the exact enrichment suggestion from the queue and keep the saved-review action fully keyboard-first.")
+              : (input.includeSessionNameInTitle
+                ? "Apply this saved enrichment action to the preserved suggestion queue without opening the enrichment workspace first."
+                : "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses."),
           meta: [
             `Session: ${snapshot.session.name}`,
             currentTarget ? `Current loop: ${loopTitle(currentTarget.loop)}` : null,
@@ -2362,14 +2428,20 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             currentTarget && !exactTargetSelection
               ? (currentTarget.suggestedFields.length ? `Suggested fields: ${currentTarget.suggestedFields.join(", ")}` : "Suggested fields: loop update")
               : null,
-            exactTargetSelection ? `Eligible targets: ${targets.length}` : null,
+            !targets.length ? "Eligible targets: refresh required" : exactTargetSelection ? `Eligible targets: ${targets.length}` : null,
             action.fields?.length ? `Preset fields: ${action.fields.join(", ")}` : null,
             input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
           ].filter((value): value is string => Boolean(value)),
         },
         skipAutomaticReceipt: true,
         execute: async () => {
-          const target = await chooseEnrichmentPaletteTarget({ action, snapshot, targets });
+          const target = exactTargetSelection
+            ? await chooseEnrichmentPaletteTarget({
+              action,
+              snapshot,
+              refreshSnapshot: () => refreshEnrichmentSnapshot(input.sessionId),
+            })
+            : currentTarget;
           if (!target) {
             return;
           }

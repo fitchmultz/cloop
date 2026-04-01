@@ -419,6 +419,21 @@
   font-size: 0.85rem;
 }
 
+.app-dialog-picker-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.app-dialog-picker-toolbar .app-dialog-input {
+  flex: 1 1 auto;
+}
+
+.app-dialog-picker-refresh {
+  white-space: nowrap;
+  min-height: 46px;
+}
+
 .app-dialog-error {
   margin: 0;
   color: var(--color-danger);
@@ -481,6 +496,15 @@
     width: 100%;
     border-radius: 22px 22px 18px 18px;
     padding: 18px;
+  }
+
+  .app-dialog-picker-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .app-dialog-picker-refresh {
+    width: 100%;
   }
 
   .app-dialog-actions {

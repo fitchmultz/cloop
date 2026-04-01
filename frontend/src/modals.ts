@@ -71,6 +71,39 @@ export interface DialogConfig {
   dismissible?: boolean | undefined;
 }
 
+export interface SearchableDialogOption {
+  value: string;
+  label: string;
+  searchText?: string | undefined;
+}
+
+export interface SearchableDialogRefreshResult {
+  options: SearchableDialogOption[];
+  value?: string | null | undefined;
+  description?: string | null | undefined;
+}
+
+export interface SearchableDialogConfig {
+  eyebrow?: string | undefined;
+  title: string;
+  description?: string | undefined;
+  confirmLabel?: string | undefined;
+  cancelLabel?: string | undefined;
+  confirmVariant?: string | undefined;
+  dismissible?: boolean | undefined;
+  searchLabel?: string | undefined;
+  searchPlaceholder?: string | undefined;
+  searchHelpText?: string | undefined;
+  optionLabel?: string | undefined;
+  optionHelpText?: string | undefined;
+  emptyStateLabel?: string | undefined;
+  options: SearchableDialogOption[];
+  value?: string | null | undefined;
+  refreshLabel?: string | undefined;
+  refreshingLabel?: string | undefined;
+  onRefresh?: (() => Promise<SearchableDialogRefreshResult>) | undefined;
+}
+
 export interface AlertDialogConfig {
   title?: string | undefined;
   description?: string | undefined;
@@ -316,6 +349,14 @@ function clearDialogError(): void {
   elements.appDialogError.textContent = "";
 }
 
+function setDialogDescription(description: string): void {
+  if (!elements?.appDialogDescription) {
+    return;
+  }
+  elements.appDialogDescription.textContent = description;
+  elements.appDialogDescription.hidden = !description;
+}
+
 function getFocusableElements(): HTMLElement[] {
   return Array.from(elements?.appDialog?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []).filter((element) => {
     return !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true";
@@ -507,6 +548,164 @@ export async function confirmDialog(options: DialogConfig): Promise<boolean> {
 
 export async function promptDialog(options: DialogConfig): Promise<Record<string, string> | null> {
   return showDialog(options);
+}
+
+export async function chooseOptionDialog(options: SearchableDialogConfig): Promise<string | null> {
+  const searchFieldName = "picker-search";
+  const optionFieldName = "picker-option";
+  const resultPromise = showDialog({
+    eyebrow: options.eyebrow,
+    title: options.title,
+    description: options.description,
+    confirmLabel: options.confirmLabel ?? "Use target",
+    cancelLabel: options.cancelLabel ?? "Cancel",
+    confirmVariant: options.confirmVariant,
+    dismissible: options.dismissible,
+    fields: [
+      {
+        name: searchFieldName,
+        label: options.searchLabel ?? "Search",
+        placeholder: options.searchPlaceholder ?? "Search targets",
+        autocomplete: "off",
+        helpText: options.searchHelpText,
+      },
+      {
+        name: optionFieldName,
+        label: options.optionLabel ?? "Target",
+        type: "select",
+        options: [],
+        helpText: options.optionHelpText,
+      },
+    ],
+    validate: (values) => values[optionFieldName] ? null : "Choose a target.",
+  });
+
+  const current = ensureInitialized();
+  const searchInput = current.appDialog?.querySelector<HTMLInputElement>(`#app-dialog-field-${searchFieldName}`) ?? null;
+  const optionSelect = current.appDialog?.querySelector<HTMLSelectElement>(`#app-dialog-field-${optionFieldName}`) ?? null;
+  const searchWrapper = searchInput?.closest<HTMLElement>(".app-dialog-field") ?? null;
+  const optionWrapper = optionSelect?.closest<HTMLElement>(".app-dialog-field") ?? null;
+  const optionHelp = optionWrapper?.querySelector<HTMLElement>(".app-dialog-help") ?? null;
+
+  if (!searchInput || !optionSelect || !searchWrapper) {
+    const fallback = await resultPromise;
+    return fallback?.[optionFieldName] ?? null;
+  }
+
+  let sourceOptions = [...options.options];
+  let preferredValue = options.value ?? sourceOptions[0]?.value ?? "";
+  let disposed = false;
+
+  const optionMatchesQuery = (option: SearchableDialogOption, query: string): boolean => {
+    if (!query) {
+      return true;
+    }
+    const haystack = `${option.label}\n${option.searchText ?? ""}`.toLowerCase();
+    return haystack.includes(query);
+  };
+
+  const renderOptions = (): void => {
+    const query = searchInput.value.trim().toLowerCase();
+    const filtered = sourceOptions.filter((option) => optionMatchesQuery(option, query));
+    const previousValue = optionSelect.value;
+    optionSelect.innerHTML = "";
+
+    if (!filtered.length) {
+      const emptyOption = document.createElement("option");
+      emptyOption.value = "";
+      emptyOption.textContent = options.emptyStateLabel ?? "No targets match the current search.";
+      emptyOption.selected = true;
+      emptyOption.disabled = true;
+      optionSelect.appendChild(emptyOption);
+      optionSelect.disabled = true;
+      if (optionHelp) {
+        optionHelp.textContent = query
+          ? `0 matches for “${searchInput.value.trim()}”. Refresh the queue or broaden the search.`
+          : `0 available targets. Refresh the queue to pull the latest saved-session state.`;
+      }
+      return;
+    }
+
+    filtered.forEach((option) => {
+      const optionElement = document.createElement("option");
+      optionElement.value = option.value;
+      optionElement.textContent = option.label;
+      optionSelect.appendChild(optionElement);
+    });
+
+    optionSelect.disabled = false;
+    const nextValue = [previousValue, preferredValue, filtered[0]?.value ?? ""]
+      .find((value) => value && filtered.some((option) => option.value === value))
+      ?? filtered[0]?.value
+      ?? "";
+    optionSelect.value = nextValue;
+    if (optionHelp) {
+      optionHelp.textContent = query
+        ? `${filtered.length} match${filtered.length === 1 ? "" : "es"} for “${searchInput.value.trim()}”.`
+        : `${filtered.length} target${filtered.length === 1 ? "" : "s"} available.`;
+    }
+  };
+
+  const handleSearchInput = (): void => {
+    renderOptions();
+  };
+  searchInput.addEventListener("input", handleSearchInput);
+
+  let refreshButton: HTMLButtonElement | null = null;
+  if (options.onRefresh) {
+    const toolbar = document.createElement("div");
+    toolbar.className = "app-dialog-picker-toolbar";
+    searchWrapper.insertBefore(toolbar, searchInput);
+    toolbar.appendChild(searchInput);
+
+    refreshButton = document.createElement("button");
+    refreshButton.type = "button";
+    refreshButton.className = "secondary app-dialog-picker-refresh";
+    refreshButton.textContent = options.refreshLabel ?? "Refresh targets";
+    toolbar.appendChild(refreshButton);
+
+    const refreshTrigger = refreshButton;
+    refreshTrigger.addEventListener("click", async () => {
+      if (!options.onRefresh || disposed) {
+        return;
+      }
+      clearDialogError();
+      refreshTrigger.disabled = true;
+      refreshTrigger.textContent = options.refreshingLabel ?? "Refreshing…";
+      try {
+        const refreshed = await options.onRefresh();
+        if (disposed) {
+          return;
+        }
+        sourceOptions = [...refreshed.options];
+        preferredValue = refreshed.value ?? sourceOptions[0]?.value ?? "";
+        if (refreshed.description !== undefined) {
+          setDialogDescription(refreshed.description ?? "");
+        }
+        renderOptions();
+      } catch (error) {
+        if (!disposed) {
+          showDialogError(error instanceof Error ? error.message : "Failed to refresh targets.");
+        }
+      } finally {
+        if (!disposed) {
+          refreshTrigger.disabled = false;
+          refreshTrigger.textContent = options.refreshLabel ?? "Refresh targets";
+        }
+      }
+    });
+  }
+
+  renderOptions();
+
+  try {
+    const result = await resultPromise;
+    return result?.[optionFieldName] ?? null;
+  } finally {
+    disposed = true;
+    searchInput.removeEventListener("input", handleSearchInput);
+    refreshButton?.remove();
+  }
 }
 
 export async function alertDialog({

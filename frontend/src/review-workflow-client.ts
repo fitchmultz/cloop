@@ -9,6 +9,7 @@
  * Responsibilities:
  *   - Fetch planning, relationship-review, and enrichment-review session snapshots.
  *   - Execute planning checkpoints through the canonical HTTP endpoint.
+ *   - Refresh saved review session snapshots through the canonical refresh endpoints.
  *   - List saved review actions and execute saved review-session actions.
  *
  * Scope:
@@ -76,6 +77,16 @@ export async function fetchRelationshipSession(
   );
 }
 
+export async function refreshRelationshipSession(
+  sessionId: number,
+): Promise<RelationshipReviewSessionSnapshotResponse> {
+  return requestJson<RelationshipReviewSessionSnapshotResponse>(
+    `/loops/review/relationship/sessions/${sessionId}/refresh`,
+    { method: "POST" },
+    "Failed to refresh relationship review session",
+  );
+}
+
 export async function runRelationshipSessionAction(
   sessionId: number,
   payload: RelationshipReviewSessionActionRequest,
@@ -102,6 +113,16 @@ export async function fetchEnrichmentSession(
     `/loops/review/enrichment/sessions/${sessionId}`,
     {},
     "Failed to load enrichment review session",
+  );
+}
+
+export async function refreshEnrichmentSession(
+  sessionId: number,
+): Promise<EnrichmentReviewSessionSnapshotResponse> {
+  return requestJson<EnrichmentReviewSessionSnapshotResponse>(
+    `/loops/review/enrichment/sessions/${sessionId}/refresh`,
+    { method: "POST" },
+    "Failed to refresh enrichment review session",
   );
 }
 
