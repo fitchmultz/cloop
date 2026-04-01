@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from ..chat_execution import ChatExecutionResult, execute_chat_request, stream_chat_request
+from ..schemas._loops.continuity import ContinuityLocationResponse
 from ..schemas.chat import ChatMessage, ChatRequest, ChatResponse, ToolCall
 from ..settings import Settings, ToolMode
 from ._runtime import cli_error, error_handler, run_cli_action
@@ -143,6 +144,7 @@ def _build_request(args: Namespace) -> ChatRequest:
         include_rag_context=args.include_rag_context,
         rag_k=args.rag_k,
         rag_scope=args.rag_scope,
+        working_set_id=args.working_set,
     )
 
 
@@ -183,6 +185,36 @@ def _render_sources(sources: list[dict[str, Any]]) -> None:
         print(f"- {path}{suffix}")
 
 
+def _render_location(location: ContinuityLocationResponse | None) -> str | None:
+    if location is None:
+        return None
+    parts: list[str] = [location.state]
+    if location.state == "recall":
+        parts.append(location.recall_tool)
+    if location.query:
+        parts.append(location.query)
+    if location.working_set_id is not None:
+        parts.append(f"working-set {location.working_set_id}")
+    return " · ".join(parts)
+
+
+def _render_follow_through(response: ChatResponse) -> None:
+    follow_through = response.follow_through
+    if follow_through is None:
+        return
+    print("\nFollow-through:")
+    print(f"- {follow_through.display_card.title}")
+    print(f"  {follow_through.display_card.summary}")
+    resume_location = _render_location(follow_through.resume_location)
+    if resume_location:
+        print(f"  Resume: {resume_location}")
+    if follow_through.rerun_action is not None:
+        print(
+            f"  Rerun: {follow_through.rerun_action.label} — "
+            f"{follow_through.rerun_action.description}"
+        )
+
+
 def _render_text_result(result: CliChatRunResult) -> None:
     response = result.response
     if not result.streamed_text:
@@ -193,6 +225,8 @@ def _render_text_result(result: CliChatRunResult) -> None:
     _render_tool_calls(response.tool_calls)
     _render_tool_results(response.tool_results)
     _render_sources(response.sources)
+    if not result.streamed_text:
+        _render_follow_through(response)
 
 
 def _render_result(result: CliChatRunResult, output_format: str) -> None:

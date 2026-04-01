@@ -35,6 +35,7 @@ from .rag import (
 )
 from .rag.ask_orchestration import PreparedAskContext
 from .recall_follow_through import build_rag_follow_through
+from .recall_working_sets import resolve_recall_working_set
 from .schemas.rag import AskResponse, IngestResponse
 from .settings import PiToolBudgetSurface, Settings
 from .storage import interaction_store
@@ -83,17 +84,25 @@ def _ask_request_payload(
     question: str,
     top_k: int,
     scope: str | None,
+    working_set_id: int | None,
     stream: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {"question": question, "top_k": top_k}
     if scope is not None:
         payload["scope"] = scope
+    if working_set_id is not None:
+        payload["working_set_id"] = working_set_id
     if stream:
         payload["stream"] = True
     return payload
 
 
-def _ask_rerun_action(*, question: str, sources: list[dict[str, Any]]):
+def _ask_rerun_action(
+    *,
+    question: str,
+    sources: list[dict[str, Any]],
+    working_set_id: int | None,
+):
     source_count = len(sources)
     return build_recall_query_rerun_action(
         recall_tool="rag",
@@ -118,17 +127,34 @@ def _ask_rerun_action(*, question: str, sources: list[dict[str, Any]]):
             "Generation strategy path or alternate selector choice",
         ],
         include_rag_context=True,
+        working_set_id=working_set_id,
     )
 
 
-def _ask_follow_through(*, answer: str, question: str, sources: list[dict[str, Any]]):
+def _ask_follow_through(
+    *,
+    answer: str,
+    question: str,
+    sources: list[dict[str, Any]],
+    working_set: dict[str, Any] | None,
+):
     if answer == NO_KNOWLEDGE_MESSAGE:
         return None
+    working_set_id = (
+        int(working_set["working_set_id"])
+        if isinstance(working_set, dict) and isinstance(working_set.get("working_set_id"), int)
+        else None
+    )
     return build_rag_follow_through(
         question=question,
         answer=answer,
         sources=sources,
-        rerun_action=_ask_rerun_action(question=question, sources=sources),
+        rerun_action=_ask_rerun_action(
+            question=question,
+            sources=sources,
+            working_set_id=working_set_id,
+        ),
+        working_set=working_set,
     )
 
 
@@ -138,10 +164,25 @@ def _ask_response_payload(
     question: str,
     sources: list[dict[str, Any]],
     context: dict[str, str],
+    working_set: dict[str, Any] | None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    rerun_action = _ask_rerun_action(question=question, sources=sources)
-    follow_through = _ask_follow_through(answer=answer, question=question, sources=sources)
+    working_set_id = (
+        int(working_set["working_set_id"])
+        if isinstance(working_set, dict) and isinstance(working_set.get("working_set_id"), int)
+        else None
+    )
+    rerun_action = _ask_rerun_action(
+        question=question,
+        sources=sources,
+        working_set_id=working_set_id,
+    )
+    follow_through = _ask_follow_through(
+        answer=answer,
+        question=question,
+        sources=sources,
+        working_set=working_set,
+    )
     payload = {
         "answer": answer,
         "sources": sources,
@@ -190,6 +231,7 @@ def execute_ask_request(
     question: str,
     top_k: int,
     scope: str | None,
+    working_set_id: int | None,
     settings: Settings,
     endpoint: str = "/ask",
 ) -> RagAskExecutionResult:
@@ -201,7 +243,13 @@ def execute_ask_request(
         scope=scope,
         settings=settings,
     )
-    request_payload = _ask_request_payload(question=question, top_k=top_k, scope=scope)
+    working_set = resolve_recall_working_set(working_set_id=working_set_id, settings=settings)
+    request_payload = _ask_request_payload(
+        question=question,
+        top_k=top_k,
+        scope=scope,
+        working_set_id=working_set_id,
+    )
     context_snapshot = interaction_context(settings)
 
     if not prepared.has_knowledge:
@@ -210,6 +258,7 @@ def execute_ask_request(
             question=question,
             sources=[],
             context=context_snapshot,
+            working_set=working_set,
         )
         _record_ask_interaction(
             endpoint=endpoint,
@@ -224,7 +273,11 @@ def execute_ask_request(
             answer=NO_KNOWLEDGE_MESSAGE,
             chunks=[],
             metadata={},
-            rerun_action=_ask_rerun_action(question=question, sources=[]),
+            rerun_action=_ask_rerun_action(
+                question=question,
+                sources=[],
+                working_set_id=working_set_id,
+            ),
             follow_through=None,
         )
         return RagAskExecutionResult(
@@ -240,6 +293,7 @@ def execute_ask_request(
         question=question,
         sources=answer.sources,
         context=context_snapshot,
+        working_set=working_set,
         metadata=answer.metadata,
     )
     _record_ask_interaction(
@@ -257,11 +311,16 @@ def execute_ask_request(
         model=answer.model,
         sources=answer.sources,
         metadata=answer.metadata,
-        rerun_action=_ask_rerun_action(question=question, sources=answer.sources),
+        rerun_action=_ask_rerun_action(
+            question=question,
+            sources=answer.sources,
+            working_set_id=working_set_id,
+        ),
         follow_through=_ask_follow_through(
             answer=answer.answer,
             question=question,
             sources=answer.sources,
+            working_set=working_set,
         ),
     )
     return RagAskExecutionResult(
@@ -277,6 +336,7 @@ def stream_ask_request(
     question: str,
     top_k: int,
     scope: str | None,
+    working_set_id: int | None,
     settings: Settings,
     endpoint: str = "/ask",
 ) -> Iterator[StreamedRagAskEvent]:
@@ -288,7 +348,14 @@ def stream_ask_request(
         scope=scope,
         settings=settings,
     )
-    request_payload = _ask_request_payload(question=question, top_k=top_k, scope=scope, stream=True)
+    working_set = resolve_recall_working_set(working_set_id=working_set_id, settings=settings)
+    request_payload = _ask_request_payload(
+        question=question,
+        top_k=top_k,
+        scope=scope,
+        working_set_id=working_set_id,
+        stream=True,
+    )
     context_snapshot = interaction_context(settings)
 
     if not prepared.has_knowledge:
@@ -297,6 +364,7 @@ def stream_ask_request(
             question=question,
             sources=[],
             context=context_snapshot,
+            working_set=working_set,
         )
         _record_ask_interaction(
             endpoint=endpoint,
@@ -313,7 +381,11 @@ def stream_ask_request(
                 answer=NO_KNOWLEDGE_MESSAGE,
                 chunks=[],
                 metadata={},
-                rerun_action=_ask_rerun_action(question=question, sources=[]),
+                rerun_action=_ask_rerun_action(
+                    question=question,
+                    sources=[],
+                    working_set_id=working_set_id,
+                ),
                 follow_through=None,
             ).model_dump(mode="json"),
         )
@@ -377,6 +449,7 @@ def stream_ask_request(
         question=question,
         sources=prepared.sources,
         context=context_snapshot,
+        working_set=working_set,
         metadata=metadata,
     )
     _record_ask_interaction(
@@ -396,11 +469,16 @@ def stream_ask_request(
             model=metadata.get("model"),
             sources=prepared.sources,
             metadata=metadata,
-            rerun_action=_ask_rerun_action(question=question, sources=prepared.sources),
+            rerun_action=_ask_rerun_action(
+                question=question,
+                sources=prepared.sources,
+                working_set_id=working_set_id,
+            ),
             follow_through=_ask_follow_through(
                 answer=final_answer,
                 question=question,
                 sources=prepared.sources,
+                working_set=working_set,
             ),
         ).model_dump(mode="json"),
     )

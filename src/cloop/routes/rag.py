@@ -70,6 +70,10 @@ def ask_endpoint(
         str | None,
         Query(description="Restrict retrieval by path substring or doc:ID"),
     ] = None,
+    working_set_id: Annotated[
+        int | None,
+        Query(description="Optional working-set scope to preserve in recall follow-through", ge=1),
+    ] = None,
 ) -> Any:
     top_k = settings.default_top_k if k is None else k
     stream_enabled = stream if stream is not None else settings.stream_default
@@ -81,6 +85,7 @@ def ask_endpoint(
                     question=q,
                     top_k=top_k,
                     scope=scope,
+                    working_set_id=working_set_id,
                     settings=settings,
                     endpoint="/ask",
                 )
@@ -102,6 +107,7 @@ def ask_endpoint(
             question=q,
             top_k=top_k,
             scope=scope,
+            working_set_id=working_set_id,
             settings=settings,
             endpoint="/ask",
         )

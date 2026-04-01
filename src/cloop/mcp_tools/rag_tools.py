@@ -37,6 +37,7 @@ def rag_ask(
     question: str,
     top_k: int | None = None,
     scope: str | None = None,
+    working_set_id: int | None = None,
 ) -> dict[str, Any]:
     """Ask a question against the local knowledge base.
 
@@ -50,6 +51,8 @@ def rag_ask(
         top_k: Optional number of chunks to retrieve. Defaults to the configured
             `CLOOP_DEFAULT_TOP_K` value when omitted.
         scope: Optional retrieval restriction by path substring or `doc:<id>`.
+        working_set_id: Optional working-set id to preserve on rerun and landed
+            follow-through recall targets.
 
     Returns:
         Dict with:
@@ -69,6 +72,7 @@ def rag_ask(
         question=question,
         top_k=settings.default_top_k if top_k is None else top_k,
         scope=scope,
+        working_set_id=working_set_id,
         settings=settings,
         endpoint="/mcp/rag.ask",
     )

@@ -21,8 +21,7 @@ Usage:
 Invariants/Assumptions:
     - Follow-through always reopens the landed recall result, never the generic
       launch surface.
-    - Working-set scope may still be overlaid later by the frontend when the
-      browser owns that local context.
+    - Explicit working-set scope stays attached whenever the caller provides it.
 """
 
 from __future__ import annotations
@@ -35,6 +34,7 @@ from .schemas._loops.continuity import (
     ContinuityDisplayHandoffResponse,
     ContinuityDisplayPreviewItemResponse,
     ContinuityDisplayTrustResponse,
+    ContinuityDisplayWorkingSetResponse,
     ContinuityRerunAction,
     ReviewFollowThroughResponse,
     WorkflowThreadRefResponse,
@@ -98,6 +98,7 @@ def _receipt_card(
     next_step: str,
     breadcrumbs: list[str],
     tone: Literal["progress", "attention"],
+    working_set: dict[str, Any] | None,
 ) -> ContinuityDisplayCardResponse:
     return ContinuityDisplayCardResponse(
         kind="receipt",
@@ -131,7 +132,11 @@ def _receipt_card(
             created_resources=[],
             next_step=next_step,
             breadcrumbs=breadcrumbs,
-            working_set=None,
+            working_set=(
+                ContinuityDisplayWorkingSetResponse(**working_set)
+                if working_set is not None
+                else None
+            ),
         ),
         action_context_label="Continue from here",
         action_warning=None,
@@ -149,6 +154,7 @@ def build_chat_follow_through(
     memory_entries_used: int,
     rag_chunks_used: int,
     sources: list[dict[str, Any]],
+    working_set: dict[str, Any] | None,
 ) -> ReviewFollowThroughResponse | None:
     """Build one landed follow-through contract for a grounded chat answer."""
     normalized_query = _normalize_text(query)
@@ -218,6 +224,7 @@ def build_chat_follow_through(
             ),
             breadcrumbs=["Home", "Recall", "Grounded chat"],
             tone=tone,
+            working_set=working_set,
         ),
         undo_action=None,
         rerun_action=rerun_action,
@@ -229,7 +236,9 @@ def build_chat_follow_through(
             title=title,
             summary=summary,
         ),
-        working_set_id=None,
+        working_set_id=(
+            int(working_set["working_set_id"]) if isinstance(working_set, dict) else None
+        ),
     )
 
 
@@ -239,6 +248,7 @@ def build_rag_follow_through(
     answer: str,
     sources: list[dict[str, Any]],
     rerun_action: ContinuityRerunAction | None,
+    working_set: dict[str, Any] | None,
 ) -> ReviewFollowThroughResponse | None:
     """Build one landed follow-through contract for a document-backed answer."""
     normalized_question = _normalize_text(question)
@@ -289,6 +299,7 @@ def build_rag_follow_through(
             ),
             breadcrumbs=["Home", "Recall", "Documents"],
             tone=tone,
+            working_set=working_set,
         ),
         undo_action=None,
         rerun_action=rerun_action,
@@ -300,7 +311,9 @@ def build_rag_follow_through(
             title=title,
             summary=summary,
         ),
-        working_set_id=None,
+        working_set_id=(
+            int(working_set["working_set_id"]) if isinstance(working_set, dict) else None
+        ),
     )
 
 

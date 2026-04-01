@@ -44,6 +44,7 @@ def _build_chat_request(
     include_rag_context: bool,
     rag_k: int,
     rag_scope: str | None,
+    working_set_id: int | None,
 ) -> ChatRequest:
     normalized_messages = [
         message if isinstance(message, ChatMessage) else ChatMessage(**message)
@@ -65,6 +66,7 @@ def _build_chat_request(
         include_rag_context=include_rag_context,
         rag_k=rag_k,
         rag_scope=rag_scope,
+        working_set_id=working_set_id,
     )
 
 
@@ -79,6 +81,7 @@ def chat_complete(
     include_rag_context: bool = False,
     rag_k: int = 5,
     rag_scope: str | None = None,
+    working_set_id: int | None = None,
 ) -> dict[str, Any]:
     """Run grounded chat and return the shared structured response.
 
@@ -100,6 +103,8 @@ def chat_complete(
         include_rag_context: Inject retrieved document context when true.
         rag_k: Number of chunks to retrieve when RAG grounding is enabled.
         rag_scope: Optional retrieval restriction by path substring or `doc:<id>`.
+        working_set_id: Optional working-set id to preserve on rerun and landed
+            follow-through recall targets.
 
     Returns:
         Dict matching the shared `ChatResponse` contract with:
@@ -137,6 +142,7 @@ def chat_complete(
         include_rag_context=include_rag_context,
         rag_k=rag_k,
         rag_scope=rag_scope,
+        working_set_id=working_set_id,
     )
     result = execute_chat_request(
         request=request,

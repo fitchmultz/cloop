@@ -45,6 +45,7 @@ def ask_command(args: Namespace, settings: Settings) -> int:
         question=args.question,
         top_k=args.k,
         scope=args.scope,
+        working_set_id=args.working_set,
         settings=settings,
         endpoint="/cli/ask",
     )

@@ -85,6 +85,9 @@ Examples:
 
   # Restrict by path substring
   cloop ask "meeting notes" --scope "2026-02"
+
+  # Preserve working-set continuity for the answer
+  cloop ask "launch blockers" --working-set 7
         """,
     )
     ask_parser.add_argument("question", help="Question text")
@@ -92,4 +95,9 @@ Examples:
     ask_parser.add_argument(
         "--scope",
         help="Restrict retrieval by path substring or doc:<id>",
+    )
+    ask_parser.add_argument(
+        "--working-set",
+        type=int,
+        help="Optional working-set id to preserve in recall follow-through and rerun payloads.",
     )

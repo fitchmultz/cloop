@@ -22,8 +22,7 @@ Usage:
 
 Invariants/Assumptions:
     - Reruns preserve recall tool, query, and landing surface identity.
-    - Working-set scope may be overlaid later by the frontend when the browser
-      owns that local context.
+    - Explicit working-set scope stays attached whenever the caller provides it.
 """
 
 from __future__ import annotations
@@ -53,6 +52,7 @@ def build_recall_query_rerun_action(
     include_loop_context: bool | None = None,
     include_memory_context: bool | None = None,
     include_rag_context: bool | None = None,
+    working_set_id: int | None = None,
 ) -> ContinuityRerunAction:
     """Build one backend-authored recall-query rerun contract."""
     return ContinuityRerunAction(
@@ -61,6 +61,7 @@ def build_recall_query_rerun_action(
         rerun=ContinuityRecallQueryRerunHandle(
             recall_tool=recall_tool,
             query=query,
+            working_set_id=working_set_id,
             include_loop_context=include_loop_context,
             include_memory_context=include_memory_context,
             include_rag_context=include_rag_context,
@@ -78,6 +79,7 @@ def build_recall_query_rerun_action(
                     state="recall",
                     recall_tool=recall_tool,
                     query=query,
+                    working_set_id=working_set_id,
                 ),
             ),
         ),

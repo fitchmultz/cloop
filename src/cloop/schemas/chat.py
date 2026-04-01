@@ -93,6 +93,13 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional scope filter for retrieval (path substring or doc:ID).",
     )
+    working_set_id: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Optional working-set scope to carry through recall rerun and follow-through payloads."
+        ),
+    )
 
     @model_validator(mode="after")
     def _manual_requires_tool(self) -> Self:

@@ -28,6 +28,7 @@ from .loops.due import effective_due_iso
 from .loops.errors import CloopError
 from .rag import retrieve_similar_chunks
 from .rag.ask_orchestration import format_sources, sanitize_chunk
+from .recall_working_sets import resolve_recall_working_set
 from .schemas.chat import ChatRequest
 from .settings import Settings, ToolMode
 
@@ -54,6 +55,7 @@ class PreparedChatRequest:
     interaction_context: dict[str, str]
     context_summary: dict[str, Any]
     effective_options: EffectiveChatOptions
+    working_set: dict[str, Any] | None
     rag_chunks: list[dict[str, Any]]
     sources: list[dict[str, Any]]
 
@@ -312,6 +314,13 @@ def prepare_chat_request(*, request: ChatRequest, settings: Settings) -> Prepare
         "rag_context_applied": False,
         "rag_chunks_used": 0,
     }
+    working_set = resolve_recall_working_set(
+        working_set_id=request.working_set_id,
+        settings=settings,
+    )
+    if working_set is not None:
+        log_context["working_set_id"] = str(working_set["working_set_id"])
+        log_context["working_set_name"] = str(working_set["working_set_name"])
 
     loop_context = ""
     if options.include_loop_context:
@@ -363,6 +372,7 @@ def prepare_chat_request(*, request: ChatRequest, settings: Settings) -> Prepare
         interaction_context=log_context,
         context_summary=context_summary,
         effective_options=options,
+        working_set=working_set,
         rag_chunks=rag_result.chunks,
         sources=rag_result.sources,
     )

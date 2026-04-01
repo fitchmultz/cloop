@@ -596,6 +596,12 @@ export type ChatRequest = {
      * Tool orchestration mode: manual, llm, or none. Defaults to settings.
      */
     tool_mode?: ToolMode | null;
+    /**
+     * Working Set Id
+     *
+     * Optional working-set scope to carry through recall rerun and follow-through payloads.
+     */
+    working_set_id?: number | null;
 };
 
 /**
@@ -7379,6 +7385,12 @@ export type AskEndpointAskGetData = {
          * Restrict retrieval by path substring or doc:ID
          */
         scope?: string | null;
+        /**
+         * Working Set Id
+         *
+         * Optional working-set scope to preserve in recall follow-through
+         */
+        working_set_id?: number | null;
     };
     url: '/ask';
 };

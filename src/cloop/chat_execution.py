@@ -190,6 +190,13 @@ def _chat_rerun_freshness_label(prepared: PreparedChatRequest) -> str | None:
     return None
 
 
+def _prepared_working_set_id(prepared: PreparedChatRequest) -> int | None:
+    if not isinstance(prepared.working_set, dict):
+        return None
+    working_set_id = prepared.working_set.get("working_set_id")
+    return int(working_set_id) if isinstance(working_set_id, int) else None
+
+
 def _chat_rerun_action(prepared: PreparedChatRequest):
     query = _latest_user_query(prepared)
     if not query:
@@ -217,6 +224,7 @@ def _chat_rerun_action(prepared: PreparedChatRequest):
         include_loop_context=prepared.effective_options.include_loop_context,
         include_memory_context=prepared.effective_options.include_memory_context,
         include_rag_context=prepared.effective_options.include_rag_context,
+        working_set_id=_prepared_working_set_id(prepared),
     )
 
 
@@ -231,6 +239,7 @@ def _chat_follow_through(*, prepared: PreparedChatRequest, message: str):
         memory_entries_used=int(prepared.context_summary.get("memory_entries_used") or 0),
         rag_chunks_used=int(prepared.context_summary.get("rag_chunks_used") or 0),
         sources=prepared.sources,
+        working_set=prepared.working_set,
     )
 
 

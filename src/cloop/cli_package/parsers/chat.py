@@ -43,6 +43,9 @@ Examples:
   # Add document grounding
   cloop chat "Where is the onboarding checklist?" --include-rag-context --rag-scope onboarding
 
+  # Keep the answer scoped to a working set
+  cloop chat "What changed?" --include-loop-context --working-set 7
+
   # Continue from a saved transcript JSON file
   cloop chat --messages-file transcript.json "What changed since the last update?"
 
@@ -124,6 +127,11 @@ Examples:
     chat_parser.add_argument(
         "--rag-scope",
         help="Restrict document grounding by path substring or doc:<id>.",
+    )
+    chat_parser.add_argument(
+        "--working-set",
+        type=int,
+        help="Optional working-set id to preserve in recall follow-through and rerun payloads.",
     )
     chat_parser.add_argument(
         "--stream",
