@@ -1030,6 +1030,172 @@ describe("shell-operator-cards", () => {
     expect(findCard(elements.operatorSinceLast, "Applied enrichment suggestion")).toBeNull();
   });
 
+  it("keeps hydrated durable recall outcomes out of since-last so the receipt rail owns them", () => {
+    recordRecentShellAction({
+      kind: "recall",
+      label: "Local recall receipt",
+      description: "Temporary browser-local recall result.",
+      location: createLocation({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+      outcome: {
+        card: {
+          id: "receipt-recall-local",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Recall receipt",
+          title: "Local recall receipt",
+          summary: "Temporary browser-local recall result.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Local recall bridge"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Rerun recall to refresh this answer.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: createLocation({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+        rollbackLabel: "Rerun recall to refresh this answer.",
+        undoAction: null,
+      },
+    });
+    seedWorkflowSummaries([
+      {
+        id: "recall:rag:where is the launch checklist?",
+        source: "receipt",
+        rank: 5330,
+        rankingSignals: {
+          driftSeverity: "moderate",
+          driftScore: 56,
+          workingSetRelevant: true,
+          downstreamReady: true,
+          degraded: false,
+          recencyTieBreaker: 19,
+        },
+        workflowThread: {
+          id: "recall:rag:where is the launch checklist?",
+          kind: "recall",
+          title: "Evidence answer · where is the launch checklist?",
+          summary: "The launch checklist lives in docs/launch.md.",
+          parentOutcomeId: null,
+        },
+        representativeOutcomeId: 31,
+        latestOutcomeId: 31,
+        occurredAt: "2026-03-21T09:28:00Z",
+        outcomeCount: 1,
+        outcomePreviewTitles: ["Evidence answer · where is the launch checklist?"],
+        requestedResumeLocation: createLocation({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+        resolvedResume: {
+          requestedLocation: createLocation({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+          resolvedLocation: createLocation({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+        displayTitle: "Evidence answer · where is the launch checklist?",
+        displaySummary: "The launch checklist lives in docs/launch.md.",
+        displayCard: {
+          kind: "receipt",
+          tone: "attention",
+          eyebrow: "Recall receipt",
+          title: "Evidence answer · where is the launch checklist?",
+          summary: "The launch checklist lives in docs/launch.md.",
+          rationale: "Document answers should reopen the landed result.",
+          preview: [],
+          trust: {
+            generationLabel: "Recall receipt",
+            generationTone: "attention",
+            contextSources: ["Indexed local documents", "Source: docs/launch.md"],
+            assumptions: [],
+            confidenceLabel: "1 retrieved source",
+            confidenceTone: "attention",
+            freshnessLabel: "Saved just now",
+            freshnessTone: "progress",
+            rollbackLabel: "Rerun the same document question to refresh this answer.",
+            rollbackTone: "progress",
+            impactSummary: "The launch checklist lives in docs/launch.md.",
+            impactTone: "attention",
+          },
+          handoff: {
+            changeSummary: "This keeps the landed recall result resumable from continuity, the receipt rail, and Recent commands.",
+            createdResources: [],
+            nextStep: "Reopen the evidence-backed answer or rerun it.",
+            breadcrumbs: ["Home", "Recall", "Documents"],
+            workingSet: {
+              workingSetId: 7,
+              workingSetName: "Launch Prep",
+              itemCount: 4,
+              missingItemCount: 0,
+            },
+          },
+          actionContextLabel: "Continue from here",
+          actionWarning: null,
+        },
+        undoAction: null,
+        rerunAction: {
+          type: "rerun",
+          label: "Refresh evidence",
+          variant: "secondary",
+          description: "Land back in Recall with a fresh evidence-backed result.",
+          rerun: {
+            kind: "recall_query",
+            recallTool: "rag",
+            query: "Where is the launch checklist?",
+            workingSetId: 7,
+            includeLoopContext: undefined,
+            includeMemoryContext: undefined,
+            includeRagContext: true,
+          },
+          contract: {
+            mode: "rerun",
+            provenanceLabel: "Document-backed recall result",
+            freshnessLabel: "1 retrieved source in the prior answer",
+            strategySummary: "Reuse the same document question against the current indexed evidence.",
+            strictInvariants: ["Same document recall surface", "Same query text"],
+            mayVary: ["Retrieved source set"],
+            postRun: {
+              summary: "Land back in Recall with a fresh evidence-backed result.",
+              location: createLocation({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+            },
+          },
+        },
+        workingSetId: 7,
+        workingSetName: "Launch Prep",
+        degraded: false,
+        degradedLabel: null,
+        whyNow: ["This workflow has fresh unseen movement."],
+        changedSinceLastSeen: ["This workflow has never been seen from durable continuity."],
+        priorState: null,
+      },
+      summaryRecord({
+        id: "planning:41",
+        rank: 4800,
+        occurredAt: "2026-03-18T18:09:00Z",
+        workflowThreadId: "planning:41",
+        workflowThreadTitle: "Resume plan · Weekly reset",
+        workflowThreadSummary: "Return to the saved planning session.",
+        source: "recent",
+        resolvedLocation: createLocation({ state: "plan", reviewFocus: "planning", sessionId: 41, workingSetId: 7 }),
+        displayTitle: "Resume plan · Weekly reset",
+        displaySummary: "Return to the saved planning session.",
+        workingSetName: "Launch Prep",
+        workingSetRelevant: true,
+      }),
+    ]);
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-21T09:00:00Z"),
+      workingSets: [makeWorkingSet(7, "Launch Prep")],
+    });
+
+    renderer.renderSinceLastVisit(makeWorkspaceData(null));
+
+    expect(elements.operatorSinceLast.textContent).toContain("Resume plan · Weekly reset");
+    expect(findCard(elements.operatorSinceLast, "Evidence answer · where is the launch checklist?")).toBeNull();
+    expect(findCard(elements.operatorSinceLast, "Local recall receipt")).toBeNull();
+  });
+
   it("keeps matching handoff cards visible in focus mode when saved items omit working-set ids", () => {
     const activeSet = makeWorkingSet(2, "Review Prep", [makeWorkingSetItem(27, null)]);
     const execution = makeExecution(2);

@@ -589,6 +589,308 @@ function continuitySnapshot() {
   };
 }
 
+function recallHydrationSnapshot() {
+  return {
+    recorded_at_utc: "2026-03-21T09:30:00Z",
+    outcomes: [
+      {
+        id: 31,
+        kind: "recall",
+        label: "Evidence answer · where is the launch checklist?",
+        description: "The launch checklist lives in docs/launch.md.",
+        occurred_at_utc: "2026-03-21T09:28:00Z",
+        launch_location: {
+          state: "recall",
+          recall_tool: "rag",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: 7,
+          query: "Where is the launch checklist?",
+        },
+        display_card: {
+          kind: "receipt",
+          tone: "attention",
+          eyebrow: "Recall receipt",
+          title: "Evidence answer · where is the launch checklist?",
+          summary: "The launch checklist lives in docs/launch.md.",
+          rationale: "Document answers should reopen the landed result.",
+          preview: [
+            { label: "Question", value: "Where is the launch checklist?" },
+            { label: "Evidence", value: "docs/launch.md" },
+          ],
+          trust: {
+            generation_label: "Recall receipt",
+            generation_tone: "attention",
+            context_sources: ["Indexed local documents", "Source: docs/launch.md"],
+            assumptions: [],
+            confidence_label: "1 retrieved source",
+            confidence_tone: "attention",
+            freshness_label: "Saved just now",
+            freshness_tone: "progress",
+            rollback_label: "Rerun the same document question to refresh this answer.",
+            rollback_tone: "progress",
+            impact_summary: "The launch checklist lives in docs/launch.md.",
+            impact_tone: "attention",
+          },
+          handoff: {
+            change_summary: "This keeps the landed recall result resumable from continuity, the receipt rail, and Recent commands.",
+            created_resources: [],
+            next_step: "Reopen the evidence-backed answer or rerun it.",
+            breadcrumbs: ["Home", "Recall", "Documents"],
+            working_set: {
+              working_set_id: 7,
+              working_set_name: "Launch Prep",
+              item_count: 4,
+              missing_item_count: 0,
+            },
+          },
+          action_context_label: "Continue from here",
+          action_warning: null,
+        },
+        undo_action: null,
+        rerun_action: {
+          label: "Refresh evidence",
+          description: "Land back in Recall with a fresh evidence-backed result.",
+          rerun: {
+            kind: "recall_query",
+            recall_tool: "rag",
+            query: "Where is the launch checklist?",
+            working_set_id: 7,
+            include_loop_context: null,
+            include_memory_context: null,
+            include_rag_context: true,
+          },
+          contract: {
+            mode: "rerun",
+            provenance_label: "Document-backed recall result",
+            freshness_label: "1 retrieved source in the prior answer",
+            strategy_summary: "Reuse the same document question against the current indexed evidence.",
+            strict_invariants: ["Same document recall surface", "Same query text"],
+            may_vary: ["Retrieved source set"],
+            post_run: {
+              summary: "Land back in Recall with a fresh evidence-backed result.",
+              location: {
+                state: "recall",
+                recall_tool: "rag",
+                review_focus: null,
+                session_id: null,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: "Where is the launch checklist?",
+              },
+            },
+          },
+        },
+        resume_location: {
+          state: "recall",
+          recall_tool: "rag",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: 7,
+          query: "Where is the launch checklist?",
+        },
+        resolved_resume: {
+          requested_location: {
+            state: "recall",
+            recall_tool: "rag",
+            review_focus: null,
+            session_id: null,
+            loop_id: null,
+            view_id: null,
+            memory_id: null,
+            working_set_id: 7,
+            query: "Where is the launch checklist?",
+          },
+          resolved_location: {
+            state: "recall",
+            recall_tool: "rag",
+            review_focus: null,
+            session_id: null,
+            loop_id: null,
+            view_id: null,
+            memory_id: null,
+            working_set_id: 7,
+            query: "Where is the launch checklist?",
+          },
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+        workflow_thread: {
+          id: "recall:rag:where is the launch checklist?",
+          kind: "recall",
+          title: "Evidence answer · where is the launch checklist?",
+          summary: "The launch checklist lives in docs/launch.md.",
+          parent_outcome_id: null,
+        },
+        working_set_id: 7,
+        metadata: { source: "recall-rag" },
+      },
+    ],
+    workflow_summaries: [
+      {
+        id: "recall:rag:where is the launch checklist?",
+        source: "receipt",
+        rank: 5330,
+        ranking_signals: {
+          drift_severity: "moderate",
+          drift_score: 56,
+          working_set_relevant: true,
+          downstream_ready: true,
+          degraded: false,
+          recency_tie_breaker: 19,
+        },
+        workflow_thread: {
+          id: "recall:rag:where is the launch checklist?",
+          kind: "recall",
+          title: "Evidence answer · where is the launch checklist?",
+          summary: "The launch checklist lives in docs/launch.md.",
+          parent_outcome_id: null,
+        },
+        representative_outcome_id: 31,
+        latest_outcome_id: 31,
+        occurred_at_utc: "2026-03-21T09:28:00Z",
+        outcome_count: 1,
+        outcome_preview_titles: ["Evidence answer · where is the launch checklist?"],
+        requested_resume_location: {
+          state: "recall",
+          recall_tool: "rag",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: 7,
+          query: "Where is the launch checklist?",
+        },
+        resolved_resume: {
+          requested_location: {
+            state: "recall",
+            recall_tool: "rag",
+            review_focus: null,
+            session_id: null,
+            loop_id: null,
+            view_id: null,
+            memory_id: null,
+            working_set_id: 7,
+            query: "Where is the launch checklist?",
+          },
+          resolved_location: {
+            state: "recall",
+            recall_tool: "rag",
+            review_focus: null,
+            session_id: null,
+            loop_id: null,
+            view_id: null,
+            memory_id: null,
+            working_set_id: 7,
+            query: "Where is the launch checklist?",
+          },
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+        display_title: "Evidence answer · where is the launch checklist?",
+        display_summary: "The launch checklist lives in docs/launch.md.",
+        display_card: {
+          kind: "receipt",
+          tone: "attention",
+          eyebrow: "Recall receipt",
+          title: "Evidence answer · where is the launch checklist?",
+          summary: "The launch checklist lives in docs/launch.md.",
+          rationale: "Document answers should reopen the landed result.",
+          preview: [
+            { label: "Question", value: "Where is the launch checklist?" },
+            { label: "Evidence", value: "docs/launch.md" },
+          ],
+          trust: {
+            generation_label: "Recall receipt",
+            generation_tone: "attention",
+            context_sources: ["Indexed local documents", "Source: docs/launch.md"],
+            assumptions: [],
+            confidence_label: "1 retrieved source",
+            confidence_tone: "attention",
+            freshness_label: "Saved just now",
+            freshness_tone: "progress",
+            rollback_label: "Rerun the same document question to refresh this answer.",
+            rollback_tone: "progress",
+            impact_summary: "The launch checklist lives in docs/launch.md.",
+            impact_tone: "attention",
+          },
+          handoff: {
+            change_summary: "This keeps the landed recall result resumable from continuity, the receipt rail, and Recent commands.",
+            created_resources: [],
+            next_step: "Reopen the evidence-backed answer or rerun it.",
+            breadcrumbs: ["Home", "Recall", "Documents"],
+            working_set: {
+              working_set_id: 7,
+              working_set_name: "Launch Prep",
+              item_count: 4,
+              missing_item_count: 0,
+            },
+          },
+          action_context_label: "Continue from here",
+          action_warning: null,
+        },
+        undo_action: null,
+        rerun_action: {
+          label: "Refresh evidence",
+          description: "Land back in Recall with a fresh evidence-backed result.",
+          rerun: {
+            kind: "recall_query",
+            recall_tool: "rag",
+            query: "Where is the launch checklist?",
+            working_set_id: 7,
+            include_loop_context: null,
+            include_memory_context: null,
+            include_rag_context: true,
+          },
+          contract: {
+            mode: "rerun",
+            provenance_label: "Document-backed recall result",
+            freshness_label: "1 retrieved source in the prior answer",
+            strategy_summary: "Reuse the same document question against the current indexed evidence.",
+            strict_invariants: ["Same document recall surface", "Same query text"],
+            may_vary: ["Retrieved source set"],
+            post_run: {
+              summary: "Land back in Recall with a fresh evidence-backed result.",
+              location: {
+                state: "recall",
+                recall_tool: "rag",
+                review_focus: null,
+                session_id: null,
+                loop_id: null,
+                view_id: null,
+                memory_id: null,
+                working_set_id: 7,
+                query: "Where is the launch checklist?",
+              },
+            },
+          },
+        },
+        working_set_id: 7,
+        working_set_name: "Launch Prep",
+        degraded: false,
+        degraded_label: null,
+        why_now: ["This workflow has fresh unseen movement."],
+        changed_since_last_seen: ["This workflow has never been seen from durable continuity."],
+        prior_state: null,
+      },
+    ],
+    notification_records: [],
+    last_seen_markers: [],
+    recovery_acknowledgements: [],
+  };
+}
+
 let originalLocalStorage: Storage;
 let originalFetch: typeof fetch;
 
@@ -700,6 +1002,74 @@ describe("readRankedWorkflowSummaries", () => {
     expect(summaries[0]?.id).toBe("recall:rag:launch-notes");
     expect(summaries[0]?.source).toBe("recent");
     expect(summaries[0]?.card.title).toBe("Indexed launch notes");
+  });
+
+  it("prefers hydrated durable recall outcomes over fresh local recall receipts", async () => {
+    globalThis.fetch = vi.fn(() => new Promise<Response>(() => {})) as typeof fetch;
+
+    recordRecentShellAction({
+      kind: "recall",
+      label: "Local recall receipt",
+      description: "Temporary browser-local recall result.",
+      location: location({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+      outcome: {
+        card: {
+          id: "receipt-recall-local",
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Recall receipt",
+          title: "Local recall receipt",
+          summary: "Temporary browser-local recall result.",
+          rationale: "Receipt",
+          preview: [],
+          trust: {
+            contextSources: ["Local recall bridge"],
+            assumptions: [],
+            confidenceLabel: "Recorded",
+            freshnessLabel: "Saved just now",
+            rollbackLabel: "Rerun recall to refresh this answer.",
+          },
+          handoff: null,
+          actions: [],
+        },
+        resumeLocation: location({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+        rollbackLabel: "Rerun recall to refresh this answer.",
+        undoAction: null,
+        workflowThread: {
+          id: "local:recall:launch-checklist",
+          kind: "recall",
+          title: "Local recall receipt",
+          summary: "Temporary browser-local recall result.",
+          parentOutcomeId: null,
+        },
+        resolvedResume: {
+          requestedLocation: location({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+          resolvedLocation: location({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+          status: "ok",
+          message: null,
+          successor: null,
+        },
+      },
+    });
+
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(recallHydrationSnapshot()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await hydrateDurableContinuityState();
+
+    const summaries = readMergedRankedWorkflowSummaries();
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]?.source).toBe("receipt");
+    expect(summaries[0]?.id).toBe("recall:rag:where is the launch checklist?");
+    expect(summaries[0]?.card.title).toBe("Evidence answer · where is the launch checklist?");
+    expect(summaries[0]?.rerunAction?.rerun.kind).toBe("recall_query");
+    expect(summaries[0]?.resolvedResume.resolvedLocation).toEqual(
+      location({ state: "recall", recallTool: "rag", query: "Where is the launch checklist?", workingSetId: 7 }),
+    );
   });
 
   it("dedupes fresh local receipts once a durable summary owns the same landed target", async () => {
