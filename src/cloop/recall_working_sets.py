@@ -32,11 +32,19 @@ def resolve_recall_working_set(
         return None
     with db.core_connection(settings) as conn:
         payload = working_sets.get_working_set(working_set_id=working_set_id, conn=conn)
+    loop_ids = [
+        int(item["item_id"])
+        for item in payload.get("items", [])
+        if item.get("item_type") == "loop"
+        and not bool(item.get("missing"))
+        and isinstance(item.get("item_id"), int)
+    ]
     return {
         "working_set_id": int(payload["id"]),
         "working_set_name": str(payload.get("name") or f"Working set #{working_set_id}"),
         "item_count": int(payload.get("item_count") or 0),
         "missing_item_count": int(payload.get("missing_item_count") or 0),
+        "loop_ids": loop_ids,
     }
 
 

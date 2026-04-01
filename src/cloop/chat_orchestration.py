@@ -142,8 +142,75 @@ def build_chat_guidance(
     return "\n".join(guidance)
 
 
-def build_loop_context_snapshot(settings: Settings) -> str:
+def _build_working_set_loop_context_snapshot(
+    *, working_set: dict[str, Any], settings: Settings
+) -> str:
+    """Build loop grounding that stays inside one explicit working set."""
+    from .loops.read_service import get_loop
+
+    working_set_id = int(working_set.get("working_set_id") or 0)
+    working_set_name = str(working_set.get("working_set_name") or f"Working set #{working_set_id}")
+    loop_ids = [
+        int(loop_id) for loop_id in working_set.get("loop_ids", []) if isinstance(loop_id, int)
+    ]
+    item_count = int(working_set.get("item_count") or 0)
+    missing_item_count = int(working_set.get("missing_item_count") or 0)
+    item_suffix = "" if item_count == 1 else "s"
+    missing_suffix = "" if missing_item_count == 1 else "s"
+    lines = [
+        "## Current Loop Context",
+        (
+            f'Scope: working set "{working_set_name}" '
+            f"({item_count} item{item_suffix}, {missing_item_count} missing item{missing_suffix}). "
+            "Only use loops saved in this working set."
+        ),
+        "\n### Working Set Loops",
+    ]
+
+    if not loop_ids:
+        lines.append(
+            "- No saved loops are currently pinned in this working set. "
+            "Do not assume loop state outside this scope."
+        )
+        return "\n".join(lines)
+
+    try:
+        with db.core_connection(settings) as conn:
+            loops = [get_loop(loop_id=loop_id, conn=conn) for loop_id in loop_ids[:5]]
+    except sqlite3.Error, CloopError:
+        return ""
+
+    for loop in loops:
+        title = loop.get("title") or loop.get("raw_text", "")[:60]
+        status = str(loop.get("status") or "loop").replace("_", " ")
+        lines.append(f"- {title} ({status})")
+        next_action = loop.get("next_action")
+        if next_action:
+            lines.append(f"  Next action: {next_action}")
+        blocked_reason = loop.get("blocked_reason")
+        if blocked_reason:
+            lines.append(f"  Blocked: {blocked_reason}")
+        due = effective_due_iso(loop)
+        if due:
+            lines.append(f"  Due: {due}")
+
+    remaining_loop_count = len(loop_ids) - len(loops)
+    if remaining_loop_count > 0:
+        suffix = "s" if remaining_loop_count != 1 else ""
+        lines.append(
+            f"- {remaining_loop_count} more saved loop{suffix} remain in this working set."
+        )
+
+    return "\n".join(lines)
+
+
+def build_loop_context_snapshot(
+    settings: Settings, *, working_set: dict[str, Any] | None = None
+) -> str:
     """Build a compact loop context snapshot for grounded chat requests."""
+    if working_set is not None:
+        return _build_working_set_loop_context_snapshot(working_set=working_set, settings=settings)
+
     from .loops.read_service import next_loops, search_loops_by_query
 
     lines = ["## Current Loop Context"]
@@ -324,7 +391,7 @@ def prepare_chat_request(*, request: ChatRequest, settings: Settings) -> Prepare
 
     loop_context = ""
     if options.include_loop_context:
-        loop_context = build_loop_context_snapshot(settings)
+        loop_context = build_loop_context_snapshot(settings, working_set=working_set)
         if loop_context:
             messages.insert(0, {"role": "system", "content": loop_context})
             log_context["loop_context"] = loop_context

@@ -94,6 +94,39 @@ def _create_working_set(*, settings: Settings, name: str = "Launch scope") -> in
     return int(payload["id"])
 
 
+def _create_actionable_loop(*, settings: Settings, title: str, next_action: str) -> int:
+    from cloop.loops.models import LoopStatus
+    from cloop.loops.service import capture_loop
+
+    with db.core_connection(settings) as conn:
+        result = capture_loop(
+            raw_text=title,
+            captured_at_iso="2026-04-01T12:00:00Z",
+            client_tz_offset_min=0,
+            status=LoopStatus.INBOX,
+            conn=conn,
+        )
+        conn.execute(
+            "UPDATE loops SET status = 'actionable', next_action = ? WHERE id = ?",
+            (next_action, result["id"]),
+        )
+        conn.commit()
+    return int(result["id"])
+
+
+def _add_loop_to_working_set(*, settings: Settings, working_set_id: int, loop_id: int) -> None:
+    with db.core_connection(settings) as conn:
+        working_sets.add_working_set_item(
+            working_set_id=working_set_id,
+            item_type="loop",
+            item_id=loop_id,
+            label=None,
+            description=None,
+            metadata=None,
+            conn=conn,
+        )
+
+
 def _last_json(capsys: Any) -> dict[str, Any]:
     return json.loads(capsys.readouterr().out)
 
@@ -155,6 +188,128 @@ def test_recall_http_preserves_explicit_working_set_scope(
         ask_payload["follow_through"]["display_card"]["handoff"]["working_set"]["working_set_name"]
         == "Launch scope"
     )
+
+
+def test_recall_chat_loop_grounding_stays_inside_explicit_working_set(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    working_set_id = _create_working_set(settings=settings)
+    scoped_loop_id = _create_actionable_loop(
+        settings=settings,
+        title="Scoped launch checklist",
+        next_action="Send the launch email",
+    )
+    _create_actionable_loop(
+        settings=settings,
+        title="Global queue cleanup",
+        next_action="Archive stale notes",
+    )
+    _add_loop_to_working_set(
+        settings=settings, working_set_id=working_set_id, loop_id=scoped_loop_id
+    )
+
+    captured: dict[str, Any] = {}
+
+    def fake_chat_completion(
+        messages: list[dict[str, Any]], *, surface: Any, settings: Settings
+    ) -> tuple[str, dict[str, Any]]:
+        captured["messages"] = messages
+        return "mock-response", {
+            "model": settings.pi_model,
+            "latency_ms": 12.5,
+            "usage": {},
+            "provider": "pi",
+            "api": "chat.completions",
+            "stop_reason": "stop",
+        }
+
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What changed?"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+            "working_set_id": working_set_id,
+        },
+    )
+    assert response.status_code == 200
+
+    loop_context = next(
+        message["content"]
+        for message in captured["messages"]
+        if message["role"] == "system" and "## Current Loop Context" in message["content"]
+    )
+    assert 'Scope: working set "Launch scope"' in loop_context
+    assert "Scoped launch checklist" in loop_context
+    assert "Send the launch email" in loop_context
+    assert "Global queue cleanup" not in loop_context
+    assert "Only use loops saved in this working set." in loop_context
+
+    payload = response.json()
+    preview = payload["follow_through"]["display_card"]["preview"]
+    assert any(
+        item["label"] == "Scope" and item["value"] == "Working set · Launch scope"
+        for item in preview
+    )
+    assert payload["follow_through"]["display_card"]["handoff"]["next_step"].endswith(
+        'inside "Launch scope".'
+    )
+
+
+def test_recall_chat_does_not_fallback_to_global_loop_snapshot_for_empty_working_set(
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = get_settings()
+    working_set_id = _create_working_set(settings=settings)
+    _create_actionable_loop(
+        settings=settings,
+        title="Global queue cleanup",
+        next_action="Archive stale notes",
+    )
+
+    captured: dict[str, Any] = {}
+
+    def fake_chat_completion(
+        messages: list[dict[str, Any]], *, surface: Any, settings: Settings
+    ) -> tuple[str, dict[str, Any]]:
+        captured["messages"] = messages
+        return "mock-response", {
+            "model": settings.pi_model,
+            "latency_ms": 12.5,
+            "usage": {},
+            "provider": "pi",
+            "api": "chat.completions",
+            "stop_reason": "stop",
+        }
+
+    monkeypatch.setattr("cloop.chat_execution.chat_completion", fake_chat_completion)
+
+    response = test_client.post(
+        "/chat",
+        json={
+            "messages": [{"role": "user", "content": "What changed?"}],
+            "tool_mode": "none",
+            "include_loop_context": True,
+            "working_set_id": working_set_id,
+        },
+    )
+    assert response.status_code == 200
+
+    loop_context = next(
+        message["content"]
+        for message in captured["messages"]
+        if message["role"] == "system" and "## Current Loop Context" in message["content"]
+    )
+    assert 'Scope: working set "Launch scope"' in loop_context
+    assert "No saved loops are currently pinned in this working set." in loop_context
+    assert "Global queue cleanup" not in loop_context
 
 
 def test_recall_cli_preserves_scope_and_surfaces_follow_through(

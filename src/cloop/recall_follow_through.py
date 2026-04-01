@@ -256,6 +256,13 @@ def build_chat_follow_through(
             f"documents ({rag_chunks_used})" if rag_chunks_used > 0 else "documents"
         )
         context_sources.append("Indexed local documents")
+    working_set_name = (
+        str(working_set.get("working_set_name"))
+        if isinstance(working_set, dict) and working_set.get("working_set_name")
+        else None
+    )
+    if working_set_name:
+        context_sources.insert(0, f"Working set: {working_set_name}")
     context_sources.extend(f"Source: {label}" for label in source_labels)
     tone: Literal["progress", "attention"] = (
         "attention" if source_labels or include_rag_context or include_loop_context else "progress"
@@ -270,10 +277,26 @@ def build_chat_follow_through(
             rationale=(
                 "Grounded chat answers should land as resumable outcomes so continuity reopens "
                 "the answer you got, not just the entry question."
+                if not working_set_name
+                else (
+                    "Grounded chat answers should land as resumable outcomes so continuity reopens "
+                    f'the answer you got inside the bounded working set "{working_set_name}", '
+                    "not just the entry question."
+                )
             ),
             preview=[
                 ContinuityDisplayPreviewItemResponse(
                     label="Question", value=_truncate(normalized_query, 72)
+                ),
+                *(
+                    [
+                        ContinuityDisplayPreviewItemResponse(
+                            label="Scope",
+                            value=f"Working set · {working_set_name}",
+                        )
+                    ]
+                    if working_set_name
+                    else []
                 ),
                 ContinuityDisplayPreviewItemResponse(
                     label="Grounding",
@@ -299,6 +322,11 @@ def build_chat_follow_through(
             rollback_label="Rerun the same grounded question to refresh this answer.",
             next_step=(
                 "Reopen the answer, rerun it, or carry it into the next recall or execution step."
+                if not working_set_name
+                else (
+                    "Reopen the answer, rerun it, or carry it into the next step inside "
+                    f'"{working_set_name}".'
+                )
             ),
             breadcrumbs=["Home", "Recall", "Grounded chat"],
             tone=tone,

@@ -43,8 +43,3 @@ Current product goals:
 - Treat `make ci` as the release gate for every milestone.
 
 ## Next execution slices
-
-1. **Working-set-scoped recall grounding**
-   - When recall chat receives an explicit `working_set_id`, bound loop grounding and follow-up wording to that working set instead of always falling back to the global prioritized loop snapshot.
-   - Keep the scoped-grounding contract aligned across HTTP, CLI, MCP, and operator continuity copy so the same bounded context shapes the answer and its landed receipt.
-   - Acceptance source: `docs/ux/working-sets.md`, `docs/ux/outcome-continuity.md`.
