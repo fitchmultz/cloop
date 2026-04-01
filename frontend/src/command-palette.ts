@@ -256,6 +256,7 @@ const GROUP_LABELS = {
   search: "Search",
 } as const satisfies Record<PaletteGroup, string>;
 const CONTEXTUAL_COMMAND_CACHE_TTL_MS = 10_000;
+const CROSS_SESSION_EXECUTION_LIMIT = 3;
 
 type CachedPaletteValue<T> = {
   loadedAt: number;
@@ -335,10 +336,13 @@ function contextualWorkingSetId(context: CommandPaletteContext): number | null {
     ?? null;
 }
 
-function paletteHandoffContext(context: CommandPaletteContext): ReviewWorkspaceHandoffContext {
+function paletteHandoffContext(
+  context: CommandPaletteContext,
+  fallbackWorkingSetId: number | null = contextualWorkingSetId(context),
+): ReviewWorkspaceHandoffContext {
   return {
     breadcrumbPrefix: ["Home", "Command palette"],
-    fallbackWorkingSetId: contextualWorkingSetId(context),
+    fallbackWorkingSetId,
     workingSets: context.workingSets,
   };
 }
@@ -349,7 +353,7 @@ function recordPaletteFollowThroughReceipt(input: {
     | EnrichmentReviewSessionActionResponse["follow_through"];
   metadata: Record<string, unknown>;
   workingSetId: number | null;
-}): void {
+}) {
   const receipt = buildFollowThroughReceipt({
     followThrough: input.followThrough,
     id: `command-palette-follow-through-${input.followThrough.workflow_thread.id}-${Date.now()}`,
@@ -358,24 +362,27 @@ function recordPaletteFollowThroughReceipt(input: {
     workingSetIdOverride: input.workingSetId,
   });
   recordRecentShellAction(receipt.entry);
+  return receipt;
 }
 
 function recordPlanningExecutionReceipt(input: {
   context: CommandPaletteContext;
   snapshot: PlanningSessionSnapshotResponse;
   latestExecution: PlanningExecutionHistoryItemResponse;
+  workingSetId?: number | null | undefined;
 }): void {
+  const workingSetId = input.workingSetId ?? contextualWorkingSetId(input.context);
   const planLocation = createLocation({
     state: "plan",
     reviewFocus: "planning",
     sessionId: input.snapshot.session.id,
-    workingSetId: contextualWorkingSetId(input.context),
+    workingSetId,
   });
   const receiptCard = buildPlanningExecutionReceiptCard({
     snapshot: input.snapshot,
     latestExecution: input.latestExecution,
     context: {
-      ...paletteHandoffContext(input.context),
+      ...paletteHandoffContext(input.context, workingSetId),
       sessionName: input.snapshot.session.name,
     },
     recovery: continuityRecoveryForLocation({
@@ -1938,6 +1945,271 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     return commands;
   }
 
+  function resolveSavedSessionResolution(input: {
+    summaries: readonly RankedWorkflowSummary[];
+    activeWorkingSetId: number | null;
+    scopedLocation: ShellLocationContract;
+    unscopedLocation: ShellLocationContract;
+  }) {
+    const scopedResolution = input.activeWorkingSetId != null
+      ? resolveDurableReopenLocation({
+          location: input.scopedLocation,
+          summaries: input.summaries,
+          allowSessionMatch: true,
+        })
+      : null;
+    if (scopedResolution?.matched) {
+      return scopedResolution;
+    }
+    return resolveDurableReopenLocation({
+      location: input.unscopedLocation,
+      summaries: input.summaries,
+      allowSessionMatch: true,
+    });
+  }
+
+  function matchesSessionLocation(location: ShellLocationContract, currentLocation: ShellLocationContract): boolean {
+    return location.state === currentLocation.state
+      && location.reviewFocus === currentLocation.reviewFocus
+      && location.sessionId === currentLocation.sessionId
+      && location.workingSetId === currentLocation.workingSetId;
+  }
+
+  async function buildPlanningExecutionCommand(input: {
+    context: CommandPaletteContext;
+    sessionId: number;
+    sessionLocation: ShellLocationContract;
+    includeSessionNameInTitle: boolean;
+    contextBoost: number;
+  }): Promise<CommandPaletteCommand | null> {
+    const snapshot = await loadPlanningSnapshot(input.sessionId).catch(() => null);
+    const checkpoint = snapshot?.current_checkpoint ?? null;
+    if (!snapshot || !checkpoint) {
+      return null;
+    }
+    return {
+      id: `planning-execute-${input.sessionId}-${checkpoint.title}-${input.sessionLocation.workingSetId ?? "none"}`,
+      group: "act",
+      title: input.includeSessionNameInTitle
+        ? `Execute checkpoint · ${checkpoint.title} · ${snapshot.session.name}`
+        : `Execute checkpoint · ${checkpoint.title}`,
+      subtitle: checkpoint.summary,
+      keywords: [
+        "plan",
+        "planning",
+        "checkpoint",
+        "execute",
+        snapshot.session.name,
+        checkpoint.title,
+        checkpoint.summary,
+      ],
+      badge: "Plan",
+      location: input.sessionLocation,
+      contextBoost: input.contextBoost,
+      detail: {
+        eyebrow: "Act",
+        description: input.includeSessionNameInTitle
+          ? "Execute this saved planning checkpoint directly from the palette without opening the planning workspace first."
+          : "Execute the current planning checkpoint through the same stored mutation contract the planning workspace uses.",
+        meta: [
+          `Session: ${snapshot.session.name}`,
+          `Success criteria: ${checkpoint.success_criteria}`,
+          `${checkpoint.operations?.length ?? 0} deterministic operation${checkpoint.operations?.length === 1 ? "" : "s"}`,
+          input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
+        ].filter((value): value is string => Boolean(value)),
+      },
+      skipAutomaticReceipt: true,
+      execute: async () => {
+        const payload = await executePlanningSession(input.sessionId);
+        cachedPlanningSnapshots.set(input.sessionId, { loadedAt: Date.now(), value: payload.snapshot });
+        recordPlanningExecutionReceipt({
+          context: input.context,
+          snapshot: payload.snapshot,
+          latestExecution: payload.execution,
+          workingSetId: input.sessionLocation.workingSetId ?? null,
+        });
+        await bindings.openLocation(input.sessionLocation);
+        await bindings.refreshWorkspace();
+      },
+    } satisfies CommandPaletteCommand;
+  }
+
+  async function buildRelationshipActionCommands(input: {
+    sessionId: number;
+    sessionLocation: ShellLocationContract;
+    includeSessionNameInTitle: boolean;
+    contextBoost: number;
+    actionLimit: number;
+  }): Promise<CommandPaletteCommand[]> {
+    const [snapshot, actions] = await Promise.all([
+      loadRelationshipSnapshot(input.sessionId).catch(() => null),
+      loadRelationshipActions().catch(() => [] as RelationshipReviewActionResponse[]),
+    ]);
+    const currentItem = snapshot?.current_item ?? null;
+    if (!snapshot || !currentItem || !actions.length) {
+      return [];
+    }
+    const commands: CommandPaletteCommand[] = [];
+    actions.slice(0, input.actionLimit).forEach((action) => {
+      const candidate = resolveRelationshipActionCandidate({ snapshot, action });
+      if (!candidate) {
+        return;
+      }
+      const relationshipType = resolvedRelationshipActionType({ action, candidate });
+      commands.push({
+        id: `relationship-action-${input.sessionId}-${action.id}-${candidate.id}-${input.sessionLocation.workingSetId ?? "none"}`,
+        group: "act",
+        title: input.includeSessionNameInTitle
+          ? `Use saved action · ${action.name} · ${snapshot.session.name}`
+          : `Use saved action · ${action.name}`,
+        subtitle: `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${relationshipType} for ${loopTitle(currentItem.loop)}`,
+        keywords: [
+          "review",
+          "relationship",
+          action.name,
+          action.action_type,
+          relationshipType,
+          snapshot.session.name,
+          loopTitle(currentItem.loop),
+          candidateTitle(candidate),
+        ],
+        badge: "Decide",
+        location: input.sessionLocation,
+        contextBoost: input.contextBoost,
+        detail: {
+          eyebrow: "Act",
+          description: input.includeSessionNameInTitle
+            ? "Apply this saved relationship-review action to the preserved queue item without opening the relationship workspace first."
+            : "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette.",
+          meta: [
+            `Session: ${snapshot.session.name}`,
+            `Current loop: ${loopTitle(currentItem.loop)}`,
+            `Candidate: ${candidateTitle(candidate)}`,
+            `Decision: ${action.action_type} ${relationshipType}`,
+            input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
+          ].filter((value): value is string => Boolean(value)),
+        },
+        skipAutomaticReceipt: true,
+        execute: async () => {
+          const confirmed = await confirmRelationshipPaletteAction({ action, candidate, relationshipType });
+          if (!confirmed) {
+            return;
+          }
+          const response = await runRelationshipSessionAction(input.sessionId, {
+            loop_id: currentItem.loop.id,
+            candidate_loop_id: candidate.id,
+            candidate_relationship_type: candidate.relationship_type,
+            action_preset_id: action.id,
+          });
+          cachedRelationshipSnapshots.set(input.sessionId, { loadedAt: Date.now(), value: response.snapshot });
+          const receipt = recordPaletteFollowThroughReceipt({
+            followThrough: response.follow_through,
+            metadata: {
+              source: "command-palette",
+              sessionId: input.sessionId,
+              loopId: currentItem.loop.id,
+              candidateId: candidate.id,
+              actionPresetId: action.id,
+              actionType: action.action_type,
+              relationshipType,
+            },
+            workingSetId: input.sessionLocation.workingSetId ?? null,
+          });
+          await bindings.openLocation(receipt.resumeLocation ?? input.sessionLocation);
+          await bindings.refreshWorkspace();
+        },
+      });
+    });
+    return commands;
+  }
+
+  async function buildEnrichmentActionCommands(input: {
+    sessionId: number;
+    sessionLocation: ShellLocationContract;
+    includeSessionNameInTitle: boolean;
+    contextBoost: number;
+    actionLimit: number;
+  }): Promise<CommandPaletteCommand[]> {
+    const [snapshot, actions] = await Promise.all([
+      loadEnrichmentSnapshot(input.sessionId).catch(() => null),
+      loadEnrichmentActions().catch(() => [] as EnrichmentReviewActionResponse[]),
+    ]);
+    const currentItem = snapshot?.current_item ?? null;
+    const topSuggestion = currentItem?.pending_suggestions[0] ?? null;
+    if (!snapshot || !currentItem || !topSuggestion || !actions.length) {
+      return [];
+    }
+    const suggestedFields = typeof topSuggestion.parsed === "object" && topSuggestion.parsed
+      ? Object.keys(topSuggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
+      : [];
+    return actions.slice(0, input.actionLimit).map((action) => {
+      return {
+        id: `enrichment-action-${input.sessionId}-${action.id}-${topSuggestion.id}-${input.sessionLocation.workingSetId ?? "none"}`,
+        group: "act",
+        title: input.includeSessionNameInTitle
+          ? `Use saved action · ${action.name} · ${snapshot.session.name}`
+          : `Use saved action · ${action.name}`,
+        subtitle: `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${loopTitle(currentItem.loop)}`,
+        keywords: [
+          "review",
+          "enrichment",
+          action.name,
+          action.action_type,
+          snapshot.session.name,
+          loopTitle(currentItem.loop),
+          ...suggestedFields,
+        ],
+        badge: "Decide",
+        location: input.sessionLocation,
+        contextBoost: input.contextBoost,
+        detail: {
+          eyebrow: "Act",
+          description: input.includeSessionNameInTitle
+            ? "Apply this saved enrichment action to the preserved suggestion queue without opening the enrichment workspace first."
+            : "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses.",
+          meta: [
+            `Session: ${snapshot.session.name}`,
+            `Current loop: ${loopTitle(currentItem.loop)}`,
+            `Suggestion: #${topSuggestion.id}`,
+            suggestedFields.length ? `Suggested fields: ${suggestedFields.join(", ")}` : "Suggested fields: loop update",
+            action.fields?.length ? `Preset fields: ${action.fields.join(", ")}` : null,
+            input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
+          ].filter((value): value is string => Boolean(value)),
+        },
+        skipAutomaticReceipt: true,
+        execute: async () => {
+          const confirmed = await confirmEnrichmentPaletteAction({
+            action,
+            suggestionId: topSuggestion.id,
+            suggestedFields,
+          });
+          if (!confirmed) {
+            return;
+          }
+          const response = await runEnrichmentSessionAction(input.sessionId, {
+            suggestion_id: topSuggestion.id,
+            action_preset_id: action.id,
+          });
+          cachedEnrichmentSnapshots.set(input.sessionId, { loadedAt: Date.now(), value: response.snapshot });
+          const receipt = recordPaletteFollowThroughReceipt({
+            followThrough: response.follow_through,
+            metadata: {
+              source: "command-palette",
+              sessionId: input.sessionId,
+              loopId: currentItem.loop.id,
+              suggestionId: topSuggestion.id,
+              actionPresetId: action.id,
+              actionType: action.action_type,
+            },
+            workingSetId: input.sessionLocation.workingSetId ?? null,
+          });
+          await bindings.openLocation(receipt.resumeLocation ?? input.sessionLocation);
+          await bindings.refreshWorkspace();
+        },
+      } satisfies CommandPaletteCommand;
+    });
+  }
+
   function sessionCommands(
     context: CommandPaletteContext,
     summaries: readonly RankedWorkflowSummary[],
@@ -1947,26 +2219,6 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const activeWorkingSetName = context.workingSetContext?.active_working_set?.name ?? null;
     const scopedSubtitle = (base: string): string => {
       return activeWorkingSetName ? `${base} · ${activeWorkingSetName}` : base;
-    };
-    const chooseSessionResolution = (
-      scopedLocation: ShellLocationContract,
-      unscopedLocation: ShellLocationContract,
-    ) => {
-      const scopedResolution = activeWorkingSetId != null
-        ? resolveDurableReopenLocation({
-            location: scopedLocation,
-            summaries,
-            allowSessionMatch: true,
-          })
-        : null;
-      if (scopedResolution?.matched) {
-        return scopedResolution;
-      }
-      return resolveDurableReopenLocation({
-        location: unscopedLocation,
-        summaries,
-        allowSessionMatch: true,
-      });
     };
     const pushSessionCommand = (input: {
       id: string;
@@ -1981,7 +2233,12 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       unscopedDescription: string;
       contextBoost: number;
     }) => {
-      const resolution = chooseSessionResolution(input.scopedLocation, input.unscopedLocation);
+      const resolution = resolveSavedSessionResolution({
+        summaries,
+        activeWorkingSetId,
+        scopedLocation: input.scopedLocation,
+        unscopedLocation: input.unscopedLocation,
+      });
       const location = resolution.resolvedLocation;
       const scopedToActiveWorkingSet = activeWorkingSetId != null && location.workingSetId === activeWorkingSetId;
       commands.push({
@@ -2104,227 +2361,154 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     if (sessionId == null) {
       return [];
     }
-    const workingSetId = contextualWorkingSetId(context);
+    const sessionLocation = createLocation({
+      state: context.currentLocation.state,
+      reviewFocus: context.currentLocation.reviewFocus,
+      sessionId,
+      workingSetId: contextualWorkingSetId(context),
+    });
 
     if (context.currentLocation.state === "plan" && context.currentLocation.reviewFocus === "planning") {
-      const snapshot = await loadPlanningSnapshot(sessionId).catch(() => null);
-      const checkpoint = snapshot?.current_checkpoint ?? null;
-      if (!snapshot || !checkpoint) {
-        return [];
-      }
-      const sessionLocation = createLocation({
-        state: "plan",
-        reviewFocus: "planning",
+      const command = await buildPlanningExecutionCommand({
+        context,
         sessionId,
-        workingSetId,
-      });
-      return [{
-        id: `planning-execute-${sessionId}-${checkpoint.title}`,
-        group: "act",
-        title: `Execute checkpoint · ${checkpoint.title}`,
-        subtitle: checkpoint.summary,
-        keywords: [
-          "plan",
-          "planning",
-          "checkpoint",
-          "execute",
-          snapshot.session.name,
-          checkpoint.title,
-          checkpoint.summary,
-        ],
-        badge: "Plan",
-        location: sessionLocation,
+        sessionLocation,
+        includeSessionNameInTitle: false,
         contextBoost: 120,
-        detail: {
-          eyebrow: "Act",
-          description: "Execute the current planning checkpoint through the same stored mutation contract the planning workspace uses.",
-          meta: [
-            `Session: ${snapshot.session.name}`,
-            `Success criteria: ${checkpoint.success_criteria}`,
-            `${checkpoint.operations?.length ?? 0} deterministic operation${checkpoint.operations?.length === 1 ? "" : "s"}`,
-            workingSetId != null ? `Working set: ${workingSetId}` : null,
-          ].filter((value): value is string => Boolean(value)),
-        },
-        skipAutomaticReceipt: true,
-        execute: async () => {
-          const payload = await executePlanningSession(sessionId);
-          cachedPlanningSnapshots.set(sessionId, { loadedAt: Date.now(), value: payload.snapshot });
-          await bindings.openLocation(context.currentLocation);
-          await bindings.refreshWorkspace();
-          recordPlanningExecutionReceipt({
-            context,
-            snapshot: payload.snapshot,
-            latestExecution: payload.execution,
-          });
-        },
-      } satisfies CommandPaletteCommand];
+      });
+      return command ? [command] : [];
     }
 
     if (context.currentLocation.state === "decide" && context.currentLocation.reviewFocus === "relationship") {
-      const [snapshot, actions] = await Promise.all([
-        loadRelationshipSnapshot(sessionId).catch(() => null),
-        loadRelationshipActions().catch(() => [] as RelationshipReviewActionResponse[]),
-      ]);
-      const currentItem = snapshot?.current_item ?? null;
-      if (!snapshot || !currentItem || !actions.length) {
-        return [];
-      }
-      const sessionLocation = createLocation({
-        state: "decide",
-        reviewFocus: "relationship",
+      return buildRelationshipActionCommands({
         sessionId,
-        workingSetId,
+        sessionLocation,
+        includeSessionNameInTitle: false,
+        contextBoost: 118,
+        actionLimit: 4,
       });
-      const commands: CommandPaletteCommand[] = [];
-      actions.slice(0, 4).forEach((action) => {
-        const candidate = resolveRelationshipActionCandidate({ snapshot, action });
-        if (!candidate) {
-          return;
-        }
-        const relationshipType = resolvedRelationshipActionType({ action, candidate });
-        commands.push({
-          id: `relationship-action-${sessionId}-${action.id}-${candidate.id}`,
-          group: "act",
-          title: `Use saved action · ${action.name}`,
-          subtitle: `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${relationshipType} for ${loopTitle(currentItem.loop)}`,
-          keywords: [
-            "review",
-            "relationship",
-            action.name,
-            action.action_type,
-            relationshipType,
-            loopTitle(currentItem.loop),
-            candidateTitle(candidate),
-          ],
-          badge: "Decide",
-          location: sessionLocation,
-          contextBoost: 118,
-          detail: {
-            eyebrow: "Act",
-            description: "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette.",
-            meta: [
-              `Session: ${snapshot.session.name}`,
-              `Current loop: ${loopTitle(currentItem.loop)}`,
-              `Candidate: ${candidateTitle(candidate)}`,
-              `Decision: ${action.action_type} ${relationshipType}`,
-            ],
-          },
-          skipAutomaticReceipt: true,
-          execute: async () => {
-            const confirmed = await confirmRelationshipPaletteAction({ action, candidate, relationshipType });
-            if (!confirmed) {
-              return;
-            }
-            const response = await runRelationshipSessionAction(sessionId, {
-              loop_id: currentItem.loop.id,
-              candidate_loop_id: candidate.id,
-              candidate_relationship_type: candidate.relationship_type,
-              action_preset_id: action.id,
-            });
-            cachedRelationshipSnapshots.set(sessionId, { loadedAt: Date.now(), value: response.snapshot });
-            await bindings.openLocation(context.currentLocation);
-            await bindings.refreshWorkspace();
-            recordPaletteFollowThroughReceipt({
-              followThrough: response.follow_through,
-              metadata: {
-                source: "command-palette",
-                sessionId,
-                loopId: currentItem.loop.id,
-                candidateId: candidate.id,
-                actionPresetId: action.id,
-                actionType: action.action_type,
-                relationshipType,
-              },
-              workingSetId,
-            });
-          },
-        });
-      });
-      return commands;
     }
 
     if (context.currentLocation.state === "decide" && context.currentLocation.reviewFocus === "enrichment") {
-      const [snapshot, actions] = await Promise.all([
-        loadEnrichmentSnapshot(sessionId).catch(() => null),
-        loadEnrichmentActions().catch(() => [] as EnrichmentReviewActionResponse[]),
-      ]);
-      const currentItem = snapshot?.current_item ?? null;
-      const topSuggestion = currentItem?.pending_suggestions[0] ?? null;
-      if (!snapshot || !currentItem || !topSuggestion || !actions.length) {
-        return [];
-      }
-      const suggestedFields = typeof topSuggestion.parsed === "object" && topSuggestion.parsed
-        ? Object.keys(topSuggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
-        : [];
-      const sessionLocation = createLocation({
-        state: "decide",
-        reviewFocus: "enrichment",
+      return buildEnrichmentActionCommands({
         sessionId,
-        workingSetId,
-      });
-      return actions.slice(0, 4).map((action) => {
-        return {
-          id: `enrichment-action-${sessionId}-${action.id}-${topSuggestion.id}`,
-          group: "act",
-          title: `Use saved action · ${action.name}`,
-          subtitle: `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${loopTitle(currentItem.loop)}`,
-          keywords: [
-            "review",
-            "enrichment",
-            action.name,
-            action.action_type,
-            loopTitle(currentItem.loop),
-            ...suggestedFields,
-          ],
-          badge: "Decide",
-          location: sessionLocation,
-          contextBoost: 118,
-          detail: {
-            eyebrow: "Act",
-            description: "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses.",
-            meta: [
-              `Session: ${snapshot.session.name}`,
-              `Current loop: ${loopTitle(currentItem.loop)}`,
-              `Suggestion: #${topSuggestion.id}`,
-              suggestedFields.length ? `Suggested fields: ${suggestedFields.join(", ")}` : "Suggested fields: loop update",
-              action.fields?.length ? `Preset fields: ${action.fields.join(", ")}` : null,
-            ].filter((value): value is string => Boolean(value)),
-          },
-          skipAutomaticReceipt: true,
-          execute: async () => {
-            const confirmed = await confirmEnrichmentPaletteAction({
-              action,
-              suggestionId: topSuggestion.id,
-              suggestedFields,
-            });
-            if (!confirmed) {
-              return;
-            }
-            const response = await runEnrichmentSessionAction(sessionId, {
-              suggestion_id: topSuggestion.id,
-              action_preset_id: action.id,
-            });
-            cachedEnrichmentSnapshots.set(sessionId, { loadedAt: Date.now(), value: response.snapshot });
-            await bindings.openLocation(context.currentLocation);
-            await bindings.refreshWorkspace();
-            recordPaletteFollowThroughReceipt({
-              followThrough: response.follow_through,
-              metadata: {
-                source: "command-palette",
-                sessionId,
-                loopId: currentItem.loop.id,
-                suggestionId: topSuggestion.id,
-                actionPresetId: action.id,
-                actionType: action.action_type,
-              },
-              workingSetId,
-            });
-          },
-        } satisfies CommandPaletteCommand;
+        sessionLocation,
+        includeSessionNameInTitle: false,
+        contextBoost: 118,
+        actionLimit: 4,
       });
     }
 
     return [];
+  }
+
+  async function crossSessionExecutionCommands(
+    context: CommandPaletteContext,
+    summaries: readonly RankedWorkflowSummary[],
+  ): Promise<CommandPaletteCommand[]> {
+    const activeWorkingSetId = context.workingSetContext?.active_working_set_id ?? null;
+
+    const planningCommands = await Promise.all(context.planningSessions.slice(0, CROSS_SESSION_EXECUTION_LIMIT).map(async (session) => {
+      const scopedLocation = createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: session.id,
+        workingSetId: activeWorkingSetId,
+      });
+      const unscopedLocation = createLocation({
+        state: "plan",
+        reviewFocus: "planning",
+        sessionId: session.id,
+        workingSetId: null,
+      });
+      const resolution = resolveSavedSessionResolution({
+        summaries,
+        activeWorkingSetId,
+        scopedLocation,
+        unscopedLocation,
+      });
+      const sessionLocation = activeWorkingSetId != null ? scopedLocation : resolution.resolvedLocation;
+      if (matchesSessionLocation(sessionLocation, context.currentLocation)) {
+        return null;
+      }
+      return buildPlanningExecutionCommand({
+        context,
+        sessionId: session.id,
+        sessionLocation,
+        includeSessionNameInTitle: true,
+        contextBoost: 96,
+      });
+    }));
+
+    const relationshipCommands = await Promise.all(context.relationshipSessions.slice(0, CROSS_SESSION_EXECUTION_LIMIT).map(async (session) => {
+      const scopedLocation = createLocation({
+        state: "decide",
+        reviewFocus: "relationship",
+        sessionId: session.id,
+        workingSetId: activeWorkingSetId,
+      });
+      const unscopedLocation = createLocation({
+        state: "decide",
+        reviewFocus: "relationship",
+        sessionId: session.id,
+        workingSetId: null,
+      });
+      const resolution = resolveSavedSessionResolution({
+        summaries,
+        activeWorkingSetId,
+        scopedLocation,
+        unscopedLocation,
+      });
+      const sessionLocation = activeWorkingSetId != null ? scopedLocation : resolution.resolvedLocation;
+      if (matchesSessionLocation(sessionLocation, context.currentLocation)) {
+        return [] as CommandPaletteCommand[];
+      }
+      return buildRelationshipActionCommands({
+        sessionId: session.id,
+        sessionLocation,
+        includeSessionNameInTitle: true,
+        contextBoost: 94,
+        actionLimit: 2,
+      });
+    }));
+
+    const enrichmentCommands = await Promise.all(context.enrichmentSessions.slice(0, CROSS_SESSION_EXECUTION_LIMIT).map(async (session) => {
+      const scopedLocation = createLocation({
+        state: "decide",
+        reviewFocus: "enrichment",
+        sessionId: session.id,
+        workingSetId: activeWorkingSetId,
+      });
+      const unscopedLocation = createLocation({
+        state: "decide",
+        reviewFocus: "enrichment",
+        sessionId: session.id,
+        workingSetId: null,
+      });
+      const resolution = resolveSavedSessionResolution({
+        summaries,
+        activeWorkingSetId,
+        scopedLocation,
+        unscopedLocation,
+      });
+      const sessionLocation = activeWorkingSetId != null ? scopedLocation : resolution.resolvedLocation;
+      if (matchesSessionLocation(sessionLocation, context.currentLocation)) {
+        return [] as CommandPaletteCommand[];
+      }
+      return buildEnrichmentActionCommands({
+        sessionId: session.id,
+        sessionLocation,
+        includeSessionNameInTitle: true,
+        contextBoost: 94,
+        actionLimit: 2,
+      });
+    }));
+
+    return [
+      ...planningCommands.filter((command): command is CommandPaletteCommand => command != null),
+      ...relationshipCommands.flat(),
+      ...enrichmentCommands.flat(),
+    ];
   }
 
   function savedViewCommands(views: readonly LoopViewResponse[]): CommandPaletteCommand[] {
@@ -2985,6 +3169,9 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
     const views = await ensureViewsLoaded().catch(() => [] as LoopViewResponse[]);
     const summaries = rankedFollowThrough(context);
     const contextualCommands = await contextualExecutionCommands(context).catch(() => [] as CommandPaletteCommand[]);
+    const crossSessionCommands = await crossSessionExecutionCommands(context, summaries).catch(
+      () => [] as CommandPaletteCommand[],
+    );
     const commands: CommandPaletteCommand[] = [
       ...recommendedCommands(context),
       ...notificationCommands(summaries),
@@ -2993,6 +3180,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       ...baseCaptureCommands(),
       ...baseActCommands(context),
       ...contextualCommands,
+      ...crossSessionCommands,
       ...sessionCommands(context, summaries),
       ...savedViewCommands(views),
       ...recallQueryCommands(normalizedQuery),

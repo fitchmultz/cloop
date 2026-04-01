@@ -44,8 +44,8 @@ Current product goals:
 
 ## Next execution slices
 
-1. **Command-palette cross-session execution without pre-opening the workspace**
-   - Extend saved session entries so the palette can surface the executable current checkpoint or saved review action directly from operator home and other non-session surfaces, not only after the user has already opened the plan or review workspace.
-   - Reuse the same shared planning and review execution contracts plus continuity receipts so the palette can launch or execute from one keyboard surface while still preserving working-set scope and follow-through.
-   - Why: this change shipped context-sensitive execution inside active plan/review surfaces, but the palette still downgrades saved-session commands elsewhere to plain resume navigation. The next gap is truly cross-session keyboard execution.
+1. **Command-palette explicit queue-target selection for saved review actions**
+   - When a saved relationship or enrichment action needs more than the preserved current item, let the palette prompt for the exact candidate or suggestion target instead of forcing the operator to leave the keyboard and open the full review workspace.
+   - Reuse the existing review session snapshots and saved action contracts so palette execution keeps the same cursor, confirmations, receipts, and working-set scope while adding explicit target choice only when needed.
+   - Why: cross-session execution now works for the preserved current item, but the palette still has no graceful keyboard path when a queue has no current item or when the operator wants a different candidate or suggestion than the default top target.
    - Acceptance source: `docs/ux/command-palette.md`, `docs/ux/workflow-handoffs.md`.

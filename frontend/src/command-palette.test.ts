@@ -1492,4 +1492,602 @@ describe("command-palette keyboard navigation", () => {
     expect(stored.kind).toBe("review");
     expect(stored.location).toEqual(expect.objectContaining({ sessionId: 22, workingSetId: 7, reviewFocus: "enrichment" }));
   });
+
+  it("executes a saved planning checkpoint from operator home", async () => {
+    buildPaletteDom();
+    const workingSet = workingSetFixture();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const refreshWorkspace = vi.fn(async () => undefined);
+
+    globalThis.fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/loops/views")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.endsWith("/loops/planning/sessions/44") && (!init?.method || init.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 44,
+            name: "Launch prep",
+            prompt: "Prepare launch review",
+            query: null,
+            loop_limit: 10,
+            include_memory_context: false,
+            include_rag_context: false,
+            rag_k: 5,
+            rag_scope: null,
+            status: "active",
+            checkpoint_count: 2,
+            executed_checkpoint_count: 1,
+            current_checkpoint_index: 1,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+          plan_title: "Launch prep",
+          plan_summary: "Prepare the launch review queue.",
+          current_checkpoint: {
+            title: "Review launch queue",
+            summary: "Create the saved review queue.",
+            success_criteria: "Queue created",
+            operations: [{ kind: "review.session.create" }],
+          },
+          checkpoints: [],
+          execution_history: [],
+          rerun_action: {
+            label: "Refresh plan",
+            description: "Land back in the saved planning session with refreshed checkpoints.",
+            rerun: {
+              kind: "planning_session",
+              session_id: 44,
+              session_name: "Launch prep",
+            },
+            contract: {
+              mode: "refresh",
+              provenance_label: "Planning session: Launch prep",
+              freshness_label: "Updated 2026-03-21T12:00:00Z",
+              strategy_summary: "Reuse the saved planning session and refresh it against current loop state.",
+              strict_invariants: ["Same planning session identity"],
+              may_vary: ["Checkpoint wording and emphasis"],
+              post_run: {
+                summary: "Land back in the saved planning session with refreshed checkpoints.",
+                location: {
+                  state: "plan",
+                  recall_tool: "chat",
+                  review_focus: "planning",
+                  session_id: 44,
+                  loop_id: null,
+                  view_id: null,
+                  memory_id: null,
+                  working_set_id: 7,
+                  query: null,
+                },
+              },
+            },
+          },
+        }));
+      }
+      if (url.endsWith("/loops/planning/sessions/44/execute") && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({
+          snapshot: {
+            session: {
+              id: 44,
+              name: "Launch prep",
+              prompt: "Prepare launch review",
+              query: null,
+              loop_limit: 10,
+              include_memory_context: false,
+              include_rag_context: false,
+              rag_k: 5,
+              rag_scope: null,
+              status: "active",
+              checkpoint_count: 2,
+              executed_checkpoint_count: 2,
+              current_checkpoint_index: 1,
+              created_at_utc: "2026-03-21T12:00:00Z",
+              updated_at_utc: "2026-03-21T12:05:00Z",
+            },
+            plan_title: "Launch prep",
+            plan_summary: "Prepare the launch review queue.",
+            current_checkpoint: null,
+            checkpoints: [],
+            execution_history: [],
+            rerun_action: {
+              label: "Refresh plan",
+              description: "Land back in the saved planning session with refreshed checkpoints.",
+              rerun: {
+                kind: "planning_session",
+                session_id: 44,
+                session_name: "Launch prep",
+              },
+              contract: {
+                mode: "refresh",
+                provenance_label: "Planning session: Launch prep",
+                freshness_label: "Updated 2026-03-21T12:05:00Z",
+                strategy_summary: "Reuse the saved planning session and refresh it against current loop state.",
+                strict_invariants: ["Same planning session identity"],
+                may_vary: ["Checkpoint wording and emphasis"],
+                post_run: {
+                  summary: "Land back in the saved planning session with refreshed checkpoints.",
+                  location: {
+                    state: "plan",
+                    recall_tool: "chat",
+                    review_focus: "planning",
+                    session_id: 44,
+                    loop_id: null,
+                    view_id: null,
+                    memory_id: null,
+                    working_set_id: 7,
+                    query: null,
+                  },
+                },
+              },
+            },
+          },
+          execution: {
+            checkpoint_index: 1,
+            checkpoint_title: "Review launch queue",
+            executed_at_utc: "2026-03-21T12:05:00Z",
+            operation_count: 1,
+            launch_surfaces: [],
+            follow_up_resources: [],
+            rollback_cues: [],
+            results: [],
+            summary: null,
+          },
+        }));
+      }
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = createController({
+      openLocation,
+      refreshWorkspace,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [workingSet],
+        workingSetContext: {
+          active_working_set: workingSet,
+          active_working_set_id: workingSet.id,
+          focus_mode_enabled: true,
+          latest_reversible_event_id: null,
+          latest_reversible_event_type: null,
+          updated_at_utc: "2026-03-21T12:00:00Z",
+        },
+        nowFeed: [],
+        planningSessions: [
+          {
+            id: 44,
+            name: "Launch prep",
+            prompt: "Prepare launch review",
+            query: null,
+            loop_limit: 10,
+            include_memory_context: false,
+            include_rag_context: false,
+            rag_k: 5,
+            rag_scope: null,
+            status: "in_progress",
+            checkpoint_count: 2,
+            executed_checkpoint_count: 1,
+            current_checkpoint_index: 1,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ],
+        relationshipSessions: [],
+        enrichmentSessions: [],
+      }),
+    });
+
+    controller.open();
+    await settle();
+    findCommandButton("Execute checkpoint · Review launch queue · Launch prep").click();
+    await settle();
+
+    expect(openLocation).toHaveBeenCalledWith(expect.objectContaining({
+      state: "plan",
+      reviewFocus: "planning",
+      sessionId: 44,
+      workingSetId: 7,
+    }));
+    expect(refreshWorkspace).toHaveBeenCalled();
+    const stored = readRecentActions()[0] as { kind: string; location: { state: string; sessionId: number | null; workingSetId: number | null } };
+    expect(stored.kind).toBe("planning");
+    expect(stored.location).toEqual(expect.objectContaining({ state: "plan", sessionId: 44, workingSetId: 7 }));
+  });
+
+  it("executes a saved relationship action from operator home", async () => {
+    buildPaletteDom();
+    const workingSet = workingSetFixture();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const refreshWorkspace = vi.fn(async () => undefined);
+    const confirmSpy = vi.spyOn(modals, "confirmDialog").mockResolvedValue(true);
+    const actionBodies: Array<Record<string, unknown>> = [];
+
+    globalThis.fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/loops/views")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.endsWith("/loops/review/relationship/actions")) {
+        return Promise.resolve(jsonResponse([
+          {
+            id: 5,
+            name: "Confirm duplicate",
+            action_type: "confirm",
+            relationship_type: "duplicate",
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ]));
+      }
+      if (url.endsWith("/loops/review/relationship/sessions/18") && (!init?.method || init.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 18,
+            name: "Duplicate queue",
+            query: "status:actionable",
+            relationship_kind: "all",
+            candidate_limit: 5,
+            item_limit: 5,
+            current_loop_id: 11,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+          items: [],
+          loop_count: 1,
+          current_index: 0,
+          current_item: {
+            loop: { id: 11, title: "Launch checklist", raw_text: "Launch checklist", status: "actionable" },
+            duplicate_candidates: [
+              {
+                id: 21,
+                title: "Launch checklist duplicate",
+                raw_text: "Launch checklist duplicate",
+                relationship_type: "duplicate",
+                score: 0.99,
+                status: "actionable",
+                captured_at_utc: "2026-03-21T12:00:00Z",
+                captured_tz_offset_min: 0,
+                created_at_utc: "2026-03-21T12:00:00Z",
+                updated_at_utc: "2026-03-21T12:00:00Z",
+              },
+            ],
+            related_candidates: [],
+            duplicate_count: 1,
+            related_count: 0,
+            top_score: 0.99,
+          },
+          rerun_action: null,
+        }));
+      }
+      if (url.endsWith("/loops/review/relationship/sessions/18/action") && init?.method === "POST") {
+        actionBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Promise.resolve(jsonResponse({
+          snapshot: {
+            session: {
+              id: 18,
+              name: "Duplicate queue",
+              query: "status:actionable",
+              relationship_kind: "all",
+              candidate_limit: 5,
+              item_limit: 5,
+              current_loop_id: 11,
+              created_at_utc: "2026-03-21T12:00:00Z",
+              updated_at_utc: "2026-03-21T12:02:00Z",
+            },
+            items: [],
+            loop_count: 0,
+            current_index: null,
+            current_item: null,
+            rerun_action: null,
+          },
+          result: { resolution: "confirmed", relationship_type: "duplicate" },
+          follow_through: {
+            working_set_id: 7,
+            display_card: {
+              title: "Duplicate recorded",
+              summary: "The duplicate decision was stored.",
+              rationale: "Review receipt",
+              preview: [],
+              trust: {
+                generation_label: "Saved review action",
+                generation_tone: "progress",
+                context_sources: ["Duplicate queue"],
+                assumptions: [],
+                confidence_label: "Recorded",
+                confidence_tone: "progress",
+                freshness_label: "Saved just now",
+                freshness_tone: "progress",
+                rollback_label: "Resume the queue",
+                rollback_tone: "caution",
+              },
+              handoff: {
+                change_summary: "Duplicate recorded",
+                created_resources: [],
+                next_step: "Continue the queue.",
+                breadcrumbs: ["Home", "Review", "Relationship review"],
+                working_set: {
+                  working_set_id: 7,
+                  working_set_name: "Launch Prep",
+                  item_count: 3,
+                  missing_item_count: 0,
+                },
+              },
+              tone: "progress",
+            },
+            resume_location: {
+              state: "decide",
+              review_focus: "relationship",
+              session_id: 18,
+              working_set_id: 7,
+            },
+            workflow_thread: {
+              id: "review:18",
+              kind: "review_session",
+              title: "Duplicate queue",
+              summary: "Review the current relationship candidates.",
+              parent_outcome_id: null,
+            },
+            grounded_chat_location: null,
+            undo_action: null,
+            rerun_action: null,
+          },
+        }));
+      }
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = createController({
+      openLocation,
+      refreshWorkspace,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [workingSet],
+        workingSetContext: {
+          active_working_set: workingSet,
+          active_working_set_id: workingSet.id,
+          focus_mode_enabled: true,
+          latest_reversible_event_id: null,
+          latest_reversible_event_type: null,
+          updated_at_utc: "2026-03-21T12:00:00Z",
+        },
+        nowFeed: [],
+        planningSessions: [],
+        relationshipSessions: [
+          {
+            id: 18,
+            name: "Duplicate queue",
+            query: "status:actionable",
+            relationship_kind: "all",
+            candidate_limit: 5,
+            item_limit: 5,
+            current_loop_id: 11,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ],
+        enrichmentSessions: [],
+      }),
+    });
+
+    controller.open();
+    await settle();
+    findCommandButton("Use saved action · Confirm duplicate · Duplicate queue").click();
+    await settle();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(actionBodies[0]).toEqual(expect.objectContaining({
+      loop_id: 11,
+      candidate_loop_id: 21,
+      candidate_relationship_type: "duplicate",
+      action_preset_id: 5,
+    }));
+    expect(openLocation).toHaveBeenCalledWith(expect.objectContaining({
+      state: "decide",
+      reviewFocus: "relationship",
+      sessionId: 18,
+      workingSetId: 7,
+    }));
+    expect(refreshWorkspace).toHaveBeenCalled();
+  });
+
+  it("executes a saved enrichment action from operator home", async () => {
+    buildPaletteDom();
+    const workingSet = workingSetFixture();
+    const openLocation = vi.fn(async (_location: ShellLocationContract) => undefined);
+    const refreshWorkspace = vi.fn(async () => undefined);
+    const confirmSpy = vi.spyOn(modals, "confirmDialog").mockResolvedValue(true);
+    const actionBodies: Array<Record<string, unknown>> = [];
+
+    globalThis.fetch = vi.fn((input: string | URL | Request, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.includes("/loops/views")) {
+        return Promise.resolve(jsonResponse([]));
+      }
+      if (url.endsWith("/loops/review/enrichment/actions")) {
+        return Promise.resolve(jsonResponse([
+          {
+            id: 9,
+            name: "Apply core fields",
+            action_type: "apply",
+            fields: ["summary", "next_action"],
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ]));
+      }
+      if (url.endsWith("/loops/review/enrichment/sessions/22") && (!init?.method || init.method === "GET")) {
+        return Promise.resolve(jsonResponse({
+          session: {
+            id: 22,
+            name: "Enrichment queue",
+            query: "status:inbox",
+            pending_kind: "suggestions",
+            suggestion_limit: 5,
+            clarification_limit: 3,
+            item_limit: 5,
+            current_loop_id: 14,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+          items: [],
+          loop_count: 1,
+          current_index: 0,
+          current_item: {
+            loop: { id: 14, title: "Inbox note", raw_text: "Inbox note", status: "inbox" },
+            newest_pending_at: "2026-03-21T12:00:00Z",
+            pending_clarification_count: 0,
+            pending_clarifications: [],
+            pending_suggestion_count: 1,
+            pending_suggestions: [
+              {
+                id: 31,
+                loop_id: 14,
+                model: "pi",
+                created_at: "2026-03-21T12:00:00Z",
+                parsed: { summary: "Condense note", next_action: "Send recap", confidence: 0.9 },
+                suggestion_json: "{}",
+                resolution: null,
+                resolved_at: null,
+                resolved_fields_json: null,
+                clarifications: [],
+              },
+            ],
+          },
+          rerun_action: null,
+        }));
+      }
+      if (url.endsWith("/loops/review/enrichment/sessions/22/action") && init?.method === "POST") {
+        actionBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return Promise.resolve(jsonResponse({
+          snapshot: {
+            session: {
+              id: 22,
+              name: "Enrichment queue",
+              query: "status:inbox",
+              pending_kind: "suggestions",
+              suggestion_limit: 5,
+              clarification_limit: 3,
+              item_limit: 5,
+              current_loop_id: 14,
+              created_at_utc: "2026-03-21T12:00:00Z",
+              updated_at_utc: "2026-03-21T12:02:00Z",
+            },
+            items: [],
+            loop_count: 0,
+            current_index: null,
+            current_item: null,
+            rerun_action: null,
+          },
+          result: { resolution: "applied", suggestion_id: 31 },
+          follow_through: {
+            working_set_id: 7,
+            display_card: {
+              title: "Suggestion applied",
+              summary: "The enrichment suggestion was applied.",
+              rationale: "Review receipt",
+              preview: [],
+              trust: {
+                generation_label: "Saved review action",
+                generation_tone: "progress",
+                context_sources: ["Enrichment queue"],
+                assumptions: [],
+                confidence_label: "Recorded",
+                confidence_tone: "progress",
+                freshness_label: "Saved just now",
+                freshness_tone: "progress",
+                rollback_label: "Resume the queue",
+                rollback_tone: "caution",
+              },
+              handoff: {
+                change_summary: "Suggestion applied",
+                created_resources: [],
+                next_step: "Continue the queue.",
+                breadcrumbs: ["Home", "Review", "Enrichment review"],
+                working_set: {
+                  working_set_id: 7,
+                  working_set_name: "Launch Prep",
+                  item_count: 3,
+                  missing_item_count: 0,
+                },
+              },
+              tone: "progress",
+            },
+            resume_location: {
+              state: "decide",
+              review_focus: "enrichment",
+              session_id: 22,
+              working_set_id: 7,
+            },
+            workflow_thread: {
+              id: "review:22",
+              kind: "review_session",
+              title: "Enrichment queue",
+              summary: "Review the current enrichment suggestions.",
+              parent_outcome_id: null,
+            },
+            grounded_chat_location: null,
+            undo_action: null,
+            rerun_action: null,
+          },
+        }));
+      }
+      return new Promise<Response>(() => {});
+    }) as typeof fetch;
+
+    const controller = createController({
+      openLocation,
+      refreshWorkspace,
+      getContext: () => ({
+        currentLocation: location({ state: "operator" }),
+        loops: [],
+        workingSets: [workingSet],
+        workingSetContext: {
+          active_working_set: workingSet,
+          active_working_set_id: workingSet.id,
+          focus_mode_enabled: true,
+          latest_reversible_event_id: null,
+          latest_reversible_event_type: null,
+          updated_at_utc: "2026-03-21T12:00:00Z",
+        },
+        nowFeed: [],
+        planningSessions: [],
+        relationshipSessions: [],
+        enrichmentSessions: [
+          {
+            id: 22,
+            name: "Enrichment queue",
+            query: "status:inbox",
+            pending_kind: "suggestions",
+            suggestion_limit: 5,
+            clarification_limit: 3,
+            item_limit: 5,
+            current_loop_id: 14,
+            created_at_utc: "2026-03-21T12:00:00Z",
+            updated_at_utc: "2026-03-21T12:00:00Z",
+          },
+        ],
+      }),
+    });
+
+    controller.open();
+    await settle();
+    findCommandButton("Use saved action · Apply core fields · Enrichment queue").click();
+    await settle();
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(actionBodies[0]).toEqual(expect.objectContaining({
+      suggestion_id: 31,
+      action_preset_id: 9,
+    }));
+    expect(openLocation).toHaveBeenCalledWith(expect.objectContaining({
+      state: "decide",
+      reviewFocus: "enrichment",
+      sessionId: 22,
+      workingSetId: 7,
+    }));
+    expect(refreshWorkspace).toHaveBeenCalled();
+  });
 });
