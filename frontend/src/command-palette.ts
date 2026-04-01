@@ -416,29 +416,78 @@ function compareRelationshipCandidates(
   return right.score - left.score;
 }
 
-function resolveRelationshipActionCandidate(input: {
+interface RelationshipActionTarget {
+  loop: LoopResponse;
+  candidate: RelationshipReviewCandidateResponse;
+  relationshipType: "duplicate" | "related";
+  isCurrent: boolean;
+}
+
+interface EnrichmentActionTarget {
+  loop: LoopResponse;
+  suggestion: EnrichmentReviewSessionSnapshotResponse["items"][number]["pending_suggestions"][number];
+  suggestedFields: string[];
+  isCurrent: boolean;
+}
+
+function orderedSessionItems<Item extends { loop: LoopResponse }>(
+  items: readonly Item[],
+  currentLoopId: number | null,
+): Item[] {
+  if (currentLoopId == null) {
+    return [...items];
+  }
+  const current = items.find((item) => item.loop.id === currentLoopId) ?? null;
+  if (!current) {
+    return [...items];
+  }
+  return [current, ...items.filter((item) => item.loop.id !== currentLoopId)];
+}
+
+function snapshotItemsWithCurrent<Item extends { loop: LoopResponse }>(
+  items: readonly Item[],
+  currentItem: Item | null | undefined,
+): Item[] {
+  if (!currentItem) {
+    return [...items];
+  }
+  return items.some((item) => item.loop.id === currentItem.loop.id)
+    ? [...items]
+    : [currentItem, ...items];
+}
+
+function relationshipActionTargets(input: {
   snapshot: RelationshipReviewSessionSnapshotResponse;
   action: RelationshipReviewActionResponse;
-}): RelationshipReviewCandidateResponse | null {
-  const currentItem = input.snapshot.current_item;
-  if (!currentItem) {
-    return null;
-  }
-  if (input.action.relationship_type === "duplicate") {
-    return currentItem.duplicate_candidates[0] ?? null;
-  }
-  if (input.action.relationship_type === "related") {
-    return currentItem.related_candidates[0] ?? null;
-  }
-  const sessionKind = input.snapshot.session.relationship_kind;
-  if (sessionKind === "duplicate") {
-    return currentItem.duplicate_candidates[0] ?? null;
-  }
-  if (sessionKind === "related") {
-    return currentItem.related_candidates[0] ?? null;
-  }
-  return [...currentItem.duplicate_candidates, ...currentItem.related_candidates]
-    .sort(compareRelationshipCandidates)[0] ?? null;
+}): RelationshipActionTarget[] {
+  const currentLoopId = input.snapshot.current_item?.loop.id ?? input.snapshot.session.current_loop_id ?? null;
+  const items = orderedSessionItems(
+    snapshotItemsWithCurrent(input.snapshot.items, input.snapshot.current_item),
+    currentLoopId,
+  );
+  return items.flatMap((item) => {
+    const candidates = input.action.relationship_type === "duplicate"
+      ? item.duplicate_candidates
+      : input.action.relationship_type === "related"
+        ? item.related_candidates
+        : [...item.duplicate_candidates, ...item.related_candidates].sort(compareRelationshipCandidates);
+    return candidates.map((candidate) => ({
+      loop: item.loop,
+      candidate,
+      relationshipType: input.action.relationship_type === "suggested"
+        ? candidate.relationship_type
+        : input.action.relationship_type,
+      isCurrent: currentLoopId != null && item.loop.id === currentLoopId,
+    } satisfies RelationshipActionTarget));
+  });
+}
+
+function relationshipTargetOptionKey(target: RelationshipActionTarget): string {
+  return `${target.loop.id}:${target.candidate.id}:${target.candidate.relationship_type}`;
+}
+
+function relationshipTargetOptionLabel(target: RelationshipActionTarget): string {
+  return `${loopTitle(target.loop)} → ${candidateTitle(target.candidate)} · ${target.relationshipType}${target.isCurrent ? " · Current focus" : ""}`;
 }
 
 function resolvedRelationshipActionType(input: {
@@ -448,6 +497,39 @@ function resolvedRelationshipActionType(input: {
   return input.action.relationship_type === "suggested"
     ? input.candidate.relationship_type
     : input.action.relationship_type;
+}
+
+async function chooseRelationshipPaletteTarget(input: {
+  action: RelationshipReviewActionResponse;
+  snapshot: RelationshipReviewSessionSnapshotResponse;
+  targets: readonly RelationshipActionTarget[];
+}): Promise<RelationshipActionTarget | null> {
+  if (input.targets.length === 1) {
+    return input.targets[0] ?? null;
+  }
+  const options = input.targets.map((target) => ({
+    value: relationshipTargetOptionKey(target),
+    label: relationshipTargetOptionLabel(target),
+  }));
+  const values = await modals.promptDialog({
+    eyebrow: "Relationship review",
+    title: "Choose queue target",
+    description: `Apply “${input.action.name}” to the exact saved relationship candidate in “${input.snapshot.session.name}”.`,
+    confirmLabel: "Use target",
+    fields: [{
+      name: "target",
+      label: "Queue target",
+      type: "select",
+      value: options[0]?.value,
+      options,
+      helpText: "The queue stays keyboard-first: pick the exact loop/candidate pair without opening the review workspace.",
+    }],
+    validate: (values) => values["target"] ? null : "Choose a queue target.",
+  });
+  if (!values) {
+    return null;
+  }
+  return input.targets.find((target) => relationshipTargetOptionKey(target) === values["target"]) ?? null;
 }
 
 async function confirmRelationshipPaletteAction(input: {
@@ -465,6 +547,81 @@ async function confirmRelationshipPaletteAction(input: {
     confirmLabel: "Confirm duplicate",
     confirmVariant: "danger",
   });
+}
+
+function enrichmentSuggestionFields(
+  suggestion: EnrichmentReviewSessionSnapshotResponse["items"][number]["pending_suggestions"][number],
+): string[] {
+  return typeof suggestion.parsed === "object" && suggestion.parsed
+    ? Object.keys(suggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
+    : [];
+}
+
+function enrichmentSuggestionLabel(
+  suggestion: EnrichmentReviewSessionSnapshotResponse["items"][number]["pending_suggestions"][number],
+): string {
+  if (typeof suggestion.parsed !== "object" || !suggestion.parsed) {
+    return `Suggestion #${suggestion.id}`;
+  }
+  const parsed = suggestion.parsed as Record<string, unknown>;
+  const summary = typeof parsed["summary"] === "string" ? parsed["summary"].trim() : "";
+  const title = typeof parsed["title"] === "string" ? parsed["title"].trim() : "";
+  return title || summary || `Suggestion #${suggestion.id}`;
+}
+
+function enrichmentActionTargets(input: {
+  snapshot: EnrichmentReviewSessionSnapshotResponse;
+}): EnrichmentActionTarget[] {
+  const currentLoopId = input.snapshot.current_item?.loop.id ?? input.snapshot.session.current_loop_id ?? null;
+  const items = orderedSessionItems(
+    snapshotItemsWithCurrent(input.snapshot.items, input.snapshot.current_item),
+    currentLoopId,
+  );
+  return items.flatMap((item) => item.pending_suggestions.map((suggestion) => ({
+    loop: item.loop,
+    suggestion,
+    suggestedFields: enrichmentSuggestionFields(suggestion),
+    isCurrent: currentLoopId != null && item.loop.id === currentLoopId,
+  } satisfies EnrichmentActionTarget)));
+}
+
+function enrichmentTargetOptionLabel(target: EnrichmentActionTarget): string {
+  const fields = target.suggestedFields.slice(0, 3).join(", ");
+  const summary = enrichmentSuggestionLabel(target.suggestion);
+  return `${loopTitle(target.loop)} → ${summary}${fields ? ` · ${fields}` : ""}${target.isCurrent ? " · Current focus" : ""}`;
+}
+
+async function chooseEnrichmentPaletteTarget(input: {
+  action: EnrichmentReviewActionResponse;
+  snapshot: EnrichmentReviewSessionSnapshotResponse;
+  targets: readonly EnrichmentActionTarget[];
+}): Promise<EnrichmentActionTarget | null> {
+  if (input.targets.length === 1) {
+    return input.targets[0] ?? null;
+  }
+  const options = input.targets.map((target) => ({
+    value: String(target.suggestion.id),
+    label: enrichmentTargetOptionLabel(target),
+  }));
+  const values = await modals.promptDialog({
+    eyebrow: "Enrichment review",
+    title: "Choose queue target",
+    description: `Apply “${input.action.name}” to the exact saved enrichment suggestion in “${input.snapshot.session.name}”.`,
+    confirmLabel: "Use target",
+    fields: [{
+      name: "target",
+      label: "Queue target",
+      type: "select",
+      value: options[0]?.value,
+      options,
+      helpText: "Pick the exact suggestion from the saved queue without leaving the keyboard-first palette.",
+    }],
+    validate: (values) => values["target"] ? null : "Choose a queue target.",
+  });
+  if (!values) {
+    return null;
+  }
+  return input.targets.find((target) => String(target.suggestion.id) === values["target"]) ?? null;
 }
 
 async function confirmEnrichmentPaletteAction(input: {
@@ -2045,60 +2202,79 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       loadRelationshipSnapshot(input.sessionId).catch(() => null),
       loadRelationshipActions().catch(() => [] as RelationshipReviewActionResponse[]),
     ]);
-    const currentItem = snapshot?.current_item ?? null;
-    if (!snapshot || !currentItem || !actions.length) {
+    if (!snapshot || !actions.length) {
       return [];
     }
     const commands: CommandPaletteCommand[] = [];
     actions.slice(0, input.actionLimit).forEach((action) => {
-      const candidate = resolveRelationshipActionCandidate({ snapshot, action });
-      if (!candidate) {
+      const targets = relationshipActionTargets({ snapshot, action });
+      if (!targets.length) {
         return;
       }
-      const relationshipType = resolvedRelationshipActionType({ action, candidate });
+      const currentTarget = targets.find((target) => target.isCurrent) ?? targets[0] ?? null;
+      const exactTargetSelection = targets.length > 1;
       commands.push({
-        id: `relationship-action-${input.sessionId}-${action.id}-${candidate.id}-${input.sessionLocation.workingSetId ?? "none"}`,
+        id: `relationship-action-${input.sessionId}-${action.id}-${input.sessionLocation.workingSetId ?? "none"}`,
         group: "act",
         title: input.includeSessionNameInTitle
           ? `Use saved action · ${action.name} · ${snapshot.session.name}`
           : `Use saved action · ${action.name}`,
-        subtitle: `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${relationshipType} for ${loopTitle(currentItem.loop)}`,
+        subtitle: exactTargetSelection
+          ? `Choose exact target from ${targets.length} queued candidate${targets.length === 1 ? "" : "s"}`
+          : `${action.action_type === "confirm" ? "Confirm" : "Dismiss"} ${currentTarget?.relationshipType ?? "relationship"} for ${currentTarget ? loopTitle(currentTarget.loop) : snapshot.session.name}`,
         keywords: [
           "review",
           "relationship",
           action.name,
           action.action_type,
-          relationshipType,
           snapshot.session.name,
-          loopTitle(currentItem.loop),
-          candidateTitle(candidate),
+          ...targets.flatMap((target) => [
+            loopTitle(target.loop),
+            loopSummary(target.loop),
+            candidateTitle(target.candidate),
+            target.relationshipType,
+            target.candidate.relationship_type,
+          ]),
         ],
         badge: "Decide",
         location: input.sessionLocation,
         contextBoost: input.contextBoost,
         detail: {
           eyebrow: "Act",
-          description: input.includeSessionNameInTitle
-            ? "Apply this saved relationship-review action to the preserved queue item without opening the relationship workspace first."
-            : "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette.",
+          description: exactTargetSelection
+            ? (input.includeSessionNameInTitle
+              ? "Pick the exact saved relationship candidate from the queue, then apply the preset without opening the relationship workspace first."
+              : "Pick the exact relationship candidate from the queue and keep the saved-review action fully keyboard-first.")
+            : (input.includeSessionNameInTitle
+              ? "Apply this saved relationship-review action to the preserved queue item without opening the relationship workspace first."
+              : "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette."),
           meta: [
             `Session: ${snapshot.session.name}`,
-            `Current loop: ${loopTitle(currentItem.loop)}`,
-            `Candidate: ${candidateTitle(candidate)}`,
-            `Decision: ${action.action_type} ${relationshipType}`,
+            currentTarget ? `Current loop: ${loopTitle(currentTarget.loop)}` : null,
+            currentTarget && !exactTargetSelection ? `Candidate: ${candidateTitle(currentTarget.candidate)}` : null,
+            exactTargetSelection ? `Eligible targets: ${targets.length}` : null,
+            `Decision: ${action.action_type}${currentTarget ? ` ${currentTarget.relationshipType}` : ""}`,
             input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
           ].filter((value): value is string => Boolean(value)),
         },
         skipAutomaticReceipt: true,
         execute: async () => {
-          const confirmed = await confirmRelationshipPaletteAction({ action, candidate, relationshipType });
+          const target = await chooseRelationshipPaletteTarget({ action, snapshot, targets });
+          if (!target) {
+            return;
+          }
+          const confirmed = await confirmRelationshipPaletteAction({
+            action,
+            candidate: target.candidate,
+            relationshipType: target.relationshipType,
+          });
           if (!confirmed) {
             return;
           }
           const response = await runRelationshipSessionAction(input.sessionId, {
-            loop_id: currentItem.loop.id,
-            candidate_loop_id: candidate.id,
-            candidate_relationship_type: candidate.relationship_type,
+            loop_id: target.loop.id,
+            candidate_loop_id: target.candidate.id,
+            candidate_relationship_type: target.candidate.relationship_type,
             action_preset_id: action.id,
           });
           cachedRelationshipSnapshots.set(input.sessionId, { loadedAt: Date.now(), value: response.snapshot });
@@ -2107,11 +2283,11 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             metadata: {
               source: "command-palette",
               sessionId: input.sessionId,
-              loopId: currentItem.loop.id,
-              candidateId: candidate.id,
+              loopId: target.loop.id,
+              candidateId: target.candidate.id,
               actionPresetId: action.id,
               actionType: action.action_type,
-              relationshipType,
+              relationshipType: target.relationshipType,
             },
             workingSetId: input.sessionLocation.workingSetId ?? null,
           });
@@ -2134,60 +2310,79 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       loadEnrichmentSnapshot(input.sessionId).catch(() => null),
       loadEnrichmentActions().catch(() => [] as EnrichmentReviewActionResponse[]),
     ]);
-    const currentItem = snapshot?.current_item ?? null;
-    const topSuggestion = currentItem?.pending_suggestions[0] ?? null;
-    if (!snapshot || !currentItem || !topSuggestion || !actions.length) {
+    if (!snapshot || !actions.length) {
       return [];
     }
-    const suggestedFields = typeof topSuggestion.parsed === "object" && topSuggestion.parsed
-      ? Object.keys(topSuggestion.parsed).filter((key) => !["confidence", "needs_clarification"].includes(key))
-      : [];
-    return actions.slice(0, input.actionLimit).map((action) => {
-      return {
-        id: `enrichment-action-${input.sessionId}-${action.id}-${topSuggestion.id}-${input.sessionLocation.workingSetId ?? "none"}`,
+    return actions.slice(0, input.actionLimit).flatMap((action) => {
+      const targets = enrichmentActionTargets({ snapshot });
+      if (!targets.length) {
+        return [];
+      }
+      const currentTarget = targets.find((target) => target.isCurrent) ?? targets[0] ?? null;
+      const exactTargetSelection = targets.length > 1;
+      return [{
+        id: `enrichment-action-${input.sessionId}-${action.id}-${input.sessionLocation.workingSetId ?? "none"}`,
         group: "act",
         title: input.includeSessionNameInTitle
           ? `Use saved action · ${action.name} · ${snapshot.session.name}`
           : `Use saved action · ${action.name}`,
-        subtitle: `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${loopTitle(currentItem.loop)}`,
+        subtitle: exactTargetSelection
+          ? `Choose exact target from ${targets.length} queued suggestion${targets.length === 1 ? "" : "s"}`
+          : `${action.action_type === "apply" ? "Apply" : "Reject"} suggestion for ${currentTarget ? loopTitle(currentTarget.loop) : snapshot.session.name}`,
         keywords: [
           "review",
           "enrichment",
           action.name,
           action.action_type,
           snapshot.session.name,
-          loopTitle(currentItem.loop),
-          ...suggestedFields,
+          ...(action.fields ?? []),
+          ...targets.flatMap((target) => [
+            loopTitle(target.loop),
+            loopSummary(target.loop),
+            enrichmentSuggestionLabel(target.suggestion),
+            ...target.suggestedFields,
+          ]),
         ],
         badge: "Decide",
         location: input.sessionLocation,
         contextBoost: input.contextBoost,
         detail: {
           eyebrow: "Act",
-          description: input.includeSessionNameInTitle
-            ? "Apply this saved enrichment action to the preserved suggestion queue without opening the enrichment workspace first."
-            : "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses.",
+          description: exactTargetSelection
+            ? (input.includeSessionNameInTitle
+              ? "Pick the exact saved enrichment suggestion from the queue, then apply the preset without opening the enrichment workspace first."
+              : "Pick the exact enrichment suggestion from the queue and keep the saved-review action fully keyboard-first.")
+            : (input.includeSessionNameInTitle
+              ? "Apply this saved enrichment action to the preserved suggestion queue without opening the enrichment workspace first."
+              : "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses."),
           meta: [
             `Session: ${snapshot.session.name}`,
-            `Current loop: ${loopTitle(currentItem.loop)}`,
-            `Suggestion: #${topSuggestion.id}`,
-            suggestedFields.length ? `Suggested fields: ${suggestedFields.join(", ")}` : "Suggested fields: loop update",
+            currentTarget ? `Current loop: ${loopTitle(currentTarget.loop)}` : null,
+            currentTarget && !exactTargetSelection ? `Suggestion: #${currentTarget.suggestion.id}` : null,
+            currentTarget && !exactTargetSelection
+              ? (currentTarget.suggestedFields.length ? `Suggested fields: ${currentTarget.suggestedFields.join(", ")}` : "Suggested fields: loop update")
+              : null,
+            exactTargetSelection ? `Eligible targets: ${targets.length}` : null,
             action.fields?.length ? `Preset fields: ${action.fields.join(", ")}` : null,
             input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
           ].filter((value): value is string => Boolean(value)),
         },
         skipAutomaticReceipt: true,
         execute: async () => {
+          const target = await chooseEnrichmentPaletteTarget({ action, snapshot, targets });
+          if (!target) {
+            return;
+          }
           const confirmed = await confirmEnrichmentPaletteAction({
             action,
-            suggestionId: topSuggestion.id,
-            suggestedFields,
+            suggestionId: target.suggestion.id,
+            suggestedFields: target.suggestedFields,
           });
           if (!confirmed) {
             return;
           }
           const response = await runEnrichmentSessionAction(input.sessionId, {
-            suggestion_id: topSuggestion.id,
+            suggestion_id: target.suggestion.id,
             action_preset_id: action.id,
           });
           cachedEnrichmentSnapshots.set(input.sessionId, { loadedAt: Date.now(), value: response.snapshot });
@@ -2196,8 +2391,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             metadata: {
               source: "command-palette",
               sessionId: input.sessionId,
-              loopId: currentItem.loop.id,
-              suggestionId: topSuggestion.id,
+              loopId: target.loop.id,
+              suggestionId: target.suggestion.id,
               actionPresetId: action.id,
               actionType: action.action_type,
             },
@@ -2206,7 +2401,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           await bindings.openLocation(receipt.resumeLocation ?? input.sessionLocation);
           await bindings.refreshWorkspace();
         },
-      } satisfies CommandPaletteCommand;
+      } satisfies CommandPaletteCommand];
     });
   }
 
