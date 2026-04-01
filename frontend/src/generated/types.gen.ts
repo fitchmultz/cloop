@@ -2662,11 +2662,23 @@ export type IngestRequest = {
      */
     paths: Array<string>;
     /**
+     * Query
+     *
+     * Optional recall query to preserve on the landed ingest resume target.
+     */
+    query?: string | null;
+    /**
      * Recursive
      *
      * Recurse into directories when true (default).
      */
     recursive?: boolean | null;
+    /**
+     * Working Set Id
+     *
+     * Optional working-set scope to preserve in ingest follow-through payloads.
+     */
+    working_set_id?: number | null;
 };
 
 /**
@@ -2691,6 +2703,7 @@ export type IngestResponse = {
      * Files Skipped
      */
     files_skipped?: number;
+    follow_through?: ReviewFollowThroughResponse | null;
 };
 
 /**
@@ -4395,6 +4408,23 @@ export type MemoryCreateRequest = {
 };
 
 /**
+ * MemoryDeleteResponse
+ *
+ * Response for deleting one memory entry.
+ */
+export type MemoryDeleteResponse = {
+    /**
+     * Deleted
+     */
+    deleted: boolean;
+    /**
+     * Entry Id
+     */
+    entry_id: number;
+    follow_through: ReviewFollowThroughResponse;
+};
+
+/**
  * MemoryListResponse
  *
  * Response for memory list operations.
@@ -4412,6 +4442,47 @@ export type MemoryListResponse = {
      * Next Cursor
      */
     next_cursor?: string | null;
+};
+
+/**
+ * MemoryMutationResponse
+ *
+ * Direct-memory mutation response with landed follow-through.
+ */
+export type MemoryMutationResponse = {
+    category: MemoryCategory;
+    /**
+     * Content
+     */
+    content: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    follow_through: ReviewFollowThroughResponse;
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Key
+     */
+    key: string | null;
+    /**
+     * Metadata
+     */
+    metadata: {
+        [key: string]: unknown;
+    };
+    /**
+     * Priority
+     */
+    priority: number;
+    source: MemorySource;
+    /**
+     * Updated At
+     */
+    updated_at: string;
 };
 
 /**
@@ -11978,7 +12049,20 @@ export type ListMemoriesMemoryGetResponse = ListMemoriesMemoryGetResponses[keyof
 export type CreateMemoryMemoryPostData = {
     body: MemoryCreateRequest;
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Working Set Id
+         *
+         * Optional working-set scope to preserve in recall follow-through
+         */
+        working_set_id?: number | null;
+        /**
+         * Query
+         *
+         * Optional recall query to preserve on delete/follow-through targets
+         */
+        query?: string | null;
+    };
     url: '/memory';
 };
 
@@ -11995,7 +12079,7 @@ export type CreateMemoryMemoryPostResponses = {
     /**
      * Successful Response
      */
-    201: MemoryResponse;
+    201: MemoryMutationResponse;
 };
 
 export type CreateMemoryMemoryPostResponse = CreateMemoryMemoryPostResponses[keyof CreateMemoryMemoryPostResponses];
@@ -12070,7 +12154,20 @@ export type DeleteMemoryMemoryEntryIdDeleteData = {
          */
         entry_id: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Working Set Id
+         *
+         * Optional working-set scope to preserve in recall follow-through
+         */
+        working_set_id?: number | null;
+        /**
+         * Query
+         *
+         * Optional recall query to preserve on delete/follow-through targets
+         */
+        query?: string | null;
+    };
     url: '/memory/{entry_id}';
 };
 
@@ -12087,7 +12184,7 @@ export type DeleteMemoryMemoryEntryIdDeleteResponses = {
     /**
      * Successful Response
      */
-    204: void;
+    200: MemoryDeleteResponse;
 };
 
 export type DeleteMemoryMemoryEntryIdDeleteResponse = DeleteMemoryMemoryEntryIdDeleteResponses[keyof DeleteMemoryMemoryEntryIdDeleteResponses];
@@ -12130,7 +12227,20 @@ export type UpdateMemoryMemoryEntryIdPutData = {
          */
         entry_id: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Working Set Id
+         *
+         * Optional working-set scope to preserve in recall follow-through
+         */
+        working_set_id?: number | null;
+        /**
+         * Query
+         *
+         * Optional recall query to preserve on delete/follow-through targets
+         */
+        query?: string | null;
+    };
     url: '/memory/{entry_id}';
 };
 
@@ -12147,7 +12257,7 @@ export type UpdateMemoryMemoryEntryIdPutResponses = {
     /**
      * Successful Response
      */
-    200: MemoryResponse;
+    200: MemoryMutationResponse;
 };
 
 export type UpdateMemoryMemoryEntryIdPutResponse = UpdateMemoryMemoryEntryIdPutResponses[keyof UpdateMemoryMemoryEntryIdPutResponses];

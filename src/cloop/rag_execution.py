@@ -34,7 +34,7 @@ from .rag import (
     prepare_ask_context,
 )
 from .rag.ask_orchestration import PreparedAskContext
-from .recall_follow_through import build_rag_follow_through
+from .recall_follow_through import build_ingest_follow_through, build_rag_follow_through
 from .recall_working_sets import resolve_recall_working_set
 from .schemas.rag import AskResponse, IngestResponse
 from .settings import PiToolBudgetSurface, Settings
@@ -492,17 +492,23 @@ def execute_ingest_request(
     force_rehash: bool,
     settings: Settings,
     endpoint: str = "/ingest",
+    working_set_id: int | None = None,
+    query: str | None = None,
 ) -> RagIngestExecutionResult:
     """Run the canonical ingest flow with interaction logging."""
     if not paths:
         raise ValueError("paths cannot be empty")
 
-    request_payload = {
+    request_payload: dict[str, Any] = {
         "paths": paths,
         "mode": mode,
         "recursive": recursive,
         "force_rehash": force_rehash,
     }
+    if working_set_id is not None:
+        request_payload["working_set_id"] = working_set_id
+    if query is not None:
+        request_payload["query"] = query
     result = ingest_paths(
         paths,
         mode=mode,
@@ -510,19 +516,32 @@ def execute_ingest_request(
         force_rehash=force_rehash,
         settings=settings,
     )
+    working_set = resolve_recall_working_set(working_set_id=working_set_id, settings=settings)
+    follow_through = build_ingest_follow_through(
+        paths=paths,
+        mode=mode,
+        recursive=recursive,
+        result=result,
+        query=query,
+        working_set=working_set,
+    )
+    response = IngestResponse(
+        **result,
+        follow_through=follow_through,
+    )
+    response_payload = response.model_dump(mode="python")
     interaction_store.record_interaction(
         endpoint=endpoint,
         request_payload=request_payload,
-        response_payload=result,
+        response_payload=response_payload,
         model=settings.embed_model,
         latency_ms=None,
         token_estimate=None,
         tool_calls=[],
         settings=settings,
     )
-    response = IngestResponse(**result)
     return RagIngestExecutionResult(
         response=response,
         request_payload=request_payload,
-        response_payload=result,
+        response_payload=response_payload,
     )

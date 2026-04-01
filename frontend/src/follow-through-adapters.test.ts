@@ -295,6 +295,147 @@ describe("follow-through-adapters", () => {
     expect(receipt.entry.metadata).toEqual({ source: "recall-rag" });
   });
 
+  it("records direct-memory follow-through through the shared receipt adapter", () => {
+    const receipt = buildFollowThroughReceipt({
+      followThrough: {
+        display_card: {
+          kind: "receipt",
+          tone: "progress",
+          eyebrow: "Recall receipt",
+          title: "Created memory · launch-preference",
+          summary: "launch-preference is now available as durable memory.",
+          rationale: "Direct-memory mutations should use the backend follow-through contract.",
+          preview: [
+            { label: "Memory", value: "launch-preference" },
+            { label: "Category", value: "preference" },
+          ],
+          trust: {
+            generation_label: "Recall receipt",
+            generation_tone: "progress",
+            context_sources: ["Direct memory"],
+            assumptions: [],
+            confidence_label: "Mutation applied",
+            confidence_tone: "progress",
+            freshness_label: "Saved just now",
+            freshness_tone: "progress",
+            rollback_label: "Edit or delete the memory entry if this durable context is no longer correct.",
+            rollback_tone: "progress",
+            impact_summary: "launch-preference is now available as durable memory.",
+            impact_tone: "progress",
+          },
+          handoff: null,
+          action_context_label: "Continue from here",
+          action_warning: null,
+        },
+        undo_action: null,
+        rerun_action: null,
+        resume_location: {
+          state: "recall",
+          recall_tool: "memory",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: 41,
+          working_set_id: 7,
+          query: null,
+        },
+        grounded_chat_location: null,
+        workflow_thread: {
+          id: "recall:memory:created:41",
+          kind: "recall",
+          title: "Created memory · launch-preference",
+          summary: "launch-preference is now available as durable memory.",
+          parent_outcome_id: null,
+        },
+        working_set_id: 7,
+      } as unknown as ReviewFollowThroughResponse,
+      id: "memory-follow-through-41",
+      kind: "recall",
+      metadata: { source: "recall-memory", action: "created" },
+    });
+
+    expect(receipt.resumeLocation).toEqual(createLocation({
+      state: "recall",
+      recallTool: "memory",
+      memoryId: 41,
+      workingSetId: 7,
+    }));
+    expect(receipt.entry.outcome?.card.title).toBe("Created memory · launch-preference");
+    expect(receipt.entry.metadata).toEqual({ source: "recall-memory", action: "created" });
+  });
+
+  it("records ingest follow-through through the shared receipt adapter", () => {
+    const receipt = buildFollowThroughReceipt({
+      followThrough: {
+        display_card: {
+          kind: "receipt",
+          tone: "attention",
+          eyebrow: "Recall receipt",
+          title: "Indexed knowledge · launch-notes",
+          summary: "Indexed 3 files into 18 chunks with 1 failures.",
+          rationale: "Knowledge ingestion should use the backend follow-through contract.",
+          preview: [
+            { label: "Path", value: "launch-notes" },
+            { label: "Files", value: "3" },
+            { label: "Chunks", value: "18" },
+          ],
+          trust: {
+            generation_label: "Recall receipt",
+            generation_tone: "attention",
+            context_sources: ["Indexed local documents"],
+            assumptions: [],
+            confidence_label: "Mutation applied with follow-up required",
+            confidence_tone: "attention",
+            freshness_label: "Saved just now",
+            freshness_tone: "progress",
+            rollback_label: "Reindex with a corrected path or ingestion mode if this document set is not the one you intended.",
+            rollback_tone: "progress",
+            impact_summary: "Indexed 3 files into 18 chunks with 1 failures.",
+            impact_tone: "attention",
+          },
+          handoff: null,
+          action_context_label: "Continue from here",
+          action_warning: null,
+        },
+        undo_action: null,
+        rerun_action: null,
+        resume_location: {
+          state: "recall",
+          recall_tool: "rag",
+          review_focus: null,
+          session_id: null,
+          loop_id: null,
+          view_id: null,
+          memory_id: null,
+          working_set_id: null,
+          query: "what changed",
+        },
+        grounded_chat_location: null,
+        workflow_thread: {
+          id: "recall:rag:ingest:/tmp/launch-notes",
+          kind: "recall",
+          title: "Indexed knowledge · launch-notes",
+          summary: "Indexed 3 files into 18 chunks with 1 failures.",
+          parent_outcome_id: null,
+        },
+        working_set_id: null,
+      } as unknown as ReviewFollowThroughResponse,
+      id: "rag-ingest-follow-through-1",
+      kind: "recall",
+      metadata: { source: "recall-rag", action: "ingest" },
+      workingSetIdOverride: 5,
+    });
+
+    expect(receipt.resumeLocation).toEqual(createLocation({
+      state: "recall",
+      recallTool: "rag",
+      workingSetId: 5,
+      query: "what changed",
+    }));
+    expect(receipt.entry.metadata).toEqual({ source: "recall-rag", action: "ingest" });
+  });
+
   it("fails fast when backend review follow-through omits resume_location", () => {
     expect(() =>
       buildFollowThroughReceipt({

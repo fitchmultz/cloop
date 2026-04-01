@@ -148,7 +148,8 @@ def memory_create(
         request_id: Optional idempotency key for safe retries.
 
     Returns:
-        Created memory entry payload.
+        Created memory entry payload plus backend-authored `follow_through`
+        metadata for reopening the landed memory result.
 
     Raises:
         ToolError: If validation fails.
@@ -169,6 +170,7 @@ def memory_create(
             payload=payload,
             settings=settings,
             conn=conn,
+            include_follow_through=True,
         ),
     )
 
@@ -199,7 +201,8 @@ def memory_update(
         request_id: Optional idempotency key for safe retries.
 
     Returns:
-        Updated memory entry payload.
+        Updated memory entry payload plus backend-authored `follow_through`
+        metadata for reopening the landed memory result.
 
     Raises:
         ToolError: If validation fails or the memory entry is missing.
@@ -229,6 +232,7 @@ def memory_update(
             fields=fields,
             settings=settings,
             conn=conn,
+            include_follow_through=True,
         ),
     )
 
@@ -245,7 +249,8 @@ def memory_delete(
         request_id: Optional idempotency key for safe retries.
 
     Returns:
-        Dict with `entry_id` and `deleted`.
+        Dict with `entry_id`, `deleted`, and backend-authored `follow_through`
+        metadata for reopening the landed memory result.
 
     Raises:
         ToolError: If the memory entry does not exist.
@@ -259,6 +264,7 @@ def memory_delete(
             entry_id=entry_id,
             settings=settings,
             conn=conn,
+            include_follow_through=True,
         ),
     )
 

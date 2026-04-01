@@ -43,6 +43,15 @@ class IngestRequest(BaseModel):
         default=None,
         description="Recurse into directories when true (default).",
     )
+    working_set_id: int | None = Field(
+        default=None,
+        ge=1,
+        description="Optional working-set scope to preserve in ingest follow-through payloads.",
+    )
+    query: str | None = Field(
+        default=None,
+        description="Optional recall query to preserve on the landed ingest resume target.",
+    )
 
 
 class FailedFileInfo(BaseModel):
@@ -59,6 +68,7 @@ class IngestResponse(BaseModel):
     chunks: int
     files_skipped: int = 0
     failed_files: List[FailedFileInfo] = Field(default_factory=list)
+    follow_through: ReviewFollowThroughResponse | None = None
 
 
 class AskResponse(BaseModel):

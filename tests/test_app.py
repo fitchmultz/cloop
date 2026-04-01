@@ -72,6 +72,8 @@ def test_ingest_and_ask(test_client: TestClient, tmp_data_dir: Path) -> None:
     payload = response.json()
     assert payload["files"] == 1
     assert payload["chunks"] >= 1
+    assert payload["follow_through"]["display_card"]["eyebrow"] == "Recall receipt"
+    assert payload["follow_through"]["resume_location"]["recall_tool"] == "rag"
 
     ask_response = test_client.get("/ask", params={"q": "What does FastAPI help with?"})
     assert ask_response.status_code == 200
@@ -2063,9 +2065,10 @@ def test_memory_ui_uses_direct_memory_api_helpers() -> None:
     assert "export async function fetchMemoryEntries(" in api_js
     assert "export async function searchMemoryEntries(" in api_js
     assert "export async function fetchMemoryEntry(entryId: number | string)" in api_js
-    assert "export async function createMemoryEntry(payload: MemoryMutationRequest)" in api_js
+    assert "export async function createMemoryEntry(" in api_js
+    assert "context: RecallMutationContext = {}" in api_js
     assert "export async function updateMemoryEntry(" in api_js
-    assert "export async function deleteMemoryEntry(entryId: number | string)" in api_js
+    assert "export async function deleteMemoryEntry(" in api_js
 
 
 def test_chat_logging_tolerates_non_json_usage_objects(

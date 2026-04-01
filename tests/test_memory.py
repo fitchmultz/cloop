@@ -72,6 +72,10 @@ class TestMemoryCRUD:
         assert data["category"] == "preference"
         assert data["priority"] == 50
         assert data["source"] == "user_stated"
+        assert (
+            data["follow_through"]["display_card"]["title"] == "Created memory · preferred_editor"
+        )
+        assert data["follow_through"]["resume_location"]["memory_id"] == data["id"]
 
     def test_get_memory(self, test_client: TestClient) -> None:
         """Get a memory entry by ID."""
@@ -101,6 +105,8 @@ class TestMemoryCRUD:
         data = update_resp.json()
         assert data["content"] == "Updated content"
         assert data["priority"] == 75
+        assert data["follow_through"]["display_card"]["title"].startswith("Updated memory ·")
+        assert data["follow_through"]["resume_location"]["memory_id"] == entry_id
 
     def test_update_memory_can_clear_key(self, test_client: TestClient) -> None:
         """Updating with `key: null` clears the optional key."""
@@ -125,8 +131,12 @@ class TestMemoryCRUD:
         )
         entry_id = create_resp.json()["id"]
 
-        delete_resp = test_client.delete(f"/memory/{entry_id}")
-        assert delete_resp.status_code == 204
+        delete_resp = test_client.delete(f"/memory/{entry_id}", params={"query": "deleted"})
+        assert delete_resp.status_code == 200
+        delete_payload = delete_resp.json()
+        assert delete_payload["deleted"] is True
+        assert delete_payload["follow_through"]["resume_location"]["memory_id"] is None
+        assert delete_payload["follow_through"]["resume_location"]["query"] == "deleted"
 
         get_resp = test_client.get(f"/memory/{entry_id}")
         assert get_resp.status_code == 404

@@ -28,7 +28,6 @@ import { mapApiRerunAction } from "../executable-rerun";
 import { buildFollowThroughReceipt } from "../follow-through-adapters";
 import { createLocation, parseHash } from "../shell-routing";
 import { renderRecallActionCards, renderRecallResultActionCards } from "./recall-action-cards";
-import { buildRecallIngestReceiptEntry } from "./recall-receipts";
 import * as api from "./api";
 import type { RagChunk, RagSource, SurfaceChatEventPayload } from "./contracts";
 import { consumeJsonEventStream } from "./stream";
@@ -272,19 +271,21 @@ export async function submitIngestPath(): Promise<void> {
 
   setIngestStatus("Indexing knowledge...");
   try {
-    const result = await api.ingestKnowledge([path], ragIngestMode.value, ragIngestRecursive.checked);
+    const mutationContext = { workingSetId: currentWorkingSetId(), query: ragInput?.value.trim() || null };
+    const result = await api.ingestKnowledge([path], ragIngestMode.value, ragIngestRecursive.checked, mutationContext);
     const failedCount = Array.isArray(result.failed_files) ? result.failed_files.length : 0;
     const summary = failedCount > 0
       ? `Indexed ${result.files} files into ${result.chunks} chunks with ${failedCount} failures.`
       : `Indexed ${result.files} files into ${result.chunks} chunks.`;
-    recordRecentShellAction(buildRecallIngestReceiptEntry({
-      path,
-      mode: ragIngestMode.value,
-      recursive: ragIngestRecursive.checked,
-      result,
-      workingSetId: currentWorkingSetId(),
-      query: ragInput?.value.trim() || null,
-    }));
+    if (result.follow_through) {
+      recordRecentShellAction(buildFollowThroughReceipt({
+        followThrough: result.follow_through,
+        id: `rag-ingest-follow-through-${result.follow_through.workflow_thread.id}-${Date.now()}`,
+        kind: "recall",
+        metadata: { source: "recall-rag", action: "ingest", path },
+        workingSetIdOverride: mutationContext.workingSetId,
+      }).entry);
+    }
     setIngestStatus(summary);
     ragAnswer.classList.remove("hidden", "rag-answer-error");
     ragAnswerText.textContent = "Knowledge indexed. Ask a question when you're ready.";

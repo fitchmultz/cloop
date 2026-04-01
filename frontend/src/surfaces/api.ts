@@ -54,8 +54,10 @@ import type {
   LoopTemplateListResponse,
   LoopTemplateResponse,
   LoopViewResponse,
+  MemoryDeleteResponse,
   MemoryEntryResponse,
   MemoryListResponse,
+  MemoryMutationResponse,
   MemorySearchResponse,
   MergePreviewResponse,
   NextLoopsResponse,
@@ -147,6 +149,11 @@ interface QueryBulkEnrichRequest {
 
 type JsonObject = Record<string, unknown>;
 
+interface RecallMutationContext {
+  workingSetId?: number | null;
+  query?: string | null;
+}
+
 function buildUrl(path: string, params: Record<string, string | number | boolean | null | undefined>): string {
   const url = new URL(path, window.location.origin);
   for (const [key, value] of Object.entries(params)) {
@@ -200,9 +207,15 @@ export async function fetchMemoryEntry(entryId: number | string): Promise<Memory
   return requestJson<MemoryEntryResponse>(`/memory/${entryId}`, {}, "Failed to load memory entry");
 }
 
-export async function createMemoryEntry(payload: MemoryMutationRequest): Promise<MemoryEntryResponse> {
-  return requestJson<MemoryEntryResponse, MemoryMutationRequest>(
-    "/memory",
+export async function createMemoryEntry(
+  payload: MemoryMutationRequest,
+  context: RecallMutationContext = {},
+): Promise<MemoryMutationResponse> {
+  return requestJson<MemoryMutationResponse, MemoryMutationRequest>(
+    buildUrl("/memory", {
+      working_set_id: context.workingSetId,
+      query: context.query,
+    }),
     { method: "POST", ...withJsonBody(payload) },
     "Failed to create memory entry",
   );
@@ -211,17 +224,30 @@ export async function createMemoryEntry(payload: MemoryMutationRequest): Promise
 export async function updateMemoryEntry(
   entryId: number | string,
   payload: MemoryMutationRequest,
-): Promise<MemoryEntryResponse> {
-  return requestJson<MemoryEntryResponse, MemoryMutationRequest>(
-    `/memory/${entryId}`,
+  context: RecallMutationContext = {},
+): Promise<MemoryMutationResponse> {
+  return requestJson<MemoryMutationResponse, MemoryMutationRequest>(
+    buildUrl(`/memory/${entryId}`, {
+      working_set_id: context.workingSetId,
+      query: context.query,
+    }),
     { method: "PUT", ...withJsonBody(payload) },
     "Failed to update memory entry",
   );
 }
 
-export async function deleteMemoryEntry(entryId: number | string): Promise<true> {
-  await requestJson<null>(`/memory/${entryId}`, { method: "DELETE" }, "Failed to delete memory entry");
-  return true;
+export async function deleteMemoryEntry(
+  entryId: number | string,
+  context: RecallMutationContext = {},
+): Promise<MemoryDeleteResponse> {
+  return requestJson<MemoryDeleteResponse>(
+    buildUrl(`/memory/${entryId}`, {
+      working_set_id: context.workingSetId,
+      query: context.query,
+    }),
+    { method: "DELETE" },
+    "Failed to delete memory entry",
+  );
 }
 
 export async function fetchLoops(status: string, tag: string | null = null): Promise<SurfaceLoop[]> {
@@ -935,10 +961,20 @@ export async function ingestKnowledge(
   paths: string[],
   mode = "add",
   recursive = true,
+  context: RecallMutationContext = {},
 ): Promise<IngestResponse> {
-  return requestJson<IngestResponse, { paths: string[]; mode: string; recursive: boolean }>(
+  return requestJson<IngestResponse, { paths: string[]; mode: string; recursive: boolean; working_set_id?: number | null; query?: string | null }>(
     "/ingest",
-    { method: "POST", ...withJsonBody({ paths, mode, recursive }) },
+    {
+      method: "POST",
+      ...withJsonBody({
+        paths,
+        mode,
+        recursive,
+        working_set_id: context.workingSetId ?? null,
+        query: context.query ?? null,
+      }),
+    },
     "Knowledge ingestion failed",
   );
 }

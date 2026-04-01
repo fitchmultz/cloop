@@ -589,6 +589,7 @@ def test_ingest_command_success(
     assert output["files"] == 1
     assert output["chunks"] >= 1
     assert output["files_skipped"] == 0
+    assert output["follow_through"]["display_card"]["title"].startswith("Indexed knowledge ·")
 
     with db.core_connection(settings) as conn:
         row = conn.execute(
@@ -2428,6 +2429,7 @@ def test_memory_commands(
     assert created["key"] == "theme"
     assert created["category"] == "preference"
     assert created["metadata"] == {"source_app": "cli"}
+    assert created["follow_through"]["display_card"]["title"] == "Created memory · theme"
 
     exit_code = cli.main(["memory", "list"])
     assert exit_code == 0
@@ -2459,6 +2461,7 @@ def test_memory_commands(
     assert updated["key"] is None
     assert updated["content"] == "User prefers light mode now"
     assert updated["priority"] == 60
+    assert updated["follow_through"]["resume_location"]["memory_id"] == entry_id
 
     exit_code = cli.main(["memory", "get", str(entry_id)])
     assert exit_code == 0
@@ -2469,7 +2472,9 @@ def test_memory_commands(
     exit_code = cli.main(["memory", "delete", str(entry_id)])
     assert exit_code == 0
     deleted = _get_last_json(capsys)
-    assert deleted == {"entry_id": entry_id, "deleted": True}
+    assert deleted["entry_id"] == entry_id
+    assert deleted["deleted"] is True
+    assert deleted["follow_through"]["resume_location"]["memory_id"] is None
 
 
 def test_loop_snooze_command_duration(

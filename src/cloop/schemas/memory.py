@@ -19,6 +19,7 @@ from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 
 from ..constants import MEMORY_CONTENT_MAX, MEMORY_KEY_MAX
+from ._loops.continuity import ReviewFollowThroughResponse
 
 
 class MemoryCategory(StrEnum):
@@ -104,6 +105,12 @@ class MemoryResponse(BaseModel):
     updated_at: str
 
 
+class MemoryMutationResponse(MemoryResponse):
+    """Direct-memory mutation response with landed follow-through."""
+
+    follow_through: ReviewFollowThroughResponse
+
+
 class MemoryListResponse(BaseModel):
     """Response for memory list operations."""
 
@@ -123,3 +130,4 @@ class MemoryDeleteResponse(BaseModel):
 
     entry_id: int
     deleted: bool
+    follow_through: ReviewFollowThroughResponse

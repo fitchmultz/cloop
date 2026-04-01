@@ -108,6 +108,8 @@ def rag_ingest(
         - chunks: Count of stored or removed chunks
         - files_skipped: Count of unchanged files skipped during ingest
         - failed_files: List of failed file records with `path` and `error`
+        - follow_through: Backend-authored landed receipt metadata for
+          reopening the Documents recall result after ingest
 
     Raises:
         ToolError: If validation fails or ingestion encounters an execution error.

@@ -3393,6 +3393,8 @@ def test_rag_ingest_success(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     assert result["chunks"] >= 1
     assert result["files_skipped"] == 0
     assert result["failed_files"] == []
+    assert result["follow_through"]["display_card"]["title"].startswith("Indexed knowledge ·")
+    assert result["follow_through"]["resume_location"]["recall_tool"] == "rag"
 
     with db.core_connection(get_settings()) as conn:
         row = conn.execute(
@@ -3551,6 +3553,7 @@ def test_memory_tools_support_direct_crud_and_search(
     entry_id = created["id"]
     assert created["key"] == "theme"
     assert created["metadata"] == {"source_app": "mcp"}
+    assert created["follow_through"]["display_card"]["title"] == "Created memory · theme"
 
     listed = memory_list(category="preference")
     assert listed["items"][0]["id"] == entry_id
@@ -3572,9 +3575,12 @@ def test_memory_tools_support_direct_crud_and_search(
     assert updated["key"] is None
     assert updated["content"] == "User prefers light mode now"
     assert updated["priority"] == 60
+    assert updated["follow_through"]["resume_location"]["memory_id"] == entry_id
 
     deleted = memory_delete(entry_id=entry_id)
-    assert deleted == {"entry_id": entry_id, "deleted": True}
+    assert deleted["entry_id"] == entry_id
+    assert deleted["deleted"] is True
+    assert deleted["follow_through"]["resume_location"]["memory_id"] is None
 
     with pytest.raises(ToolError, match="Memory not found"):
         memory_get(entry_id=entry_id)

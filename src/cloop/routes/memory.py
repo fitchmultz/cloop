@@ -18,13 +18,15 @@ Non-scope:
 
 from typing import Annotated, Any, Dict
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query
 
 from .. import memory_management
 from ..schemas.memory import (
     MemoryCategory,
     MemoryCreateRequest,
+    MemoryDeleteResponse,
     MemoryListResponse,
+    MemoryMutationResponse,
     MemoryResponse,
     MemorySearchResponse,
     MemorySource,
@@ -57,15 +59,26 @@ def list_memories(
     )
 
 
-@router.post("", response_model=MemoryResponse, status_code=201)
+@router.post("", response_model=MemoryMutationResponse, status_code=201)
 def create_memory(
     request: MemoryCreateRequest,
     settings: SettingsDep,
+    working_set_id: Annotated[
+        int | None,
+        Query(description="Optional working-set scope to preserve in recall follow-through", ge=1),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Query(description="Optional recall query to preserve on delete/follow-through targets"),
+    ] = None,
 ) -> Dict[str, Any]:
     """Create a new memory entry."""
     return memory_management.create_memory_entry(
         payload=request.model_dump(),
         settings=settings,
+        include_follow_through=True,
+        working_set_id=working_set_id,
+        query=query,
     )
 
 
@@ -100,25 +113,49 @@ def get_memory(
     return memory_management.get_memory_entry(entry_id=entry_id, settings=settings)
 
 
-@router.put("/{entry_id}", response_model=MemoryResponse)
+@router.put("/{entry_id}", response_model=MemoryMutationResponse)
 def update_memory(
     entry_id: int,
     request: MemoryUpdateRequest,
     settings: SettingsDep,
+    working_set_id: Annotated[
+        int | None,
+        Query(description="Optional working-set scope to preserve in recall follow-through", ge=1),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Query(description="Optional recall query to preserve on delete/follow-through targets"),
+    ] = None,
 ) -> Dict[str, Any]:
     """Update a memory entry."""
     return memory_management.update_memory_entry(
         entry_id=entry_id,
         fields=request.model_dump(exclude_unset=True),
         settings=settings,
+        include_follow_through=True,
+        working_set_id=working_set_id,
+        query=query,
     )
 
 
-@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{entry_id}", response_model=MemoryDeleteResponse)
 def delete_memory(
     entry_id: int,
     settings: SettingsDep,
-) -> Response:
+    working_set_id: Annotated[
+        int | None,
+        Query(description="Optional working-set scope to preserve in recall follow-through", ge=1),
+    ] = None,
+    query: Annotated[
+        str | None,
+        Query(description="Optional recall query to preserve on delete/follow-through targets"),
+    ] = None,
+) -> Dict[str, Any]:
     """Delete a memory entry."""
-    memory_management.delete_memory_entry(entry_id=entry_id, settings=settings)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return memory_management.delete_memory_entry(
+        entry_id=entry_id,
+        settings=settings,
+        include_follow_through=True,
+        working_set_id=working_set_id,
+        query=query,
+    )

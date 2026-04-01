@@ -25,6 +25,8 @@ from typing import Any
 from . import typingx
 from .constants import MEMORY_CONTENT_MAX, MEMORY_KEY_MAX
 from .loops.errors import MemoryNotFoundError, ValidationError
+from .recall_follow_through import build_memory_follow_through
+from .recall_working_sets import resolve_recall_working_set
 from .schemas.memory import MemoryCategory, MemorySource
 from .settings import Settings, get_settings
 from .storage import memory_store
@@ -219,11 +221,28 @@ def create_memory_entry(
     payload: Mapping[str, Any],
     settings: Settings | None = None,
     conn: sqlite3.Connection | None = None,
+    include_follow_through: bool = False,
+    working_set_id: int | None = None,
+    query: str | None = None,
 ) -> dict[str, Any]:
     """Create a memory entry through the canonical direct-management contract."""
     settings = settings or get_settings()
     normalized = _normalize_create_payload(payload)
-    return memory_store.create_memory_entry(settings=settings, conn=conn, **normalized)
+    created = memory_store.create_memory_entry(settings=settings, conn=conn, **normalized)
+    if not include_follow_through:
+        return created
+    return {
+        **created,
+        "follow_through": build_memory_follow_through(
+            action="created",
+            entry=created,
+            query=query,
+            working_set=resolve_recall_working_set(
+                working_set_id=working_set_id,
+                settings=settings,
+            ),
+        ).model_dump(mode="python"),
+    }
 
 
 @typingx.validate_io()
@@ -233,6 +252,9 @@ def update_memory_entry(
     fields: Mapping[str, Any],
     settings: Settings | None = None,
     conn: sqlite3.Connection | None = None,
+    include_follow_through: bool = False,
+    working_set_id: int | None = None,
+    query: str | None = None,
 ) -> dict[str, Any]:
     """Update a memory entry while preserving explicit field presence semantics."""
     settings = settings or get_settings()
@@ -246,7 +268,20 @@ def update_memory_entry(
     )
     if updated is None:
         raise MemoryNotFoundError(entry_id)
-    return updated
+    if not include_follow_through:
+        return updated
+    return {
+        **updated,
+        "follow_through": build_memory_follow_through(
+            action="updated",
+            entry=updated,
+            query=query,
+            working_set=resolve_recall_working_set(
+                working_set_id=working_set_id,
+                settings=settings,
+            ),
+        ).model_dump(mode="python"),
+    }
 
 
 @typingx.validate_io()
@@ -255,10 +290,28 @@ def delete_memory_entry(
     entry_id: int,
     settings: Settings | None = None,
     conn: sqlite3.Connection | None = None,
+    include_follow_through: bool = False,
+    working_set_id: int | None = None,
+    query: str | None = None,
 ) -> dict[str, Any]:
     """Delete one memory entry and return a canonical mutation payload."""
     settings = settings or get_settings()
+    entry = get_memory_entry(entry_id=entry_id, settings=settings, conn=conn)
     deleted = memory_store.delete_memory_entry(entry_id, settings=settings, conn=conn)
     if not deleted:
         raise MemoryNotFoundError(entry_id)
-    return {"entry_id": entry_id, "deleted": True}
+    payload = {"entry_id": entry_id, "deleted": True}
+    if not include_follow_through:
+        return payload
+    return {
+        **payload,
+        "follow_through": build_memory_follow_through(
+            action="deleted",
+            entry=entry,
+            query=query,
+            working_set=resolve_recall_working_set(
+                working_set_id=working_set_id,
+                settings=settings,
+            ),
+        ).model_dump(mode="python"),
+    }

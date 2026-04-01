@@ -54,6 +54,8 @@ def ingest_endpoint(
             force_rehash=False,
             settings=settings,
             endpoint="/ingest",
+            working_set_id=request.working_set_id,
+            query=request.query,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -1,13 +1,15 @@
 """Recall-result follow-through builders.
 
 Purpose:
-    Author backend-owned landed follow-through contracts for grounded chat and
-    document recall results so every transport can expose the same receipt-ready
-    reopen metadata.
+    Author backend-owned landed follow-through contracts for grounded chat,
+    document recall, and recall-side mutations so every transport can expose
+    the same receipt-ready reopen metadata.
 
 Responsibilities:
     - Build landed recall follow-through payloads for grounded chat answers.
     - Build landed recall follow-through payloads for document-backed answers.
+    - Build landed recall follow-through payloads for direct memory mutations.
+    - Build landed recall follow-through payloads for knowledge-ingest mutations.
     - Keep recall workflow-thread and receipt-card wording consistent.
 
 Non-scope:
@@ -15,8 +17,8 @@ Non-scope:
     - Frontend receipt rendering or browser-local working-set overlays.
 
 Usage:
-    Imported by chat_execution.py and rag_execution.py when shaping successful
-    recall responses.
+    Imported by chat_execution.py, rag_execution.py, and direct recall mutation
+    transports when shaping successful recall responses.
 
 Invariants/Assumptions:
     - Follow-through always reopens the landed recall result, never the generic
@@ -35,10 +37,13 @@ from .schemas._loops.continuity import (
     ContinuityDisplayPreviewItemResponse,
     ContinuityDisplayTrustResponse,
     ContinuityDisplayWorkingSetResponse,
+    ContinuityLocationResponse,
     ContinuityRerunAction,
     ReviewFollowThroughResponse,
     WorkflowThreadRefResponse,
 )
+from .schemas.memory import MemoryResponse
+from .schemas.rag import IngestResponse
 
 
 def _normalize_text(value: str) -> str:
@@ -68,6 +73,16 @@ def _source_labels(sources: Iterable[dict[str, Any]]) -> list[str]:
     return labels
 
 
+def _working_set_id(working_set: dict[str, Any] | None) -> int | None:
+    return int(working_set["working_set_id"]) if isinstance(working_set, dict) else None
+
+
+def _mapping(value: MemoryResponse | IngestResponse | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    return value.model_dump(mode="python")
+
+
 def _workflow_thread(
     *,
     recall_tool: Literal["chat", "rag"],
@@ -78,6 +93,21 @@ def _workflow_thread(
     normalized_query = _normalize_text(query).lower()
     return WorkflowThreadRefResponse(
         id=f"recall:{recall_tool}:{normalized_query}",
+        kind="recall",
+        title=title,
+        summary=summary,
+        parent_outcome_id=None,
+    )
+
+
+def _mutation_workflow_thread(
+    *,
+    thread_id: str,
+    title: str,
+    summary: str,
+) -> WorkflowThreadRefResponse:
+    return WorkflowThreadRefResponse(
+        id=thread_id,
         kind="recall",
         title=title,
         summary=summary,
@@ -140,6 +170,54 @@ def _receipt_card(
         ),
         action_context_label="Continue from here",
         action_warning=None,
+    )
+
+
+def _memory_label(entry: MemoryResponse | dict[str, Any]) -> str:
+    payload = _mapping(entry)
+    key = _normalize_text(str(payload.get("key") or ""))
+    if key:
+        return key
+    content = _normalize_text(str(payload.get("content") or ""))
+    if content:
+        return _truncate(content, 56)
+    return f"Memory #{int(payload['id'])}"
+
+
+def _knowledge_label(paths: list[str]) -> str:
+    normalized_paths = [path.strip() for path in paths if path and path.strip()]
+    if not normalized_paths:
+        return "Knowledge"
+    if len(normalized_paths) == 1:
+        leaf = normalized_paths[0].replace("\\", "/").rstrip("/").split("/")[-1]
+        return leaf or normalized_paths[0]
+    return f"{len(normalized_paths)} paths"
+
+
+def _knowledge_preview_label(paths: list[str]) -> str:
+    return "Path" if len([path for path in paths if path.strip()]) == 1 else "Paths"
+
+
+def _recall_location(
+    *,
+    recall_tool: Literal["memory", "rag"],
+    query: str | None,
+    working_set_id: int | None,
+    memory_id: int | None = None,
+) -> ContinuityLocationResponse:
+    return ContinuityLocationResponse(
+        state="recall",
+        recall_tool=recall_tool,
+        review_focus=None,
+        session_id=None,
+        loop_id=None,
+        view_id=None,
+        memory_id=memory_id,
+        working_set_id=working_set_id,
+        query=_normalize_text(query or "") or None,
+        include_loop_context=None,
+        include_memory_context=None,
+        include_rag_context=None,
     )
 
 
@@ -236,9 +314,7 @@ def build_chat_follow_through(
             title=title,
             summary=summary,
         ),
-        working_set_id=(
-            int(working_set["working_set_id"]) if isinstance(working_set, dict) else None
-        ),
+        working_set_id=_working_set_id(working_set),
     )
 
 
@@ -311,10 +387,185 @@ def build_rag_follow_through(
             title=title,
             summary=summary,
         ),
-        working_set_id=(
-            int(working_set["working_set_id"]) if isinstance(working_set, dict) else None
-        ),
+        working_set_id=_working_set_id(working_set),
     )
 
 
-__all__ = ["build_chat_follow_through", "build_rag_follow_through"]
+def build_memory_follow_through(
+    *,
+    action: Literal["created", "updated", "deleted"],
+    entry: MemoryResponse | dict[str, Any],
+    query: str | None,
+    working_set: dict[str, Any] | None,
+) -> ReviewFollowThroughResponse:
+    """Build one landed follow-through contract for a direct-memory mutation."""
+    payload = _mapping(entry)
+    label = _memory_label(payload)
+    title_prefix = (
+        "Deleted" if action == "deleted" else "Updated" if action == "updated" else "Created"
+    )
+    title = f"{title_prefix} memory · {label}"
+    summary = (
+        f"{label} was removed from durable memory."
+        if action == "deleted"
+        else (
+            f"{label} now reflects the latest durable context."
+            if action == "updated"
+            else f"{label} is now available as durable memory."
+        )
+    )
+    tone: Literal["progress", "attention"] = "attention" if action == "deleted" else "progress"
+    working_set_id = _working_set_id(working_set)
+    resume_location = _recall_location(
+        recall_tool="memory",
+        query=query if action == "deleted" else None,
+        working_set_id=working_set_id,
+        memory_id=None if action == "deleted" else int(payload["id"]),
+    )
+    return ReviewFollowThroughResponse(
+        display_card=_receipt_card(
+            eyebrow="Recall receipt",
+            title=title,
+            summary=summary,
+            rationale=(
+                "Direct-memory mutations should land as resumable outcomes so continuity and "
+                "recent history reopen the durable memory result instead of relying on status "
+                "text."
+            ),
+            preview=[
+                ContinuityDisplayPreviewItemResponse(label="Memory", value=label),
+                ContinuityDisplayPreviewItemResponse(
+                    label="Category",
+                    value=str(payload.get("category") or "fact"),
+                ),
+            ],
+            context_sources=["Direct memory"],
+            confidence_label=(
+                "Mutation applied with follow-up required"
+                if action == "deleted"
+                else "Mutation applied"
+            ),
+            rollback_label=(
+                "Create a replacement memory entry if this durable context still matters."
+                if action == "deleted"
+                else "Edit or delete the memory entry if this durable context is no longer correct."
+            ),
+            next_step=(
+                "Continue from Memory search or create a replacement entry if needed."
+                if action == "deleted"
+                else "Open the landed memory entry or keep working from Memory."
+            ),
+            breadcrumbs=["Home", "Recall", "Memory"],
+            tone=tone,
+            working_set=working_set,
+        ),
+        undo_action=None,
+        rerun_action=None,
+        resume_location=resume_location,
+        grounded_chat_location=None,
+        workflow_thread=_mutation_workflow_thread(
+            thread_id=f"recall:memory:{action}:{int(payload['id'])}",
+            title=title,
+            summary=summary,
+        ),
+        working_set_id=working_set_id,
+    )
+
+
+def build_ingest_follow_through(
+    *,
+    paths: list[str],
+    mode: str,
+    recursive: bool,
+    result: IngestResponse | dict[str, Any],
+    query: str | None,
+    working_set: dict[str, Any] | None,
+) -> ReviewFollowThroughResponse:
+    """Build one landed follow-through contract for a knowledge-ingest mutation."""
+    payload = _mapping(result)
+    files = int(payload.get("files") or 0)
+    chunks = int(payload.get("chunks") or 0)
+    failed_files = payload.get("failed_files") or []
+    failed_count = len(failed_files) if isinstance(failed_files, list) else 0
+    knowledge_label = _knowledge_label(paths)
+    title_prefix = (
+        "Rebuilt"
+        if mode == "reindex"
+        else "Purged"
+        if mode == "purge"
+        else "Synced"
+        if mode == "sync"
+        else "Indexed"
+    )
+    title = f"{title_prefix} knowledge · {knowledge_label}"
+    summary = (
+        f"Indexed {files} files into {chunks} chunks with {failed_count} failures."
+        if failed_count > 0
+        else f"Indexed {files} files into {chunks} chunks."
+    )
+    working_set_id = _working_set_id(working_set)
+    preview_value = " · ".join(_truncate(path.strip(), 48) for path in paths[:2] if path.strip())
+    if len([path for path in paths if path.strip()]) > 2:
+        preview_value = f"{preview_value} · +{len(paths) - 2} more"
+    if not preview_value:
+        preview_value = knowledge_label
+    return ReviewFollowThroughResponse(
+        display_card=_receipt_card(
+            eyebrow="Recall receipt",
+            title=title,
+            summary=summary,
+            rationale=(
+                "Knowledge ingestion should land as a resumable outcome so the operator can "
+                "reopen Documents from the indexed result instead of reconstructing the next "
+                "step from a toast."
+            ),
+            preview=[
+                ContinuityDisplayPreviewItemResponse(
+                    label=_knowledge_preview_label(paths),
+                    value=preview_value,
+                ),
+                ContinuityDisplayPreviewItemResponse(label="Files", value=str(files)),
+                ContinuityDisplayPreviewItemResponse(label="Chunks", value=str(chunks)),
+            ],
+            context_sources=["Indexed local documents"],
+            confidence_label=(
+                "Mutation applied with follow-up required"
+                if failed_count > 0
+                else "Mutation applied"
+            ),
+            rollback_label=(
+                "Reindex with a corrected path or ingestion mode if this document set is not "
+                "the one you intended."
+            ),
+            next_step=(
+                "Ask a document-backed question or refine the ingest path if the indexed set "
+                "is incomplete."
+            ),
+            breadcrumbs=["Home", "Recall", "Documents"],
+            tone="attention" if failed_count > 0 else "progress",
+            working_set=working_set,
+        ),
+        undo_action=None,
+        rerun_action=None,
+        resume_location=_recall_location(
+            recall_tool="rag",
+            query=query,
+            working_set_id=working_set_id,
+        ),
+        grounded_chat_location=None,
+        workflow_thread=_mutation_workflow_thread(
+            thread_id="recall:rag:ingest:"
+            + "|".join(path.strip().lower() for path in paths if path.strip()),
+            title=title,
+            summary=summary,
+        ),
+        working_set_id=working_set_id,
+    )
+
+
+__all__ = [
+    "build_chat_follow_through",
+    "build_ingest_follow_through",
+    "build_memory_follow_through",
+    "build_rag_follow_through",
+]

@@ -125,8 +125,22 @@ def test_recall_http_preserves_explicit_working_set_scope(
 
     doc = tmp_data_dir / "launch.txt"
     doc.write_text("Launch notes live in this document.", encoding="utf-8")
-    ingest_response = test_client.post("/ingest", json={"paths": [str(doc)]})
+    ingest_response = test_client.post(
+        "/ingest",
+        json={
+            "paths": [str(doc)],
+            "working_set_id": working_set_id,
+            "query": "Where are the launch notes?",
+        },
+    )
     assert ingest_response.status_code == 200
+    ingest_payload = ingest_response.json()
+    assert ingest_payload["follow_through"]["resume_location"]["working_set_id"] == working_set_id
+    assert (
+        ingest_payload["follow_through"]["resume_location"]["query"]
+        == "Where are the launch notes?"
+    )
+    assert ingest_payload["follow_through"]["working_set_id"] == working_set_id
 
     ask_response = test_client.get(
         "/ask",
