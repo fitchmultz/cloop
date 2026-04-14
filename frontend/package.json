@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
   "type": "module",
+  "engines": {
+    "node": ">=25.8.2"
+  },
   "scripts": {
     "generate:openapi": "sh -c 'cd .. && uv run --locked python scripts/export_frontend_openapi.py'",
     "generate:contracts": "pnpm run generate:openapi && rm -rf ./src/generated && openapi-ts --file ./openapi-ts.config.ts && rm -f ./src/generated/index.ts",
@@ -14,11 +17,11 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "devDependencies": {
-    "@types/node": "^25.5.0",
-    "@hey-api/openapi-ts": "0.94.5",
-    "jsdom": "^29.0.1",
+    "@hey-api/openapi-ts": "0.96.0",
+    "@types/node": "^25.6.0",
+    "jsdom": "^29.0.2",
     "typescript": "6.0.2",
-    "vite": "^8.0.3",
-    "vitest": "^4.1.2"
+    "vite": "^8.0.8",
+    "vitest": "^4.1.4"
   }
 }

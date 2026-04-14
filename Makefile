@@ -1,6 +1,6 @@
 .PHONY: help lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data cleanup-runtime verify-runtime-clean sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
 
-UV_RUN := uv run --locked
+UV_RUN := uv run --locked --all-groups
 PNPM_BRIDGE := pnpm --dir src/cloop/pi_bridge
 PNPM_FRONTEND := pnpm --dir frontend
 DEFAULT_LOCAL_DATA_DIR := $(CURDIR)/data
@@ -11,7 +11,7 @@ help:
 		"Usage: make <target>" \
 		"" \
 		"Targets:" \
-		"  sync            Sync (upgrade) all deps via uv" \
+		"  sync            Sync (upgrade) Python deps via uv; pnpm locks are managed separately" \
 		"  lock-check      Verify uv.lock matches pyproject metadata" \
 		"  bridge-lock-check Verify pi bridge pnpm lockfile + installability" \
 		"  bridge-test     Run Node bridge tests" \
@@ -52,7 +52,7 @@ help:
 		"  run             Run FastAPI locally (uvicorn)"
 
 sync:
-	uv sync --all-groups --upgrade --all-extras
+	uv sync --all-groups --upgrade
 
 lock-check:
 	uv lock --check

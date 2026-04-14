@@ -7,7 +7,7 @@ Use this checklist to validate the repository on a fresh machine.
 ```bash
 git clone https://github.com/fitchmultz/cloop.git
 cd cloop
-uv sync --all-groups --all-extras
+uv sync --all-groups
 pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 cp .env.example .env
 ```

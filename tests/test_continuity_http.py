@@ -12,7 +12,7 @@ Non-scope:
     - Frontend ranking or browser-local cache behavior.
 
 Usage:
-    Run with `uv run --locked pytest tests/test_continuity_http.py`.
+    Run with `uv run --locked --all-groups pytest tests/test_continuity_http.py`.
 
 Invariants/Assumptions:
     - Tests use isolated FastAPI clients and SQLite databases.

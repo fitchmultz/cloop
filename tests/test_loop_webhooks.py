@@ -46,7 +46,11 @@ def test_loop_events_sse_endpoint_exists(
     # the route exists and would return streaming content type by checking the route
     from cloop.routes.loops import router
 
-    route_paths = [route.path for route in router.routes]  # type: ignore[unresolved-attribute]
+    route_paths: list[str] = []
+    for route in router.routes:
+        path = getattr(route, "path", None)
+        if isinstance(path, str):
+            route_paths.append(path)
     assert "/loops/events/stream" in route_paths
 
 

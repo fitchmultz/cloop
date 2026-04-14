@@ -13,7 +13,7 @@ Scope:
     - HTTP-level contract verification for the working-set routes only
 
 Usage:
-    - Run `uv run --locked pytest tests/test_working_sets_http.py -q`
+    - Run `uv run --locked --all-groups pytest tests/test_working_sets_http.py -q`
 
 Invariants/Assumptions:
     - Test clients use isolated temporary SQLite databases

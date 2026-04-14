@@ -13,7 +13,7 @@ Scope:
     - Unit coverage for `scripts.cleanup_runtime` only.
 
 Usage:
-    - Run `uv run --locked pytest tests/test_cleanup_runtime.py -q`.
+    - Run `uv run --locked --all-groups pytest tests/test_cleanup_runtime.py -q`.
 
 Invariants/Assumptions:
     - Tests never inspect real system processes.

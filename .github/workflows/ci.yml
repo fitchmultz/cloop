@@ -47,7 +47,7 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: uv sync --locked --all-groups --all-extras
+        run: uv sync --locked --all-groups
 
       - name: Run quality-only local gate
         run: make quality
@@ -91,7 +91,7 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: uv sync --locked --all-groups --all-extras
+        run: uv sync --locked --all-groups
 
       - name: Run fast test subset
         run: make test-fast

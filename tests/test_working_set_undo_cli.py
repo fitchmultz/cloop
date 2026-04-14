@@ -14,7 +14,7 @@ Scope:
     - CLI-level working-set command verification only
 
 Usage:
-    - Run `uv run --locked pytest tests/test_working_set_undo_cli.py -q`
+    - Run `uv run --locked --all-groups pytest tests/test_working_set_undo_cli.py -q`
 
 Invariants/Assumptions:
     - Tests use isolated temporary SQLite databases

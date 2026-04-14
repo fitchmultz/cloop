@@ -46,7 +46,7 @@ jobs:
           run_install: false
 
       - name: Install dependencies
-        run: uv sync --locked --all-groups --all-extras
+        run: uv sync --locked --all-groups
 
       - name: Run release local gate (excludes performance marker)
         run: make ci

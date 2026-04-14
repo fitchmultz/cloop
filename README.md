@@ -116,7 +116,7 @@ Cloop’s role is to keep the **context** and make retrieval effortless, so “n
 ### Setup
 
 ```bash
-uv sync --all-groups --all-extras
+uv sync --all-groups
 pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 cp .env.example .env
 ```

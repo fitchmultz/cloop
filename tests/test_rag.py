@@ -4,7 +4,7 @@ import os
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, cast
 
 import numpy as np
 import pytest
@@ -983,7 +983,7 @@ def test_chunk_rows_with_scores_single_query(
 
     with db.rag_connection(settings) as conn:
         counting_conn = CountingConnection(conn)
-        results = _chunk_rows_with_scores(counting_conn, matches)  # type: ignore[invalid-argument-type]
+        results = _chunk_rows_with_scores(cast(sqlite3.Connection, counting_conn), matches)
 
     # Should have executed only 1 query for chunk lookup, not 5
     assert len(results) >= 1

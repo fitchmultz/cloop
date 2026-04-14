@@ -19,7 +19,7 @@ Non-scope:
     - Full end-to-end browser/UI verification of backup flows
 
 Usage:
-    - Run `uv run --locked pytest tests/test_backup.py -q` for the focused backup suite
+    - Run `uv run --locked --all-groups pytest tests/test_backup.py -q` for the focused backup suite
     - Use the helpers in this file to create isolated temporary databases and mutate
       backup manifests for restore safety tests
 

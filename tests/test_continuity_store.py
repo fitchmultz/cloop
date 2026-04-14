@@ -14,7 +14,7 @@ Non-scope:
     - Browser-local continuity baseline snapshots.
 
 Usage:
-    Run with `uv run --locked pytest tests/test_continuity_store.py`.
+    Run with `uv run --locked --all-groups pytest tests/test_continuity_store.py`.
 
 Invariants/Assumptions:
     - Tests use isolated SQLite databases via `tmp_data_dir`.

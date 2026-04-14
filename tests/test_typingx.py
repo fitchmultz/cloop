@@ -1,7 +1,7 @@
 """Tests for typingx module."""
 
 import sqlite3
-from typing import Any, Union
+from typing import Any, Union, cast
 
 import pytest
 
@@ -45,7 +45,7 @@ class TestValidateIO:
 
         @typingx.validate_io()
         def get_name() -> str:
-            return 123  # type: ignore[invalid-return-type]
+            return cast(Any, 123)
 
         with pytest.raises(TypeError, match="return value expected"):
             get_name()
@@ -125,7 +125,7 @@ class TestValidateIO:
 
         @typingx.validate_io()
         def get_bad_value() -> Union[str, int]:
-            return [1, 2, 3]  # type: ignore[invalid-return-type]
+            return cast(Any, [1, 2, 3])
 
         with pytest.raises(TypeError, match="return value expected"):
             get_bad_value()
@@ -328,7 +328,7 @@ class TestValidateIO:
 
         @typingx.validate_io()
         def get_bad_items() -> list[str]:
-            return "not a list"  # type: ignore[invalid-return-type]
+            return cast(Any, "not a list")
 
         with pytest.raises(TypeError, match="return value expected"):
             get_bad_items()
@@ -347,7 +347,7 @@ class TestValidateIO:
 
         @typingx.validate_io()
         def get_bad_data() -> dict[str, int]:
-            return [("a", 1)]  # type: ignore[invalid-return-type]
+            return cast(Any, [("a", 1)])
 
         with pytest.raises(TypeError, match="return value expected"):
             get_bad_data()
@@ -376,7 +376,7 @@ class TestValidateIO:
 
         @typingx.validate_io()
         def return_bad_none() -> None:
-            return "not none"  # type: ignore[invalid-return-type]
+            return cast(Any, "not none")
 
         with pytest.raises(TypeError, match="return value expected"):
             return_bad_none()

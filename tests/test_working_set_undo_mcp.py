@@ -14,7 +14,7 @@ Scope:
     - MCP-level working-set tool verification only
 
 Usage:
-    - Run `uv run --locked pytest tests/test_working_set_undo_mcp.py -q`
+    - Run `uv run --locked --all-groups pytest tests/test_working_set_undo_mcp.py -q`
 
 Invariants/Assumptions:
     - Tests use isolated temporary SQLite databases

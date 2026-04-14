@@ -14,6 +14,7 @@
 
 import sqlite3
 from pathlib import Path
+from typing import cast
 
 import pytest
 from conftest import _now_iso
@@ -177,7 +178,11 @@ def test_replace_loop_tags_query_count(
 
         # Replace tags with 10 tags
         tags = [f"tag{i}" for i in range(10)]
-        repo.replace_loop_tags(loop_id=record.id, tag_names=tags, conn=counting_conn)  # type: ignore[invalid-argument-type]
+        repo.replace_loop_tags(
+            loop_id=record.id,
+            tag_names=tags,
+            conn=cast(sqlite3.Connection, counting_conn),
+        )
 
         # With batch operations, we expect:
         # - 1 DELETE loop_tags
