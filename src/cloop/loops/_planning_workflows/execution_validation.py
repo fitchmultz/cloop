@@ -21,7 +21,7 @@ Usage:
     Imported by the planning service before executing a checkpoint.
 
 Invariants/Assumptions:
-    - Non-rollback operations must be the final operations in a checkpoint
+    - Enrichment operations (no checkpoint rollback) must be the final operations
     - Validation errors should surface before any forward mutations occur
 """
 
@@ -121,15 +121,22 @@ def _validate_checkpoint_for_execution(
     conn: sqlite3.Connection,
 ) -> None:
     rollback_unsupported_seen = False
-    for operation in checkpoint.operations:
+    for op_index, operation in enumerate(checkpoint.operations):
         _validate_operation_for_execution(operation=operation, conn=conn)
         if operation.kind in {"enrich_loop", "bulk_enrich_query"}:
             rollback_unsupported_seen = True
             continue
         if rollback_unsupported_seen:
+            op_num = op_index + 1
             raise ValidationError(
                 "checkpoint",
-                "non-rollback planning operations must be the final operations in a checkpoint",
+                (
+                    f"Operation {op_num} ({operation.kind}) cannot follow an enrichment operation: "
+                    "enrich_loop and bulk_enrich_query are not included in checkpoint rollback, "
+                    "so they must be the final operations in this checkpoint. "
+                    "Reorder reversible steps before any enrichment, or end this checkpoint "
+                    "after enrichment."
+                ),
             )
 
 
