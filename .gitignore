@@ -55,7 +55,7 @@ data/
 .claude/
 CLAUDE.md
 .scratchpad.md
-frontend/node_modules/
+node_modules/
 frontend/.vite/
 
 # Editor / OS noise
