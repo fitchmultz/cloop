@@ -33,12 +33,20 @@ from .schemas._loops.continuity import (
     ContinuityNotificationStateUpsertRequest,
 )
 from .storage.continuity_store import (
+    read_continuity_delivery_inspection,
     read_continuity_notification_records,
     read_continuity_snapshot,
     upsert_continuity_notification_state,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _push_channel_has_non_send_continuity_decision(settings: Any) -> bool:
+    """True when continuity evaluated at least one push notification as not sendable."""
+    inspection = read_continuity_delivery_inspection(limit=1, settings=settings, channel="push")
+    return any(decision.reason != "sent" for decision in inspection.decisions)
+
 
 # Optional: VAPID configuration for authenticated push
 # Generate keys with: npx web-push generate-vapid-keys
@@ -90,6 +98,91 @@ def _selected_continuity_notification(
 
     notifications = read_continuity_notification_records(limit=1, settings=settings, channel="push")
     return notifications[0] if notifications else None
+
+
+def _scheduler_fallback_push_payload(
+    event_type: str,
+    event_payload: dict[str, Any],
+) -> PushPayload | None:
+    """Build a Web Push payload from scheduler event data when continuity has no row.
+
+    Continuity notifications stay the preferred source of title/body/deep links.
+    When the delivery contract has nothing sendable yet (common for pure
+    scheduler nudges), still notify subscribed browsers using the scheduler
+    payload so push matches the in-app nudge/review semantics.
+    """
+    if event_type == "nudge_due_soon":
+        details = event_payload.get("details")
+        if not isinstance(details, list) or not details:
+            return None
+        first = details[0]
+        if not isinstance(first, dict):
+            return None
+        loop_id = first.get("id")
+        title_text = str(first.get("title") or "Loop").strip() or "Loop"
+        total = len(details)
+        title = "Due soon" if total == 1 else f"{total} items due soon"
+        if total == 1:
+            body = title_text
+        else:
+            body = f"{title_text} and {total - 1} more need next actions"
+        url = f"/#do/loop/{int(loop_id)}" if isinstance(loop_id, int) else "/#operator"
+        return PushPayload(
+            title=title,
+            body=body,
+            url=url,
+            data={"source": "scheduler_fallback", "loop_id": loop_id},
+        )
+
+    if event_type == "nudge_stale":
+        details = event_payload.get("details")
+        if not isinstance(details, list) or not details:
+            return None
+        first = details[0]
+        if not isinstance(first, dict):
+            return None
+        loop_id = first.get("id")
+        title_text = str(first.get("title") or "Loop").strip() or "Loop"
+        total = len(details)
+        title = "Stale loops" if total > 1 else "Stale loop"
+        body = (
+            f"{title_text} has not been updated"
+            if total == 1
+            else f"{title_text} and {total - 1} more need attention"
+        )
+        url = f"/#do/loop/{int(loop_id)}" if isinstance(loop_id, int) else "/#operator"
+        return PushPayload(
+            title=title,
+            body=body,
+            url=url,
+            data={"source": "scheduler_fallback", "loop_id": loop_id},
+        )
+
+    if event_type == "review_generated":
+        total_items = event_payload.get("total_items")
+        if not isinstance(total_items, int) or total_items <= 0:
+            return None
+        review_type = event_payload.get("review_type")
+        if review_type == "weekly":
+            title = "Weekly review ready"
+        elif review_type == "daily":
+            title = "Daily review ready"
+        else:
+            title = "Review snapshot ready"
+        suffix = "item" if total_items == 1 else "items"
+        body = f"{total_items} cohort {suffix} to triage"
+        return PushPayload(
+            title=title,
+            body=body,
+            url="/#review",
+            data={
+                "source": "scheduler_fallback",
+                "review_type": review_type,
+                "total_items": total_items,
+            },
+        )
+
+    return None
 
 
 def _continuity_push_payload(
@@ -210,7 +303,16 @@ def send_scheduler_push(
                 delivery_status="skipped",
                 delivery_reason="notification_missing",
             )
-        return SchedulerPushResult(push_count=0, delivery_status="skipped")
+        if _push_channel_has_non_send_continuity_decision(settings):
+            return SchedulerPushResult(push_count=0, delivery_status="skipped")
+        fallback_payload = _scheduler_fallback_push_payload(event_type, event_payload)
+        if fallback_payload is None:
+            return SchedulerPushResult(push_count=0, delivery_status="skipped")
+        fallback_payload.data = {**(fallback_payload.data or {}), "event_type": event_type}
+        sent = send_push_notification(fallback_payload, settings, conn)
+        if sent > 0:
+            return SchedulerPushResult(push_count=sent, delivery_status="sent")
+        return SchedulerPushResult(push_count=0, delivery_status="no_recipients")
 
     notification_id, continuity_payload = continuity_notification
     continuity_payload.data = {

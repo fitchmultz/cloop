@@ -99,6 +99,7 @@ def _setup_test_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
     monkeypatch.setenv("CLOOP_PI_MODEL", "mock-llm")
     monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "mock-organizer")
+    monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_TTL_SECONDS", "86400")
     monkeypatch.setenv("CLOOP_IDEMPOTENCY_MAX_KEY_LENGTH", "255")
     get_settings.cache_clear()

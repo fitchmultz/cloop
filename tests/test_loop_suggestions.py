@@ -1060,6 +1060,8 @@ class TestClarificationLifecycle:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             monkeypatch.setenv("CLOOP_DATA_DIR", tmp_dir)
+            monkeypatch.setenv("CLOOP_EMBED_MODEL", "mock-embed")
+            monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "true")
             get_settings.cache_clear()
             settings = get_settings()
             db.init_databases(settings)
