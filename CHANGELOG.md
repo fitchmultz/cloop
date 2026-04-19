@@ -7,6 +7,9 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Fixed
+- Isolated-db MCP and clarification API tests pin `CLOOP_EMBED_MODEL=mock-embed` and enable autopilot for the refine path so `make check-fast` / `make ci` match tmp-data-dir fixtures when the host defaults to an unconfigured Ollama embed model.
+
 ### Added
 - Full CI workflow split with separate PR-fast (`ci.yml`) and main/nightly (`ci_full.yml`) gates.
 - Coverage command and artifact pipeline (`make test-cov`, `coverage.xml` upload in full CI).
