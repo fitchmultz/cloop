@@ -672,3 +672,76 @@ def test_planning_session_rollback_cleans_auto_attached_review_queue_membership(
             working_set_id=working_set["id"], conn=conn
         )
         assert cleaned_working_set["items"] == []
+
+
+def test_planning_checkpoint_rejects_operations_after_enrichment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Enrichment ops are not rollback participants and must end the checkpoint."""
+    settings = _setup_settings(tmp_path, monkeypatch)
+
+    with db.core_connection(settings) as conn:
+        loop = _capture_loop("Enrichment ordering probe", status=LoopStatus.ACTIONABLE, conn=conn)
+        loop_id = int(loop["id"])
+
+    bad_order_payload = {
+        "title": "Invalid enrichment ordering",
+        "summary": "Enrichment must not precede reversible mutations in one checkpoint.",
+        "assumptions": [],
+        "checkpoints": [
+            {
+                "title": "Enrich then mutate",
+                "summary": "Planner error: update after enrich_loop.",
+                "success_criteria": "Validation should block before execution.",
+                "operations": [
+                    {
+                        "kind": "enrich_loop",
+                        "summary": "Run organizer enrichment first.",
+                        "loop_id": loop_id,
+                    },
+                    {
+                        "kind": "update_loop",
+                        "summary": "Mutate after enrichment (invalid).",
+                        "loop_id": loop_id,
+                        "fields": {"next_action": "Should be before enrich"},
+                    },
+                ],
+            }
+        ],
+    }
+
+    monkeypatch.setattr(
+        "cloop.loops.planning_workflows.chat_completion",
+        lambda *args, **kwargs: (
+            json.dumps(bad_order_payload),
+            {"model": "mock-llm", "latency_ms": 0.0, "usage": {}},
+        ),
+    )
+
+    with db.core_connection(settings) as conn:
+        snapshot = planning_workflows.create_planning_session(
+            name="enrich-order-plan",
+            prompt="Exercise checkpoint ordering validation.",
+            query="status:open",
+            loop_limit=10,
+            include_memory_context=True,
+            include_rag_context=False,
+            rag_k=5,
+            rag_scope=None,
+            conn=conn,
+            settings=settings,
+        )
+        session_id = int(snapshot["session"]["id"])
+
+        with pytest.raises(ValidationError) as exc_info:
+            planning_workflows.execute_planning_session_checkpoint(
+                session_id=session_id,
+                conn=conn,
+                settings=settings,
+            )
+
+        msg = exc_info.value.message
+        assert "Operation 2 (update_loop)" in msg
+        assert "not included in checkpoint rollback" in msg
+        assert repo.list_planning_session_runs(session_id=session_id, conn=conn) == []
