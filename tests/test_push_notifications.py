@@ -251,6 +251,69 @@ class TestPushSender:
         assert isinstance(state_payload, ContinuityNotificationStateUpsertRequest)
         assert state_payload.inboxed_at_utc is not None
 
+    def test_send_scheduler_push_fallback_when_no_continuity_record_due_soon(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Due-soon scheduler push still delivers when continuity has no notification row."""
+        settings = get_settings()
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_notification_records", lambda **kwargs: []
+        )
+
+        def _capture(payload: PushPayload, settings_arg, conn_arg) -> int:
+            captured["payload"] = payload
+            return 1
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture)
+        result = send_scheduler_push(
+            "nudge_due_soon",
+            {"details": [{"id": 7, "title": "Ship patch", "is_overdue": False}]},
+            settings,
+            push_db,
+        )
+        assert result.push_count == 1
+        assert result.delivery_status == "sent"
+        p = captured["payload"]
+        assert isinstance(p, PushPayload)
+        assert p.title == "Due soon"
+        assert p.body == "Ship patch"
+        assert p.url == "/#do/loop/7"
+        assert isinstance(p.data, dict)
+        assert p.data.get("event_type") == "nudge_due_soon"
+        assert p.data.get("source") == "scheduler_fallback"
+
+    def test_send_scheduler_push_fallback_review_generated(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_notification_records", lambda **kwargs: []
+        )
+
+        def _capture(payload: PushPayload, settings_arg, conn_arg) -> int:
+            captured["payload"] = payload
+            return 1
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture)
+        result = send_scheduler_push(
+            "review_generated",
+            {"review_type": "daily", "total_items": 3, "cohorts": []},
+            settings,
+            push_db,
+        )
+        assert result.push_count == 1
+        p = captured["payload"]
+        assert isinstance(p, PushPayload)
+        assert p.title == "Daily review ready"
+        assert p.body == "3 cohort items to triage"
+        assert p.url == "/#review"
+        assert p.data is not None
+        assert p.data.get("event_type") == "review_generated"
+
     def test_send_scheduler_push_marks_missing_preselected_notification(
         self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:

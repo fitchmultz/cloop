@@ -9,6 +9,11 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Fixed
 - Isolated-db MCP and clarification API tests pin `CLOOP_EMBED_MODEL=mock-embed` and enable autopilot for the refine path so `make check-fast` / `make ci` match tmp-data-dir fixtures when the host defaults to an unconfigured Ollama embed model.
+- Scheduler Web Push now sends when the continuity feed has no sendable notification (due-soon/stale nudges and review snapshots use a structured fallback payload).
+- Scheduler push fallback no longer bypasses push-channel continuity cooldown when a notification exists but is not sendable yet.
+- Service worker push handler reads top-level `url` from the server JSON so notification clicks open the correct shell hash.
+- MCP tests pin `CLOOP_EMBED_MODEL=mock-embed` when bootstrapping an isolated DB so `make ci` matches tmp-data-dir fixtures.
+- Clarification refine API test enables autopilot for the isolated DB so organizer suggestions apply fields the same way as tmp-data-dir fixtures.
 
 ### Added
 - Full CI workflow split with separate PR-fast (`ci.yml`) and main/nightly (`ci_full.yml`) gates.

@@ -173,7 +173,7 @@ def send_scheduler_push_once(
         conn=conn,
         notification_id=notification.id if notification is not None else None,
         workflow_thread_id=notification.workflow_thread.id if notification is not None else None,
-        delivery_status="claimed" if notification is not None else "skipped",
+        delivery_status="claimed",
     )
     if not claimed:
         row = conn.execute(
@@ -185,9 +185,6 @@ def send_scheduler_push_once(
             (context.task_name, context.slot_key, push_kind),
         ).fetchone()
         return int(row["push_count"] or 0) if row is not None else 0
-
-    if notification is None:
-        return 0
 
     scheduler_push_store.mark_scheduler_push_attempt(
         task_name=context.task_name,
@@ -205,8 +202,8 @@ def send_scheduler_push_once(
         push_count=result.push_count,
         completed_at=utc_now(),
         conn=conn,
-        notification_id=notification.id,
-        workflow_thread_id=notification.workflow_thread.id,
+        notification_id=notification.id if notification is not None else None,
+        workflow_thread_id=notification.workflow_thread.id if notification is not None else None,
         delivery_status=result.delivery_status,
         delivery_reason=result.delivery_reason,
     )
