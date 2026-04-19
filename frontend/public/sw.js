@@ -71,13 +71,20 @@ self.addEventListener("sync", (event) => {
 
 // Push notifications for due loops
 self.addEventListener("push", (event) => {
-  const data = event.data?.json() ?? {};
+  const raw = event.data?.json() ?? {};
+  const nested = raw.data && typeof raw.data === "object" ? raw.data : {};
+  const targetUrl =
+    typeof raw.url === "string" && raw.url.trim()
+      ? raw.url
+      : typeof nested.url === "string" && nested.url.trim()
+        ? nested.url
+        : "/";
   event.waitUntil(
-    self.registration.showNotification(data.title || "Loop Due", {
-      body: data.body || "You have a loop due soon",
+    self.registration.showNotification(raw.title || "Loop Due", {
+      body: raw.body || "You have a loop due soon",
       icon: "/static/icons/icon-192.png",
       badge: "/static/icons/icon-192.png",
-      data: { url: data.url || "/" },
+      data: { ...nested, url: targetUrl },
     })
   );
 });

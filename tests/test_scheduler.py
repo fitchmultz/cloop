@@ -376,13 +376,21 @@ class TestSchedulerState:
         assert row["send_completed_at"] is None
         assert row["push_count"] == 0
 
-    def test_same_slot_push_without_sendable_notification_is_marked_skipped(
+    def test_same_slot_push_without_sendable_notification_still_invokes_sender(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """When continuity has no sendable row, scheduler push still runs the transport sender."""
         monkeypatch.setattr(
             "cloop._scheduler.side_effects.read_continuity_notification_records",
             lambda **kwargs: [],
         )
+
+        def _fallback_send(push_kind, payload, settings, conn):  # noqa: ANN001
+            assert push_kind == "review_generated"
+            assert "total_items" in payload
+            return SchedulerPushResult(push_count=1, delivery_status="sent")
+
+        monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _fallback_send)
         context = SchedulerRunContext(
             task_name="daily_review",
             slot_key="2026-03-13",
@@ -393,7 +401,7 @@ class TestSchedulerState:
 
         push_count = _send_scheduler_push_once(
             push_kind="review_generated",
-            payload={"review_type": "daily"},
+            payload={"review_type": "daily", "total_items": 2, "cohorts": []},
             context=context,
             conn=scheduler_db,
         )
@@ -407,15 +415,15 @@ class TestSchedulerState:
             """,
             ("daily_review", "2026-03-13", "review_generated"),
         ).fetchone()
-        assert push_count == 0
+        assert push_count == 1
         assert row is not None
         assert row["notification_id"] is None
         assert row["workflow_thread_id"] is None
-        assert row["delivery_status"] == "skipped"
+        assert row["delivery_status"] == "sent"
         assert row["claimed_at"] is not None
-        assert row["send_started_at"] is None
+        assert row["send_started_at"] is not None
         assert row["send_completed_at"] is not None
-        assert row["push_count"] == 0
+        assert row["push_count"] == 1
 
     def test_same_slot_push_with_missing_selected_notification_records_terminal_reason(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
