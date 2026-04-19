@@ -65,3 +65,9 @@ frontend/.vite/
 *.log
 .playwright-cli/
 output
+
+# Ralph debug logs (raw/unredacted; do not commit)
+.ralph/logs/
+
+# Ralph parallel mode workspace directories
+.ralph/workspaces/
