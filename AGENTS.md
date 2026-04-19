@@ -65,6 +65,7 @@ Local-first FastAPI service for private chat, RAG, and loop/task management. All
 - When Cloop needs explicit pi selector defaults, keep `src/cloop/settings.py`, `.env.example`, local `.env` guidance, and public docs aligned on the current project preference order (`zai/glm-5`, then `kimi-coding/k2p5`, then `openai-codex/gpt-5.4`) and the current selector-resolution contract (comma-separated ordered preferences plus `CLOOP_PI_SELECTOR_MODE={fallback|exact}`); still allow any pi-supported selector override
 - When updating `docs/roadmap.md`, prefer larger end-to-end slices that combine tightly coupled contract, storage, transport, and policy work; do not split one churn-prone lane into micro-items unless the cuts are truly independent.
 - Do not ask whether to commit/push obvious follow-up cleanup; proceed.
+- **GitHub PRs for Cursor automations**: Create new PRs as **ready for review**, not draft, so repo automations run. When those checks are **green** and **nothing is still running**, the PR is OK to **merge to `main`**.
 - For any task that requires visual inspection, explicitly note that `agent-browser` should be used for the inspection and capture.
 
 ## Non-Obvious Patterns
