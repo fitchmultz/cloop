@@ -13,7 +13,10 @@
  *   - Frontend OpenAPI type generation only.
  *
  * Usage:
- *   - Run `pnpm run generate:contracts` from `frontend/`.
+ *   - CI and `make` targets refresh contracts via `frontend/src/generated/types.gen.ts` in the
+ *     root `Makefile` (deduped), then run plain `pnpm run typecheck|build|test`.
+ *   - Run `pnpm run generate:contracts` from `frontend/` when intentionally updating contracts
+ *     outside `make` (for example after OpenAPI-affecting backend edits).
  *
  * Invariants/Assumptions:
  *   - `openapi.json` is refreshed before this config runs.

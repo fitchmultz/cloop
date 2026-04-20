@@ -69,20 +69,30 @@ frontend-lock-check:
 	test -f frontend/pnpm-lock.yaml
 	$(PNPM_FRONTEND) install --frozen-lockfile
 
+# Regenerate once per `make` graph: concrete output lets Make dedupe across
+# frontend-type / frontend-build / frontend-test instead of re-running a .PHONY prerequisite.
+FRONTEND_CONTRACTS_GEN := $(PNPM_FRONTEND) run generate:contracts
+FRONTEND_CONTRACTS_MARKER := frontend/src/generated/types.gen.ts
+FRONTEND_OPENAPI_EXPORTER := scripts/export_frontend_openapi.py
+
+$(FRONTEND_CONTRACTS_MARKER): frontend-lock-check $(FRONTEND_OPENAPI_EXPORTER) frontend/openapi-ts.config.ts
+	$(FRONTEND_CONTRACTS_GEN)
+
+.PHONY: frontend-contracts
 frontend-contracts: frontend-lock-check
-	$(PNPM_FRONTEND) generate:contracts
+	$(FRONTEND_CONTRACTS_GEN)
 
-frontend-type: frontend-contracts
-	$(PNPM_FRONTEND) typecheck
+frontend-type: $(FRONTEND_CONTRACTS_MARKER)
+	$(PNPM_FRONTEND) run typecheck
 
-frontend-test: frontend-contracts
-	@set -e; $(RUNTIME_CLEANUP_WRAP) $(PNPM_FRONTEND) test
+frontend-test: $(FRONTEND_CONTRACTS_MARKER)
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(PNPM_FRONTEND) run test
 
-frontend-build: frontend-contracts
-	$(PNPM_FRONTEND) build
+frontend-build: $(FRONTEND_CONTRACTS_MARKER)
+	$(PNPM_FRONTEND) run build
 
-frontend-dev: frontend-contracts
-	$(PNPM_FRONTEND) dev
+frontend-dev: $(FRONTEND_CONTRACTS_MARKER)
+	$(PNPM_FRONTEND) run dev
 
 reset-local-data:
 	rm -rf $(DEFAULT_LOCAL_DATA_DIR)
