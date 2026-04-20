@@ -26,6 +26,7 @@
  */
 
 import type { RecallTool, ReviewFocus, ShellLocationContract, ShellState } from "./contracts-ui";
+import { coerceJsonInteger } from "./coerce-json-integer";
 import { escapeHtml, safeJsonParse, SHELL_LOCATION_STORAGE_KEY } from "./shell-core";
 import type { ShellLocation, ShellLocationInput, StateDescriptor } from "./shell-types";
 
@@ -297,14 +298,11 @@ export function normalizeLocation(value: Partial<ShellLocationInput>): ShellLoca
     state,
     recallTool,
     reviewFocus,
-    sessionId: typeof value.sessionId === "number" && Number.isInteger(value.sessionId) ? value.sessionId : null,
-    loopId: typeof value.loopId === "number" && Number.isInteger(value.loopId) ? value.loopId : null,
-    viewId: typeof value.viewId === "number" && Number.isInteger(value.viewId) ? value.viewId : null,
-    memoryId: typeof value.memoryId === "number" && Number.isInteger(value.memoryId) ? value.memoryId : null,
-    workingSetId:
-      typeof value.workingSetId === "number" && Number.isInteger(value.workingSetId)
-        ? value.workingSetId
-        : null,
+    sessionId: coerceJsonInteger(value.sessionId),
+    loopId: coerceJsonInteger(value.loopId),
+    viewId: coerceJsonInteger(value.viewId),
+    memoryId: coerceJsonInteger(value.memoryId),
+    workingSetId: coerceJsonInteger(value.workingSetId),
     query: typeof value.query === "string" && value.query.trim() ? value.query.trim() : null,
     includeLoopContext: typeof value.includeLoopContext === "boolean" ? value.includeLoopContext : null,
     includeMemoryContext: typeof value.includeMemoryContext === "boolean" ? value.includeMemoryContext : null,

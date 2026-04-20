@@ -86,6 +86,7 @@ import {
 } from "./continuity-card-helpers";
 import { summarizeCohortDrift } from "./continuity-drift";
 import { formatRelativeTime, formatTimestamp, loopPreview, loopTitle } from "./shell-core";
+import { launchSurfaceToLocation, launchSurfaceWorkingSetId } from "./launch-surface-web";
 import { createLocation, locationsMatch } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
 import type { DecisionSessionSnapshot, PrioritizedCard, ShellElements, ShellLocation, WorkspaceData } from "./shell-types";
@@ -132,32 +133,6 @@ export function createShellOperatorCardRenderer(
 
   function focusModeActiveSet(): WorkingSetResponse | null {
     return options.focusModeActiveSet();
-  }
-
-  function integerValue(value: unknown): number | null {
-    if (typeof value === "number" && Number.isInteger(value)) {
-      return value;
-    }
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Number.parseInt(value, 10);
-      return Number.isInteger(parsed) ? parsed : null;
-    }
-    return null;
-  }
-
-  function launchSurfaceWeb(
-    surface: PlanningExecutionLaunchSurfaceResponse | null | undefined,
-  ): Record<string, unknown> | null {
-    const webValue = surface?.web;
-    return webValue && typeof webValue === "object"
-      ? (webValue as Record<string, unknown>)
-      : null;
-  }
-
-  function launchSurfaceWorkingSetId(
-    surface: PlanningExecutionLaunchSurfaceResponse | null | undefined,
-  ): number | null {
-    return integerValue(launchSurfaceWeb(surface)?.["working_set_id"]);
   }
 
   function locationWithFallbackWorkingSet(location: ShellLocation, workingSetId: number | null): ShellLocation {
@@ -221,32 +196,6 @@ export function createShellOperatorCardRenderer(
         workingSet,
       },
     };
-  }
-
-  function launchSurfaceToLocation(surface: PlanningExecutionLaunchSurfaceResponse): ShellLocation | null {
-    const web = launchSurfaceWeb(surface);
-    const reviewKind = typeof web?.["review_kind"] === "string" ? web["review_kind"] : null;
-    const sessionId = integerValue(web?.["session_id"]);
-    const workingSetId = launchSurfaceWorkingSetId(surface);
-
-    if (web?.["surface"] === "review_session" && reviewKind === "relationship") {
-      return createLocation({ state: "decide", reviewFocus: "relationship", sessionId, workingSetId });
-    }
-    if (web?.["surface"] === "review_session" && reviewKind === "enrichment") {
-      return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId, workingSetId });
-    }
-    if (web?.["surface"] === "recall_chat") {
-      return createLocation({
-        state: "recall",
-        recallTool: "chat",
-        workingSetId,
-        query: typeof web["query"] === "string" ? web["query"] : null,
-        includeLoopContext: typeof web["include_loop_context"] === "boolean" ? web["include_loop_context"] : null,
-        includeMemoryContext: typeof web["include_memory_context"] === "boolean" ? web["include_memory_context"] : null,
-        includeRagContext: typeof web["include_rag_context"] === "boolean" ? web["include_rag_context"] : null,
-      });
-    }
-    return null;
   }
 
   function filterCardsForFocus(cards: OperatorActionCard[]): OperatorActionCard[] {
