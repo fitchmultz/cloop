@@ -14,6 +14,9 @@ Scope:
 
 Usage:
     - uv run python scripts/export_frontend_openapi.py
+    - Root `Makefile` treats this script (plus `frontend/openapi-ts.config.ts`) as inputs to
+      `frontend/src/generated/types.gen.ts`; run `make frontend-contracts` to force a refresh
+      when backend OpenAPI changes without touching those files.
 
 Invariants/Assumptions:
     - The frontend workspace exists at repo root as frontend/.

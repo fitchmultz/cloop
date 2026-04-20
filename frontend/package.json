@@ -10,10 +10,10 @@
   "scripts": {
     "generate:openapi": "sh -c 'cd .. && uv run --locked python scripts/export_frontend_openapi.py'",
     "generate:contracts": "pnpm run generate:openapi && rm -rf ./src/generated && openapi-ts --file ./openapi-ts.config.ts && rm -f ./src/generated/index.ts",
-    "dev": "pnpm run generate:contracts && vite",
-    "typecheck": "pnpm run generate:contracts && tsc --noEmit",
-    "build": "pnpm run generate:contracts && vite build",
-    "test": "pnpm run generate:contracts && vitest run --passWithNoTests",
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
+    "test": "vitest run --passWithNoTests",
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "devDependencies": {
