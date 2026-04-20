@@ -1,4 +1,18 @@
-"""Continuity outcome persistence and resume resolution."""
+"""Continuity outcome persistence and resume resolution.
+
+Purpose:
+    Land high-signal continuity outcomes with dedupe-aware writes and resolve
+    resume targets against current durable resources.
+
+Responsibilities:
+    - Insert or short-window update continuity outcomes by dedupe key
+    - Enrich outcome lists with successor provenance for stale paths
+    - Validate locations against existing loops, sessions, and working sets
+
+Non-scope:
+    - Frontend ranking of follow-through cards or command palette UX
+    - Idempotency key generation at HTTP or MCP transport boundaries
+"""
 
 from __future__ import annotations
 

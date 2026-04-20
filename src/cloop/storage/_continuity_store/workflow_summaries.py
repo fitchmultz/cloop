@@ -1,4 +1,18 @@
-"""Backend-authored continuity workflow summaries."""
+"""Backend-authored continuity workflow summaries.
+
+Purpose:
+    Build backend-shaped workflow summary cards from durable continuity rows
+    for consistent operator hydration.
+
+Responsibilities:
+    - Derive workflow summary candidates from outcomes and markers
+    - Deduplicate and rank summaries for snapshot inclusion
+    - Attach drift and recovery signals used by the continuity contract
+
+Non-scope:
+    - Writing continuity outcomes or mutating review/plan session state
+    - LiteLLM or pi-backed narrative generation for summaries
+"""
 
 from __future__ import annotations
 

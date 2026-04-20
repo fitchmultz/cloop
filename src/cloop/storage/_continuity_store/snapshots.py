@@ -1,4 +1,19 @@
-"""Durable continuity snapshot assembly for frontend hydration."""
+"""Durable continuity snapshot assembly for frontend hydration.
+
+Purpose:
+    Assemble a single continuity snapshot payload from durable SQLite rows for
+    operator shell hydration.
+
+Responsibilities:
+    - Join outcomes, workflow summaries, markers, acknowledgements, and
+      notification state within snapshot budgets
+    - Delegate delivery evaluation to shared delivery helpers
+    - Expose read paths used by the public continuity storage facade
+
+Non-scope:
+    - Browser-local continuity baselines or offline caches
+    - Mutating continuity rows beyond delegated upsert entrypoints
+"""
 
 from __future__ import annotations
 

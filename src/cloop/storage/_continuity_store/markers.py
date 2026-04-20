@@ -1,4 +1,18 @@
-"""Durable continuity last-seen markers and recovery acknowledgements."""
+"""Durable continuity last-seen markers and recovery acknowledgements.
+
+Purpose:
+    Persist operator-visible continuity markers and explicit recovery
+    acknowledgements for cross-device continuity alignment.
+
+Responsibilities:
+    - Upsert last-seen fingerprints keyed by entity kind/key
+    - Upsert recovery acknowledgement payloads tied to continuity targets
+    - Deserialize marker rows for snapshot and delivery helpers
+
+Non-scope:
+    - Continuity outcome landing or workflow summary synthesis
+    - Push notification send orchestration
+"""
 
 from __future__ import annotations
 

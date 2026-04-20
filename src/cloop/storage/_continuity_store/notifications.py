@@ -1,4 +1,18 @@
-"""Durable continuity notification delivery state."""
+"""Durable continuity notification delivery state.
+
+Purpose:
+    Track durable notification delivery lifecycle rows used by continuity
+    hydration and push selection.
+
+Responsibilities:
+    - Upsert continuity notification state from operator clients
+    - Read notification state rows for snapshots and delivery inspection
+    - Classify lifecycle transitions for stale or superseded notifications
+
+Non-scope:
+    - Actually sending push notifications or webhooks
+    - Scheduler task execution beyond continuity-specific push metadata
+"""
 
 from __future__ import annotations
 

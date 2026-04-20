@@ -1,4 +1,18 @@
-"""Continuity delivery inspection, cursors, and push selection substrate."""
+"""Continuity delivery inspection, cursors, and push selection substrate.
+
+Purpose:
+    Project bounded delivery decisions for diagnostics and scheduler push
+    selection without changing continuity write semantics.
+
+Responsibilities:
+    - Encode and decode opaque delivery inspection cursors
+    - Walk high-signal outcomes within scan budgets for push/delivery views
+    - Apply in-memory dedupe for notification delivery projections where needed
+
+Non-scope:
+    - Persisting landed continuity outcomes or notification inbox rows
+    - HTTP transport shaping for continuity debug endpoints
+"""
 
 from __future__ import annotations
 
