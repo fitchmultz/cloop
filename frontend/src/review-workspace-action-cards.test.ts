@@ -27,9 +27,11 @@ import type {
   WorkingSetResponse,
 } from "./domain";
 import type { TrustSurfaceMetadata } from "./contracts-ui";
+import type { PlanningExecutionHistoryItemResponse, PlanningExecutionLaunchSurfaceResponse } from "./domain";
 import {
   buildEnrichmentSuggestionCard,
   buildPlanningExecutionReceiptCard,
+  buildPlanningLaunchSurfaceCard,
   buildRelationshipImpactCard,
 } from "./review-workspace-action-cards";
 
@@ -302,5 +304,47 @@ describe("review-workspace-action-cards", () => {
     expect(card.actions.some((action) => action.type === "open")).toBe(true);
     expect(card.actions.some((action) => action.type === "rerun")).toBe(true);
     expect(card.actions.some((action) => action.type === "undo")).toBe(true);
+  });
+
+  it("builds planning launch cards with string session and working-set ids in the web payload", () => {
+    const surface: PlanningExecutionLaunchSurfaceResponse = {
+      resource_type: "review_session",
+      resource_id: 55,
+      surface: "review_session",
+      label: "Relationship queue",
+      reason: "Continue review",
+      web: {
+        surface: "review_session",
+        review_kind: "relationship",
+        session_id: "55",
+        working_set_id: "7",
+      },
+    } as PlanningExecutionLaunchSurfaceResponse;
+    const latestExecution = {
+      checkpoint_index: 0,
+      checkpoint_title: "Checkpoint",
+      operation_count: 1,
+      executed_at_utc: "2026-03-19T16:30:00Z",
+      follow_up_resources: [],
+      rollback_cues: null,
+    } as unknown as PlanningExecutionHistoryItemResponse;
+
+    const card = buildPlanningLaunchSurfaceCard(
+      surface,
+      latestExecution,
+      {
+        breadcrumbPrefix: ["Home", "Review"],
+        fallbackWorkingSetId: 1,
+        workingSets,
+        sessionName: "Weekly reset",
+      },
+    );
+    expect(card).not.toBeNull();
+    const open = card!.actions.find((action) => action.type === "open" && action.label === "Open next queue");
+    expect(open && open.type === "open").toBe(true);
+    if (open && open.type === "open") {
+      expect(open.location.sessionId).toBe(55);
+      expect(open.location.workingSetId).toBe(7);
+    }
   });
 });

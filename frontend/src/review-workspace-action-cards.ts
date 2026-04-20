@@ -46,10 +46,10 @@ import type {
   RelationshipReviewSessionSnapshotResponse,
   WorkingSetResponse,
 } from "./domain";
+import { launchSurfaceToLocation, launchSurfaceWorkingSetId } from "./launch-surface-web";
 import {
   buildFollowUpResourceHandoff,
   buildLaunchSurfaceHandoff,
-  launchSurfaceWorkingSetId,
   resolveWorkingSetSessionMetadata,
   type ReviewWorkspaceHandoffContext,
 } from "./review-workspace-handoffs";
@@ -128,37 +128,6 @@ function eventActionWithIntegerAttributes(
 
 function workingSetHandoff(context: ReviewWorkspaceHandoffContext) {
   return resolveWorkingSetSessionMetadata(context.workingSets, context.fallbackWorkingSetId);
-}
-
-function launchSurfaceToLocation(
-  surface: PlanningExecutionLaunchSurfaceResponse,
-  fallbackWorkingSetId: number | null,
-): ShellLocationContract | null {
-  const web = surface.web && typeof surface.web === "object"
-    ? surface.web as Record<string, unknown>
-    : null;
-  const reviewKind = typeof web?.["review_kind"] === "string" ? web["review_kind"] : null;
-  const sessionId = typeof web?.["session_id"] === "number" ? web["session_id"] : null;
-  const workingSetId = launchSurfaceWorkingSetId(surface, fallbackWorkingSetId);
-
-  if (web?.["surface"] === "review_session" && reviewKind === "relationship") {
-    return createLocation({ state: "decide", reviewFocus: "relationship", sessionId, workingSetId });
-  }
-  if (web?.["surface"] === "review_session" && reviewKind === "enrichment") {
-    return createLocation({ state: "decide", reviewFocus: "enrichment", sessionId, workingSetId });
-  }
-  if (web?.["surface"] === "recall_chat") {
-    return createLocation({
-      state: "recall",
-      recallTool: "chat",
-      workingSetId,
-      query: typeof web["query"] === "string" ? web["query"] : null,
-      includeLoopContext: typeof web["include_loop_context"] === "boolean" ? web["include_loop_context"] : null,
-      includeMemoryContext: typeof web["include_memory_context"] === "boolean" ? web["include_memory_context"] : null,
-      includeRagContext: typeof web["include_rag_context"] === "boolean" ? web["include_rag_context"] : null,
-    });
-  }
-  return null;
 }
 
 export function planningExecutionSummary(
@@ -306,9 +275,9 @@ export function buildPlanningExecutionSummaryCard(
     sessionId: snapshot.session.id,
     workingSetId: context.fallbackWorkingSetId,
   });
-  const primarySurface = (latestExecution.launch_surfaces ?? []).find((surface) => launchSurfaceToLocation(surface, context.fallbackWorkingSetId) != null) ?? null;
+  const primarySurface = (latestExecution.launch_surfaces ?? []).find((surface) => launchSurfaceToLocation(surface, { fallbackWorkingSetId: context.fallbackWorkingSetId }) != null) ?? null;
   const primaryLocation = primarySurface
-    ? (launchSurfaceToLocation(primarySurface, context.fallbackWorkingSetId) ?? planLocation)
+    ? (launchSurfaceToLocation(primarySurface, { fallbackWorkingSetId: context.fallbackWorkingSetId }) ?? planLocation)
     : planLocation;
 
   return withRecovery({
@@ -367,7 +336,7 @@ export function buildPlanningLaunchSurfaceCard(
   context: ReviewWorkspaceHandoffContext & { sessionName: string },
   options: ActionCardRecoveryInput = {},
 ): OperatorActionCard | null {
-  const location = launchSurfaceToLocation(surface, context.fallbackWorkingSetId);
+  const location = launchSurfaceToLocation(surface, { fallbackWorkingSetId: context.fallbackWorkingSetId });
   if (!location) {
     return null;
   }
@@ -423,7 +392,7 @@ export function buildPlanningFollowUpResourceCard(
   options: ActionCardRecoveryInput = {},
 ): OperatorActionCard {
   const location = resource.launch_surface
-    ? launchSurfaceToLocation(resource.launch_surface, context.fallbackWorkingSetId)
+    ? launchSurfaceToLocation(resource.launch_surface, { fallbackWorkingSetId: context.fallbackWorkingSetId })
     : null;
   const handoff = buildFollowUpResourceHandoff(resource, {
     breadcrumbPrefix: [...context.breadcrumbPrefix, context.sessionName],
@@ -759,10 +728,10 @@ export function buildPlanningExecutionReceiptCard(options: {
   recovery?: ContinuityRecoveryPlan | null;
 }): OperatorActionCard {
   const primarySurface = (options.latestExecution.launch_surfaces ?? []).find(
-    (surface) => launchSurfaceToLocation(surface, options.context.fallbackWorkingSetId) != null,
+    (surface) => launchSurfaceToLocation(surface, { fallbackWorkingSetId: options.context.fallbackWorkingSetId }) != null,
   ) ?? null;
   const resumeLocation = primarySurface
-    ? (launchSurfaceToLocation(primarySurface, options.context.fallbackWorkingSetId) ?? createLocation({
+    ? (launchSurfaceToLocation(primarySurface, { fallbackWorkingSetId: options.context.fallbackWorkingSetId }) ?? createLocation({
         state: "plan",
         reviewFocus: "planning",
         sessionId: options.snapshot.session.id,

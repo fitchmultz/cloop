@@ -29,22 +29,14 @@ import type {
   PlanningExecutionLaunchSurfaceResponse,
   WorkingSetResponse,
 } from "./domain";
+import { launchSurfaceWorkingSetId } from "./launch-surface-web";
+
+export { launchSurfaceWorkingSetId };
 
 export interface ReviewWorkspaceHandoffContext {
   breadcrumbPrefix: string[];
   fallbackWorkingSetId: number | null;
   workingSets: readonly WorkingSetResponse[];
-}
-
-function webWorkingSetId(
-  surface: PlanningExecutionLaunchSurfaceResponse | null | undefined,
-): number | null {
-  const web = surface?.web;
-  if (!web || typeof web !== "object") {
-    return null;
-  }
-  const value = web["working_set_id"];
-  return typeof value === "number" && Number.isInteger(value) ? value : null;
 }
 
 export function resolveWorkingSetSessionMetadata(
@@ -64,13 +56,6 @@ export function resolveWorkingSetSessionMetadata(
     itemCount: workingSet.item_count,
     missingItemCount: workingSet.missing_item_count,
   };
-}
-
-export function launchSurfaceWorkingSetId(
-  surface: PlanningExecutionLaunchSurfaceResponse | null | undefined,
-  fallbackWorkingSetId: number | null,
-): number | null {
-  return webWorkingSetId(surface) ?? fallbackWorkingSetId;
 }
 
 export function buildLaunchSurfaceHandoff(

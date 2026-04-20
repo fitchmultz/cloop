@@ -136,7 +136,10 @@ function makeWorkingSetContext(
 function makeExecution(
   workingSetId: number,
   sessionId = 27,
+  stringifyWebIds = false,
 ): PlanningExecutionHistoryItemResponse {
+  const webSessionId = stringifyWebIds ? String(sessionId) : sessionId;
+  const webWorkingSetId = stringifyWebIds ? String(workingSetId) : workingSetId;
   return {
     run_id: 44,
     checkpoint_index: 0,
@@ -181,8 +184,8 @@ function makeExecution(
           web: {
             surface: "review_session",
             review_kind: "enrichment",
-            session_id: sessionId,
-            working_set_id: workingSetId,
+            session_id: webSessionId,
+            working_set_id: webWorkingSetId,
           },
         },
       },
@@ -197,8 +200,8 @@ function makeExecution(
         web: {
           surface: "review_session",
           review_kind: "enrichment",
-          session_id: sessionId,
-          working_set_id: workingSetId,
+          session_id: webSessionId,
+          working_set_id: webWorkingSetId,
         },
       },
     ],
@@ -607,6 +610,27 @@ describe("shell-operator-cards", () => {
     expect(executionCard?.textContent).not.toContain("Active Focus");
     expect(launchCard?.textContent).toContain("Review Prep");
 
+    const executionButton = executionCard?.querySelector<HTMLButtonElement>(
+      'button[data-open-state="decide"][data-open-review-focus="enrichment"][data-open-session-id="27"]',
+    );
+    expect(executionButton?.getAttribute("data-open-working-set-id")).toBe("2");
+  });
+
+  it("keeps propagated session and working-set context when launch web ids are strings", () => {
+    const propagatedSet = makeWorkingSet(2, "Review Prep");
+    const activeSet = makeWorkingSet(9, "Active Focus");
+    const execution = makeExecution(2, 27, true);
+    const data = makeWorkspaceData(makePlanningSnapshot([execution]));
+    const { elements, renderer } = createHarness({
+      visitBaseline: new Date("2026-03-18T18:00:00Z"),
+      workingSets: [propagatedSet, activeSet],
+      workingSetContext: makeWorkingSetContext(activeSet, false),
+    });
+
+    renderer.renderPlanZone(data);
+
+    const executionCard = findCard(elements.operatorPlan, "Execute checkpoint");
+    expect(executionCard).not.toBeNull();
     const executionButton = executionCard?.querySelector<HTMLButtonElement>(
       'button[data-open-state="decide"][data-open-review-focus="enrichment"][data-open-session-id="27"]',
     );

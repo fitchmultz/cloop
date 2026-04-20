@@ -84,6 +84,26 @@ describe("review-workspace-handoffs", () => {
     expect(handoff.nextStep).toContain("Enrichment review queue");
   });
 
+  it("resolves string working_set_id the same as numeric ids for handoffs", () => {
+    const handoff = buildLaunchSurfaceHandoff(
+      launchSurface({
+        web: {
+          surface: "review_session",
+          review_kind: "enrichment",
+          session_id: 27,
+          working_set_id: "2",
+        },
+      }),
+      {
+        breadcrumbPrefix: ["Home", "Plan"],
+        fallbackWorkingSetId: null,
+        workingSets,
+      },
+    );
+    expect(handoff.workingSet?.workingSetId).toBe(2);
+    expect(handoff.workingSet?.workingSetName).toBe("Review Prep");
+  });
+
   it("reuses launch-surface context for follow-up-resource handoffs", () => {
     const resource: PlanningExecutionFollowUpResourceResponse = {
       label: "Enrichment review queue",
