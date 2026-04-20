@@ -33,6 +33,11 @@ from typing import TYPE_CHECKING, Any
 from ...loops import enrichment_review, review_workflows
 from .._mutation import run_idempotent_tool_mutation
 from .._runtime import with_mcp_error_handling
+from ._mcp_common import (
+    read_review_workflow,
+    register_review_workflow_mcp_tools,
+    require_clear_current_loop_xor,
+)
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
@@ -70,26 +75,20 @@ def review_enrichment_action_create(
 @with_mcp_error_handling
 def review_enrichment_action_list() -> list[dict[str, Any]]:
     """List saved enrichment-review actions."""
-    from ... import db
-    from ...settings import get_settings
-
-    settings = get_settings()
-    with db.core_connection(settings) as conn:
-        return review_workflows.list_enrichment_review_actions(conn=conn)
+    return read_review_workflow(
+        lambda conn, _settings: review_workflows.list_enrichment_review_actions(conn=conn),
+    )
 
 
 @with_mcp_error_handling
 def review_enrichment_action_get(action_preset_id: int) -> dict[str, Any]:
     """Get one saved enrichment-review action."""
-    from ... import db
-    from ...settings import get_settings
-
-    settings = get_settings()
-    with db.core_connection(settings) as conn:
-        return review_workflows.get_enrichment_review_action(
+    return read_review_workflow(
+        lambda conn, _settings: review_workflows.get_enrichment_review_action(
             action_preset_id=action_preset_id,
             conn=conn,
-        )
+        ),
+    )
 
 
 @with_mcp_error_handling
@@ -209,12 +208,9 @@ def review_enrichment_session_create(
 @with_mcp_error_handling
 def review_enrichment_session_list() -> list[dict[str, Any]]:
     """List saved enrichment-review sessions."""
-    from ... import db
-    from ...settings import get_settings
-
-    settings = get_settings()
-    with db.core_connection(settings) as conn:
-        return review_workflows.list_enrichment_review_sessions(conn=conn)
+    return read_review_workflow(
+        lambda conn, _settings: review_workflows.list_enrichment_review_sessions(conn=conn),
+    )
 
 
 @with_mcp_error_handling
@@ -232,12 +228,12 @@ def review_enrichment_session_get(session_id: int) -> dict[str, Any]:
     Raises:
         ToolError: If the saved session does not exist.
     """
-    from ... import db
-    from ...settings import get_settings
-
-    settings = get_settings()
-    with db.core_connection(settings) as conn:
-        return review_workflows.get_enrichment_review_session(session_id=session_id, conn=conn)
+    return read_review_workflow(
+        lambda conn, _settings: review_workflows.get_enrichment_review_session(
+            session_id=session_id,
+            conn=conn,
+        ),
+    )
 
 
 @with_mcp_error_handling
@@ -316,8 +312,10 @@ def review_enrichment_session_update(
     request_id: str | None = None,
 ) -> dict[str, Any]:
     """Update one enrichment-review session."""
-    if clear_current_loop and current_loop_id is not None:
-        raise ValueError("provide current_loop_id or clear_current_loop, not both")
+    require_clear_current_loop_xor(
+        clear_current_loop=clear_current_loop,
+        current_loop_id=current_loop_id,
+    )
     payload = {
         "session_id": session_id,
         "name": name,
@@ -486,33 +484,27 @@ def review_enrichment_session_answer_clarifications(
 
 def register_enrichment_review_workflow_tools(mcp: "FastMCP") -> None:
     """Register enrichment review workflow MCP tools."""
-    from .._runtime import with_db_init
-
-    mcp.tool(name="review.enrichment_action.create")(with_db_init(review_enrichment_action_create))
-    mcp.tool(name="review.enrichment_action.list")(with_db_init(review_enrichment_action_list))
-    mcp.tool(name="review.enrichment_action.get")(with_db_init(review_enrichment_action_get))
-    mcp.tool(name="review.enrichment_action.update")(with_db_init(review_enrichment_action_update))
-    mcp.tool(name="review.enrichment_action.delete")(with_db_init(review_enrichment_action_delete))
-    mcp.tool(name="review.enrichment_session.create")(
-        with_db_init(review_enrichment_session_create)
-    )
-    mcp.tool(name="review.enrichment_session.list")(with_db_init(review_enrichment_session_list))
-    mcp.tool(name="review.enrichment_session.get")(with_db_init(review_enrichment_session_get))
-    mcp.tool(name="review.enrichment_session.move")(with_db_init(review_enrichment_session_move))
-    mcp.tool(name="review.enrichment_session.refresh")(
-        with_db_init(review_enrichment_session_refresh)
-    )
-    mcp.tool(name="review.enrichment_session.update")(
-        with_db_init(review_enrichment_session_update)
-    )
-    mcp.tool(name="review.enrichment_session.delete")(
-        with_db_init(review_enrichment_session_delete)
-    )
-    mcp.tool(name="review.enrichment_session.apply_action")(
-        with_db_init(review_enrichment_session_apply_action)
-    )
-    mcp.tool(name="review.enrichment_session.answer_clarifications")(
-        with_db_init(review_enrichment_session_answer_clarifications)
+    register_review_workflow_mcp_tools(
+        mcp,
+        (
+            ("review.enrichment_action.create", review_enrichment_action_create),
+            ("review.enrichment_action.list", review_enrichment_action_list),
+            ("review.enrichment_action.get", review_enrichment_action_get),
+            ("review.enrichment_action.update", review_enrichment_action_update),
+            ("review.enrichment_action.delete", review_enrichment_action_delete),
+            ("review.enrichment_session.create", review_enrichment_session_create),
+            ("review.enrichment_session.list", review_enrichment_session_list),
+            ("review.enrichment_session.get", review_enrichment_session_get),
+            ("review.enrichment_session.move", review_enrichment_session_move),
+            ("review.enrichment_session.refresh", review_enrichment_session_refresh),
+            ("review.enrichment_session.update", review_enrichment_session_update),
+            ("review.enrichment_session.delete", review_enrichment_session_delete),
+            ("review.enrichment_session.apply_action", review_enrichment_session_apply_action),
+            (
+                "review.enrichment_session.answer_clarifications",
+                review_enrichment_session_answer_clarifications,
+            ),
+        ),
     )
 
 
