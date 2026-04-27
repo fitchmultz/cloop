@@ -27,6 +27,7 @@ import type { CommentNode, SurfaceLoop } from "./contracts";
 import {
   dueDateInputValueFromLoop,
   escapeHtml,
+  formatCompactRelativeTime,
   formatDueLabel,
   formatDueValue,
   formatTime,
@@ -940,7 +941,7 @@ export function renderComment(comment: CommentNode, loopId: number | string, isR
     <div class="comment ${isReply ? 'reply' : ''} ${comment.is_deleted ? 'deleted' : ''}" data-comment-id="${comment.id}">
       <div class="comment-meta">
         <span class="comment-author">${escapeHtml(comment.author)}</span>
-        <span class="comment-time" title="${formatTime(comment.created_at_utc)}">${formatRelativeTime(comment.created_at_utc)}</span>
+        <span class="comment-time" title="${formatTime(comment.created_at_utc)}">${formatCompactRelativeTime(comment.created_at_utc)}</span>
       </div>
       <div class="comment-body">${bodyHtml}</div>
       ${!comment.is_deleted ? `
@@ -975,24 +976,6 @@ function markdownToHtml(markdown: string | null | undefined): string {
   // Line breaks
   html = html.replace(/\n/g, "<br>");
   return html;
-}
-
-/**
- * Format relative time (e.g., "5m ago")
- */
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString);
-  const now = Date.now();
-  const diff = now - date.getTime();
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
 }
 
 /**

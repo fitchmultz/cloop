@@ -35,6 +35,7 @@ from cloop.cli_package.rag_commands import ask_command, ingest_command
 from cloop.loops.errors import LoopNotFoundError
 from cloop.loops.models import LoopStatus, resolve_status_from_flags
 from cloop.settings import Settings, get_settings
+from tests.helpers import last_json_from_stdout
 
 cli = SimpleNamespace(
     build_parser=build_parser,
@@ -189,28 +190,6 @@ def test_run_cli_action_uses_shared_domain_error_mapping(capsys: Any) -> None:
 
     assert exit_code == 2
     assert "Loop not found: 42" in captured.err
-
-
-def _get_last_json(capsys: Any) -> Any:
-    """Get the last JSON object from captured stdout.
-
-    CLI commands may produce multiple outputs (from setup commands),
-    so we split by lines and find the last valid JSON object.
-    """
-    captured = capsys.readouterr()
-    lines = captured.out.strip().split("\n")
-
-    # Try to find the last complete JSON object by looking for closing brace
-    # and parsing from the most recent complete object
-    for i in range(len(lines) - 1, -1, -1):
-        candidate = "\n".join(lines[i:])
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-
-    # If no valid JSON found, try parsing the whole output as a last resort
-    return json.loads(captured.out)
 
 
 def _run_cli_subprocess(
@@ -543,7 +522,7 @@ def test_continuity_delivery_decisions_command(
     exit_code = cli._continuity_delivery_decisions_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["channel"] == "all"
     assert output["limit"] == 3
     assert output["truncated"] is False
@@ -585,7 +564,7 @@ def test_ingest_command_success(
     exit_code = cli._ingest_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["files"] == 1
     assert output["chunks"] >= 1
     assert output["files_skipped"] == 0
@@ -638,7 +617,7 @@ def test_ask_command_with_results(
     exit_code = cli._ask_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["answer"] == "mock-response"
     assert output["model"] == "mock-llm"
     assert "chunks" in output
@@ -681,7 +660,7 @@ def test_chat_command_json_response_and_interaction_log(
     exit_code = cli._chat_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["message"] == "mock-response"
     assert output["model"] == "mock-llm"
     assert output["options"]["tool_mode"] == "none"
@@ -740,7 +719,7 @@ def test_chat_command_manual_tool_mode(
     exit_code = cli._chat_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["message"] == "mock-response"
     assert output["tool_results"][0]["action"] == "loop_create"
     assert output["tool_results"][0]["loop"]["raw_text"] == "Pay rent"
@@ -782,7 +761,7 @@ def test_chat_command_llm_tool_mode_preserves_multiple_tool_results(
     exit_code = cli._chat_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert [item["action"] for item in output["tool_results"]] == ["write_note", "loop_list"]
 
 
@@ -800,7 +779,7 @@ def test_chat_command_reads_prompt_from_stdin_with_dash(
     exit_code = cli._chat_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["message"] == "mock-response"
     assert output["options"]["tool_mode"] == "none"
 
@@ -838,7 +817,7 @@ def test_chat_command_messages_file_appends_new_user_prompt(
     exit_code = cli._chat_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["message"] == "mock-response"
 
     with db.core_connection(settings) as conn:
@@ -863,7 +842,7 @@ def test_capture_command_default_status(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["raw_text"] == "Test loop text"
     assert output["status"] == "inbox"
     assert "id" in output
@@ -881,7 +860,7 @@ def test_capture_command_actionable_status(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "actionable"
 
 
@@ -897,7 +876,7 @@ def test_capture_command_scheduled_status(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "scheduled"
 
 
@@ -913,7 +892,7 @@ def test_capture_command_blocked_status(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "blocked"
 
 
@@ -929,7 +908,7 @@ def test_capture_command_status_flag_priority(
     args = parser.parse_args(["capture", "test", "--actionable", "--blocked", "--scheduled"])
     exit_code = cli._capture_command(args, settings)
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "scheduled"
 
     # blocked vs actionable - blocked should win
@@ -937,7 +916,7 @@ def test_capture_command_status_flag_priority(
     args = parser.parse_args(["capture", "test2", "--actionable", "--blocked"])
     exit_code = cli._capture_command(args, settings)
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "blocked"
 
 
@@ -954,7 +933,7 @@ def test_capture_command_with_custom_timestamp(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # The service layer normalizes to UTC: 14:30+05:30 = 09:00+00:00
     assert output["captured_at_utc"] == "2024-06-15T09:00:00+00:00"
     assert output["captured_tz_offset_min"] == 330
@@ -972,7 +951,7 @@ def test_capture_command_auto_timezone_offset(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # Should have some timezone offset (varies by test environment)
     assert "captured_tz_offset_min" in output
     assert isinstance(output["captured_tz_offset_min"], int)
@@ -1008,7 +987,7 @@ def test_capture_command_with_autopilot(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # With autopilot, it returns the enriched record
     assert output == mock_enrichment
 
@@ -1039,7 +1018,7 @@ def test_inbox_command_empty(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     exit_code = cli._inbox_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output == []
 
 
@@ -1072,7 +1051,7 @@ def test_inbox_command_with_loops(
     exit_code = cli._inbox_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 1
     assert output[0]["raw_text"] == "Inbox item"
     assert output[0]["status"] == "inbox"
@@ -1095,7 +1074,7 @@ def test_inbox_command_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     exit_code = cli._inbox_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 3
 
 
@@ -1115,7 +1094,7 @@ def test_next_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: A
     exit_code = cli._next_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # next_loops returns a dict with buckets
     assert isinstance(output, dict)
     assert "due_soon" in output
@@ -1187,7 +1166,7 @@ def test_main_chat_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caps
     exit_code = cli.main(["chat", "Hello", "--format", "json"])
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["message"] == "mock-response"
 
 
@@ -1203,7 +1182,7 @@ def test_main_capture_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
     exit_code = cli.main(["capture", "Test capture"])
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["raw_text"] == "Test capture"
 
 
@@ -1219,7 +1198,7 @@ def test_main_inbox_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap
     exit_code = cli.main(["inbox"])
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output == []
 
 
@@ -1268,7 +1247,7 @@ def test_ingest_recursive_default(
     exit_code = cli._ingest_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["files"] == 1
 
 
@@ -1288,7 +1267,7 @@ def test_ingest_no_recursive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
     exit_code = cli._ingest_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["files"] == 0  # No files in root, recursion disabled
 
 
@@ -1318,7 +1297,7 @@ def test_ask_with_scope_filter(
     exit_code = cli._ask_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert all("alpha.txt" in chunk["document_path"] for chunk in output["chunks"])
 
 
@@ -1366,7 +1345,7 @@ def test_ingest_multiple_paths(
     exit_code = cli._ingest_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["files"] == 2
 
 
@@ -1387,7 +1366,7 @@ def test_ingest_directory_with_mode(
     exit_code = cli._ingest_command(args, settings)
     assert exit_code == 0
 
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["files"] == 1
 
 
@@ -1404,7 +1383,7 @@ def test_capture_with_negative_tz_offset(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["captured_tz_offset_min"] == -480
 
 
@@ -1421,7 +1400,7 @@ def test_capture_with_positive_tz_offset(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["captured_tz_offset_min"] == 330
 
 
@@ -1437,7 +1416,7 @@ def test_capture_only_tz_offset_no_timestamp(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # Should use the provided tz_offset_min
     assert output["captured_tz_offset_min"] == 120
     # Should have a captured_at (auto-generated) - verify it's a valid ISO timestamp
@@ -1463,7 +1442,7 @@ def test_inbox_with_zero_limit(
     exit_code = cli._inbox_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 0
 
 
@@ -1482,7 +1461,7 @@ def test_next_with_zero_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
     exit_code = cli._next_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # Should still return the buckets structure
     assert "due_soon" in output
 
@@ -1499,7 +1478,7 @@ def test_capture_with_empty_text(
     exit_code = cli._capture_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["raw_text"] == ""
 
 
@@ -1516,7 +1495,7 @@ def test_ingest_nonexistent_path(
     exit_code = cli._ingest_command(args, settings)
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["files"] == 0
     assert output["chunks"] == 0
 
@@ -1568,7 +1547,7 @@ def test_loop_get_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsy
 
     exit_code = cli.main(["loop", "get", "1"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["id"] == 1
     assert output["raw_text"] == "Test loop"
 
@@ -1623,7 +1602,7 @@ def test_loop_list_command_default(
 
     exit_code = cli.main(["loop", "list"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 2
     statuses = {loop["status"] for loop in output}
     assert statuses == {"inbox", "actionable"}
@@ -1642,7 +1621,7 @@ def test_loop_list_command_all_statuses(
 
     exit_code = cli.main(["loop", "list", "--status", "all"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 2
 
 
@@ -1660,7 +1639,7 @@ def test_loop_list_command_specific_status(
 
     exit_code = cli.main(["loop", "list", "--status", "inbox"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 2
     assert all(loop["status"] == "inbox" for loop in output)
 
@@ -1683,7 +1662,7 @@ def test_loop_list_command_with_tag(
 
     exit_code = cli.main(["loop", "list", "--tag", "work"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 1
     assert "work" in output[0]["tags"]
 
@@ -1706,7 +1685,7 @@ def test_loop_list_command_with_tag_and_all_statuses(
 
     exit_code = cli.main(["loop", "list", "--tag", "work", "--status", "all"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 2
     statuses = {loop["status"] for loop in output}
     assert statuses == {"inbox", "completed"}
@@ -1730,7 +1709,7 @@ def test_loop_list_command_with_tag_and_specific_status(
 
     exit_code = cli.main(["loop", "list", "--tag", "work", "--status", "completed"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 1
     assert output[0]["status"] == "completed"
 
@@ -1781,7 +1760,7 @@ def test_loop_list_command_pagination(
 
     exit_code = cli.main(["loop", "list", "--limit", "2", "--offset", "1"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 2
 
 
@@ -1796,7 +1775,7 @@ def test_loop_search_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
 
     exit_code = cli.main(["loop", "search", "groceries"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output) == 1
     assert "groceries" in output[0]["raw_text"].lower()
 
@@ -1831,7 +1810,7 @@ def test_loop_semantic_search_command(
         ]
     )
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["candidate_count"] == 2
     assert output["indexed_count"] == 2
     assert output["items"][0]["raw_text"] == "Buy milk and eggs before the weekend"
@@ -1857,13 +1836,13 @@ def test_loop_relationship_commands(
 
     exit_code = cli.main(["loop", "relationship", "review", "--loop", "1"])
     assert exit_code == 0
-    review_output = _get_last_json(capsys)
+    review_output = last_json_from_stdout(capsys)
     assert review_output["duplicate_candidates"][0]["id"] == 2
     assert review_output["related_candidates"][0]["id"] == 3
 
     exit_code = cli.main(["loop", "relationship", "queue"])
     assert exit_code == 0
-    queue_output = _get_last_json(capsys)
+    queue_output = last_json_from_stdout(capsys)
     assert any(item["loop"]["id"] == 1 for item in queue_output["items"])
 
     exit_code = cli.main(
@@ -1880,7 +1859,7 @@ def test_loop_relationship_commands(
         ]
     )
     assert exit_code == 0
-    confirm_output = _get_last_json(capsys)
+    confirm_output = last_json_from_stdout(capsys)
     assert confirm_output["link_state"] == "active"
 
     exit_code = cli.main(
@@ -1897,7 +1876,7 @@ def test_loop_relationship_commands(
         ]
     )
     assert exit_code == 0
-    dismiss_output = _get_last_json(capsys)
+    dismiss_output = last_json_from_stdout(capsys)
     assert dismiss_output["link_state"] == "dismissed"
 
 
@@ -1911,7 +1890,7 @@ def test_loop_update_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
 
     exit_code = cli.main(["loop", "update", "1", "--title", "New Title", "--next-action", "Do it"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["title"] == "New Title"
     assert output["next_action"] == "Do it"
 
@@ -1958,7 +1937,7 @@ def test_loop_update_command_with_tags(
 
     exit_code = cli.main(["loop", "update", "1", "--tags", "work,urgent"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert set(output["tags"]) == {"work", "urgent"}
 
 
@@ -1972,7 +1951,7 @@ def test_loop_status_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
 
     exit_code = cli.main(["loop", "status", "1", "actionable"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "actionable"
 
 
@@ -2006,7 +1985,7 @@ def test_loop_status_command_with_note(
 
     exit_code = cli.main(["loop", "status", "1", "completed", "--note", "All done!"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "completed"
     assert output["completion_note"] == "All done!"
 
@@ -2039,7 +2018,7 @@ def test_loop_close_command_completed(
 
     exit_code = cli.main(["loop", "close", "1", "--note", "Done"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "completed"
     assert output["completion_note"] == "Done"
 
@@ -2056,7 +2035,7 @@ def test_loop_close_command_dropped(
 
     exit_code = cli.main(["loop", "close", "1", "--dropped", "--note", "No longer needed"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "dropped"
 
 
@@ -2105,7 +2084,7 @@ def test_loop_enrich_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
         exit_code = cli.main(["loop", "enrich", "1"])
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["suggestion_id"] > 0
     assert output["needs_clarification"] == ["What is the deadline?"]
     assert output["applied_fields"] == []
@@ -2178,7 +2157,7 @@ def test_loop_bulk_enrich_command(
         )
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["ok"] is True
     assert output["matched_count"] == 2
     assert output["succeeded"] == 2
@@ -2218,23 +2197,23 @@ def test_suggestion_commands(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
 
     exit_code = cli.main(["suggestion", "list", "--loop-id", "1"])
     assert exit_code == 0
-    listed = _get_last_json(capsys)
+    listed = last_json_from_stdout(capsys)
     assert {item["id"] for item in listed} == {suggestion_id, rejected_suggestion_id}
 
     exit_code = cli.main(["suggestion", "show", str(suggestion_id)])
     assert exit_code == 0
-    shown = _get_last_json(capsys)
+    shown = last_json_from_stdout(capsys)
     assert shown["parsed"]["title"] == "Roadmap review"
 
     exit_code = cli.main(["suggestion", "apply", str(suggestion_id)])
     assert exit_code == 0
-    applied = _get_last_json(capsys)
+    applied = last_json_from_stdout(capsys)
     assert applied["loop"]["title"] == "Roadmap review"
     assert applied["resolution"] == "applied"
 
     exit_code = cli.main(["suggestion", "reject", str(rejected_suggestion_id)])
     assert exit_code == 0
-    rejected = _get_last_json(capsys)
+    rejected = last_json_from_stdout(capsys)
     assert rejected == {"suggestion_id": rejected_suggestion_id, "resolution": "rejected"}
 
 
@@ -2290,7 +2269,7 @@ def test_clarification_commands(
 
     exit_code = cli.main(["clarification", "list", "--loop-id", "1"])
     assert exit_code == 0
-    listed = _get_last_json(capsys)
+    listed = last_json_from_stdout(capsys)
     assert {item["id"] for item in listed} == {
         first_clarification_id,
         second_clarification_id,
@@ -2309,7 +2288,7 @@ def test_clarification_commands(
         ]
     )
     assert exit_code == 0
-    single = _get_last_json(capsys)
+    single = last_json_from_stdout(capsys)
     assert single["answered_count"] == 1
     assert single["superseded_suggestion_ids"] == [first_suggestion_id]
 
@@ -2324,7 +2303,7 @@ def test_clarification_commands(
         ]
     )
     assert exit_code == 0
-    undone = _get_last_json(capsys)
+    undone = last_json_from_stdout(capsys)
     assert undone["restored_count"] == 1
     assert undone["reopened_suggestion_ids"] == [first_suggestion_id]
 
@@ -2341,7 +2320,7 @@ def test_clarification_commands(
         ]
     )
     assert exit_code == 0
-    batch = _get_last_json(capsys)
+    batch = last_json_from_stdout(capsys)
     assert batch["answered_count"] == 2
     assert batch["superseded_suggestion_ids"] == [second_suggestion_id]
 
@@ -2386,14 +2365,14 @@ def test_clarification_commands(
         ]
     )
     assert exit_code == 0
-    refined = _get_last_json(capsys)
+    refined = last_json_from_stdout(capsys)
     assert refined["clarification_result"]["superseded_suggestion_ids"] == [refine_suggestion_id]
     assert refined["enrichment_result"]["applied_fields"] == []
     assert refined["enrichment_result"]["suggestion_id"] > refine_suggestion_id
 
     exit_code = cli.main(["suggestion", "list", "--loop-id", "1", "--pending"])
     assert exit_code == 0
-    pending = _get_last_json(capsys)
+    pending = last_json_from_stdout(capsys)
     assert {item["id"] for item in pending} == {
         first_suggestion_id,
         refined["enrichment_result"]["suggestion_id"],
@@ -2424,7 +2403,7 @@ def test_memory_commands(
         ]
     )
     assert exit_code == 0
-    created = _get_last_json(capsys)
+    created = last_json_from_stdout(capsys)
     entry_id = created["id"]
     assert created["key"] == "theme"
     assert created["category"] == "preference"
@@ -2433,12 +2412,12 @@ def test_memory_commands(
 
     exit_code = cli.main(["memory", "list"])
     assert exit_code == 0
-    listed = _get_last_json(capsys)
+    listed = last_json_from_stdout(capsys)
     assert listed["items"][0]["id"] == entry_id
 
     exit_code = cli.main(["memory", "search", "dark mode"])
     assert exit_code == 0
-    searched = _get_last_json(capsys)
+    searched = last_json_from_stdout(capsys)
     assert searched["items"][0]["id"] == entry_id
     assert searched["query"] == "dark mode"
 
@@ -2457,7 +2436,7 @@ def test_memory_commands(
         ]
     )
     assert exit_code == 0
-    updated = _get_last_json(capsys)
+    updated = last_json_from_stdout(capsys)
     assert updated["key"] is None
     assert updated["content"] == "User prefers light mode now"
     assert updated["priority"] == 60
@@ -2465,13 +2444,13 @@ def test_memory_commands(
 
     exit_code = cli.main(["memory", "get", str(entry_id)])
     assert exit_code == 0
-    fetched = _get_last_json(capsys)
+    fetched = last_json_from_stdout(capsys)
     assert fetched["id"] == entry_id
     assert fetched["key"] is None
 
     exit_code = cli.main(["memory", "delete", str(entry_id)])
     assert exit_code == 0
-    deleted = _get_last_json(capsys)
+    deleted = last_json_from_stdout(capsys)
     assert deleted["entry_id"] == entry_id
     assert deleted["deleted"] is True
     assert deleted["follow_through"]["resume_location"]["memory_id"] is None
@@ -2489,7 +2468,7 @@ def test_loop_snooze_command_duration(
 
     exit_code = cli.main(["loop", "snooze", "1", "2h"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["snooze_until_utc"] is not None
 
 
@@ -2506,7 +2485,7 @@ def test_loop_snooze_command_iso_timestamp(
     iso_ts = "2026-02-20T10:00:00+00:00"
     exit_code = cli.main(["loop", "snooze", "1", iso_ts])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["snooze_until_utc"] == iso_ts
 
 
@@ -2547,7 +2526,7 @@ def test_tags_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: A
 
     exit_code = cli.main(["tags"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert set(output) == {"personal", "urgent", "work"}
 
 
@@ -2570,7 +2549,7 @@ def test_projects_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsy
 
     exit_code = cli.main(["projects"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     project_names = {p["name"] for p in output}
     assert project_names == {"Project A", "Project B"}
 
@@ -2588,7 +2567,7 @@ def test_loop_get_claim_command_unclaimed_returns_structured_payload(
     exit_code = cli.main(["loop", "get-claim", "1"])
 
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output == {"loop_id": 1, "claimed": False}
 
 
@@ -2608,12 +2587,12 @@ def test_template_delete_command_emits_structured_result(
         ]
     )
     assert create_exit == 0
-    created = _get_last_json(capsys)
+    created = last_json_from_stdout(capsys)
 
     delete_exit = cli.main(["template", "delete", str(created["id"])])
 
     assert delete_exit == 0
-    deleted = _get_last_json(capsys)
+    deleted = last_json_from_stdout(capsys)
     assert deleted["deleted"] is True
     assert deleted["id"] == created["id"]
 
@@ -2649,7 +2628,7 @@ def test_export_command_stdout(
 
     exit_code = cli.main(["export"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["version"] == 1
     assert len(output["loops"]) == 1
 
@@ -2681,7 +2660,7 @@ def test_import_command_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
 
     exit_code = cli.main(["import", "--file", str(import_file)])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["imported"] == 2
 
 
@@ -2704,7 +2683,7 @@ def test_import_command_stdin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, c
 
     exit_code = cli._import_command(cli.build_parser().parse_args(["import"]), settings)
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["imported"] == 1
 
 
@@ -2753,7 +2732,7 @@ def test_export_import_roundtrip(
 
     exit_code = cli.main(["import", "--file", str(export_file)])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["imported"] == 2
 
 
@@ -2773,7 +2752,7 @@ def test_export_with_filters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ca
 
     exit_code = cli.main(["export", "--status", "actionable"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert len(output["loops"]) == 1
     assert output["loops"][0]["status"] == "actionable"
     assert output["filtered"] is True
@@ -2795,7 +2774,7 @@ def test_import_dry_run_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cap
 
     exit_code = cli.main(["import", "--file", str(import_file), "--dry-run"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["dry_run"] is True
     assert output["imported"] == 0
     assert "preview" in output
@@ -2832,7 +2811,7 @@ def test_import_conflict_policy_skip_cli(
 
     exit_code = cli.main(["import", "--file", str(import_file), "--conflict-policy", "skip"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["skipped"] == 1
     assert output["imported"] == 1
 
@@ -2855,7 +2834,7 @@ def test_capture_update_close_workflow(
 
     exit_code = cli.main(["capture", "Buy groceries", "--actionable"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "actionable"
     loop_id = output["id"]
 
@@ -2871,12 +2850,12 @@ def test_capture_update_close_workflow(
         ]
     )
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["next_action"] == "Go to store"
 
     exit_code = cli.main(["loop", "close", str(loop_id), "--note", "Done"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["status"] == "completed"
     assert output["completion_note"] == "Done"
 
@@ -2894,17 +2873,17 @@ def test_capture_snooze_get_workflow(
 
     exit_code = cli.main(["capture", "Review PR", "--actionable"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     loop_id = output["id"]
 
     exit_code = cli.main(["loop", "snooze", str(loop_id), "1h"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["snooze_until_utc"] is not None
 
     exit_code = cli.main(["loop", "get", str(loop_id)])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["snooze_until_utc"] is not None
 
 
@@ -2921,15 +2900,15 @@ def test_full_lifecycle_workflow(
 
     exit_code = cli.main(["capture", "Task 1"])
     assert exit_code == 0
-    loop1 = _get_last_json(capsys)
+    loop1 = last_json_from_stdout(capsys)
 
     exit_code = cli.main(["capture", "Task 2", "--actionable"])
     assert exit_code == 0
-    loop2 = _get_last_json(capsys)
+    loop2 = last_json_from_stdout(capsys)
 
     exit_code = cli.main(["loop", "list", "--status", "open"])
     assert exit_code == 0
-    loops = _get_last_json(capsys)
+    loops = last_json_from_stdout(capsys)
     assert len(loops) == 2
 
     exit_code = cli.main(["loop", "status", str(loop1["id"]), "actionable"])
@@ -2940,7 +2919,7 @@ def test_full_lifecycle_workflow(
 
     exit_code = cli.main(["loop", "search", "Task"])
     assert exit_code == 0
-    results = _get_last_json(capsys)
+    results = last_json_from_stdout(capsys)
     assert len(results) == 2
 
     exit_code = cli.main(["loop", "close", str(loop1["id"])])
@@ -2951,12 +2930,12 @@ def test_full_lifecycle_workflow(
 
     exit_code = cli.main(["loop", "list", "--status", "completed"])
     assert exit_code == 0
-    completed = _get_last_json(capsys)
+    completed = last_json_from_stdout(capsys)
     assert len(completed) == 1
 
     exit_code = cli.main(["loop", "list", "--status", "dropped"])
     assert exit_code == 0
-    dropped = _get_last_json(capsys)
+    dropped = last_json_from_stdout(capsys)
     assert len(dropped) == 1
 
 
@@ -3033,7 +3012,7 @@ def test_loop_review_command_default(
 
     exit_code = cli.main(["loop", "review"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert "generated_at_utc" in output
     assert "daily" in output
     # Check that at least no_next_action cohort exists
@@ -3049,7 +3028,7 @@ def test_loop_review_command_weekly(
 
     exit_code = cli.main(["loop", "review", "--weekly"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert "weekly" in output
     # Weekly should only have stale and blocked_too_long
     cohort_names = {c["cohort"] for c in output.get("weekly", [])}
@@ -3065,7 +3044,7 @@ def test_loop_review_command_all(
 
     exit_code = cli.main(["loop", "review", "--all"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert "daily" in output
     assert "weekly" in output
 
@@ -3083,7 +3062,7 @@ def test_loop_review_command_cohort_filter(
 
     exit_code = cli.main(["loop", "review", "--cohort", "no_next_action"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # Should only have no_next_action cohort
     for cohort_list in [output.get("daily", []), output.get("weekly", [])]:
         for cohort in cohort_list:
@@ -3104,7 +3083,7 @@ def test_loop_review_command_with_limit(
 
     exit_code = cli.main(["loop", "review", "--limit", "2"])
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     # Check that no cohort has more than 2 items
     for cohort_list in [output.get("daily", []), output.get("weekly", [])]:
         for cohort in cohort_list:
@@ -3132,7 +3111,7 @@ def test_capture_with_due_flag(
     args = parser.parse_args(["capture", "Task with due date", "--due", "2026-04-15"])
     exit_code = cli._capture_command(args, settings)
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["due_at_utc"] is not None
 
 
@@ -3145,7 +3124,7 @@ def test_capture_with_multiple_tags(
     args = parser.parse_args(["capture", "Tagged task", "--tag", "urgent", "--tag", "work"])
     exit_code = cli._capture_command(args, settings)
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert set(output["tags"]) == {"urgent", "work"}
 
 
@@ -3175,7 +3154,7 @@ def test_capture_with_all_flags(
     )
     exit_code = cli._capture_command(args, settings)
     assert exit_code == 0
-    output = _get_last_json(capsys)
+    output = last_json_from_stdout(capsys)
     assert output["next_action"] == "Start here"
     assert output["time_minutes"] == 60
     assert output["activation_energy"] == 2

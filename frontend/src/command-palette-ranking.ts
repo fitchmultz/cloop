@@ -25,6 +25,7 @@
  */
 
 import type { ShellLocationContract } from "./contracts-ui";
+import { normalizeText } from "./shell-core";
 import { locationsMatch } from "./shell-routing";
 
 export { locationsMatch };
@@ -94,10 +95,6 @@ const GROUP_BASE_SCORES = {
   recall: 170,
   search: 160,
 } as const satisfies Record<PaletteGroup, number>;
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase();
-}
 
 function tokenize(value: string): string[] {
   return normalizeText(value)

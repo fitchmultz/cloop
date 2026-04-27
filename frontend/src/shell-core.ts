@@ -98,21 +98,46 @@ export function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+export function normalizeText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizedTimestampValue(value: string): string {
+  if (!value.trim()) {
+    return value;
+  }
+  if (/[zZ]$|[+-]\d\d:\d\d$/.test(value)) {
+    return value;
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return `${value.replace(" ", "T")}Z`;
+  }
+  return value;
+}
+
+export function parseTimestampMs(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const timestamp = Date.parse(normalizedTimestampValue(value));
+  return Number.isNaN(timestamp) ? null : timestamp;
+}
+
 export function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return "—";
   }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  const timestamp = parseTimestampMs(value);
+  if (timestamp == null) {
     return value;
   }
-  return date.toLocaleString();
+  return new Date(timestamp).toLocaleString();
 }
 
 export function formatRelativeTime(value: string | Date | null | undefined): string {
-  const date = value instanceof Date ? value : value ? new Date(value) : null;
+  const date = value instanceof Date ? value : value ? new Date(normalizedTimestampValue(value)) : null;
   if (!date || Number.isNaN(date.getTime())) {
-    return "unknown time";
+    return typeof value === "string" && value ? value : "unknown time";
   }
 
   const diffMs = Date.now() - date.getTime();
@@ -152,7 +177,7 @@ export function displayElement(element: HTMLElement | null, visible: boolean, di
   element.style.display = visible ? display : "none";
 }
 
-export function parseOptionalInteger(value: string | undefined): number | null {
+export function parseOptionalInteger(value: string | null | undefined): number | null {
   if (!value) {
     return null;
   }

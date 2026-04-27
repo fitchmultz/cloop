@@ -22,15 +22,7 @@
  *   - Loop cards and checkboxes expose loop ids through `data-loop-id`.
  */
 
-import { selectedLoopIds } from "./selection-state";
-
-function parseLoopId(raw: string | undefined): number | null {
-  if (!raw) {
-    return null;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isInteger(parsed) ? parsed : null;
-}
+import { parseLoopId, selectedLoopIds } from "./selection-state";
 
 export function updateBulkActionBar(): void {
   if (typeof document === "undefined") {

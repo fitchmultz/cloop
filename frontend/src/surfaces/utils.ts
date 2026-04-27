@@ -82,6 +82,26 @@ export function formatTime(value: string | null | undefined): string {
   });
 }
 
+export function formatCompactRelativeTime(value: string | null | undefined): string {
+  if (!value) {
+    return "just now";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "just now";
+  }
+  const diffMs = Date.now() - date.getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+  const hours = Math.floor(diffMs / 3_600_000);
+  const days = Math.floor(diffMs / 86_400_000);
+
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
+}
+
 export function toLocalInputValue(isoValue: string | null | undefined): string {
   if (!isoValue) {
     return "";

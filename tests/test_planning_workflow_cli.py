@@ -12,6 +12,7 @@ from cloop import db
 from cloop.cli_package.main import main
 from cloop.loops import repo
 from cloop.settings import Settings, get_settings
+from tests.helpers import last_json_from_stdout
 
 
 def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
@@ -23,18 +24,6 @@ def _make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     settings = get_settings()
     db.init_databases(settings)
     return settings
-
-
-def _last_json(capsys: Any) -> Any:
-    captured = capsys.readouterr()
-    lines = captured.out.strip().split("\n")
-    for index in range(len(lines) - 1, -1, -1):
-        candidate = "\n".join(lines[index:])
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-    return json.loads(captured.out)
 
 
 def _planner_payload(first_loop_id: int, second_loop_id: int, *, title: str) -> dict[str, Any]:
@@ -134,13 +123,13 @@ def test_planning_workflow_cli(
         )
         == 0
     )
-    session = _last_json(capsys)
+    session = last_json_from_stdout(capsys)
     assert session["session"]["name"] == "weekly-reset"
     assert session["context_summary"]["generated_at_utc"]
     session_id = session["session"]["id"]
 
     assert main(["plan", "session", "list"]) == 0
-    listed = _last_json(capsys)
+    listed = last_json_from_stdout(capsys)
     assert [item["id"] for item in listed] == [session_id]
 
     assert (
@@ -157,7 +146,7 @@ def test_planning_workflow_cli(
         )
         == 0
     )
-    moved = _last_json(capsys)
+    moved = last_json_from_stdout(capsys)
     assert moved["session"]["current_checkpoint_index"] == 1
 
     assert (
@@ -174,11 +163,11 @@ def test_planning_workflow_cli(
         )
         == 0
     )
-    moved_back = _last_json(capsys)
+    moved_back = last_json_from_stdout(capsys)
     assert moved_back["session"]["current_checkpoint_index"] == 0
 
     assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
-    first_execution = _last_json(capsys)
+    first_execution = last_json_from_stdout(capsys)
     assert first_execution["execution"]["summary"]["touched_loop_ids"] == [1, 2]
     assert first_execution["execution"]["rollback_cues"]["rollback_supported_operation_count"] == 2
     assert first_execution["execution"]["undo_action"]["undo"]["kind"] == "planning_run"
@@ -198,7 +187,7 @@ def test_planning_workflow_cli(
     assert first_execution["snapshot"]["context_freshness"]["generated_at_utc"]
 
     assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
-    second_execution = _last_json(capsys)
+    second_execution = last_json_from_stdout(capsys)
     assert second_execution["snapshot"]["session"]["status"] == "completed"
     assert second_execution["snapshot"]["session"]["executed_checkpoint_count"] == 2
     assert second_execution["execution"]["follow_up_resources"]
@@ -216,12 +205,12 @@ def test_planning_workflow_cli(
     assert created_loop is not None
 
     assert main(["plan", "session", "refresh", "--session", str(session_id)]) == 0
-    refreshed = _last_json(capsys)
+    refreshed = last_json_from_stdout(capsys)
     assert refreshed["plan_title"] == "Refreshed weekly launch reset"
     assert refreshed["session"]["executed_checkpoint_count"] == 0
 
     assert main(["plan", "session", "delete", str(session_id)]) == 0
-    deleted = _last_json(capsys)
+    deleted = last_json_from_stdout(capsys)
     assert deleted == {"deleted": True, "session_id": session_id}
 
 
@@ -259,11 +248,11 @@ def test_planning_workflow_cli_rollback(
         )
         == 0
     )
-    session = _last_json(capsys)
+    session = last_json_from_stdout(capsys)
     session_id = session["session"]["id"]
 
     assert main(["plan", "session", "execute", "--session", str(session_id)]) == 0
-    execution = _last_json(capsys)
+    execution = last_json_from_stdout(capsys)
     run_id = execution["execution"]["run_id"]
 
     assert (
@@ -280,7 +269,7 @@ def test_planning_workflow_cli_rollback(
         )
         == 0
     )
-    rollback = _last_json(capsys)
+    rollback = last_json_from_stdout(capsys)
     assert rollback["rollback"]["rollback_complete"] is True
     assert rollback["snapshot"]["session"]["current_checkpoint_index"] == 0
     assert rollback["snapshot"]["session"]["executed_checkpoint_count"] == 0

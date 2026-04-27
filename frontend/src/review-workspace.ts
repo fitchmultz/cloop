@@ -74,7 +74,15 @@ import { resolveDurableReopenLocation } from "./continuity-follow-through";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
 import { recordRecentShellAction } from "./continuity-intelligence";
 import { renderActionCardDeck } from "./operator-action-cards";
-import { escapeHtml, loopPreview, loopTitle } from "./shell-core";
+import {
+  escapeHtml,
+  formatRelativeTime,
+  formatTimestamp,
+  loopPreview,
+  loopTitle,
+  parseOptionalInteger,
+  parseTimestampMs,
+} from "./shell-core";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
 import { renderTrustSurface } from "./trust-surface";
@@ -237,69 +245,6 @@ function buildElements(): ReviewWorkspaceElements {
     workspace: requireElement("review-shell-workspace", HTMLElement),
     impact: requireElement("review-shell-impact", HTMLElement),
   };
-}
-
-function normalizedTimestampValue(value: string): string {
-  if (!value.trim()) {
-    return value;
-  }
-  if (/[zZ]$|[+-]\d\d:\d\d$/.test(value)) {
-    return value;
-  }
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
-    return `${value.replace(" ", "T")}Z`;
-  }
-  return value;
-}
-
-function formatTimestamp(value: string | null | undefined): string {
-  if (!value) {
-    return "—";
-  }
-  const date = new Date(normalizedTimestampValue(value));
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString();
-}
-
-function formatRelativeTime(value: string | null | undefined): string {
-  if (!value) {
-    return "unknown time";
-  }
-  const date = new Date(normalizedTimestampValue(value));
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  const diffMs = Date.now() - date.getTime();
-  const absMs = Math.abs(diffMs);
-  const minute = 60 * 1000;
-  const hour = 60 * minute;
-  const day = 24 * hour;
-
-  let amount: number;
-  let unit: string;
-  if (absMs < hour) {
-    amount = Math.max(1, Math.round(absMs / minute));
-    unit = amount === 1 ? "minute" : "minutes";
-  } else if (absMs < day) {
-    amount = Math.max(1, Math.round(absMs / hour));
-    unit = amount === 1 ? "hour" : "hours";
-  } else {
-    amount = Math.max(1, Math.round(absMs / day));
-    unit = amount === 1 ? "day" : "days";
-  }
-
-  return `${amount} ${unit} ${diffMs >= 0 ? "ago" : "from now"}`;
-}
-
-function parseOptionalInteger(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isInteger(parsed) ? parsed : null;
 }
 
 function currentWorkingSetId(): number | null {
@@ -1056,14 +1001,6 @@ function renderHeader(): void {
 
 function reviewChip(text: string, tone: "default" | "alert" | "success" = "default"): string {
   return `<span class="review-shell-chip review-shell-chip--${tone}">${escapeHtml(text)}</span>`;
-}
-
-function parseTimestampMs(value: string | null | undefined): number | null {
-  if (!value) {
-    return null;
-  }
-  const timestamp = Date.parse(normalizedTimestampValue(value));
-  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function planningTrustMetadata(snapshot: PlanningSessionSnapshotResponse | null): TrustSurfaceMetadata {

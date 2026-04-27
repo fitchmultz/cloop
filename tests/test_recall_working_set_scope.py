@@ -24,7 +24,6 @@ Invariants/Assumptions:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +40,7 @@ from cloop.mcp_tools.chat_tools import chat_complete
 from cloop.mcp_tools.rag_tools import rag_ask, rag_ingest
 from cloop.schemas.chat import ChatMessage
 from cloop.settings import Settings, ToolMode, get_settings
+from tests.helpers import last_json_from_stdout
 
 
 def _configure_isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
@@ -125,10 +125,6 @@ def _add_loop_to_working_set(*, settings: Settings, working_set_id: int, loop_id
             metadata=None,
             conn=conn,
         )
-
-
-def _last_json(capsys: Any) -> dict[str, Any]:
-    return json.loads(capsys.readouterr().out)
 
 
 def test_recall_http_preserves_explicit_working_set_scope(
@@ -340,7 +336,7 @@ def test_recall_cli_preserves_scope_and_surfaces_follow_through(
     ask_args = parser.parse_args(["ask", "launch notes", "--working-set", str(working_set_id)])
     assert ask_args.working_set == working_set_id
     assert ask_command(ask_args, settings) == 0
-    ask_output = _last_json(capsys)
+    ask_output = last_json_from_stdout(capsys)
     assert ask_output["rerun_action"]["rerun"]["working_set_id"] == working_set_id
     assert ask_output["follow_through"]["resume_location"]["working_set_id"] == working_set_id
     assert ask_output["follow_through"]["working_set_id"] == working_set_id

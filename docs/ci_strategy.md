@@ -30,7 +30,7 @@ Runs on:
 
 Runs:
 - `make ci` (release-grade gate: quality + tests excluding `performance` + packaging checks) on Python 3.14
-- fast validation tests on Python 3.14.3
+- fast validation subset on the pinned Python 3.14.3 runner
 - coverage job (`make test-cov`, excludes `performance`) with `coverage.xml` artifact upload
 - performance-marker tests on nightly/manual events via dedicated `performance` job
 
@@ -48,7 +48,7 @@ Runtime and resource controls:
 
 Typical runtime target:
 - `full_gate`: ~12–25 minutes
-- `compatibility_fast`: ~4–8 minutes each matrix leg
+- `compatibility_fast`: ~4–8 minutes for the pinned Python 3.14.3 validation leg
 - `coverage`: ~8–15 minutes
 - `performance` (nightly/manual): variable, intentionally isolated from release gate and PR gate
 

@@ -97,7 +97,7 @@ function canUseLocalStorage(): boolean {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 }
 
-function normalizeLegacyTab(tab: unknown): LegacySurfaceTab {
+export function normalizeLegacyTab(tab: unknown): LegacySurfaceTab {
   return typeof tab === "string" && LEGACY_SURFACE_TABS.has(tab as LegacySurfaceTab)
     ? (tab as LegacySurfaceTab)
     : "inbox";

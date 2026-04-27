@@ -27,7 +27,6 @@ import * as bulk from "./bulk";
 import * as capture from "./capture";
 import * as chat from "./chat";
 import * as comments from "./comments";
-import type { LegacySurfaceTab } from "./contracts";
 import * as duplicates from "./duplicates";
 import * as keyboard from "./keyboard";
 import * as loop from "./loop";
@@ -169,15 +168,7 @@ let importButtons: HTMLElement[] = [];
 
 const MOBILE_CAPTURE_MEDIA = "(max-width: 640px)";
 const CAPTURE_DETAILS_STORAGE_KEY = "cloop.captureDetails.mobileExpanded";
-const LEGACY_SURFACE_TABS = new Set<LegacySurfaceTab>(["inbox", "next", "chat", "memory", "rag"]);
 let captureMediaQuery: MediaQueryList | null = null;
-
-function normalizeLegacyTab(tabName: unknown): LegacySurfaceTab {
-  return typeof tabName === "string" && LEGACY_SURFACE_TABS.has(tabName as LegacySurfaceTab)
-    ? (tabName as LegacySurfaceTab)
-    : "inbox";
-}
-
 function isMobileCaptureViewport(): boolean {
   return captureMediaQuery?.matches ?? window.matchMedia(MOBILE_CAPTURE_MEDIA).matches;
 }
@@ -220,7 +211,7 @@ async function activateSurfaceInternal(
   requestedTabName: unknown,
   options: ActivateSurfaceOptions = {},
 ): Promise<void> {
-  const tabName = normalizeLegacyTab(requestedTabName);
+  const tabName = state.normalizeLegacyTab(requestedTabName);
 
   if (tabName === "inbox") {
     await Promise.all([

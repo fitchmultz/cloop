@@ -1013,7 +1013,7 @@ Cloop intentionally separates fast PR checks from deeper full-suite checks to av
   - `make test-fast` (excludes `slow` and `performance` markers, and explicitly runs the focused backup restore regression suite)
 - **Main/nightly/manual (`.github/workflows/ci_full.yml`)**
   - `make ci` (release gate: quality + tests excluding `performance` + packaging checks)
-  - compatibility fast tests on additional Python versions
+  - fast validation subset on the pinned Python 3.14.3 runner
   - `make test-cov` (coverage artifact, excludes `performance` marker)
   - `make test-performance` (nightly/manual)
 

@@ -26,7 +26,7 @@
 export const LOOP_SELECTION_CHANGED_EVENT = "cloop:loop-selection-changed";
 export const selectedLoopIds = new Set<number>();
 
-function parseLoopId(raw: string | undefined): number | null {
+export function parseLoopId(raw: string | undefined): number | null {
   if (!raw) {
     return null;
   }

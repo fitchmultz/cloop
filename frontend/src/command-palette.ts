@@ -123,6 +123,7 @@ import {
 import { createLocation, workingSetSessionLocation } from "./shell-routing";
 import { updateBulkActionBar } from "./bulk-actions";
 import { clearLoopSelection, selectedLoopIds } from "./selection-state";
+import { escapeHtml, formatRelativeTime, normalizeText } from "./shell-core";
 
 interface CommandPaletteElements {
   root: HTMLElement;
@@ -274,24 +275,11 @@ function requireElement<T extends HTMLElement>(id: string, ctor: { new (): T }):
   return element;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 function escapeAttributeSelector(value: string): string {
   if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
     return CSS.escape(value);
   }
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase();
 }
 
 function selectedLoopIdList(): number[] {
@@ -736,26 +724,6 @@ async function confirmEnrichmentPaletteAction(input: {
     confirmLabel: "Apply suggestion",
     confirmVariant: "danger",
   });
-}
-
-function formatRelativeTime(value: string | null | undefined): string {
-  if (!value) {
-    return "unknown time";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const diffMs = Date.now() - date.getTime();
-  const absMs = Math.abs(diffMs);
-  const hour = 60 * 60 * 1000;
-  const day = 24 * hour;
-  if (absMs < day) {
-    const hours = Math.max(1, Math.round(absMs / hour));
-    return `${hours} hour${hours === 1 ? "" : "s"} ${diffMs >= 0 ? "ago" : "from now"}`;
-  }
-  const days = Math.max(1, Math.round(absMs / day));
-  return `${days} day${days === 1 ? "" : "s"} ${diffMs >= 0 ? "ago" : "from now"}`;
 }
 
 function readStoredRecentCommands(): StoredRecentCommand[] {

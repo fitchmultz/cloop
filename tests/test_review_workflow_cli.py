@@ -13,6 +13,7 @@ from cloop import db
 from cloop.cli_package.main import main
 from cloop.loops import repo
 from cloop.settings import Settings, get_settings
+from tests.helpers import last_json_from_stdout
 
 VECTORS = {
     "buy milk and eggs before the weekend": np.array([1.0, 0.0, 0.0], dtype=np.float32),
@@ -51,18 +52,6 @@ def _mock_relationship_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("cloop.embeddings.litellm.embedding", fake_embedding)
 
 
-def _last_json(capsys: Any) -> Any:
-    captured = capsys.readouterr()
-    lines = captured.out.strip().split("\n")
-    for index in range(len(lines) - 1, -1, -1):
-        candidate = "\n".join(lines[index:])
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-    return json.loads(captured.out)
-
-
 def test_relationship_review_workflow_cli(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -95,7 +84,7 @@ def test_relationship_review_workflow_cli(
         )
         == 0
     )
-    action = _last_json(capsys)
+    action = last_json_from_stdout(capsys)
 
     assert (
         main(
@@ -115,7 +104,7 @@ def test_relationship_review_workflow_cli(
         )
         == 0
     )
-    session = _last_json(capsys)
+    session = last_json_from_stdout(capsys)
     assert session["current_item"]["loop"]["id"] == 1
 
     assert (
@@ -138,7 +127,7 @@ def test_relationship_review_workflow_cli(
         )
         == 0
     )
-    result = _last_json(capsys)
+    result = last_json_from_stdout(capsys)
     assert result["result"]["link_state"] == "dismissed"
     remaining_loop_ids = {item["loop"]["id"] for item in result["snapshot"]["items"]}
     assert 1 not in remaining_loop_ids
@@ -157,7 +146,7 @@ def test_relationship_review_workflow_cli(
         )
         == 0
     )
-    restored = _last_json(capsys)
+    restored = last_json_from_stdout(capsys)
     assert restored["follow_through"]["display_card"]["title"] == "Restored relationship decision"
     restored_items = {
         item["loop"]["id"]: {candidate["id"] for candidate in item["duplicate_candidates"]}
@@ -167,7 +156,7 @@ def test_relationship_review_workflow_cli(
     assert 1 in restored_items[2]
 
     assert main(["review", "relationship-session", "list"]) == 0
-    listed = _last_json(capsys)
+    listed = last_json_from_stdout(capsys)
     assert {item["id"] for item in listed} == {session["session"]["id"]}
 
 
@@ -233,7 +222,7 @@ def test_review_session_move_cli(
         )
         == 0
     )
-    relationship_session = _last_json(capsys)
+    relationship_session = last_json_from_stdout(capsys)
     relationship_direction = "next" if relationship_session["current_index"] == 0 else "previous"
     relationship_step = 1 if relationship_direction == "next" else -1
     relationship_target = relationship_session["items"][
@@ -254,7 +243,7 @@ def test_review_session_move_cli(
         )
         == 0
     )
-    moved_relationship = _last_json(capsys)
+    moved_relationship = last_json_from_stdout(capsys)
     assert moved_relationship["current_item"]["loop"]["id"] == relationship_target
 
     assert (
@@ -269,7 +258,7 @@ def test_review_session_move_cli(
         )
         == 0
     )
-    refreshed_relationship = _last_json(capsys)
+    refreshed_relationship = last_json_from_stdout(capsys)
     assert refreshed_relationship["session"]["id"] == relationship_session["session"]["id"]
 
     assert (
@@ -290,7 +279,7 @@ def test_review_session_move_cli(
         )
         == 0
     )
-    enrichment_session = _last_json(capsys)
+    enrichment_session = last_json_from_stdout(capsys)
     enrichment_direction = "next" if enrichment_session["current_index"] == 0 else "previous"
     enrichment_step = 1 if enrichment_direction == "next" else -1
     enrichment_target = enrichment_session["items"][
@@ -311,7 +300,7 @@ def test_review_session_move_cli(
         )
         == 0
     )
-    moved_enrichment = _last_json(capsys)
+    moved_enrichment = last_json_from_stdout(capsys)
     assert moved_enrichment["current_item"]["loop"]["id"] == enrichment_target
 
     assert (
@@ -326,7 +315,7 @@ def test_review_session_move_cli(
         )
         == 0
     )
-    refreshed_enrichment = _last_json(capsys)
+    refreshed_enrichment = last_json_from_stdout(capsys)
     assert refreshed_enrichment["session"]["id"] == enrichment_session["session"]["id"]
 
 
@@ -394,7 +383,7 @@ def test_enrichment_review_workflow_cli(
         )
         == 0
     )
-    action = _last_json(capsys)
+    action = last_json_from_stdout(capsys)
 
     assert (
         main(
@@ -414,7 +403,7 @@ def test_enrichment_review_workflow_cli(
         )
         == 0
     )
-    session = _last_json(capsys)
+    session = last_json_from_stdout(capsys)
     assert session["current_item"]["loop"]["id"] == 1
 
     assert (
@@ -433,7 +422,7 @@ def test_enrichment_review_workflow_cli(
         )
         == 0
     )
-    apply_result = _last_json(capsys)
+    apply_result = last_json_from_stdout(capsys)
     assert apply_result["result"]["suggestion_id"] == suggestion_id
     assert apply_result["snapshot"]["session"]["current_loop_id"] == 2
 
@@ -453,7 +442,7 @@ def test_enrichment_review_workflow_cli(
         )
         == 0
     )
-    answer_result = _last_json(capsys)
+    answer_result = last_json_from_stdout(capsys)
     assert answer_result["result"]["loop_id"] == 2
     assert answer_result["result"]["clarification_result"]["superseded_suggestion_ids"] == [
         superseded_suggestion_id
