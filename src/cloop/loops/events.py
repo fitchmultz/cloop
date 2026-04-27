@@ -233,7 +233,7 @@ def undo_last_event(
 
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
-    loop_payload = _record_to_dict(updated, project=project, tags=tags)
+    loop_payload = _record_to_dict(updated, project=project, tags=tags, conn=conn)
     latest_reversible_event = repo.get_latest_reversible_event(loop_id=updated.id, conn=conn)
     loop_payload["latest_reversible_event_id"] = (
         int(latest_reversible_event["id"]) if latest_reversible_event is not None else None

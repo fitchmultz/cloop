@@ -23,7 +23,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  enrichLoop: vi.fn(),
+  fetchLoop: vi.fn(),
   fetchLoops: vi.fn(),
+  loadTimerStatus: vi.fn(),
   renderSuggestionPanel: vi.fn(),
   renderLoop: vi.fn((loop: { id: number }) => {
     const card = document.createElement("div");
@@ -37,6 +40,8 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./api", () => ({
+  enrichLoop: mocks.enrichLoop,
+  fetchLoop: mocks.fetchLoop,
   fetchLoops: mocks.fetchLoops,
   searchLoops: vi.fn(),
   searchLoopsSemantic: vi.fn(),
@@ -58,9 +63,11 @@ vi.mock("./next", () => ({
   loadNext: vi.fn(),
 }));
 
-vi.mock("./timer", () => ({}));
+vi.mock("./timer", () => ({
+  loadTimerStatus: mocks.loadTimerStatus,
+}));
 
-import { init, loadInbox } from "./loop";
+import { enrichLoop as runEnrichLoop, init, loadInbox } from "./loop";
 
 describe("surfaces/loop", () => {
   afterEach(() => {
@@ -103,5 +110,73 @@ describe("surfaces/loop", () => {
     expect(mocks.renderSuggestionPanel).toHaveBeenCalledTimes(1);
     expect(mocks.renderSuggestionPanel.mock.calls[0]?.[1]).toMatchObject({ id: 19, title: "Clarify launch date" });
     expect(inbox.querySelector('.loop-card[data-loop-id="19"]')).not.toBeNull();
+  });
+
+  it("refreshes the loop and reports a calm retry message when enrichment fails", async () => {
+    mocks.enrichLoop.mockRejectedValueOnce({});
+    mocks.fetchLoop.mockResolvedValueOnce({
+      id: 19,
+      status: "inbox",
+      tags: [],
+      title: "Clarify launch date",
+      raw_text: "Clarify launch date",
+      enrichment_state: "failed",
+      enrichment_status: {
+        state: "failed",
+        label: "AI organization needs attention",
+        message: "This loop is usable, but AI organization could not finish.",
+        tone: "attention",
+        retryable: true,
+        action_label: "Retry AI organization",
+        reason: "AI provider settings need attention.",
+        last_event_id: 42,
+        last_event_at_utc: "2026-04-27T00:01:00Z",
+      },
+    });
+    mocks.loadTimerStatus.mockResolvedValueOnce(null);
+
+    const inbox = document.createElement("div");
+    const status = document.createElement("div");
+    const existingCard = document.createElement("div");
+    existingCard.className = "loop-card";
+    existingCard.dataset["loopId"] = "19";
+    inbox.appendChild(existingCard);
+
+    init({
+      inbox,
+      status,
+      queryFilter: document.createElement("input"),
+      statusFilter: document.createElement("select"),
+      tagFilter: document.createElement("select"),
+      viewFilter: document.createElement("select"),
+    });
+
+    await runEnrichLoop(19);
+
+    expect(mocks.enrichLoop).toHaveBeenCalledWith(19);
+    expect(mocks.fetchLoop).toHaveBeenCalledWith(19);
+    expect(status.textContent).toContain("loop is still usable");
+  });
+
+  it("reports when failed enrichment could not refresh persisted card state", async () => {
+    mocks.enrichLoop.mockRejectedValueOnce({});
+    mocks.fetchLoop.mockRejectedValueOnce(new Error("network down"));
+
+    const inbox = document.createElement("div");
+    const status = document.createElement("div");
+    init({
+      inbox,
+      status,
+      queryFilter: document.createElement("input"),
+      statusFilter: document.createElement("select"),
+      tagFilter: document.createElement("select"),
+      viewFilter: document.createElement("select"),
+    });
+
+    await runEnrichLoop(19);
+
+    expect(mocks.fetchLoop).toHaveBeenCalledWith(19);
+    expect(status.textContent).toContain("card could not be refreshed");
+    expect(status.textContent).toContain("refresh the page before retrying");
   });
 });

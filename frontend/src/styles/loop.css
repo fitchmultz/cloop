@@ -562,6 +562,78 @@
   border-color: #f1b3b3;
 }
 
+.enrichment-badge {
+  font-weight: 700;
+}
+
+.enrichment-neutral {
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--color-muted);
+  border-style: dashed;
+}
+
+.enrichment-working {
+  background: #fff1dc;
+  color: #8f5a2a;
+  border-color: #f1caa0;
+}
+
+.enrichment-success {
+  background: #e6f4e6;
+  color: #2d6b34;
+  border-color: #b8e0bc;
+}
+
+.enrichment-attention {
+  background: #fff5e6;
+  color: #7a4a14;
+  border-color: #edc27e;
+}
+
+.enrichment-status {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(158, 131, 108, 0.18);
+  background: rgba(255, 252, 248, 0.9);
+}
+
+.enrichment-status--attention {
+  background: #fff8ec;
+  border-color: #edc27e;
+}
+
+.enrichment-status--working {
+  background: #fff9ef;
+  border-color: #f1caa0;
+}
+
+.enrichment-status-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.enrichment-status-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f4326;
+}
+
+.enrichment-status-message,
+.enrichment-status-reason {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #5d4b3f;
+}
+
+.enrichment-status-reason {
+  color: var(--color-muted);
+}
+
 .badge-select {
   appearance: none;
   background: rgba(255, 248, 241, 0.95);

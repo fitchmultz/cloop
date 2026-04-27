@@ -229,10 +229,24 @@ class LoopStatusRequest(BaseModel):
     claim_token: str | None = Field(default=None, description="Claim token for claimed loops")
 
 
+class LoopEnrichmentStatus(BaseModel):
+    """User-facing enrichment status displayed on loop cards."""
+
+    state: str
+    label: str
+    message: str
+    tone: Literal["neutral", "working", "success", "attention"] = "neutral"
+    retryable: bool = False
+    action_label: str | None = None
+    reason: str | None = None
+    last_event_id: int | None = None
+    last_event_at_utc: str | None = None
+
+
 class LoopBase(BaseModel):
     """Base fields shared by LoopResponse and LoopExportItem.
 
-    Contains 22 common fields that represent loop state.
+    Contains common fields that represent loop state.
     """
 
     raw_text: str
@@ -255,6 +269,7 @@ class LoopBase(BaseModel):
     user_locks: List[str] = Field(default_factory=list)
     provenance: Dict[str, Any] = Field(default_factory=dict)
     enrichment_state: str | None = None
+    enrichment_status: LoopEnrichmentStatus | None = None
     recurrence_rrule: str | None = None
     recurrence_tz: str | None = None
     next_due_at_utc: str | None = None

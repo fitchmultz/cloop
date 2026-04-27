@@ -288,6 +288,104 @@ function buildLoopContextBadges(loop: SurfaceLoop): string {
   return badges.join("");
 }
 
+type EnrichmentTone = "neutral" | "working" | "success" | "attention";
+
+interface RenderableEnrichmentStatus {
+  state: string;
+  label: string;
+  message: string;
+  tone: EnrichmentTone;
+  retryable: boolean;
+  action_label?: string | null;
+  reason?: string | null;
+}
+
+function isEnrichmentTone(value: string | null | undefined): value is EnrichmentTone {
+  return value === "neutral" || value === "working" || value === "success" || value === "attention";
+}
+
+function fallbackEnrichmentStatus(stateValue: string | null | undefined): RenderableEnrichmentStatus {
+  const state = stateValue || "idle";
+  if (state === "failed") {
+    return {
+      state,
+      label: "AI organization needs attention",
+      message: "This loop is usable, but AI organization could not finish.",
+      tone: "attention",
+      retryable: true,
+      action_label: "Retry AI organization",
+    };
+  }
+  if (state === "pending") {
+    return {
+      state,
+      label: "AI organization running",
+      message: "This loop is usable while AI organization works in the background.",
+      tone: "working",
+      retryable: false,
+      action_label: null,
+    };
+  }
+  if (state === "complete") {
+    return {
+      state,
+      label: "AI organization complete",
+      message: "AI organization finished for this loop.",
+      tone: "success",
+      retryable: false,
+      action_label: "Run again",
+    };
+  }
+  return {
+    state,
+    label: "AI organization optional",
+    message: "This loop is usable. AI organization has not run yet.",
+    tone: "neutral",
+    retryable: true,
+    action_label: "Run AI organization",
+  };
+}
+
+function enrichmentStatusForLoop(loop: SurfaceLoop): RenderableEnrichmentStatus {
+  const fallback = fallbackEnrichmentStatus(loop.enrichment_state);
+  const status = loop.enrichment_status;
+  if (!status || typeof status !== "object") {
+    return fallback;
+  }
+  const tone = isEnrichmentTone(status.tone) ? status.tone : fallback.tone;
+  return {
+    state: status.state || fallback.state,
+    label: status.label || fallback.label,
+    message: status.message || fallback.message,
+    tone,
+    retryable: Boolean(status.retryable),
+    action_label: status.action_label ?? fallback.action_label ?? null,
+    reason: status.reason ?? null,
+  };
+}
+
+function enrichmentBadgeHtml(status: RenderableEnrichmentStatus): string {
+  return `<span class="badge enrichment-badge enrichment-${escapeHtml(status.tone)}" data-enrichment-state="${escapeHtml(status.state)}">${escapeHtml(status.label)}</span>`;
+}
+
+function enrichmentNoticeHtml(status: RenderableEnrichmentStatus): string {
+  if (status.state !== "failed" && status.state !== "idle" && status.state !== "pending") {
+    return "";
+  }
+  const reason = status.reason
+    ? `<span class="enrichment-status-reason">${escapeHtml(status.reason)}</span>`
+    : "";
+  return `
+    <div class="enrichment-status enrichment-status--${escapeHtml(status.tone)}" data-enrichment-status>
+      <div class="enrichment-status-copy">
+        <span class="enrichment-status-title">${escapeHtml(status.label)}</span>
+        <span class="enrichment-status-message">${escapeHtml(status.message)}</span>
+        ${reason}
+      </div>
+    </div>
+  `;
+}
+
 function buildNextMetaBadges(loop: SurfaceLoop, enrichmentLabel: string, snoozeIndicatorHtml: string): string {
   const meta = [
     `<span class="badge">${escapeHtml(formatLoopStateLabel(loop.status))}</span>`,
@@ -322,15 +420,7 @@ function renderNextLoop(loop: SurfaceLoop): HTMLElement {
       ? loop.raw_text.trim()
       : "";
   const contextBadges = buildLoopContextBadges(loop);
-  const enrichmentState = loop.enrichment_state || "idle";
-  const enrichmentLabel =
-    enrichmentState === "pending"
-      ? "Enrichment pending"
-      : enrichmentState === "complete"
-        ? "Enrichment complete"
-        : enrichmentState === "failed"
-          ? "Enrichment failed"
-          : "Enrichment idle";
+  const enrichmentStatus = enrichmentStatusForLoop(loop);
   const snoozedUntil = loop.snooze_until_utc;
   const isSnoozed = snoozedUntil && new Date(snoozedUntil) > new Date();
   const snoozeIndicatorHtml = isSnoozed
@@ -357,7 +447,7 @@ function renderNextLoop(loop: SurfaceLoop): HTMLElement {
         </div>
       </div>
       <div class="next-card-meta">
-        ${buildNextMetaBadges(loop, enrichmentLabel, snoozeIndicatorHtml)}
+        ${buildNextMetaBadges(loop, enrichmentStatus.label, snoozeIndicatorHtml)}
       </div>
       <div class="next-card-focus">
         <span class="inline-label">Do next</span>
@@ -493,15 +583,12 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
     </div>
   `;
 
-  const enrichmentState = loop.enrichment_state || "idle";
-  const enrichmentLabel =
-    enrichmentState === "pending"
-      ? "Enrichment pending"
-      : enrichmentState === "complete"
-        ? "Enrichment complete"
-        : enrichmentState === "failed"
-          ? "Enrichment failed"
-          : "Enrichment idle";
+  const enrichmentStatus = enrichmentStatusForLoop(loop);
+  const enrichmentBadge = enrichmentBadgeHtml(enrichmentStatus);
+  const enrichmentNotice = compactCard ? "" : enrichmentNoticeHtml(enrichmentStatus);
+  const enrichActionLabel = enrichmentStatus.action_label ?? "Run AI organization";
+  const enrichTitle = `${enrichActionLabel} (E)`;
+  const enrichDisabled = enrichmentStatus.state === "pending" ? "disabled" : "";
 
   const snoozedUntil = loop.snooze_until_utc;
   const isSnoozed = snoozedUntil && new Date(snoozedUntil) > new Date();
@@ -520,7 +607,7 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
         <span class="badge">${loop.status}</span>
         ${loop.due_date || loop.due_at_utc ? `<span class="badge">Due ${escapeHtml(formatDueValue(loop))}</span>` : ""}
         ${closed ? `<span class="badge">${closed}</span>` : ""}
-        <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+        ${enrichmentBadge}
         ${snoozeIndicatorHtml}
         <button type="button" class="secondary compact-toggle compact-toggle-summary" data-action="toggle-compact" aria-expanded="false">Edit</button>
       </div>
@@ -530,7 +617,7 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
         </select>
         ${dueEditorHtml}
         ${closed ? `<span class="badge">${closed}</span>` : ""}
-        <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+        ${enrichmentBadge}
         ${snoozeIndicatorHtml}
         <button type="button" class="secondary compact-toggle compact-toggle-edit" data-action="toggle-compact" aria-expanded="true">Done</button>
       </div>
@@ -541,7 +628,7 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
       </select>
       ${dueEditorHtml}
       ${closed ? `<span class="badge">${closed}</span>` : ""}
-      <span class="badge ${enrichmentState}">${enrichmentLabel}</span>
+      ${enrichmentBadge}
       ${snoozeIndicatorHtml}
     `;
   const secondaryActionsHtml = `
@@ -560,7 +647,7 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
         </div>
       </div>
     </div>
-    <button class="secondary" data-action="enrich" data-id="${loop.id}" aria-keyshortcuts="E" title="Re-run enrichment (E)">Enrich</button>
+    <button class="secondary enrichment-action" data-action="enrich" data-id="${loop.id}" aria-keyshortcuts="E" title="${escapeHtml(enrichTitle)}" ${enrichDisabled}>${escapeHtml(enrichActionLabel)}</button>
     <button class="secondary" data-action="refresh" data-id="${loop.id}" aria-keyshortcuts="R" title="Refresh loop details (R)">Refresh</button>
     <button class="secondary" data-action="save-template" data-id="${loop.id}" title="Save as template">Template</button>
   `;
@@ -587,6 +674,7 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
         </div>
       </div>
       <div class="badges loop-badges" data-loop-badges="${loop.id}"></div>
+      ${enrichmentNotice}
       <div class="loop-content">
         ${capturedText ? `<div class="captured-text"><span class="captured-text-label">Captured text</span><p>${escapeHtml(capturedText)}</p></div>` : ""}
         ${summary ? `<div class="loop-summary">${escapeHtml(summary)}</div>` : ""}

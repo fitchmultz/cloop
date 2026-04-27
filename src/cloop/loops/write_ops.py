@@ -39,7 +39,11 @@ from .models import (
     is_terminal_status,
     utc_now,
 )
-from .serialization import enrich_loop_records_batch, loop_record_to_dict
+from .serialization import (
+    enrich_loop_records_batch,
+    latest_enrichment_events_by_loop,
+    loop_record_to_dict,
+)
 from .utils import normalize_tags
 
 logger = logging.getLogger(__name__)
@@ -190,9 +194,20 @@ def _record_to_dict(
     *,
     project: str | None = None,
     tags: list[str] | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Convert LoopRecord to dict for API response."""
-    return loop_record_to_dict(record, project=project, tags=tags)
+    enrichment_event = None
+    if conn is not None:
+        enrichment_event = latest_enrichment_events_by_loop(loop_ids=[record.id], conn=conn).get(
+            record.id
+        )
+    return loop_record_to_dict(
+        record,
+        project=project,
+        tags=tags,
+        enrichment_event=enrichment_event,
+    )
 
 
 def _enrich_records_batch(
@@ -211,7 +226,7 @@ def _enrich_record(
     """Enrich a single loop record with project name, tags, and undo metadata."""
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-    payload = _record_to_dict(record, project=project, tags=tags)
+    payload = _record_to_dict(record, project=project, tags=tags, conn=conn)
     latest_reversible_event = repo.get_latest_reversible_event(loop_id=record.id, conn=conn)
     if latest_reversible_event is not None:
         payload["latest_reversible_event_id"] = int(latest_reversible_event["id"])

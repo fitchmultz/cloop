@@ -45,6 +45,7 @@ import type {
   IngestResponse,
   LoopCaptureRequest,
   LoopCommentCreateRequest,
+  LoopEnrichmentResponse,
   LoopCommentListResponse,
   LoopCommentResponse,
   LoopResponse,
@@ -107,11 +108,6 @@ interface SearchLoopBody {
   query: string;
   limit: number;
   offset: number;
-}
-
-interface EnrichLoopResponse {
-  loop: SurfaceLoop;
-  needs_clarification?: unknown[] | null;
 }
 
 interface ExportLoopsResponse {
@@ -330,11 +326,11 @@ export async function transitionLoopStatus(
   );
 }
 
-export async function enrichLoop(loopId: number | string): Promise<EnrichLoopResponse> {
-  return requestJson<EnrichLoopResponse>(
+export async function enrichLoop(loopId: number | string): Promise<LoopEnrichmentResponse> {
+  return requestJson<LoopEnrichmentResponse>(
     `/loops/${loopId}/enrich`,
     { method: "POST" },
-    "Enrichment request failed",
+    "Failed to enrich loop",
   );
 }
 

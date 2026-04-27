@@ -46,7 +46,7 @@ def get_loop(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, Any]:
         raise LoopNotFoundError(loop_id)
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-    return _record_to_dict(record, project=project, tags=tags)
+    return _record_to_dict(record, project=project, tags=tags, conn=conn)
 
 
 @typingx.validate_io()
@@ -170,15 +170,12 @@ def next_loops(
     scored_with_buckets.sort(key=lambda item: item[2], reverse=True)
     top_items = scored_with_buckets[:limit]
 
-    all_loop_ids: list[int] = []
-    all_project_ids: set[int] = set()
-    for _label, record, _score in top_items:
-        all_loop_ids.append(record.id)
-        if record.project_id is not None:
-            all_project_ids.add(record.project_id)
-
-    projects_map = repo.read_project_names_batch(project_ids=all_project_ids, conn=conn)
-    tags_map = repo.list_loop_tags_batch(loop_ids=all_loop_ids, conn=conn)
+    enriched_top_items = {
+        int(payload["id"]): payload
+        for payload in _enrich_records_batch(
+            [record for _label, record, _score in top_items], conn=conn
+        )
+    }
 
     response: dict[str, list[dict[str, Any]]] = {
         "due_soon": [],
@@ -187,9 +184,7 @@ def next_loops(
         "standard": [],
     }
     for label, record, _score in top_items:
-        project = projects_map.get(record.project_id) if record.project_id else None
-        tags = tags_map.get(record.id, [])
-        response[label].append(_record_to_dict(record, project=project, tags=tags))
+        response[label].append(enriched_top_items[record.id])
     return response
 
 

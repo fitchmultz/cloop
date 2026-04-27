@@ -34,7 +34,7 @@ interface KeyboardModuleElements {
 interface KeyboardCallbacks {
   showCompletionNote: (loopId: number | string) => void;
   enrichLoop: (loopId: number | string) => void | Promise<void>;
-  refreshLoop: (loopId: number | string) => void | Promise<void>;
+  refreshLoop: (loopId: number | string) => void | Promise<void | boolean>;
   toggleTimer: (loopId: number | string) => void | Promise<void>;
   toggleSnoozeDropdown: (loopId: number | string) => void;
 }

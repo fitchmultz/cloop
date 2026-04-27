@@ -3051,6 +3051,50 @@ export type LoopEnrichmentResponse = {
 };
 
 /**
+ * LoopEnrichmentStatus
+ *
+ * User-facing enrichment status displayed on loop cards.
+ */
+export type LoopEnrichmentStatus = {
+    /**
+     * Action Label
+     */
+    action_label?: string | null;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Last Event At Utc
+     */
+    last_event_at_utc?: string | null;
+    /**
+     * Last Event Id
+     */
+    last_event_id?: number | null;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Reason
+     */
+    reason?: string | null;
+    /**
+     * Retryable
+     */
+    retryable?: boolean;
+    /**
+     * State
+     */
+    state: string;
+    /**
+     * Tone
+     */
+    tone?: 'neutral' | 'working' | 'success' | 'attention';
+};
+
+/**
  * LoopEventListResponse
  *
  * Paginated event history response.
@@ -3164,6 +3208,7 @@ export type LoopExportItem = {
      * Enrichment State
      */
     enrichment_state?: string | null;
+    enrichment_status?: LoopEnrichmentStatus | null;
     /**
      * Id
      */
@@ -3621,6 +3666,7 @@ export type LoopResponse = {
      * Enrichment State
      */
     enrichment_state?: string | null;
+    enrichment_status?: LoopEnrichmentStatus | null;
     /**
      * Id
      */
@@ -6046,6 +6092,7 @@ export type RelationshipReviewCandidateResponse = {
      * Enrichment State
      */
     enrichment_state?: string | null;
+    enrichment_status?: LoopEnrichmentStatus | null;
     /**
      * Existing Source
      */
@@ -6456,6 +6503,7 @@ export type SemanticSearchLoopResponse = {
      * Enrichment State
      */
     enrichment_state?: string | null;
+    enrichment_status?: LoopEnrichmentStatus | null;
     /**
      * Id
      */

@@ -196,7 +196,7 @@ def capture_loop(
     # Otherwise, convert LoopRecord to dict with project and tags
     project = repo.read_project_name(project_id=record.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=record.id, conn=conn)
-    return _record_to_dict(record, project=project, tags=tags)
+    return _record_to_dict(record, project=project, tags=tags, conn=conn)
 
 
 @typingx.validate_io()
@@ -643,7 +643,7 @@ def get_loop_with_dependencies(
 
     project = repo.read_project_name(project_id=loop.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=loop.id, conn=conn)
-    result = _record_to_dict(loop, project=project, tags=tags)
+    result = _record_to_dict(loop, project=project, tags=tags, conn=conn)
 
     result["dependencies"] = get_loop_dependencies(loop_id=loop_id, conn=conn)
     result["blocking"] = get_loop_blocking(loop_id=loop_id, conn=conn)
@@ -677,4 +677,4 @@ def request_enrichment(*, loop_id: int, conn: sqlite3.Connection) -> dict[str, A
         )
     project = repo.read_project_name(project_id=updated.project_id, conn=conn)
     tags = repo.list_loop_tags(loop_id=updated.id, conn=conn)
-    return _record_to_dict(updated, project=project, tags=tags)
+    return _record_to_dict(updated, project=project, tags=tags, conn=conn)

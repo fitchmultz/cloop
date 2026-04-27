@@ -28,7 +28,7 @@ from pathlib import Path
 import pytest
 
 from cloop import db
-from cloop.loops import repo
+from cloop.loops import read_service, repo, service
 from cloop.loops.enrichment import (
     EnrichmentContext,
     _build_prompt,
@@ -815,11 +815,89 @@ def test_enrichment_marks_failed_on_organizer_provider_misconfiguration(
     with pytest.raises(ValueError, match="Organizer model misconfigured"):
         loop_enrichment.enrich_loop(loop_id=record.id, conn=conn, settings=settings)
 
-    state_row = conn.execute(
-        "SELECT enrichment_state FROM loops WHERE id = ?", (record.id,)
-    ).fetchone()
-    assert state_row is not None
-    assert state_row["enrichment_state"] == "failed"
+    payload = read_service.get_loop(loop_id=record.id, conn=conn)
+    assert payload["enrichment_state"] == "failed"
+    status = payload["enrichment_status"]
+    assert status["state"] == "failed"
+    assert status["retryable"] is True
+    assert status["label"] == "AI organization needs attention"
+    assert "loop is usable" in status["message"].lower()
+    assert status["reason"] == "AI provider settings need attention."
+    assert status["last_event_id"] is not None
+
+    conn.close()
+
+
+def test_idle_enrichment_serializes_optional_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Idle enrichment state should read as optional, not failed."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    record = repo.create_loop(
+        raw_text="idle enrichment status test",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    payload = read_service.get_loop(loop_id=record.id, conn=conn)
+    status = payload["enrichment_status"]
+    assert payload["enrichment_state"] == "idle"
+    assert status["state"] == "idle"
+    assert status["tone"] == "neutral"
+    assert status["retryable"] is True
+    assert "failed" not in status["label"].lower()
+    assert "usable" in status["message"].lower()
+
+    listed = read_service.list_loops(status=None, limit=10, offset=0, conn=conn)
+    listed_payload = next(item for item in listed if item["id"] == record.id)
+    assert listed_payload["enrichment_status"]["label"] == "AI organization optional"
+
+    conn.close()
+
+
+def test_requested_enrichment_serializes_pending_event_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enrichment request responses should include current status provenance."""
+    monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    settings = get_settings()
+    db.init_databases(settings)
+
+    conn = sqlite3.connect(settings.core_db_path)
+    conn.row_factory = sqlite3.Row
+
+    record = repo.create_loop(
+        raw_text="pending enrichment status test",
+        captured_at_utc="2024-01-01T00:00:00+00:00",
+        captured_tz_offset_min=0,
+        status=LoopStatus.INBOX,
+        conn=conn,
+    )
+    conn.commit()
+
+    payload = service.request_enrichment(loop_id=record.id, conn=conn)
+    status = payload["enrichment_status"]
+    assert payload["enrichment_state"] == "pending"
+    assert status["state"] == "pending"
+    assert status["tone"] == "working"
+    assert status["retryable"] is False
+    assert status["last_event_id"] is not None
+    assert status["last_event_at_utc"] is not None
+
+    detail_payload = service.get_loop_with_dependencies(loop_id=record.id, conn=conn)
+    assert detail_payload["enrichment_status"]["last_event_id"] == status["last_event_id"]
 
     conn.close()
 

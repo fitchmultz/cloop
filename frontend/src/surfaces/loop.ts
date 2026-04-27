@@ -289,9 +289,9 @@ export async function loadInbox(): Promise<void> {
   }
 }
 
-export async function refreshLoop(loopId: number | string): Promise<void> {
+export async function refreshLoop(loopId: number | string): Promise<boolean> {
   if (!statusEl) {
-    return;
+    return false;
   }
 
   try {
@@ -299,7 +299,7 @@ export async function refreshLoop(loopId: number | string): Promise<void> {
     if (!loop) {
       removeLoopFromInbox(loopId);
       queueNextRefresh();
-      return;
+      return true;
     }
 
     const timerStatus = await timer.loadTimerStatus(loopId);
@@ -315,8 +315,10 @@ export async function refreshLoop(loopId: number | string): Promise<void> {
     if (timerStatus?.has_active_session && timerStatus.active_session) {
       timer.startTimerUI(loopId, { active_session: timerStatus.active_session });
     }
+    return true;
   } catch {
     statusEl.textContent = "Failed to refresh loop.";
+    return false;
   }
 }
 
@@ -565,16 +567,22 @@ export async function enrichLoop(loopId: number | string): Promise<void> {
     return;
   }
 
-  statusEl.textContent = "Enriching loop...";
+  statusEl.textContent = "Running AI organization...";
   try {
     const result = await api.enrichLoop(loopId);
-    replaceLoop(result.loop);
+    replaceLoop(result.loop as SurfaceLoop);
     const clarificationCount = Array.isArray(result.needs_clarification) ? result.needs_clarification.length : 0;
     statusEl.textContent = clarificationCount
-      ? `Enrichment complete. ${clarificationCount} clarification question${clarificationCount === 1 ? "" : "s"} added.`
-      : "Enrichment complete.";
+      ? `AI organization complete. ${clarificationCount} clarification question${clarificationCount === 1 ? "" : "s"} added.`
+      : "AI organization complete.";
   } catch (error: unknown) {
-    statusEl.textContent = messageFromError(error, "Enrichment failed.");
+    const refreshed = await refreshLoop(loopId);
+    statusEl.textContent = refreshed
+      ? messageFromError(
+          error,
+          "AI organization could not finish. The loop is still usable; you can retry from the card.",
+        )
+      : "AI organization could not finish, and the card could not be refreshed. The loop is still usable; refresh the page before retrying.";
   }
 }
 
