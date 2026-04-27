@@ -307,7 +307,7 @@
             placeholder="e.g., status:inbox due:today"
           >
         </div>
-        <div class="filters">
+        <div class="filters saved-view-filter-row">
           <label for="status-filter">show:</label>
           <select id="status-filter">
             <option value="open" selected>open</option>
@@ -327,7 +327,14 @@
           <select id="view-filter">
             <option value="" selected>-</option>
           </select>
-          <button class="tag-add" type="button" id="save-view-btn">save</button>
+          <button class="tag-add" type="button" id="save-view-btn" aria-describedby="saved-view-status">Save view</button>
+          <span
+            id="saved-view-status"
+            class="support-status saved-view-status"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          ></span>
         </div>
         <div id="inbox" class="inbox-list"></div>
       </section>

@@ -325,6 +325,28 @@ select:focus {
   color: var(--color-muted);
 }
 
+.saved-view-filter-row {
+  align-items: baseline;
+}
+
+.saved-view-status {
+  flex: 1 1 14rem;
+  min-width: min(100%, 12rem);
+  font-size: var(--text-sm);
+}
+
+.saved-view-status:empty {
+  display: none;
+}
+
+.saved-view-status.is-success {
+  color: var(--color-success);
+}
+
+.saved-view-status.is-error {
+  color: var(--color-danger);
+}
+
 /* Lists */
 .inbox-list {
   display: grid;

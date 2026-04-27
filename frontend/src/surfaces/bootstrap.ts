@@ -99,6 +99,7 @@ function buildElements() {
     queryModeFilter: requireElement("query-mode-filter", HTMLSelectElement),
     viewFilter: requireElement("view-filter", HTMLSelectElement),
     saveViewBtn: requireElement("save-view-btn", HTMLButtonElement),
+    savedViewStatus: requireElement("saved-view-status", HTMLElement),
     importFile: requireElement("import-file", HTMLInputElement),
     templateSelect: requireElement("template-select", HTMLSelectElement),
     inboxMain: requireElement("inbox-main", HTMLElement),
@@ -525,6 +526,21 @@ function arrayBufferToBase64(buffer: ArrayBuffer | null): string {
 // Event Handlers Setup
 // ========================================
 
+type SavedViewFeedbackKind = "idle" | "success" | "error";
+
+function setSavedViewFeedback(kind: SavedViewFeedbackKind, message: string): void {
+  elements.savedViewStatus.textContent = message;
+  elements.savedViewStatus.classList.toggle("is-error", kind === "error");
+  elements.savedViewStatus.classList.toggle("is-success", kind === "success");
+}
+
+function clearEmptyQuerySavedViewValidation(): void {
+  elements.queryFilter.removeAttribute("aria-invalid");
+  if (elements.savedViewStatus.textContent === "Enter a query before saving a view.") {
+    setSavedViewFeedback("idle", "");
+  }
+}
+
 function syncLoopQueryModeUi(): void {
   const isSemantic = elements.queryModeFilter.value === "semantic";
   elements.queryFilter.placeholder = isSemantic
@@ -534,6 +550,12 @@ function syncLoopQueryModeUi(): void {
   elements.saveViewBtn.title = isSemantic
     ? "Saved views currently support DSL queries only"
     : "Save current DSL query as a view";
+  if (isSemantic) {
+    elements.queryFilter.removeAttribute("aria-invalid");
+    setSavedViewFeedback("error", "Saved views currently support DSL queries only.");
+  } else if (elements.savedViewStatus.textContent === "Saved views currently support DSL queries only.") {
+    setSavedViewFeedback("idle", "");
+  }
 }
 
 function setupEventHandlers(): void {
@@ -578,11 +600,13 @@ function setupEventHandlers(): void {
   elements.statusFilter.addEventListener("change", () => {
     elements.queryFilter.value = "";
     elements.viewFilter.value = "";
+    clearEmptyQuerySavedViewValidation();
     void loop.loadInbox();
   });
   elements.tagFilter.addEventListener("change", () => {
     elements.queryFilter.value = "";
     elements.viewFilter.value = "";
+    clearEmptyQuerySavedViewValidation();
     void loop.loadInbox();
   });
   elements.queryModeFilter.addEventListener("change", () => {
@@ -592,12 +616,16 @@ function setupEventHandlers(): void {
       void loop.loadInbox();
     }
   });
+  elements.queryFilter.addEventListener("input", () => {
+    clearEmptyQuerySavedViewValidation();
+  });
   elements.queryFilter.addEventListener("keydown", (event: KeyboardEvent) => {
     if (event.key === "Enter") {
       event.preventDefault();
       elements.viewFilter.value = "";
       elements.statusFilter.value = "all";
       elements.tagFilter.value = "";
+      clearEmptyQuerySavedViewValidation();
       void loop.loadInbox();
     }
   });
@@ -618,13 +646,16 @@ function setupEventHandlers(): void {
     void (async () => {
       const query = elements.queryFilter.value.trim();
       if (elements.queryModeFilter.value === "semantic") {
-        elements.status.textContent = "Saved views currently support DSL queries only.";
+        setSavedViewFeedback("error", "Saved views currently support DSL queries only.");
         return;
       }
       if (!query) {
-        elements.status.textContent = "Enter a query first.";
+        elements.queryFilter.setAttribute("aria-invalid", "true");
+        setSavedViewFeedback("error", "Enter a query before saving a view.");
         return;
       }
+      elements.queryFilter.removeAttribute("aria-invalid");
+      setSavedViewFeedback("idle", "");
       const result = await modals.promptDialog({
         eyebrow: "Saved view",
         title: "Save Current View",
@@ -652,10 +683,10 @@ function setupEventHandlers(): void {
       }
       try {
         await api.saveView(viewName, query);
-        elements.status.textContent = "View saved.";
+        setSavedViewFeedback("success", "View saved.");
         await populateViewDropdown();
       } catch (error: unknown) {
-        elements.status.textContent = messageFromError(error, "Failed to save view.");
+        setSavedViewFeedback("error", messageFromError(error, "Failed to save view."));
       }
     })();
   });
