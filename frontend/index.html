@@ -201,18 +201,26 @@
 
     <!-- Inbox Tab -->
     <main id="inbox-main" tabindex="-1">
-      <section class="panel">
-        <h2>Quick capture</h2>
-        <form id="capture-form">
-          <div class="form-row template-row">
-            <label for="template-select" class="form-label">template:</label>
-            <select id="template-select" class="input-flex">
-              <option value="">None</option>
-            </select>
+      <section class="panel quick-capture-card" aria-labelledby="quick-capture-title">
+        <div class="quick-capture-heading">
+          <div>
+            <p class="support-eyebrow">Capture</p>
+            <h2 id="quick-capture-title">Quick capture</h2>
+            <p class="support-copy">Write the task, reminder, or idea. Details are optional.</p>
           </div>
-          <label for="raw-text" class="sr-only">Loop text</label>
-          <textarea id="raw-text" placeholder="Drop a loop, idea, or task..." required></textarea>
-          <div class="toggles">
+        </div>
+        <form id="capture-form" novalidate aria-busy="false">
+          <div class="quick-capture-primary-field">
+            <label for="raw-text" class="form-label">What do you need to remember or do?</label>
+            <textarea
+              id="raw-text"
+              placeholder="Example: Email Alex the launch checklist by Friday"
+              required
+              aria-describedby="capture-help status capture-error"
+            ></textarea>
+            <p id="capture-help" class="support-copy">Required. Save puts this in your Inbox.</p>
+          </div>
+          <div class="toggles quick-capture-status-options" aria-label="Optional starting state">
             <label class="toggle">
               <input type="checkbox" id="actionable">
               Actionable
@@ -232,13 +240,13 @@
               type="text"
               id="due-date"
               class="input-flex-sm"
-              placeholder="MM/DD/YYYY"
+              placeholder="Due date MM/DD/YYYY"
               inputmode="numeric"
               autocomplete="off"
               maxlength="10"
             >
             <label for="next-action" class="sr-only">Next action</label>
-            <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Next action">
+            <input type="text" id="next-action" class="input-w-2xl input-min-md" placeholder="Optional next action">
           </div>
           <button
             type="button"
@@ -249,25 +257,36 @@
           >
             Add details
           </button>
-          <div id="capture-details" class="form-row wrap metadata-row capture-details" hidden>
-            <label for="time-minutes" class="sr-only">Estimated minutes</label>
-            <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
-            <label for="activation-energy" class="sr-only">Activation energy</label>
-            <select id="activation-energy" class="input-w-md">
-              <option value="">Effort</option>
-              <option value="0">0 - Trivial</option>
-              <option value="1">1 - Easy</option>
-              <option value="2">2 - Medium</option>
-              <option value="3">3 - Hard</option>
-            </select>
-            <label for="project" class="sr-only">Project</label>
-            <input type="text" id="project" class="input-w-lg input-min-sm" placeholder="Project">
-            <label for="tags" class="sr-only">Tags</label>
-            <input type="text" id="tags" class="input-w-xl input-min-md" placeholder="Tags (comma sep)">
+          <div id="capture-details" class="quick-capture-details" hidden>
+            <div class="form-row template-row">
+              <label for="template-select" class="form-label">Template</label>
+              <select id="template-select" class="input-flex">
+                <option value="">None</option>
+              </select>
+            </div>
+            <div class="form-row wrap metadata-row">
+              <label for="time-minutes" class="sr-only">Estimated minutes</label>
+              <input type="number" id="time-minutes" min="1" step="1" class="input-w-sm" placeholder="Min">
+              <label for="activation-energy" class="sr-only">Activation energy</label>
+              <select id="activation-energy" class="input-w-md">
+                <option value="">Effort</option>
+                <option value="0">0 - Trivial</option>
+                <option value="1">1 - Easy</option>
+                <option value="2">2 - Medium</option>
+                <option value="3">3 - Hard</option>
+              </select>
+              <label for="project" class="sr-only">Project</label>
+              <input type="text" id="project" class="input-w-lg input-min-sm" placeholder="Project">
+              <label for="tags" class="sr-only">Tags</label>
+              <input type="text" id="tags" class="input-w-xl input-min-md" placeholder="Tags (comma sep)">
+            </div>
           </div>
-          <div class="actions">
-            <span id="status" class="loop-meta" role="status" aria-live="polite" aria-atomic="true">Ready.</span>
-            <button type="submit">Save</button>
+          <div class="actions quick-capture-actions">
+            <div class="quick-capture-feedback-stack">
+              <span id="status" class="loop-meta" role="status" aria-live="polite" aria-atomic="true">Ready.</span>
+              <p id="capture-error" class="support-status capture-error" role="alert" hidden></p>
+            </div>
+            <button type="submit" id="capture-save-btn">Save to Inbox</button>
           </div>
         </form>
       </section>

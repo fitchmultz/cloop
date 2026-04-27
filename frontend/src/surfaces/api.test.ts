@@ -24,7 +24,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { requestJson } from "../http";
-import { applySuggestion, fetchSuggestions, rejectSuggestion } from "./api";
+import { applySuggestion, captureLoop, fetchSuggestions, rejectSuggestion } from "./api";
 
 vi.mock("../http", () => ({
   requestJson: vi.fn(),
@@ -63,6 +63,32 @@ describe("surfaces/api", () => {
       expect.stringContaining("/loops/19/suggestions?pending_only=true"),
       {},
       "Failed to load suggestions",
+    );
+  });
+
+  it("posts captures to the canonical loop capture route", async () => {
+    vi.mocked(requestJson).mockResolvedValueOnce({ id: 1, raw_text: "Task", status: "inbox", tags: [] });
+
+    await captureLoop({
+      raw_text: "Task",
+      captured_at: "2026-04-27T16:00:00.000Z",
+      client_tz_offset_min: 0,
+      actionable: false,
+      scheduled: false,
+      blocked: false,
+    });
+
+    expect(requestJson).toHaveBeenCalledWith(
+      "/loops/capture",
+      {
+        method: "POST",
+        body: expect.objectContaining({
+          raw_text: "Task",
+          captured_at: "2026-04-27T16:00:00.000Z",
+          client_tz_offset_min: 0,
+        }),
+      },
+      "Capture failed",
     );
   });
 

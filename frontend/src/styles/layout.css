@@ -123,10 +123,20 @@ main {
     align-items: stretch;
   }
 
+  .quick-capture-heading,
+  .quick-capture-actions {
+    align-items: stretch;
+  }
+
+  .quick-capture-actions button {
+    min-height: 2.75rem;
+  }
+
   .capture-core-row {
     margin-bottom: var(--space-2);
   }
 
+  .quick-capture-details,
   .capture-details {
     margin-top: var(--space-2);
   }

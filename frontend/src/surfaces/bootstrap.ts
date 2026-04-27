@@ -22,12 +22,12 @@
  *   - Feature modules own their business logic once initialized.
  */
 
-import type { LoopCaptureRequest } from "../domain";
 import * as api from "./api";
 import * as bulk from "./bulk";
+import * as capture from "./capture";
 import * as chat from "./chat";
 import * as comments from "./comments";
-import type { LegacySurfaceTab, SurfaceLoop } from "./contracts";
+import type { LegacySurfaceTab } from "./contracts";
 import * as duplicates from "./duplicates";
 import * as keyboard from "./keyboard";
 import * as loop from "./loop";
@@ -44,9 +44,7 @@ import {
   closestFromEventTarget,
   dueDateInputValueFromLoop,
   formatDateInputValue,
-  INVALID_DUE_DATE_MESSAGE,
   messageFromError,
-  parseUserDateInput,
   snoozeDurationToUtc,
 } from "./utils";
 import { updateBulkActionBar } from "./bulk";
@@ -55,11 +53,6 @@ interface ActivateSurfaceOptions {
   doQuery?: string;
   doLoopId?: number | null;
 }
-
-type CaptureResult = SurfaceLoop & {
-  queued?: boolean;
-  offline?: boolean;
-};
 
 function requireElement<T extends HTMLElement>(id: string, type: { new (): T }): T {
   const element = document.getElementById(id);
@@ -86,6 +79,8 @@ function buildElements() {
     inbox: requireElement("inbox", HTMLElement),
     status: requireElement("status", HTMLElement),
     form: requireElement("capture-form", HTMLFormElement),
+    captureSaveButton: requireElement("capture-save-btn", HTMLButtonElement),
+    captureError: requireElement("capture-error", HTMLElement),
     rawText: requireElement("raw-text", HTMLTextAreaElement),
     actionable: requireElement("actionable", HTMLInputElement),
     scheduled: requireElement("scheduled", HTMLInputElement),
@@ -283,114 +278,6 @@ function initializeCaptureDisclosure(): void {
     const expanded = elements.captureDetailsToggle.getAttribute("aria-expanded") === "true";
     setCaptureDetailsExpanded(!expanded, { persist: true });
   });
-}
-
-function normalizeDueDateField(): { parsedDate: ReturnType<typeof parseUserDateInput>; isValid: boolean } {
-  const rawValue = elements.dueDate.value.trim();
-  if (!rawValue) {
-    elements.dueDate.value = "";
-    elements.dueDate.removeAttribute("aria-invalid");
-    return { parsedDate: null, isValid: true };
-  }
-
-  const parsedDate = parseUserDateInput(rawValue);
-  if (!parsedDate) {
-    elements.dueDate.setAttribute("aria-invalid", "true");
-    return { parsedDate: null, isValid: false };
-  }
-
-  elements.dueDate.value = parsedDate.displayValue;
-  elements.dueDate.removeAttribute("aria-invalid");
-  return { parsedDate, isValid: true };
-}
-
-// ========================================
-// Capture Loop
-// ========================================
-
-async function captureLoop(event: SubmitEvent): Promise<void> {
-  event.preventDefault();
-
-  const { parsedDate, isValid: isDueDateValid } = normalizeDueDateField();
-  if (!isDueDateValid) {
-    elements.status.textContent = INVALID_DUE_DATE_MESSAGE;
-    elements.dueDate.focus();
-    elements.dueDate.select();
-    return;
-  }
-
-  const now = new Date();
-  const templateId = elements.templateSelect.value;
-  const payload: LoopCaptureRequest = {
-    raw_text: elements.rawText.value.trim(),
-    captured_at: now.toISOString(),
-    client_tz_offset_min: -now.getTimezoneOffset(),
-    actionable: elements.actionable.checked,
-    scheduled: elements.scheduled.checked,
-    blocked: elements.blocked.checked,
-  };
-
-  if (templateId) {
-    payload.template_id = Number.parseInt(templateId, 10);
-  }
-
-  if (parsedDate) {
-    payload.due_date = parsedDate.isoDate;
-  }
-  if (elements.nextAction.value.trim()) {
-    payload.next_action = elements.nextAction.value.trim();
-  }
-  if (elements.timeMinutes.value) {
-    payload.time_minutes = Number.parseInt(elements.timeMinutes.value, 10);
-  }
-  if (elements.activationEnergy.value) {
-    payload.activation_energy = Number.parseInt(elements.activationEnergy.value, 10);
-  }
-  if (elements.project.value.trim()) {
-    payload.project = elements.project.value.trim();
-  }
-  if (elements.tags.value.trim()) {
-    payload.tags = elements.tags.value.split(",")
-      .map((tag) => tag.trim())
-      .filter((tag) => tag.length > 0);
-  }
-
-  if (!payload.raw_text && !templateId) {
-    elements.status.textContent = "Type something first.";
-    return;
-  }
-
-  elements.status.textContent = navigator.onLine ? "Saving..." : "Saving offline...";
-
-  if (!state.state.notificationPermissionRequested) {
-    state.updateState({ notificationPermissionRequested: true });
-    void requestNotificationPermission();
-  }
-
-  try {
-    const result = await api.captureLoop(payload) as CaptureResult;
-
-    if (result.queued && result.offline) {
-      elements.status.textContent = "Saved offline - will sync when connected";
-    } else {
-      loop.replaceLoop(result);
-      elements.status.textContent = "Saved. Enrichment queued.";
-    }
-
-    elements.rawText.value = "";
-    elements.actionable.checked = false;
-    elements.scheduled.checked = false;
-    elements.blocked.checked = false;
-    elements.templateSelect.value = "";
-    elements.dueDate.value = "";
-    elements.nextAction.value = "";
-    elements.timeMinutes.value = "";
-    elements.activationEnergy.value = "";
-    elements.project.value = "";
-    elements.tags.value = "";
-  } catch (error: unknown) {
-    elements.status.textContent = messageFromError(error, "Capture failed.");
-  }
 }
 
 // ========================================
@@ -651,24 +538,16 @@ function syncLoopQueryModeUi(): void {
 
 function setupEventHandlers(): void {
   elements.form.addEventListener("submit", (event) => {
-    void captureLoop(event);
+    void capture.submitCaptureLoop(event);
+  });
+  elements.rawText.addEventListener("input", () => {
+    elements.rawText.removeAttribute("aria-invalid");
   });
   elements.dueDate.addEventListener("input", () => {
-    const formattedValue = formatDateInputValue(elements.dueDate.value);
-    if (elements.dueDate.value !== formattedValue) {
-      elements.dueDate.value = formattedValue;
-    }
-    elements.dueDate.removeAttribute("aria-invalid");
+    capture.formatDueDateInput();
   });
   elements.dueDate.addEventListener("blur", () => {
-    const { isValid } = normalizeDueDateField();
-    if (!isValid) {
-      elements.status.textContent = INVALID_DUE_DATE_MESSAGE;
-      return;
-    }
-    if (elements.status.textContent === INVALID_DUE_DATE_MESSAGE) {
-      elements.status.textContent = "Ready.";
-    }
+    capture.reportDueDateValidationResult();
   });
   elements.chatForm.addEventListener("submit", (event: SubmitEvent) => {
     event.preventDefault();
@@ -1176,6 +1055,27 @@ function initializeSurfaceRuntime(): void {
 
   state.hydrateStateFromStorage();
   initializeCaptureDisclosure();
+
+  capture.init({
+    status: elements.status,
+    form: elements.form,
+    rawText: elements.rawText,
+    actionable: elements.actionable,
+    scheduled: elements.scheduled,
+    blocked: elements.blocked,
+    dueDate: elements.dueDate,
+    nextAction: elements.nextAction,
+    timeMinutes: elements.timeMinutes,
+    activationEnergy: elements.activationEnergy,
+    project: elements.project,
+    tags: elements.tags,
+    templateSelect: elements.templateSelect,
+    captureSaveButton: elements.captureSaveButton,
+    captureError: elements.captureError,
+    statusFilter: elements.statusFilter,
+    tagFilter: elements.tagFilter,
+    queryFilter: elements.queryFilter,
+  }, { requestNotificationPermission });
 
   loop.init({
     inbox: elements.inbox,

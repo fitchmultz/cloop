@@ -245,6 +245,65 @@ select:focus {
   margin-top: var(--space-2);
 }
 
+.quick-capture-card,
+#capture-form,
+.quick-capture-primary-field,
+.quick-capture-details,
+.quick-capture-feedback-stack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.quick-capture-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.quick-capture-primary-field textarea {
+  min-height: 7rem;
+  font-size: var(--text-md);
+}
+
+.quick-capture-status-options {
+  margin: 0;
+}
+
+.quick-capture-details {
+  gap: var(--space-2);
+}
+
+.quick-capture-actions {
+  align-items: flex-start;
+}
+
+.quick-capture-feedback-stack {
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.capture-error,
+.loop-meta.is-error {
+  color: var(--color-danger);
+}
+
+.loop-meta.is-success {
+  color: var(--color-success);
+}
+
+.loop-meta.is-pending {
+  color: var(--color-info);
+}
+
+#capture-form[aria-busy="true"] {
+  opacity: 0.88;
+}
+
+#capture-save-btn[disabled] {
+  cursor: wait;
+}
+
 .capture-details-toggle {
   display: none;
   align-items: center;
