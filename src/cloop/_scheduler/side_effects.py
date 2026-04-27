@@ -77,7 +77,7 @@ async def heartbeat_scheduler_run(
     runner_task: asyncio.Task[Any],
 ) -> None:
     """Renew the owned slot lease and cancel the runner on lease loss."""
-    interval_seconds = max(1.0, context.settings.scheduler_lease_seconds / 3)
+    interval_seconds = max(0.05, context.settings.scheduler_lease_seconds / 3)
     while not context.lease_lost.is_set():
         await asyncio.sleep(interval_seconds)
         with db.core_connection(context.settings) as heartbeat_conn:

@@ -1143,27 +1143,29 @@ class TestSchedulerIntegration:
         db.init_databases(settings)
 
         heartbeat_times: list[datetime] = []
-
-        async def _slow_runner(settings, conn, context):  # noqa: ANN001
-            await asyncio.sleep(1.2)
-            return {"ok": True}
-
         original_heartbeat = scheduler_task_runs.heartbeat_task_run
 
-        def _record_heartbeat(*args, **kwargs):  # noqa: ANN002, ANN003
-            heartbeat_times.append(kwargs["heartbeat_at"])
-            return original_heartbeat(*args, **kwargs)
+        async def _run_task_after_heartbeat() -> dict[str, object] | None:
+            heartbeat_seen = asyncio.Event()
 
-        monkeypatch.setattr("cloop.scheduler._task_runner", lambda task_name: _slow_runner)
-        monkeypatch.setattr(scheduler_task_runs, "heartbeat_task_run", _record_heartbeat)
+            async def _slow_runner(settings, conn, context):  # noqa: ANN001
+                await asyncio.wait_for(heartbeat_seen.wait(), timeout=1.0)
+                return {"ok": True}
 
-        result = asyncio.run(
-            run_scheduler_task(
+            def _record_heartbeat(*args, **kwargs):  # noqa: ANN002, ANN003
+                heartbeat_times.append(kwargs["heartbeat_at"])
+                heartbeat_seen.set()
+                return original_heartbeat(*args, **kwargs)
+
+            monkeypatch.setattr("cloop.scheduler._task_runner", lambda task_name: _slow_runner)
+            monkeypatch.setattr(scheduler_task_runs, "heartbeat_task_run", _record_heartbeat)
+            return await run_scheduler_task(
                 task_name="daily_review",
                 settings=settings,
                 owner_token="scheduler-test:daily_review",
             )
-        )
+
+        result = asyncio.run(_run_task_after_heartbeat())
 
         assert result == {"ok": True}
         assert heartbeat_times
