@@ -146,12 +146,26 @@ interface ActiveDialogConfig {
   dismissible: boolean;
 }
 
+interface ModalIsolationState {
+  root: HTMLElement;
+  siblings: Array<{
+    element: HTMLElement;
+    hadInert: boolean;
+    previousAriaHidden: string | null;
+  }>;
+}
+
 let elements: ModalElements | null = null;
-let initialized = false;
+let boundHelpModal: HTMLElement | null = null;
+let boundAppDialog: HTMLElement | null = null;
+let boundAppDialogForm: HTMLFormElement | null = null;
+let documentClickHandlerBound = false;
 let isHelpModalVisible = false;
 let activeDialogResolver: ((result: Record<string, string> | null) => void) | null = null;
 let activeDialogConfig: ActiveDialogConfig | null = null;
 let lastFocusedElement: HTMLElement | null = null;
+let lastFocusedHelpElement: HTMLElement | null = null;
+let activeIsolation: ModalIsolationState | null = null;
 
 function canUseDom(): boolean {
   return typeof window !== "undefined" && typeof document !== "undefined";
@@ -188,10 +202,7 @@ function ensureInitialized(
     elements = resolveElements(overrides);
   }
 
-  if (!initialized) {
-    bindHandlers();
-    initialized = true;
-  }
+  bindHandlers();
 
   return elements;
 }
@@ -202,51 +213,64 @@ function bindHandlers(): void {
     return;
   }
 
-  current.helpModal?.addEventListener("click", (event) => {
-    if (event.target === current.helpModal) {
-      showHelpModal(false);
-    }
-  });
+  if (current.helpModal && current.helpModal !== boundHelpModal) {
+    current.helpModal.addEventListener("click", (event) => {
+      if (event.target === current.helpModal) {
+        showHelpModal(false);
+      }
+    });
 
-  current.helpModal
-    ?.querySelector<HTMLElement>("[data-action='close-help']")
-    ?.addEventListener("click", () => showHelpModal(false));
+    current.helpModal
+      .querySelector<HTMLElement>("[data-action='close-help']")
+      ?.addEventListener("click", () => showHelpModal(false));
+    boundHelpModal = current.helpModal;
+  }
 
-  current.appDialog?.addEventListener("click", (event) => {
-    if (event.target === current.appDialog && activeDialogConfig?.dismissible !== false) {
-      closeDialog(null);
-    }
-  });
+  if (current.appDialog && current.appDialog !== boundAppDialog) {
+    current.appDialog.addEventListener("click", (event) => {
+      if (event.target === current.appDialog && activeDialogConfig?.dismissible !== false) {
+        closeDialog(null);
+      }
+    });
 
-  current.appDialogForm?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (!activeDialogConfig) {
-      return;
-    }
+    current.appDialog.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && activeDialogConfig?.dismissible !== false) {
+        event.preventDefault();
+        closeDialog(null);
+        return;
+      }
 
-    const values = collectDialogValues();
-    const validationMessage = activeDialogConfig.validate?.(values) ?? null;
-    if (validationMessage) {
-      showDialogError(validationMessage);
-      focusFirstField();
-      return;
-    }
+      if (event.key === "Tab") {
+        trapFocus(event);
+      }
+    });
+    boundAppDialog = current.appDialog;
+  }
 
-    closeDialog(values);
-  });
-
-  current.appDialog?.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && activeDialogConfig?.dismissible !== false) {
+  if (current.appDialogForm && current.appDialogForm !== boundAppDialogForm) {
+    current.appDialogForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      closeDialog(null);
-      return;
-    }
+      if (!activeDialogConfig) {
+        return;
+      }
 
-    if (event.key === "Tab") {
-      trapFocus(event);
-    }
-  });
+      const values = collectDialogValues();
+      const validationMessage = activeDialogConfig.validate?.(values) ?? null;
+      if (validationMessage) {
+        showDialogError(validationMessage);
+        focusFirstField();
+        return;
+      }
 
+      closeDialog(values);
+    });
+    boundAppDialogForm = current.appDialogForm;
+  }
+
+  if (documentClickHandlerBound) {
+    return;
+  }
+  documentClickHandlerBound = true;
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
@@ -255,6 +279,52 @@ function bindHandlers(): void {
     if (target.closest("[data-action='cancel-app-dialog'], [data-action='close-app-dialog']")) {
       closeDialog(null);
     }
+  });
+}
+
+function setElementInert(element: HTMLElement, inert: boolean): void {
+  element.inert = inert;
+}
+
+function endModalIsolation(root?: HTMLElement): void {
+  const isolation = activeIsolation;
+  if (!isolation || (root && isolation.root !== root)) {
+    return;
+  }
+
+  activeIsolation = null;
+  isolation.siblings.forEach(({ element, hadInert, previousAriaHidden }) => {
+    setElementInert(element, hadInert);
+    if (previousAriaHidden === null) {
+      element.removeAttribute("aria-hidden");
+      return;
+    }
+    element.setAttribute("aria-hidden", previousAriaHidden);
+  });
+}
+
+function beginModalIsolation(root: HTMLElement): void {
+  if (activeIsolation?.root === root) {
+    return;
+  }
+  endModalIsolation();
+
+  const siblings = Array.from(document.body.children)
+    .filter((child): child is HTMLElement => child instanceof HTMLElement)
+    .filter((child) => child !== root && !root.contains(child));
+
+  activeIsolation = {
+    root,
+    siblings: siblings.map((element) => ({
+      element,
+      hadInert: element.inert === true,
+      previousAriaHidden: element.getAttribute("aria-hidden"),
+    })),
+  };
+
+  activeIsolation.siblings.forEach(({ element }) => {
+    setElementInert(element, true);
+    element.setAttribute("aria-hidden", "true");
   });
 }
 
@@ -373,15 +443,24 @@ function setDialogDescription(description: string): void {
   elements.appDialogDescription.hidden = !description;
 }
 
+function isElementVisibleToModal(element: HTMLElement): boolean {
+  if (element.hasAttribute("hidden") || element.getAttribute("aria-hidden") === "true") {
+    return false;
+  }
+  return !Boolean(element.closest("[hidden], [aria-hidden='true'], [inert]"));
+}
+
 function getFocusableElements(): HTMLElement[] {
   return Array.from(elements?.appDialog?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR) ?? []).filter((element) => {
-    return !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true";
+    return isElementVisibleToModal(element);
   });
 }
 
 function trapFocus(event: KeyboardEvent): void {
   const focusable = getFocusableElements();
   if (!focusable.length) {
+    event.preventDefault();
+    elements?.appDialogPanel?.focus();
     return;
   }
 
@@ -391,10 +470,18 @@ function trapFocus(event: KeyboardEvent): void {
     return;
   }
 
-  if (event.shiftKey && document.activeElement === first) {
+  const active = document.activeElement;
+  const dialogContainsFocus = active instanceof Node && Boolean(elements?.appDialog?.contains(active));
+  if (!dialogContainsFocus) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+    return;
+  }
+
+  if (event.shiftKey && active === first) {
     event.preventDefault();
     last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
+  } else if (!event.shiftKey && active === last) {
     event.preventDefault();
     first.focus();
   }
@@ -424,6 +511,7 @@ function closeDialog(result: Record<string, string> | null): void {
 
   if (elements?.appDialog) {
     elements.appDialog.hidden = true;
+    endModalIsolation(elements.appDialog);
   }
   clearDialogError();
   if (elements?.appDialogFields) {
@@ -452,14 +540,29 @@ export function showHelpModal(show: boolean): void {
   }
 
   if (show) {
+    if (!isHelpModalVisible) {
+      lastFocusedHelpElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    current.helpModal.hidden = false;
+    current.helpModal.removeAttribute("aria-hidden");
     current.helpModal.classList.add("visible");
+    beginModalIsolation(current.helpModal);
     current.helpModal.querySelector<HTMLElement>(".help-modal")?.focus();
     isHelpModalVisible = true;
     return;
   }
 
+  const shouldRestoreFocus = isHelpModalVisible;
   current.helpModal.classList.remove("visible");
+  current.helpModal.hidden = true;
+  current.helpModal.setAttribute("aria-hidden", "true");
+  endModalIsolation(current.helpModal);
   isHelpModalVisible = false;
+  const restoreTarget = lastFocusedHelpElement;
+  lastFocusedHelpElement = null;
+  if (shouldRestoreFocus) {
+    restoreTarget?.focus();
+  }
 }
 
 export function isModalOpen(): boolean {
@@ -544,6 +647,7 @@ export function showDialog({
   renderDialogFields(fields);
   clearDialogError();
   current.appDialog.hidden = false;
+  beginModalIsolation(current.appDialog);
 
   return new Promise((resolve) => {
     activeDialogResolver = resolve;
