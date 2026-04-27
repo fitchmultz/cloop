@@ -168,9 +168,11 @@ dist: frontend-build
 dist-check: dist
 	$(UV_RUN) twine check dist/*
 
-check-fast: quality bridge-test test-fast
+check-fast:
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(MAKE) -j4 RUNTIME_CLEANUP_WRAP= quality bridge-test test-fast
 
-check-full: quality bridge-test test dist-check
+check-full:
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(MAKE) -j4 RUNTIME_CLEANUP_WRAP= quality bridge-test test dist-check
 
 check: check-full
 
