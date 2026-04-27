@@ -66,8 +66,13 @@ function readErrorCode(value: unknown): string | null {
   }
   const detail = value["detail"];
   const error = value["error"];
-  if (isRecord(detail) && typeof detail["code"] === "string" && detail["code"].trim()) {
-    return detail["code"];
+  if (isRecord(detail)) {
+    if (typeof detail["code"] === "string" && detail["code"].trim()) {
+      return detail["code"];
+    }
+    if (typeof detail["error"] === "string" && detail["error"].trim()) {
+      return detail["error"];
+    }
   }
   if (isRecord(error)) {
     if (typeof error["code"] === "string" && error["code"].trim()) {

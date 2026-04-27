@@ -23,7 +23,7 @@
 
 import * as api from "./api";
 import type { NextLoopsResponse, SurfaceLoop } from "./contracts";
-import { renderLoop } from "./render";
+import { formatDuration, renderLoop } from "./render";
 import { escapeHtml, closestFromEventTarget, messageFromError } from "./utils";
 
 interface NextModuleElements {
@@ -43,15 +43,25 @@ interface NextBucket {
 
 let nextBucketsEl: HTMLElement | null = null;
 let nextQueryFilterEl: HTMLInputElement | null = null;
-let nextHandlersBound = false;
+let nextHandlersBoundEl: HTMLElement | null = null;
+let toggleTimerHandler: ((loopId: number | string) => void | Promise<void>) | null = null;
 
 export function init(elements: NextModuleElements): void {
   nextBucketsEl = elements.nextBuckets;
   nextQueryFilterEl = elements.nextQueryFilter ?? null;
-  if (nextBucketsEl && !nextHandlersBound) {
-    nextBucketsEl.addEventListener("click", handleNextBucketClick);
-    nextHandlersBound = true;
+  ensureNextBucketHandlersBound();
+}
+
+export function setTimerToggleHandler(handler: (loopId: number | string) => void | Promise<void>): void {
+  toggleTimerHandler = handler;
+}
+
+function ensureNextBucketHandlersBound(): void {
+  if (!nextBucketsEl || nextHandlersBoundEl === nextBucketsEl) {
+    return;
   }
+  nextBucketsEl.addEventListener("click", handleNextBucketClick);
+  nextHandlersBoundEl = nextBucketsEl;
 }
 
 export async function loadNext(options: NextLoadOptions = {}): Promise<void> {
@@ -106,9 +116,33 @@ export async function loadFocusedLoop(loopId: number): Promise<void> {
       `;
       return;
     }
+    await applyFocusedLoopTimerStatus(loop);
     renderFocusedLoop(loop);
   } catch (error: unknown) {
     nextBucketsEl.innerHTML = `<p class="error">Failed to load focused loop: ${escapeHtml(messageFromError(error, `Failed to load loop #${loopId}.`))}</p>`;
+  }
+}
+
+async function applyFocusedLoopTimerStatus(loop: SurfaceLoop): Promise<void> {
+  const timerStatus = await api.fetchTimerStatus(loop.id);
+  if (!timerStatus) {
+    return;
+  }
+
+  if (timerStatus.has_active_session && timerStatus.active_session) {
+    const startedAt = new Date(timerStatus.active_session.started_at_utc).getTime();
+    const elapsed = Number.isFinite(startedAt)
+      ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+      : timerStatus.total_tracked_seconds;
+    loop.timer_running = true;
+    loop.timer_display = formatDuration(elapsed);
+    loop.total_tracked_minutes = timerStatus.total_tracked_minutes;
+    return;
+  }
+  loop.timer_running = false;
+  loop.timer_display = "";
+  if (timerStatus) {
+    loop.total_tracked_minutes = timerStatus.total_tracked_minutes;
   }
 }
 
@@ -135,6 +169,7 @@ function renderNextBuckets(buckets: NextBucket[]): void {
   if (!nextBucketsEl) {
     return;
   }
+  ensureNextBucketHandlersBound();
 
   if (buckets.length === 0) {
     nextBucketsEl.innerHTML = '<p class="empty">No next actions found. Capture some loops first!</p>';
@@ -172,6 +207,7 @@ function renderQueryResults(items: SurfaceLoop[], query: string): void {
   if (!nextBucketsEl) {
     return;
   }
+  ensureNextBucketHandlersBound();
 
   if (items.length === 0) {
     nextBucketsEl.innerHTML = `
@@ -215,6 +251,7 @@ function renderFocusedLoop(loop: SurfaceLoop): void {
   if (!nextBucketsEl) {
     return;
   }
+  ensureNextBucketHandlersBound();
 
   nextBucketsEl.innerHTML = `
     <section class="next-bucket bucket-query-results">
@@ -237,6 +274,15 @@ function renderFocusedLoop(loop: SurfaceLoop): void {
 }
 
 function handleNextBucketClick(event: MouseEvent): void {
+  const timerButton = closestFromEventTarget<HTMLElement>(event.target, "[data-action='timer-toggle']");
+  if (timerButton) {
+    const loopId = timerButton.dataset["id"];
+    if (loopId && toggleTimerHandler) {
+      void toggleTimerHandler(loopId);
+    }
+    return;
+  }
+
   const reviewBtn = closestFromEventTarget<HTMLElement>(event.target, "[data-action='jump-to-inbox']");
   if (!reviewBtn) {
     return;

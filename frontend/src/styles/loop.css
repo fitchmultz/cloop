@@ -916,6 +916,21 @@
   animation: pulse 2s infinite;
 }
 
+.timer-btn.pending,
+.timer-btn:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.timer-btn.pending {
+  border-color: var(--color-brand);
+  background: var(--color-bg-accent);
+}
+
+.timer-btn:disabled {
+  pointer-events: none;
+}
+
 .timer-display {
   font-family: "Space Grotesk", monospace;
   font-size: 13px;
@@ -931,6 +946,24 @@
 .timer-display.active {
   color: var(--color-brand);
   font-weight: 600;
+}
+
+.timer-display:empty {
+  display: none;
+}
+
+.timer-feedback {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.timer-feedback.error {
+  color: #9b1c1c;
+  font-weight: 600;
+}
+
+.timer-feedback:empty {
+  display: none;
 }
 
 .timer-section {

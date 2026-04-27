@@ -465,7 +465,16 @@ function renderNextLoop(loop: SurfaceLoop): HTMLElement {
         >
           ${loop.timer_running ? "⏹ Stop focus" : "▶ Start focus"}
         </button>
-        ${timerDisplay ? `<span class="timer-display ${loop.timer_running ? "active" : ""}" data-timer-display="${loop.id}">${escapeHtml(timerDisplay)}</span>` : ""}
+        <span
+          class="timer-display ${loop.timer_running ? "active" : ""}"
+          data-timer-display="${loop.id}"
+        >${escapeHtml(timerDisplay)}</span>
+        <span
+          class="timer-feedback"
+          data-timer-feedback="${loop.id}"
+          role="status"
+          aria-live="polite"
+        ></span>
         <button
           type="button"
           class="secondary next-card-review-btn"
@@ -547,7 +556,6 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
   const completionVisible = Boolean(completionNoteValue.trim());
   const nextActionSummary = loop.next_action?.trim() || "";
   const timerDisplay = loop.timer_display || "";
-  const hasTimerMeta = Boolean(timerDisplay || loop.total_tracked_minutes || loop.time_minutes);
 
   const tagChips = Array.isArray(loop.tags) && loop.tags.length
     ? loop.tags
@@ -731,13 +739,20 @@ export function renderLoop(loop: SurfaceLoop, options: { surface?: "next" } = {}
           >
             ${loop.timer_running ? '⏹ Stop' : '▶ Start'}
           </button>
-          ${hasTimerMeta ? `
-            <div class="timer-meta">
-              ${timerDisplay ? `<span class="timer-display ${loop.timer_running ? 'active' : ''}" data-timer-display="${loop.id}">${timerDisplay}</span>` : ''}
-              ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
-              ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
-            </div>
-          ` : ''}
+          <div class="timer-meta">
+            <span
+              class="timer-display ${loop.timer_running ? 'active' : ''}"
+              data-timer-display="${loop.id}"
+            >${escapeHtml(timerDisplay)}</span>
+            ${loop.total_tracked_minutes ? `<span class="badge">${loop.total_tracked_minutes}m tracked</span>` : ''}
+            ${loop.time_minutes ? `<span class="badge pending">est: ${loop.time_minutes}m</span>` : ''}
+            <span
+              class="timer-feedback"
+              data-timer-feedback="${loop.id}"
+              role="status"
+              aria-live="polite"
+            ></span>
+          </div>
         </div>
         ${showRecurrenceSection ? `
           <div class="recurrence-section ${recurrenceEnabled ? 'expanded' : ''}" data-recurrence-section="${loop.id}">

@@ -703,7 +703,14 @@ function setupEventHandlers(): void {
 // Loop Card Event Handlers
 // ========================================
 
+const loopCardHandlerContainers = new WeakSet<HTMLElement>();
+
 function setupLoopCardHandlers(container: HTMLElement): void {
+  if (loopCardHandlerContainers.has(container)) {
+    return;
+  }
+  loopCardHandlerContainers.add(container);
+
   const applyDueUpdateAndMaybeClose = (
     target: HTMLElement,
     { blurTarget = false }: { blurTarget?: boolean } = {},
@@ -1043,6 +1050,17 @@ function setupLoopCardHandlers(container: HTMLElement): void {
 
 let bootstrapped = false;
 
+function refreshDynamicSurfaceBindings(): void {
+  if (!bootstrapped) {
+    return;
+  }
+  elements = buildElements();
+  next.init({ nextBuckets: elements.nextBuckets, nextQueryFilter: elements.nextQueryFilter });
+  next.setTimerToggleHandler(timer.toggleTimer);
+  setupLoopCardHandlers(elements.inbox);
+  setupLoopCardHandlers(elements.nextBuckets);
+}
+
 function initializeSurfaceRuntime(): void {
   if (bootstrapped) {
     return;
@@ -1089,6 +1107,7 @@ function initializeSurfaceRuntime(): void {
   timer.init({ status: elements.status });
   bulk.init({ status: elements.status, bulkActionBar: elements.bulkActionBar });
   next.init({ nextBuckets: elements.nextBuckets, nextQueryFilter: elements.nextQueryFilter });
+  next.setTimerToggleHandler(timer.toggleTimer);
   chat.init({
     chatActionCards: elements.chatActionCards,
     chatMessages: elements.chatMessages,
@@ -1196,6 +1215,7 @@ export async function activateSurface(
   options: ActivateSurfaceOptions = {},
 ): Promise<void> {
   initializeSurfaceRuntime();
+  refreshDynamicSurfaceBindings();
   await activateSurfaceInternal(requestedTabName, options);
 }
 
@@ -1204,6 +1224,7 @@ export async function refreshSurface(
   options: ActivateSurfaceOptions = {},
 ): Promise<void> {
   initializeSurfaceRuntime();
+  refreshDynamicSurfaceBindings();
   const nextOptions: ActivateSurfaceOptions = {
     doQuery: options.doQuery ?? elements.nextQueryFilter.value.trim(),
     doLoopId: options.doLoopId ?? null,
