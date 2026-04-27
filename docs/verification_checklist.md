@@ -9,6 +9,7 @@ git clone https://github.com/fitchmultz/cloop.git
 cd cloop
 uv sync --all-groups
 pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
+pnpm --dir frontend install --frozen-lockfile
 cp .env.example .env
 ```
 

@@ -74,6 +74,7 @@ import { resolveDurableReopenLocation } from "./continuity-follow-through";
 import { continuityRecoveryForLocation } from "./continuity-surface-recovery";
 import { recordRecentShellAction } from "./continuity-intelligence";
 import { renderActionCardDeck } from "./operator-action-cards";
+import { escapeHtml, loopPreview, loopTitle } from "./shell-core";
 import { createLocation, locationToHash, parseHash } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
 import { renderTrustSurface } from "./trust-surface";
@@ -100,6 +101,7 @@ import {
   runRelationshipSessionAction,
 } from "./review-workflow-client";
 import * as modals from "./modals";
+import type { AlertDialogConfig, DialogConfig } from "./modals";
 import { openMergeModal, setupMergeHandlers } from "./duplicates";
 
 interface ReviewWorkspaceElements {
@@ -141,34 +143,7 @@ interface ReviewFocusDetail {
   sessionId: number | null;
 }
 
-interface DialogFieldOption {
-  value: string;
-  label: string;
-}
-
-interface DialogFieldConfig {
-  name: string;
-  label: string;
-  value?: string | undefined;
-  required?: boolean | undefined;
-  maxLength?: number | undefined;
-  autocomplete?: string | undefined;
-  placeholder?: string | undefined;
-  type?: "text" | "textarea" | "number" | "select" | undefined;
-  rows?: number | undefined;
-  inputMode?: string | undefined;
-  options?: DialogFieldOption[] | undefined;
-  helpText?: string | undefined;
-}
-
-interface PromptDialogConfig {
-  eyebrow: string;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  fields: DialogFieldConfig[];
-  validate?: ((values: Record<string, string>) => string | null) | undefined;
-}
+type PromptDialogConfig = DialogConfig;
 
 const COHORT_DESCRIPTORS = {
   stale: {
@@ -264,15 +239,6 @@ function buildElements(): ReviewWorkspaceElements {
   };
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 function normalizedTimestampValue(value: string): string {
   if (!value.trim()) {
     return value;
@@ -326,14 +292,6 @@ function formatRelativeTime(value: string | null | undefined): string {
   }
 
   return `${amount} ${unit} ${diffMs >= 0 ? "ago" : "from now"}`;
-}
-
-function loopTitle(loop: { id: number; title?: string | null; raw_text: string }): string {
-  return loop.title?.trim() || loop.raw_text.trim() || `Loop #${loop.id}`;
-}
-
-function loopPreview(loop: { raw_text: string; summary?: string | null; next_action?: string | null }): string {
-  return loop.summary?.trim() || loop.next_action?.trim() || loop.raw_text.trim();
 }
 
 function parseOptionalInteger(value: string | null | undefined): number | null {
@@ -2554,14 +2512,11 @@ function currentFocusDetail(): ReviewFocusDetail {
 
 function dialogApi(): {
   promptDialog: (config: PromptDialogConfig) => Promise<Record<string, string> | null>;
-  confirmDialog: (config: Record<string, unknown>) => Promise<boolean>;
-  alertDialog: (config: Record<string, unknown>) => Promise<void>;
+  confirmDialog: (config: DialogConfig) => Promise<boolean>;
+  alertDialog: (config: AlertDialogConfig) => Promise<void>;
 } {
-  return modals as unknown as {
-    promptDialog: (config: PromptDialogConfig) => Promise<Record<string, string> | null>;
-    confirmDialog: (config: Record<string, unknown>) => Promise<boolean>;
-    alertDialog: (config: Record<string, unknown>) => Promise<void>;
-  };
+  const { promptDialog, confirmDialog, alertDialog } = modals;
+  return { promptDialog, confirmDialog, alertDialog };
 }
 
 function dialogValue(values: Record<string, string>, key: string): string {

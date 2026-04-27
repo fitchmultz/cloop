@@ -11,9 +11,7 @@ Responsibilities:
 Non-scope:
     - HTTP-specific handling (see handlers.py)
     - Business logic validation (see loops/service.py)
-
-Non-scope:
-- Business mutation logic itself
+    - Business mutation logic itself
 
 Invariants:
 - Same (scope, key, hash) replays prior response

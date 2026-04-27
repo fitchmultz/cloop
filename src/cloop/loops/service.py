@@ -549,6 +549,23 @@ def remove_loop_dependency(
     return get_loop_with_dependencies(loop_id=loop_id, conn=conn)
 
 
+def _list_loop_summaries(loop_ids: list[int], *, conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return compact loop summaries for relationship/dependency lists."""
+    summaries: list[dict[str, Any]] = []
+    for related_loop_id in loop_ids:
+        related_loop = repo.read_loop(loop_id=related_loop_id, conn=conn)
+        if related_loop is None:
+            continue
+        summaries.append(
+            {
+                "id": related_loop.id,
+                "title": related_loop.title or related_loop.raw_text[:50],
+                "status": related_loop.status.value,
+            }
+        )
+    return summaries
+
+
 @typingx.validate_io()
 def get_loop_dependencies(
     *,
@@ -569,21 +586,7 @@ def get_loop_dependencies(
         raise LoopNotFoundError(loop_id)
 
     dep_ids = repo.list_dependencies(loop_id=loop_id, conn=conn)
-    if not dep_ids:
-        return []
-
-    result = []
-    for dep_id in dep_ids:
-        dep_loop = repo.read_loop(loop_id=dep_id, conn=conn)
-        if dep_loop:
-            result.append(
-                {
-                    "id": dep_loop.id,
-                    "title": dep_loop.title or dep_loop.raw_text[:50],
-                    "status": dep_loop.status.value,
-                }
-            )
-    return result
+    return _list_loop_summaries(dep_ids, conn=conn)
 
 
 @typingx.validate_io()
@@ -606,21 +609,7 @@ def get_loop_blocking(
         raise LoopNotFoundError(loop_id)
 
     dependent_ids = repo.list_dependents(loop_id=loop_id, conn=conn)
-    if not dependent_ids:
-        return []
-
-    result = []
-    for dep_id in dependent_ids:
-        dep_loop = repo.read_loop(loop_id=dep_id, conn=conn)
-        if dep_loop:
-            result.append(
-                {
-                    "id": dep_loop.id,
-                    "title": dep_loop.title or dep_loop.raw_text[:50],
-                    "status": dep_loop.status.value,
-                }
-            )
-    return result
+    return _list_loop_summaries(dependent_ids, conn=conn)
 
 
 def get_loop_with_dependencies(

@@ -27,11 +27,11 @@ Invariants/Assumptions:
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import Any
 
 from ..errors import ValidationError
+from ..json_extraction import extract_first_json_object
 from .models import _DEFAULT_PLANNING_OPTIONS, PlanningMoveDirection, PlanningSessionOptionsModel
 
 
@@ -70,27 +70,10 @@ def _validate_options(options: Mapping[str, Any] | None) -> dict[str, Any]:
 
 
 def _extract_json_object(payload: str) -> dict[str, Any]:
-    text = payload.strip()
-    decoder = json.JSONDecoder()
-
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    for index, char in enumerate(text):
-        if char != "{":
-            continue
-        try:
-            parsed, _ = decoder.raw_decode(text, index)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-
-    raise ValidationError("response", "invalid JSON from planner")
+    parsed = extract_first_json_object(payload)
+    if parsed is None:
+        raise ValidationError("response", "invalid JSON from planner")
+    return parsed
 
 
 __all__ = [

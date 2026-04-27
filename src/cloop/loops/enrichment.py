@@ -39,6 +39,7 @@ from ..webhooks.service import queue_deliveries
 from . import repo, similarity
 from .errors import LoopNotFoundError
 from .errors import ValidationError as CloopValidationError
+from .json_extraction import extract_first_json_object
 from .models import EnrichmentState, LoopEventType, format_utc_datetime
 from .related import find_duplicate_candidates
 from .relationship_review import sync_relationship_suggestions
@@ -91,53 +92,37 @@ class LoopSuggestion(BaseModel):
 
 
 def _extract_json(payload: str) -> dict[str, Any]:
-    """
-    Extract JSON object from LLM response, handling markdown blocks and text.
+    """Extract a JSON object from an LLM response or raise a transport-specific error."""
+    parsed = extract_first_json_object(payload, allow_markdown_fence=True)
+    if parsed is None:
+        raise CloopValidationError("response", "invalid JSON from LLM")
+    return parsed
 
-    Tries multiple strategies in order:
-    1. Strip markdown code blocks and parse
-    2. Find JSON object by brace matching
-    3. Raise ValueError if all fail
-    """
-    import re
 
-    payload = payload.strip()
-
-    # Strategy 1: Strip markdown code blocks
-    # Match ```json...``` or ```...``` blocks (with optional language specifier)
-    markdown_pattern = r"^```(?:json)?\s*\n?(.*?)\n?```$"
-    match = re.match(markdown_pattern, payload, re.DOTALL | re.IGNORECASE)
-    if match:
-        inner = match.group(1).strip()
-        try:
-            decoder = json.JSONDecoder()
-            parsed, _ = decoder.raw_decode(inner)
-            if isinstance(parsed, dict):
-                return parsed
-        except json.JSONDecodeError:
-            pass  # Fall through to next strategy
-
-    # Strategy 2: Find JSON by brace matching
-    # Look for the first '{' that starts a valid JSON object
-    decoder = json.JSONDecoder()
-    for i, char in enumerate(payload):
-        if char == "{":
-            try:
-                parsed, _ = decoder.raw_decode(payload, i)
-                if isinstance(parsed, dict):
-                    return parsed
-            except json.JSONDecodeError:
-                continue  # Try next '{'
-
-    # Strategy 3: Try parsing the whole string as JSON (simple case)
-    try:
-        parsed = json.loads(payload)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
-    raise CloopValidationError("response", "invalid JSON from LLM")
+def _record_enrichment_failure(
+    *,
+    loop_id: int,
+    error_message: str,
+    conn: sqlite3.Connection,
+) -> None:
+    """Persist a failed enrichment state and queue its failure event."""
+    repo.update_loop_fields(
+        loop_id=loop_id,
+        fields={"enrichment_state": EnrichmentState.FAILED.value},
+        conn=conn,
+    )
+    event_id = repo.insert_loop_event(
+        loop_id=loop_id,
+        event_type=LoopEventType.ENRICH_FAILURE.value,
+        payload={"error": error_message},
+        conn=conn,
+    )
+    queue_deliveries(
+        event_id=event_id,
+        event_type=LoopEventType.ENRICH_FAILURE.value,
+        payload={"error": error_message},
+        conn=conn,
+    )
 
 
 def _gather_enrichment_context(
@@ -506,7 +491,6 @@ def enrich_loop(
         "provenance": dict(record.provenance),
     }
 
-    # NEW: Gather context before building prompt
     context: EnrichmentContext | None = None
     if settings.autopilot_enabled:
         try:
@@ -540,64 +524,24 @@ def enrich_loop(
         raise
     except json.JSONDecodeError as exc:
         with conn:
-            repo.update_loop_fields(
+            _record_enrichment_failure(
                 loop_id=loop_id,
-                fields={"enrichment_state": EnrichmentState.FAILED.value},
-                conn=conn,
-            )
-            event_id = repo.insert_loop_event(
-                loop_id=loop_id,
-                event_type=LoopEventType.ENRICH_FAILURE.value,
-                payload={"error": f"JSON decode error: {exc}"},
-                conn=conn,
-            )
-            queue_deliveries(
-                event_id=event_id,
-                event_type=LoopEventType.ENRICH_FAILURE.value,
-                payload={"error": f"JSON decode error: {exc}"},
+                error_message=f"JSON decode error: {exc}",
                 conn=conn,
             )
         raise
     except ValidationError as exc:
         with conn:
-            repo.update_loop_fields(
+            _record_enrichment_failure(
                 loop_id=loop_id,
-                fields={"enrichment_state": EnrichmentState.FAILED.value},
-                conn=conn,
-            )
-            event_id = repo.insert_loop_event(
-                loop_id=loop_id,
-                event_type=LoopEventType.ENRICH_FAILURE.value,
-                payload={"error": f"Validation error: {exc}"},
-                conn=conn,
-            )
-            queue_deliveries(
-                event_id=event_id,
-                event_type=LoopEventType.ENRICH_FAILURE.value,
-                payload={"error": f"Validation error: {exc}"},
+                error_message=f"Validation error: {exc}",
                 conn=conn,
             )
         raise
     except Exception as exc:
         # Catch-all for unexpected errors (litellm API errors, etc.)
         with conn:
-            repo.update_loop_fields(
-                loop_id=loop_id,
-                fields={"enrichment_state": EnrichmentState.FAILED.value},
-                conn=conn,
-            )
-            event_id = repo.insert_loop_event(
-                loop_id=loop_id,
-                event_type=LoopEventType.ENRICH_FAILURE.value,
-                payload={"error": str(exc)},
-                conn=conn,
-            )
-            queue_deliveries(
-                event_id=event_id,
-                event_type=LoopEventType.ENRICH_FAILURE.value,
-                payload={"error": str(exc)},
-                conn=conn,
-            )
+            _record_enrichment_failure(loop_id=loop_id, error_message=str(exc), conn=conn)
         raise
 
     with conn:

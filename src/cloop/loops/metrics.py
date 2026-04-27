@@ -135,16 +135,7 @@ def compute_loop_metrics(
         dropped=status_map.get(LoopStatus.DROPPED.value, 0),
     )
 
-    total_loops = sum(
-        [
-            status_counts.inbox,
-            status_counts.actionable,
-            status_counts.blocked,
-            status_counts.scheduled,
-            status_counts.completed,
-            status_counts.dropped,
-        ]
-    )
+    total_loops = sum(status_map.values())
 
     # Stale open count (open = inbox, actionable, blocked, scheduled)
     stale_open_count = conn.execute(

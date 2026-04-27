@@ -49,6 +49,16 @@ from ._common import (
 router = APIRouter()
 
 
+def _parse_event_cursor(value: str | None) -> int:
+    """Parse an SSE event cursor, falling back to the stream origin on invalid input."""
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except ValueError:
+        return 0
+
+
 @router.get("/{loop_id}/events", response_model=LoopEventListResponse)
 def loop_events_endpoint(
     loop_id: int,
@@ -165,17 +175,11 @@ def loop_events_stream(
             for pragma, value in db.PRAGMAS:
                 conn.execute(f"PRAGMA {pragma}={value}")
 
-            start_id = 0
-            if last_event_id is not None:
-                try:
-                    start_id = int(last_event_id)
-                except ValueError:
-                    pass
-            elif cursor is not None:
-                try:
-                    start_id = int(cursor)
-                except ValueError:
-                    pass
+            start_id = (
+                _parse_event_cursor(last_event_id)
+                if last_event_id is not None
+                else _parse_event_cursor(cursor)
+            )
 
             if start_id > 0:
                 rows = conn.execute(

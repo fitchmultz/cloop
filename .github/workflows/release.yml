@@ -37,7 +37,9 @@ jobs:
         with:
           node-version: "25.8.2"
           cache: pnpm
-          cache-dependency-path: src/cloop/pi_bridge/pnpm-lock.yaml
+          cache-dependency-path: |
+            src/cloop/pi_bridge/pnpm-lock.yaml
+            frontend/pnpm-lock.yaml
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

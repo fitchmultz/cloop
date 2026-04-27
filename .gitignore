@@ -28,8 +28,9 @@ dogfood-output/
 *.egg-info/
 src/*.egg-info/
 src/cloop/static/dist/
+# Frontend OpenAPI schema exports are local/generated.
+# Contract types in frontend/src/generated/ are intentionally committed.
 frontend/openapi.json
-frontend/src/generated/openapi.ts
 
 # Project runtime data
 data/

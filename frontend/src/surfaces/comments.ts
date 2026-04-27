@@ -23,84 +23,8 @@
 import * as api from "./api";
 import * as modals from "./modals";
 import type { CommentNode } from "./contracts";
-import { closestFromEventTarget, escapeHtml, formatTime } from "./utils";
-
-function markdownToHtml(markdown: string | null | undefined): string {
-  if (!markdown) {
-    return "";
-  }
-  let html = escapeHtml(markdown);
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  html = html.replace(/`(.+?)`/g, "<code>$1</code>");
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text: string, url: string) => {
-    const safeUrl = /^(https?:|mailto:)/i.test(url) ? url : "#";
-    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
-  });
-  html = html.replace(/\n/g, "<br>");
-  return html;
-}
-
-function formatRelativeTime(isoString: string): string {
-  const date = new Date(isoString);
-  const now = Date.now();
-  const diff = now - date.getTime();
-  const minutes = Math.floor(diff / 60_000);
-  const hours = Math.floor(diff / 3_600_000);
-  const days = Math.floor(diff / 86_400_000);
-
-  if (minutes < 1) {
-    return "just now";
-  }
-  if (minutes < 60) {
-    return `${minutes}m ago`;
-  }
-  if (hours < 24) {
-    return `${hours}h ago`;
-  }
-  if (days < 7) {
-    return `${days}d ago`;
-  }
-  return date.toLocaleDateString();
-}
-
-function renderComment(comment: CommentNode, loopId: number | string, isReply = false): string {
-  const bodyHtml = comment.is_deleted ? "<em>[deleted]</em>" : markdownToHtml(comment.body_md);
-  const replyFormHtml = `
-    <div class="reply-form" data-reply-form="${comment.id}">
-      <textarea
-        class="comment-textarea"
-        data-reply-body="${comment.id}"
-        placeholder="Write a reply..."
-      ></textarea>
-      <button class="comment-submit-btn" data-action="submit-reply" data-loop-id="${loopId}" data-parent-id="${comment.id}">
-        Reply
-      </button>
-    </div>
-  `;
-
-  const repliesHtml = Array.isArray(comment.replies) && comment.replies.length > 0
-    ? `<div class="comment-replies">${comment.replies.map((reply) => renderComment(reply, loopId, true)).join("")}</div>`
-    : "";
-
-  return `
-    <div class="comment ${isReply ? "reply" : ""} ${comment.is_deleted ? "deleted" : ""}" data-comment-id="${comment.id}">
-      <div class="comment-meta">
-        <span class="comment-author">${escapeHtml(comment.author)}</span>
-        <span class="comment-time" title="${formatTime(comment.created_at_utc)}">${formatRelativeTime(comment.created_at_utc)}</span>
-      </div>
-      <div class="comment-body">${bodyHtml}</div>
-      ${!comment.is_deleted ? `
-        <div class="comment-actions">
-          <button class="comment-action-btn" data-action="reply-comment" data-comment-id="${comment.id}">Reply</button>
-          <button class="comment-action-btn" data-action="delete-comment" data-loop-id="${loopId}" data-comment-id="${comment.id}">Delete</button>
-        </div>
-        ${replyFormHtml}
-      ` : ""}
-      ${repliesHtml}
-    </div>
-  `;
-}
+import { renderComment } from "./render";
+import { closestFromEventTarget } from "./utils";
 
 export async function loadComments(loopId: number | string): Promise<void> {
   const countEl = document.querySelector(`[data-comments-count="${loopId}"]`);

@@ -30,6 +30,11 @@ import type {
   ChatPreferences,
   ChatSource,
   ChatToolCall,
+  ExecutableRerunHandle,
+  OperatorActionCardActionVariant,
+  OperatorActionCardRerunAction,
+  RerunAttemptContract,
+  ShellLocationContract,
 } from "../contracts-ui";
 import {
   clearLoopSelection,
@@ -184,11 +189,117 @@ function normalizeContext(context: unknown): ChatContext | null {
   };
 }
 
-function normalizeRerunAction(message: unknown): ChatMessage["rerunAction"] {
-  if (!isRecord(message) || typeof message["label"] !== "string" || typeof message["description"] !== "string") {
+function normalizeShellLocation(value: unknown): ShellLocationContract | null {
+  if (!isRecord(value) || typeof value["state"] !== "string" || typeof value["recallTool"] !== "string") {
     return null;
   }
-  return message as unknown as ChatMessage["rerunAction"];
+  return {
+    state: value["state"] as ShellLocationContract["state"],
+    recallTool: value["recallTool"] as ShellLocationContract["recallTool"],
+    reviewFocus: typeof value["reviewFocus"] === "string" ? value["reviewFocus"] as ShellLocationContract["reviewFocus"] : null,
+    sessionId: Number.isInteger(value["sessionId"]) ? value["sessionId"] as number : null,
+    loopId: Number.isInteger(value["loopId"]) ? value["loopId"] as number : null,
+    viewId: Number.isInteger(value["viewId"]) ? value["viewId"] as number : null,
+    memoryId: Number.isInteger(value["memoryId"]) ? value["memoryId"] as number : null,
+    workingSetId: Number.isInteger(value["workingSetId"]) ? value["workingSetId"] as number : null,
+    query: typeof value["query"] === "string" ? value["query"] : null,
+    includeLoopContext: typeof value["includeLoopContext"] === "boolean" ? value["includeLoopContext"] : null,
+    includeMemoryContext: typeof value["includeMemoryContext"] === "boolean" ? value["includeMemoryContext"] : null,
+    includeRagContext: typeof value["includeRagContext"] === "boolean" ? value["includeRagContext"] : null,
+  };
+}
+
+function normalizeRerunHandle(value: unknown): ExecutableRerunHandle | null {
+  if (!isRecord(value) || typeof value["kind"] !== "string") {
+    return null;
+  }
+  if (value["kind"] === "planning_session" && Number.isInteger(value["sessionId"]) && typeof value["sessionName"] === "string") {
+    return { kind: "planning_session", sessionId: value["sessionId"] as number, sessionName: value["sessionName"] };
+  }
+  if (
+    value["kind"] === "review_session"
+    && (value["reviewFocus"] === "relationship" || value["reviewFocus"] === "enrichment")
+    && Number.isInteger(value["sessionId"])
+    && typeof value["sessionName"] === "string"
+  ) {
+    return {
+      kind: "review_session",
+      reviewFocus: value["reviewFocus"],
+      sessionId: value["sessionId"] as number,
+      sessionName: value["sessionName"],
+    };
+  }
+  if (
+    value["kind"] === "recall_query"
+    && (value["recallTool"] === "chat" || value["recallTool"] === "rag")
+    && typeof value["query"] === "string"
+  ) {
+    return {
+      kind: "recall_query",
+      recallTool: value["recallTool"],
+      query: value["query"],
+      workingSetId: Number.isInteger(value["workingSetId"]) ? value["workingSetId"] as number : null,
+      includeLoopContext: typeof value["includeLoopContext"] === "boolean" ? value["includeLoopContext"] : undefined,
+      includeMemoryContext: typeof value["includeMemoryContext"] === "boolean" ? value["includeMemoryContext"] : undefined,
+      includeRagContext: typeof value["includeRagContext"] === "boolean" ? value["includeRagContext"] : undefined,
+    };
+  }
+  return null;
+}
+
+function normalizeRerunContract(value: unknown): RerunAttemptContract | null {
+  if (
+    !isRecord(value)
+    || (value["mode"] !== "refresh" && value["mode"] !== "rerun")
+    || typeof value["provenanceLabel"] !== "string"
+    || typeof value["strategySummary"] !== "string"
+    || !Array.isArray(value["strictInvariants"])
+    || !Array.isArray(value["mayVary"])
+    || !isRecord(value["postRun"])
+    || typeof value["postRun"]["summary"] !== "string"
+  ) {
+    return null;
+  }
+  return {
+    mode: value["mode"],
+    provenanceLabel: value["provenanceLabel"],
+    freshnessLabel: typeof value["freshnessLabel"] === "string" ? value["freshnessLabel"] : null,
+    strategySummary: value["strategySummary"],
+    strictInvariants: value["strictInvariants"].filter((item): item is string => typeof item === "string"),
+    mayVary: value["mayVary"].filter((item): item is string => typeof item === "string"),
+    postRun: {
+      summary: value["postRun"]["summary"],
+      location: normalizeShellLocation(value["postRun"]["location"]),
+    },
+  };
+}
+
+function normalizeRerunAction(message: unknown): ChatMessage["rerunAction"] {
+  const rerun = isRecord(message) ? normalizeRerunHandle(message["rerun"]) : null;
+  const contract = isRecord(message) ? normalizeRerunContract(message["contract"]) : null;
+  if (
+    !isRecord(message)
+    || message["type"] !== "rerun"
+    || typeof message["label"] !== "string"
+    || typeof message["description"] !== "string"
+    || (message["variant"] !== "primary" && message["variant"] !== "secondary")
+    || rerun === null
+    || contract === null
+  ) {
+    return null;
+  }
+
+  const variant: OperatorActionCardActionVariant = message["variant"];
+  const rerunAction: OperatorActionCardRerunAction = {
+    type: "rerun",
+    label: message["label"],
+    variant,
+    description: message["description"],
+    disabledReason: typeof message["disabledReason"] === "string" ? message["disabledReason"] : null,
+    rerun,
+    contract,
+  };
+  return rerunAction;
 }
 
 function normalizeChatMessage(message: unknown, index = 0): ChatMessage | null {
