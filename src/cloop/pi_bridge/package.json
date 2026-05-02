@@ -2,7 +2,7 @@
   "name": "cloop-pi-bridge",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.33.0",
+  "packageManager": "pnpm@10.33.2",
   "engines": {
     "node": ">=25.8.2"
   },
@@ -10,8 +10,15 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "@mariozechner/pi-agent-core": "0.70.2",
-    "@mariozechner/pi-ai": "0.70.2",
-    "@mariozechner/pi-coding-agent": "0.70.2"
+    "@mariozechner/pi-agent-core": "0.72.1",
+    "@mariozechner/pi-ai": "0.72.1",
+    "@mariozechner/pi-coding-agent": "0.72.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@google/genai",
+      "koffi",
+      "protobufjs"
+    ]
   }
 }

@@ -109,7 +109,7 @@ Cloop’s role is to keep the **context** and make retrieval effortless, so “n
 
 - Python 3.14+
 - Node 25.8.2+
-- `pnpm` 10.33.0+ (or Corepack-enabled Node that can provide it)
+- `pnpm` 10.33.2+ (or Corepack-enabled Node that can provide it)
 - `uv` (recommended): https://docs.astral.sh/uv/
 - `pi` installed and authenticated for the models you plan to use
 

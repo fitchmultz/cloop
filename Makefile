@@ -3,6 +3,7 @@
 UV_RUN := uv run --locked --all-groups
 PNPM_BRIDGE := pnpm --dir src/cloop/pi_bridge
 PNPM_FRONTEND := pnpm --dir frontend
+PYTEST_WORKERS ?= auto
 DEFAULT_LOCAL_DATA_DIR := $(CURDIR)/data
 RUNTIME_CLEANUP_WRAP := status=0; trap 'status=$$?; $(MAKE) cleanup-runtime >/dev/null; cleanup_status=$$?; if [ $$status -eq 0 ] && [ $$cleanup_status -ne 0 ]; then exit $$cleanup_status; fi; exit $$status' EXIT;
 
@@ -144,13 +145,13 @@ test-backup-safety:
 	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest tests/test_backup.py -q
 
 test: frontend-build frontend-test test-backup-safety
-	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "not performance"
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -n $(PYTEST_WORKERS) -m "not performance"
 
 test-all:
-	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -n $(PYTEST_WORKERS)
 
 test-fast: frontend-build frontend-test test-backup-safety
-	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "not slow and not performance"
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -n $(PYTEST_WORKERS) -m "not slow and not performance"
 
 test-slow:
 	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "slow"
@@ -159,7 +160,7 @@ test-performance:
 	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "performance"
 
 test-cov:
-	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
+	@set -e; $(RUNTIME_CLEANUP_WRAP) $(UV_RUN) pytest -n $(PYTEST_WORKERS) -m "not performance" --cov=cloop --cov-report=term-missing --cov-report=xml
 
 dist: frontend-build
 	rm -rf dist build src/cloop.egg-info

@@ -36,7 +36,7 @@ import sqlite3
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import NoReturn, TypeVar
+from typing import NoReturn, TypeVar, cast
 
 from .. import db
 from ..error_contract import error_view_from_exception
@@ -45,6 +45,7 @@ from ..settings import Settings
 from .output import emit_output
 
 ResultT = TypeVar("ResultT")
+ExceptionT = TypeVar("ExceptionT", bound=BaseException)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,12 +79,15 @@ def fail_cli(message: str, *, exit_code: int = 1) -> NoReturn:
 
 
 def error_handler(
-    exception_types: type[BaseException] | tuple[type[BaseException], ...],
-    transform: Callable[[BaseException], CliCommandError],
+    exception_types: type[ExceptionT] | tuple[type[ExceptionT], ...],
+    transform: Callable[[ExceptionT], CliCommandError],
 ) -> ErrorHandler:
     """Create a typed CLI error handler."""
     normalized = exception_types if isinstance(exception_types, tuple) else (exception_types,)
-    return ErrorHandler(exception_types=normalized, transform=transform)
+    return ErrorHandler(
+        exception_types=cast(tuple[type[BaseException], ...], normalized),
+        transform=cast(Callable[[BaseException], CliCommandError], transform),
+    )
 
 
 def sqlite_error_handler() -> ErrorHandler:

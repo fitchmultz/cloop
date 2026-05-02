@@ -21,7 +21,7 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 import numpy as np
 
@@ -34,6 +34,15 @@ from .serialization import enrich_loop_records_batch
 
 RelationshipType = Literal["related", "duplicate"]
 LinkState = Literal["active", "dismissed", "resolved"]
+
+
+class _RelationshipReviewQueueItem(TypedDict):
+    loop: dict[str, Any]
+    duplicate_count: int
+    related_count: int
+    duplicate_candidates: list[dict[str, Any]]
+    related_candidates: list[dict[str, Any]]
+    top_score: float
 
 
 def _pair_key(loop_id: int, related_loop_id: int) -> tuple[int, int]:
@@ -429,7 +438,7 @@ def _list_relationship_review_queue_for_records(
                 related_candidates_by_loop[source_record.id].append((candidate_record, score))
                 related_candidates_by_loop[candidate_record.id].append((source_record, score))
 
-    items: list[dict[str, Any]] = []
+    items: list[_RelationshipReviewQueueItem] = []
     for record in records:
         duplicate_candidates = sorted(
             duplicate_candidates_by_loop.get(record.id, []),
@@ -451,7 +460,12 @@ def _list_relationship_review_queue_for_records(
         if not has_pending:
             continue
 
-        item = {
+        top_score = max(
+            [candidate[1] for candidate in duplicate_candidates[:1]]
+            + [candidate[1] for candidate in related_candidates[:1]]
+            or [0.0]
+        )
+        item: _RelationshipReviewQueueItem = {
             "loop": payload_by_id[record.id],
             "duplicate_count": duplicate_counts_by_loop.get(record.id, 0),
             "related_count": related_counts_by_loop.get(record.id, 0),
@@ -471,12 +485,8 @@ def _list_relationship_review_queue_for_records(
                 )
                 for candidate, score in related_candidates[:candidate_limit]
             ],
+            "top_score": float(top_score),
         }
-        item["top_score"] = max(
-            [candidate[1] for candidate in duplicate_candidates[:1]]
-            + [candidate[1] for candidate in related_candidates[:1]]
-            or [0.0]
-        )
         items.append(item)
 
     items.sort(
