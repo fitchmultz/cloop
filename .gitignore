@@ -48,6 +48,7 @@ data/
 !.env.example
 
 # Local tooling/agent state
+.dogfood/
 .repoprompt/
 .ralph/
 .codex/
