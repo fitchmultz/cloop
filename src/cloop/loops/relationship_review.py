@@ -461,9 +461,8 @@ def _list_relationship_review_queue_for_records(
             continue
 
         top_score = max(
-            [candidate[1] for candidate in duplicate_candidates[:1]]
-            + [candidate[1] for candidate in related_candidates[:1]]
-            or [0.0]
+            [score for _, score in duplicate_candidates[:1] + related_candidates[:1]],
+            default=0.0,
         )
         item: _RelationshipReviewQueueItem = {
             "loop": payload_by_id[record.id],

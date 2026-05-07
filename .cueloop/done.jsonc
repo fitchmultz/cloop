@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "RQ-0001",
+      "status": "done",
+      "title": "Fix Quick Capture Save so first-run loop capture succeeds or reports errors",
+      "description": "Dogfood ISSUE-001: On http://127.0.0.1:8000/#capture, entering text in Quick capture and clicking the primary Save button left the text in the form, did not add a loop to the Inbox, and showed no visible loading, success, or error feedback. This blocks the core first-run capture workflow.",
+      "priority": "high",
+      "tags": [
+        "bug",
+        "frontend",
+        "capture",
+        "dogfood",
+        "ux",
+        "first-run"
+      ],
+      "scope": [
+        "frontend/src/surfaces/bootstrap.ts Quick Capture submit/state/reset logic",
+        "frontend/index.html Quick Capture card markup and accessible status regions",
+        "frontend/src/styles/components.css and frontend/src/styles/layout.css Quick Capture card/responsive styling",
+        "frontend/src/surfaces/api.ts capture transport contract if test coverage requires a small assertion",
+        "frontend/src/surfaces/* tests, especially a new focused Quick Capture interaction regression test",
+        "src/cloop/static/dist built frontend assets if this repo expects built assets to be refreshed after frontend changes"
+      ],
+      "evidence": [
+        "Dogfood evidence: dogfood-output/videos/issue-001-repro.webm and dogfood-output/screenshots/issue-001-step-1.png through issue-001-result.png show Quick Capture Save leaving text in place, adding no visible Inbox card, and showing no loading/success/error feedback.",
+        "Observed against http://127.0.0.1:8000/#capture in a fresh browser session with CLOOP_DATA_DIR=/tmp/cloop-dogfood-data; direct POST /loops/capture with raw_text, captured_at, and client_tz_offset_min succeeded, so the backend route is viable.",
+        "Static recon found the frontend submit path in frontend/src/surfaces/bootstrap.ts::captureLoop(), which currently builds raw_text/captured_at/client_tz_offset_min and posts via frontend/src/surfaces/api.ts::captureLoop() to POST /loops/capture.",
+        "Backend contract source of truth is src/cloop/schemas/_loops/core.py::LoopCaptureRequest and src/cloop/routes/loops/lifecycle.py::loop_capture_endpoint; raw_text, captured_at, and client_tz_offset_min are required.",
+        "Quick Capture currently has no dedicated frontend interaction tests; existing frontend coverage includes surfaces/api.test.ts and surfaces/loop.test.ts but not capture-form submit/pending/error/reset behavior.",
+        "The served app uses Vite-built assets from src/cloop/static/dist via src/cloop/web.py; if frontend source changes are made, Phase 2 should verify whether the static dist build must be regenerated for browser dogfood to exercise the fix.",
+        "Potential additional risk: frontend/public/sw.js intercepts /loops/* requests and can return a 202 offline queued shape for POST /loops/capture, so success handling must distinguish confirmed server-created loops from queued/offline captures and never silently reset on failed/server-rejected attempts."
+      ],
+      "plan": [
+        "Reproduce or instrument the Quick Capture path first: confirm whether clicking Save invokes the form submit handler, what network request is sent, whether a service worker intercepts it, and which response branch runs.",
+        "Root-cause the failure before patching: inspect captureLoop(), requestJson(), service worker fetch handling, shell surface activation, and built dist freshness; fix the actual broken path rather than only changing copy.",
+        "Redesign the Quick Capture card as a normal-user product form: task text is the obvious required field, Save is the clear primary action, optional details are understandable and non-distracting, and validation/status feedback lives next to the form.",
+        "Implement a robust capture submission state machine: validate locally, disable Save while submitting, expose aria-busy/pending copy, send canonical /loops/capture payload with raw_text/captured_at/client_tz_offset_min, render success only after a created loop is returned, reset only after success, and leave all input intact on failure.",
+        "Ensure the new loop becomes visible immediately without manual refresh: insert/replace via the canonical loop.replaceLoop()/syncInboxLoop path when filters allow it, or show clear guidance if the active filters/query hide the newly created loop.",
+        "Add inline, actionable error handling for validation, network/server failures, and malformed/offline queued responses; do not let errors disappear into the generic shared status area with ambiguous copy.",
+        "Add regression coverage for successful capture payload + Inbox update, failed capture feedback with preserved form state, local validation, pending/disabled Save state, and active-filter/query behavior if the new item would otherwise be hidden.",
+        "Run focused frontend verification during implementation, then perform visual verification with agent_browser against the built/served app, and finish with make ci."
+      ],
+      "notes": [
+        "Task goal: Quick Capture Save on http://127.0.0.1:8000/#capture must create a visible loop on first run or clearly report why it did not; silent no-op behavior is unacceptable for the core capture workflow.",
+        "Why: first-run capture is the primary value path. If typing a task and pressing Save appears to do nothing, users cannot trust the product even though the backend API works.",
+        "Acceptance criteria: typing a task and pressing Quick Capture Save creates a visible loop without manual refresh; invalid/server-failed attempts show an actionable inline error and preserve form contents; the form resets only after confirmed successful creation; regression tests prove required payload fields are posted and Inbox updates.",
+        "UX direction: redesign the entire Quick Capture card where helpful, not just the broken Save path. Optimize for a normal user: obvious task entry, clear required vs optional fields, immediate pending/success/error states, and a clear indication of where the saved item went.",
+        "Product surface anchors: purpose = capture a loop/task quickly; audience = normal first-run user; primary action = Save captured task; interaction thesis = calm form with one dominant text field and one reliable primary action, plus optional details that never block or distract.",
+        "Do not prioritize backwards compatibility with broken/ambiguous behavior. Replace improper UI/state handling with the canonical /loops/capture contract and accessible feedback.",
+        "Implementation agent may adapt the plan if files moved or recon missed a related path, but must stay on RQ-0001 and update all directly related source, tests, styles, and built assets needed for the served browser UI.",
+        "Reviewed Phase 2 Quick Capture changes and fixed a notification permission retry edge case found during review.",
+        "Added regression coverage for invalid due-date feedback, invalid-state clearing after recovery, and failed notification permission attempts.",
+        "Verified with targeted Vitest coverage and frontend typecheck; CI gate is disabled for this Phase 3 run."
+      ],
+      "created_at": "2026-04-27T16:24:39.000000000Z",
+      "updated_at": "2026-04-27T16:57:09.376070000Z",
+      "completed_at": "2026-04-27T16:57:09.376070000Z",
+      "started_at": "2026-04-27T16:39:40.169040000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {
+        "ux_direction": "Choose the best long-term normal-user interface/experience, not the smallest patch, when task scope leaves room for design judgment.",
+        "model_used": "openai-codex/gpt-5.5",
+        "runner_used": "pi"
+      }
+    },
+    {
+      "id": "RQ-0002",
+      "status": "done",
+      "title": "Make enrichment failure states explainable and recoverable on loop cards",
+      "description": "Dogfood ISSUE-002: Newly created loop cards displayed an Enrichment failed badge with no explanation, diagnostic details, or recovery guidance. The loop itself remained usable, but the first-run task list looked broken.",
+      "priority": "medium",
+      "tags": [
+        "ux",
+        "frontend",
+        "enrichment",
+        "dogfood"
+      ],
+      "scope": [],
+      "evidence": [
+        "Evidence: dogfood-output/screenshots/issue-002-result.png plus capture-with-data/inbox-with-data screenshots.",
+        "Loops seeded through POST /loops/capture rendered normally aside from the unexplained Enrichment failed badge.",
+        "The UI includes an Enrich button lower on each card, but the badge does not tell users whether retrying is appropriate, what provider/config failed, or whether enrichment was optional."
+      ],
+      "plan": [
+        "Inspect the loop serialization/enrichment state fields available to the frontend.",
+        "Define a user-facing enrichment status treatment for disabled/skipped/failed/pending/success states.",
+        "Show concise failure reason and a clear retry action when retry is possible; avoid alarming badges for optional/config-skipped enrichment.",
+        "Add tests for loop-card rendering of enrichment failure/skip states and retry affordance."
+      ],
+      "notes": [
+        "Acceptance criteria:",
+        "- Loop cards explain why enrichment failed or was skipped in plain language.",
+        "- Cards make clear whether the loop is still usable and what action, if any, should be taken.",
+        "- Retry/enrich affordance is connected to the visible status and reports retry outcomes.",
+        "- Rendering tests cover at least failed and skipped enrichment states.",
+        "Direction decision from interview 2026-04-27:",
+        "- Use the recommended differentiated-state approach, but choose copy and UI treatment by what a normal user expects rather than by internal implementation details.",
+        "- Long-term UX target: optional AI/enrichment should never make the task itself look broken; failures should be calm, understandable, and actionable only when the user can do something useful."
+      ],
+      "created_at": "2026-04-27T16:24:39.000000000Z",
+      "updated_at": "2026-04-27T17:20:32.617040000Z",
+      "completed_at": "2026-04-27T17:20:32.617040000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {
+        "ux_direction": "Choose the best long-term normal-user interface/experience, not the smallest patch, when task scope leaves room for design judgment."
+      }
+    },
+    {
+      "id": "RQ-0003",
+      "status": "done",
+      "title": "Add immediate feedback for Start focus on the Do surface",
+      "description": "Dogfood ISSUE-003: On http://127.0.0.1:8000/#do/loop/2, clicking Start focus on a focused loop did not visibly change the card within the first second. A later refresh showed the timer running, so the backend action likely succeeded but UI feedback was missing or delayed.",
+      "priority": "medium",
+      "tags": [
+        "bug",
+        "frontend",
+        "timer",
+        "do-surface",
+        "dogfood"
+      ],
+      "scope": [],
+      "evidence": [
+        "Evidence: dogfood-output/videos/issue-004-repro.webm and screenshots issue-004-step-1.png, issue-004-step-2.png, issue-004-result.png.",
+        "The same loop later showed a running Stop state and elapsed timer in Capture after refresh/navigation, which suggests the timer mutation can succeed while the initiating Do card remains stale.",
+        "No console errors were observed during the click."
+      ],
+      "plan": [
+        "Reproduce the Do surface Start focus flow and inspect the timer start mutation and state refresh path.",
+        "Add optimistic pending/running UI or explicit refresh after successful timer start.",
+        "Show actionable error feedback if timer start fails.",
+        "Ensure the focused Do card and other visible loop-card instances stay synchronized after timer mutations.",
+        "Add frontend tests for Start focus pending/success/error states."
+      ],
+      "notes": [
+        "Acceptance criteria:",
+        "- Clicking Start focus immediately changes the initiating card to pending or running state.",
+        "- After success, the card shows Stop/elapsed timer without requiring manual refresh/navigation.",
+        "- Failures produce visible error feedback.",
+        "- Tests cover the Do focused-loop Start focus UI transition.",
+        "Direction decision from interview 2026-04-27:",
+        "- Use optimistic immediate feedback with server reconciliation and inline error on failure.",
+        "- Long-term UX target: a normal user should immediately see that focus/timer mode has started or is starting, without needing to refresh or infer hidden state."
+      ],
+      "created_at": "2026-04-27T16:24:39.000000000Z",
+      "updated_at": "2026-04-27T17:24:33.597821000Z",
+      "completed_at": "2026-04-27T17:24:33.597821000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {
+        "ux_direction": "Choose the best long-term normal-user interface/experience, not the smallest patch, when task scope leaves room for design judgment."
+      }
+    },
+    {
+      "id": "RQ-0004",
+      "status": "done",
+      "title": "Make planning modal properly modal for keyboard and screen-reader users",
+      "description": "Dogfood ISSUE-004: Opening New plan displays a modal visually, but the accessibility snapshot still exposed background controls such as Plan/Relationship/Enrichment tabs, session controls, export/import, and bulk loop action buttons. Background content should be inert/hidden while the dialog is open.",
+      "priority": "medium",
+      "tags": [
+        "accessibility",
+        "frontend",
+        "planning",
+        "modal",
+        "dogfood"
+      ],
+      "scope": [],
+      "evidence": [
+        "Evidence: dogfood-output/screenshots/plan-new.png and an agent-browser interactive accessibility snapshot while the dialog was open.",
+        "The snapshot contained both dialog fields (Session name, Planning prompt, Create session) and background controls (Plan tabs, session controls, export/import, bulk actions).",
+        "This is likely a shared modal runtime issue, so inspect other modals after fixing the planning dialog."
+      ],
+      "plan": [
+        "Audit shared modal/dialog helper behavior for aria-modal, focus trap, restore focus, Escape/close handling, and background inert/aria-hidden management.",
+        "Fix the shared modal runtime rather than only the planning modal if the pattern is shared.",
+        "Add an accessibility regression test that verifies background controls are not reachable/exposed while the planning modal is open.",
+        "Smoke-test at least one other modal that uses the same helper."
+      ],
+      "notes": [
+        "Acceptance criteria:",
+        "- When New plan is open, keyboard focus is trapped inside the dialog and restored on close.",
+        "- Background app controls are inert or hidden from assistive technology while the dialog is open.",
+        "- Escape and close button behavior remains correct.",
+        "- Automated accessibility or DOM tests cover the modal state.",
+        "Direction decision from interview 2026-04-27:",
+        "- Fix the shared modal/dialog runtime broadly, not just the New plan modal."
+      ],
+      "created_at": "2026-04-27T16:24:39.000000000Z",
+      "updated_at": "2026-04-27T17:34:45.917732000Z",
+      "completed_at": "2026-04-27T17:34:45.917732000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {
+        "ux_direction": "Choose the best long-term normal-user interface/experience, not the smallest patch, when task scope leaves room for design judgment."
+      }
+    },
+    {
+      "id": "RQ-0005",
+      "status": "done",
+      "title": "Clarify saved-view save control and place validation feedback near the filter row",
+      "description": "Dogfood ISSUE-005: The Inbox filter row has a small lowercase save button near the larger Quick capture Save button. Clicking it without a query shows 'Enter a query first.' above the Inbox/near Quick capture, making it unclear which save action failed.",
+      "priority": "low",
+      "tags": [
+        "ux",
+        "frontend",
+        "saved-views",
+        "capture",
+        "dogfood"
+      ],
+      "scope": [],
+      "evidence": [
+        "Evidence: dogfood-output/screenshots/save-view-click.png.",
+        "The message appears in the capture form status area rather than adjacent to the saved-view controls.",
+        "The control label is lowercase 'save', which is visually too similar to Quick capture Save."
+      ],
+      "plan": [
+        "Rename the filter-row button to a specific label such as Save view.",
+        "Move saved-view validation/status feedback adjacent to the view/query filter controls.",
+        "Ensure the feedback is announced accessibly and does not reuse the Quick capture form status region.",
+        "Add a focused frontend test for empty-query saved-view validation."
+      ],
+      "notes": [
+        "Acceptance criteria:",
+        "- The saved-view control is clearly distinguishable from Quick capture Save.",
+        "- Empty-query validation appears next to the saved-view/filter controls and names the required field.",
+        "- Quick capture status and saved-view status do not overwrite each other.",
+        "- Regression coverage verifies the validation placement/content.",
+        "Direction decision from interview 2026-04-27:",
+        "- Rename to Save view and place validation beside/below the relevant filter/query/view controls using a dedicated aria-live status.",
+        "- Long-term UX target: normal users should not confuse saving a task with saving a filtered view."
+      ],
+      "created_at": "2026-04-27T16:24:39.000000000Z",
+      "updated_at": "2026-04-27T17:40:36.548465000Z",
+      "completed_at": "2026-04-27T17:40:36.548465000Z",
+      "depends_on": [],
+      "blocks": [],
+      "relates_to": [],
+      "custom_fields": {
+        "ux_direction": "Choose the best long-term normal-user interface/experience, not the smallest patch, when task scope leaves room for design judgment."
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "agent": {
+    "ci_gate": {
+      "enabled": false
+    },
+    "git_publish_mode": "commit_and_push",
+    "runner": "pi",
+    "model": "openai-codex/gpt-5.5",
+    "reasoning_effort": "xhigh",
+    "phases": 3,
+    "phase_overrides": {
+      "phase1": {
+        "runner": "pi",
+        "model": "openai-codex/gpt-5.5",
+        "reasoning_effort": "xhigh"
+      },
+      "phase2": {
+        "runner": "pi",
+        "model": "openai-codex/gpt-5.5:off"
+      },
+      "phase3": {
+        "runner": "pi",
+        "model": "openai-codex/gpt-5.5",
+        "reasoning_effort": "xhigh"
+      }
+    }
+  },
+  "version": 2
+}

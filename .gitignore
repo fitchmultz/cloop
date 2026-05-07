@@ -50,7 +50,6 @@ data/
 # Local tooling/agent state
 .dogfood/
 .repoprompt/
-.ralph/
 .codex/
 .pi
 .pi/
@@ -69,7 +68,15 @@ frontend/.vite/
 output
 
 # Ralph debug logs (raw/unredacted; do not commit)
-.ralph/logs/
+.cueloop/logs/
 
 # Ralph parallel mode workspace directories
-.ralph/workspaces/
+.cueloop/workspaces/
+
+# CueLoop local/runtime artifacts (do not commit)
+.cueloop/cache/
+.cueloop/lock/
+.cueloop/undo/
+.cueloop/webhooks/
+.cueloop/trust.json
+.cueloop/trust.jsonc
