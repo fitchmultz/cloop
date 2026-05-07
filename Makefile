@@ -76,7 +76,7 @@ FRONTEND_CONTRACTS_GEN := $(PNPM_FRONTEND) run generate:contracts
 FRONTEND_CONTRACTS_MARKER := frontend/src/generated/types.gen.ts
 FRONTEND_OPENAPI_EXPORTER := scripts/export_frontend_openapi.py
 
-$(FRONTEND_CONTRACTS_MARKER): frontend-lock-check $(FRONTEND_OPENAPI_EXPORTER) frontend/openapi-ts.config.ts
+$(FRONTEND_CONTRACTS_MARKER): frontend-lock-check $(FRONTEND_OPENAPI_EXPORTER) frontend/openapi-ts.config.ts frontend/package.json frontend/pnpm-lock.yaml
 	$(FRONTEND_CONTRACTS_GEN)
 
 .PHONY: frontend-contracts
