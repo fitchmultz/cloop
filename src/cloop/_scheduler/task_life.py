@@ -115,5 +115,5 @@ async def run_life_garden(
                 send_push_fn=send_push_fn,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Life garden push notification failed: %s", exc)
+            logger.warning("Life garden push notification failed: %s", type(exc).__name__)
     return {"event_id": event_id, "push_count": push_count, **payload}

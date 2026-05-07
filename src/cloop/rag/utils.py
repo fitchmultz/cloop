@@ -6,20 +6,16 @@ Purpose:
 Responsibilities:
     - Scope filtering and parsing
     - Collection/tag extraction
+    - Embedding dimension and model validation
 
 Non-scope:
     - Search algorithms (see search.py)
     - Document loading (see loaders.py)
-- Embedding dimension and model validation
-
-Non-scope:
-- Search logic (see search.py)
-- Document CRUD (see documents.py)
 """
 
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from ..db import rag_connection
 from ..loops.errors import ValidationError
@@ -29,7 +25,7 @@ from ..typingx import escape_like_pattern
 logger = logging.getLogger(__name__)
 
 
-def _filter_rows_by_scope(rows: List[Dict[str, Any]], scope: str) -> List[Dict[str, Any]]:
+def _filter_rows_by_scope(rows: list[dict[str, Any]], scope: str) -> list[dict[str, Any]]:
     if not scope:
         return rows
     scope = scope.strip()
@@ -78,7 +74,7 @@ def _assert_embedding_model_alignment(*, settings: Settings) -> None:
         logger.debug("Chunk metadata is not valid JSON, skipping model alignment check")
         return
     except (TypeError, KeyError) as e:
-        logger.warning("Unexpected error parsing chunk metadata: %s", e)
+        logger.warning("Unexpected error parsing chunk metadata: %s", type(e).__name__)
         return
     stored = metadata.get("embed_model")
     if stored and stored != settings.embed_model:

@@ -27,6 +27,7 @@ Non-scope:
 
 import asyncio
 import json
+import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -609,6 +610,27 @@ class TestDailyReview:
         assert result["total_items"] == 0
         # Should have 4 cohorts even if empty (all daily cohort types)
         assert len(result["cohorts"]) == 4
+
+    def test_push_failure_log_omits_exception_details(
+        self,
+        scheduler_db: sqlite3.Connection,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        settings = get_settings()
+
+        def _leaky_push(*args: object, **kwargs: object) -> SchedulerPushResult:
+            _ = args, kwargs
+            raise RuntimeError("leaked notification body with token=secret")
+
+        monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _leaky_push)
+        caplog.set_level(logging.WARNING, logger="cloop._scheduler.task_reviews")
+
+        result = asyncio.run(run_daily_review(settings, scheduler_db))
+
+        assert result["review_type"] == "daily"
+        assert "RuntimeError" in caplog.text
+        assert "token=secret" not in caplog.text
 
 
 class TestWeeklyReview:

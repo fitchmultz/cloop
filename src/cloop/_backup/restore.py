@@ -351,7 +351,7 @@ def restore_backup(
                     rag_restored=rag_present_in_backup,
                 )
     except (OSError, IOError, zipfile.BadZipFile, shutil.Error, RuntimeError) as exc:
-        logger.exception("Backup restore failed")
+        logger.error("Backup restore failed: %s", type(exc).__name__)
         return RestoreResult(
             success=False,
             dry_run=dry_run,
@@ -359,5 +359,5 @@ def restore_backup(
             manifest=manifest,
             core_restored=False,
             rag_restored=False,
-            error=f"Restore error: {exc}",
+            error=f"Restore error: {type(exc).__name__}",
         )

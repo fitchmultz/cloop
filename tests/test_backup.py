@@ -361,7 +361,7 @@ def test_restore_backup_rolls_back_after_mid_restore_failure(
 
     assert not restore_result.success
     assert restore_result.error is not None
-    assert "simulated rag publish failure" in restore_result.error
+    assert restore_result.error == "Restore error: RuntimeError"
     assert settings.core_db_path.read_bytes() == expected_core_bytes
     assert settings.rag_db_path.read_bytes() == expected_rag_bytes
     assert _restore_temp_artifacts(settings.core_db_path.parent) == []

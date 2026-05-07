@@ -126,7 +126,7 @@ async def _run_life_nudge_pass(
                 send_push_fn=send_push_fn,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Life nudge push notification failed: %s", exc)
+            logger.warning("Life nudge push notification failed: %s", type(exc).__name__)
     return {"event_id": event_id, "push_count": push_count, **payload}
 
 

@@ -77,10 +77,10 @@ def create_backup(
 
         return BackupResult(success=True, backup_path=backup_path, manifest=manifest)
     except (OSError, IOError, zipfile.BadZipFile) as exc:
-        logger.exception("Backup creation failed")
+        logger.error("Backup creation failed: %s", type(exc).__name__)
         return BackupResult(
             success=False,
             backup_path=None,
             manifest=None,
-            error=f"I/O error: {exc}",
+            error=f"I/O error: {type(exc).__name__}",
         )

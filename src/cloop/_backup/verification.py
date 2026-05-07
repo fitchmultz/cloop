@@ -156,12 +156,12 @@ def verify_backup(*, backup_path: Path) -> VerifyResult:
         TypeError,
         ValueError,
     ) as exc:
-        logger.exception("Backup verification failed")
+        logger.error("Backup verification failed: %s", type(exc).__name__)
         return VerifyResult(
             valid=False,
             backup_path=backup_path,
             manifest=None,
             core_integrity=False,
             rag_integrity=False,
-            errors=[f"Verification error: {exc}"],
+            errors=[f"Verification error: {type(exc).__name__}"],
         )

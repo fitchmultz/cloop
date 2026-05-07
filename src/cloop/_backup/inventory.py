@@ -170,6 +170,10 @@ def rotate_backups(*, settings: Settings) -> list[Path]:
             backup_info.path.unlink()
             deleted.append(backup_info.path)
         except (OSError, PermissionError) as exc:
-            logger.warning("Failed to delete backup %s: %s", backup_info.path, exc)
+            logger.warning(
+                "Failed to delete backup %s: %s",
+                backup_info.path.name,
+                type(exc).__name__,
+            )
 
     return deleted

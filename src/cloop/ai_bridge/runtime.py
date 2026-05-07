@@ -412,10 +412,8 @@ class BridgeRuntime:
                     try:
                         payload = parse_line(line)
                     except Exception as exc:  # noqa: BLE001
-                        logger.exception("Invalid pi bridge payload: %s", exc)
-                        self._fail_all_sessions(
-                            BridgeProtocolError(f"Invalid pi bridge payload: {exc}")
-                        )
+                        logger.error("Invalid pi bridge payload: %s", type(exc).__name__)
+                        self._fail_all_sessions(BridgeProtocolError("Invalid pi bridge payload"))
                         continue
 
                     request_id = payload.get("request_id")

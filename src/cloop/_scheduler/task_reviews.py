@@ -99,7 +99,7 @@ async def run_daily_review(
             send_push_fn=send_push_fn,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Push notification failed: %s", exc)
+        logger.warning("Push notification failed: %s", type(exc).__name__)
     return {"event_id": event_id, **payload}
 
 
@@ -142,5 +142,5 @@ async def run_weekly_review(
             send_push_fn=send_push_fn,
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Push notification failed: %s", exc)
+        logger.warning("Push notification failed: %s", type(exc).__name__)
     return {"event_id": event_id, **payload}

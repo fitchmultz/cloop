@@ -281,7 +281,8 @@ def send_push_notification(
             )
             success_count += 1
         except WebPushException as e:
-            logger.warning(f"Push failed for {sub['endpoint'][:50]}...: {e}")
+            status_code = e.response.status_code if e.response is not None else None
+            logger.warning("Push delivery failed with status_code=%s", status_code)
             # Remove invalid subscription
             if e.response and e.response.status_code in (404, 410):
                 conn.execute(
@@ -290,7 +291,7 @@ def send_push_notification(
                 )
                 conn.commit()
         except (ValueError, TypeError, ConnectionError, TimeoutError) as e:
-            logger.error(f"Push delivery error: {e}")
+            logger.error("Push delivery error: %s", type(e).__name__)
 
     return success_count
 

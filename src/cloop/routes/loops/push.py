@@ -18,6 +18,7 @@ Endpoints:
     DELETE /loops/push/subscribe - Remove a push subscription
 """
 
+import logging
 import sqlite3
 from typing import Annotated
 
@@ -28,6 +29,7 @@ from ... import db
 from ._common import SettingsDep
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class PushSubscriptionRequest(BaseModel):
@@ -71,7 +73,8 @@ def subscribe_push(
             )
             conn.commit()
         except sqlite3.Error as e:
-            raise HTTPException(status_code=500, detail=f"Database error: {e}") from e
+            logger.error("Failed to save push subscription: %s", type(e).__name__)
+            raise HTTPException(status_code=500, detail="Failed to save push subscription") from e
 
     return PushSubscriptionResponse(success=True, message="Subscription saved")
 

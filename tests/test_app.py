@@ -972,7 +972,7 @@ def test_generic_exception_sanitized_response(
     doc = tmp_path / "test.txt"
     doc.write_text("content", encoding="utf-8")
 
-    with patch.object(logging.getLogger("cloop.handlers"), "exception") as mock_log:
+    with patch.object(logging.getLogger("cloop.handlers"), "error") as mock_log:
         response = client.post("/ingest", json={"paths": [str(doc)]})
 
     assert response.status_code == 500
@@ -993,6 +993,9 @@ def test_generic_exception_sanitized_response(
     mock_log.assert_called_once()
     call_args = str(mock_log.call_args)
     assert error_id in call_args
+    assert "RuntimeError" in call_args
+    assert "Simulated ingestion failure" not in call_args
+    assert "/secret/path" not in call_args
 
 
 def test_generic_exception_never_exposes_sensitive_data(
@@ -1023,7 +1026,7 @@ def test_generic_exception_never_exposes_sensitive_data(
         doc = tmp_path / "test.txt"
         doc.write_text("content", encoding="utf-8")
 
-        with patch.object(logging.getLogger("cloop.handlers"), "exception"):
+        with patch.object(logging.getLogger("cloop.handlers"), "error"):
             response = client.post("/ingest", json={"paths": [str(doc)]})
 
         response_text = response.text.lower()

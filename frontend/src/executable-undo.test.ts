@@ -44,7 +44,12 @@ describe("executable-undo", () => {
   });
 
   it("uses the backend-authored planning success location without frontend fallback", () => {
-    const action = buildPlanningRollbackAction({
+    const historyItem = {
+      checkpoint_index: 3,
+      checkpoint_title: "Create queue",
+      executed_at_utc: "2026-03-29T12:00:00Z",
+      operation_count: 2,
+      run_id: 44,
       undo_action: {
         label: "Undo checkpoint",
         description: "Undo the checkpoint and resume planning.",
@@ -63,7 +68,9 @@ describe("executable-undo", () => {
           session_id: 19,
         },
       },
-    } as unknown as PlanningExecutionHistoryItemResponse);
+    } satisfies PlanningExecutionHistoryItemResponse;
+
+    const action = buildPlanningRollbackAction(historyItem);
 
     expect(action).not.toBeNull();
     expect(action).toMatchObject({
@@ -247,7 +254,7 @@ describe("executable-undo", () => {
   });
 
   it("lands planning rollback receipts on the current checkpoint title", async () => {
-    vi.mocked(requestJson).mockResolvedValueOnce({
+    const rollbackResponse = {
       rollback: {
         run_id: 44,
         checkpoint_index: 3,
@@ -260,17 +267,32 @@ describe("executable-undo", () => {
         summary: "Rolled back checkpoint Create queue; 2 rollback actions completed",
       },
       snapshot: {
+        plan_title: "Weekly plan",
+        plan_summary: "Plan summary",
         session: {
           id: 19,
           name: "Weekly planning",
+          prompt: "Plan the week",
+          status: "in_progress",
+          checkpoint_count: 4,
           current_checkpoint_index: 2,
+          executed_checkpoint_count: 3,
+          include_memory_context: false,
+          include_rag_context: false,
+          loop_limit: 10,
+          rag_k: 5,
+          created_at_utc: "2026-03-29T12:00:00Z",
+          updated_at_utc: "2026-03-29T13:00:00Z",
         },
         current_checkpoint: {
           title: "Resume plan from prior checkpoint",
           summary: "Resume plan from prior checkpoint summary",
+          success_criteria: "Ready to continue",
         },
       },
-    } as unknown as PlanningSessionRollbackResponse);
+    } satisfies PlanningSessionRollbackResponse;
+
+    vi.mocked(requestJson).mockResolvedValueOnce(rollbackResponse);
 
     const result = await executeUndoAction({
       type: "undo",

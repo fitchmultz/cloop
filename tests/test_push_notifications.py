@@ -13,6 +13,7 @@ Non-scope:
     - Service worker testing (client-side)
 """
 
+import logging
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,10 +22,12 @@ from typing import Iterator
 
 import pytest
 from conftest import record_continuity_delivery_outcome
+from fastapi import HTTPException
 
 from cloop import db
 from cloop._scheduler.models import SchedulerPushResult
-from cloop.push_sender import PushPayload, send_scheduler_push
+from cloop.push_sender import PushPayload, send_push_notification, send_scheduler_push
+from cloop.routes.loops.push import PushSubscriptionRequest, subscribe_push
 from cloop.schemas._loops.continuity import (
     ContinuityDisplayCardResponse,
     ContinuityLocationResponse,
@@ -125,6 +128,54 @@ class TestPushSubscriptions:
 
 class TestPushSender:
     """Tests for push notification sending."""
+
+    def test_send_push_notification_redacts_subscription_details_from_logs(
+        self,
+        push_db: sqlite3.Connection,
+        caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Transport failures should not log endpoint URLs, keys, or raw exception text."""
+        sensitive_endpoint = "https://fcm.googleapis.com/secret-token"
+        push_db.execute(
+            """INSERT INTO push_subscriptions (endpoint, p256dh, auth)
+               VALUES (?, ?, ?)""",
+            (sensitive_endpoint, "p256dh-secret", "auth-secret"),
+        )
+        push_db.commit()
+
+        class _Response:
+            status_code = 503
+
+        class _WebPushException(Exception):
+            def __init__(self) -> None:
+                super().__init__("provider leaked auth-secret and /internal/path")
+                self.response = _Response()
+
+        def _webpush(**kwargs) -> None:
+            _ = kwargs
+            raise _WebPushException()
+
+        monkeypatch.setattr("cloop.push_sender.importlib_util.find_spec", lambda name: object())
+        monkeypatch.setattr(
+            "cloop.push_sender.import_module",
+            lambda name: SimpleNamespace(WebPushException=_WebPushException, webpush=_webpush),
+        )
+        caplog.set_level(logging.WARNING, logger="cloop.push_sender")
+
+        sent = send_push_notification(
+            PushPayload(title="Title", body="Body"),
+            get_settings(),
+            push_db,
+        )
+
+        assert sent == 0
+        log_text = caplog.text
+        assert "status_code=503" in log_text
+        assert sensitive_endpoint not in log_text
+        assert "p256dh-secret" not in log_text
+        assert "auth-secret" not in log_text
+        assert "/internal/path" not in log_text
 
     def test_send_scheduler_push_nudge_due_soon(
         self, push_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -603,3 +654,46 @@ class TestPushPayload:
         assert payload.icon == "/custom/icon.png"
         assert payload.url == "/review"
         assert payload.data == {"key": "value"}
+
+
+class TestPushSubscriptionEndpoint:
+    """Tests for push subscription HTTP boundary behavior."""
+
+    def test_subscribe_push_hides_database_error_details(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Client errors should not include SQLite internals or local paths."""
+
+        class _FailingCursor:
+            def execute(self, *args, **kwargs):
+                _ = args, kwargs
+                raise sqlite3.OperationalError("unable to open /Users/secret/cloop.db")
+
+        class _FailingConnection:
+            def __enter__(self):
+                return _FailingCursor()
+
+            def __exit__(self, exc_type, exc, traceback):
+                _ = exc_type, exc, traceback
+                return False
+
+        monkeypatch.setattr(
+            "cloop.routes.loops.push.db.core_connection",
+            lambda settings: _FailingConnection(),
+        )
+        caplog.set_level(logging.ERROR, logger="cloop.routes.loops.push")
+
+        with pytest.raises(HTTPException) as exc_info:
+            subscribe_push(
+                PushSubscriptionRequest(
+                    endpoint="https://fcm.googleapis.com/secret-token",
+                    keys={"p256dh": "p256dh-secret", "auth": "auth-secret"},
+                ),
+                get_settings(),
+            )
+
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "Failed to save push subscription"
+        assert "/Users/secret" not in str(exc_info.value.detail)
+        assert "secret-token" not in str(exc_info.value.detail)
+        assert "auth-secret" not in str(exc_info.value.detail)

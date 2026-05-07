@@ -252,5 +252,5 @@ async def scheduler_loop(
             logger.info("Scheduler stopped")
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Scheduler error: %s", exc)
+            logger.error("Scheduler error: %s", type(exc).__name__)
             await asyncio.sleep(settings.scheduler_poll_interval_seconds)
