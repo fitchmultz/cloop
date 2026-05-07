@@ -14,6 +14,7 @@ const {
 	parseConversationMessages,
 	parseModelSelector,
 	resolveModelSelection,
+	runSession,
 } = bridgeModule;
 
 function startBridge() {
@@ -156,6 +157,106 @@ test("bridge reports invalid start requests as protocol errors", async () => {
 	} finally {
 		await bridge.stop();
 	}
+});
+
+test("runSession initializes Agent state through constructor options", async () => {
+	const model = {
+		provider: "test-provider",
+		id: "test-model",
+		api: "test-api",
+		name: "Test model",
+		baseUrl: "",
+		reasoning: false,
+		input: [],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1000,
+		maxTokens: 1000,
+	};
+	const registry = {
+		find(provider, id) {
+			return provider === model.provider && id === model.id ? model : null;
+		},
+		getAll() {
+			return [model];
+		},
+		async getAvailable() {
+			return [model];
+		},
+	};
+	const observed = {};
+	class ConstructorOnlyAgent {
+		constructor(options) {
+			observed.options = options;
+			this.state = {
+				...options.initialState,
+				messages: [...options.initialState.messages],
+			};
+		}
+
+		subscribe(listener) {
+			observed.listener = listener;
+			return () => {
+				observed.unsubscribed = true;
+			};
+		}
+
+		abort() {
+			observed.aborted = true;
+		}
+
+		async continue() {
+			this.state.messages.push({
+				role: "assistant",
+				content: [{ type: "text", text: "hello from fake agent" }],
+				provider: this.state.model.provider,
+				api: this.state.model.api,
+				model: this.state.model.id,
+				usage: {
+					input: 1,
+					output: 2,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 3,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			});
+		}
+	}
+	const events = [];
+	const session = {
+		requestId: "good-start",
+		request: {
+			model: "test-provider/test-model",
+			messages: [
+				{ role: "system", content: "system guidance" },
+				{ role: "user", content: "hello" },
+			],
+			thinking_level: "none",
+			timeout_ms: 1000,
+			max_tool_rounds: 1,
+			tools: [],
+		},
+		pendingToolResults: new Map(),
+	};
+
+	await runSession(session, {
+		AgentClass: ConstructorOnlyAgent,
+		emitEvent: (event) => events.push(event),
+		log: () => {},
+		registry,
+	});
+
+	assert.equal(observed.options.initialState.model, model);
+	assert.equal(observed.options.initialState.systemPrompt, "system guidance");
+	assert.equal(observed.options.initialState.thinkingLevel, "off");
+	assert.equal(observed.options.initialState.messages.length, 1);
+	assert.equal(observed.options.initialState.messages[0].role, "user");
+	assert.deepEqual(observed.options.initialState.tools, []);
+	assert.equal(events.at(-1).type, "done");
+	assert.equal(events.at(-1).text, "hello from fake agent");
+	assert.equal(session.agent.state.model, model);
 });
 
 test("parseConversationMessages preserves assistant metadata and defaults replay metadata", () => {
