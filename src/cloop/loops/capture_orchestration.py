@@ -105,9 +105,13 @@ class CaptureFieldInputs:
     """Optional rich capture metadata that becomes capture_fields."""
 
     activation_energy: int | None = None
+    confidence: float | None = None
     blocked_reason: str | None = None
     due_date: str | None = None
     due_at_utc: str | None = None
+    emotional_weight: float | None = None
+    urgency: float | None = None
+    importance: float | None = None
     next_action: str | None = None
     project: str | None = None
     tags: list[str] | None = None
@@ -126,6 +130,14 @@ class CaptureFieldInputs:
             capture_fields["time_minutes"] = self.time_minutes
         if self.activation_energy is not None:
             capture_fields["activation_energy"] = self.activation_energy
+        if self.urgency is not None:
+            capture_fields["urgency"] = self.urgency
+        if self.importance is not None:
+            capture_fields["importance"] = self.importance
+        if self.emotional_weight is not None:
+            capture_fields["emotional_weight"] = self.emotional_weight
+        if self.confidence is not None:
+            capture_fields["confidence"] = self.confidence
         if self.project:
             capture_fields["project"] = self.project
         if self.tags:

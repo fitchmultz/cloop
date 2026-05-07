@@ -31,6 +31,102 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 _CORE_MIGRATIONS: dict[int, str] = {
+    53: """
+    CREATE TABLE memory_entries_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'fact'
+            CHECK (category IN ('preference', 'pattern', 'fact', 'commitment', 'context', 'person', 'event')),
+        priority INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'user_stated'
+            CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO memory_entries_new (
+        id,
+        key,
+        content,
+        category,
+        priority,
+        source,
+        metadata_json,
+        created_at,
+        updated_at
+    )
+    SELECT
+        id,
+        key,
+        content,
+        category,
+        priority,
+        source,
+        metadata_json,
+        created_at,
+        updated_at
+    FROM memory_entries;
+
+    DROP TABLE memory_entries;
+    ALTER TABLE memory_entries_new RENAME TO memory_entries;
+
+    CREATE INDEX idx_memory_entries_category ON memory_entries(category);
+    CREATE INDEX idx_memory_entries_priority ON memory_entries(priority DESC);
+    CREATE INDEX idx_memory_entries_key ON memory_entries(key) WHERE key IS NOT NULL;
+    CREATE INDEX idx_memory_entries_updated ON memory_entries(updated_at DESC);
+    """,
+    52: """
+    ALTER TABLE loops ADD COLUMN emotional_weight REAL;
+    ALTER TABLE loops ADD COLUMN confidence REAL;
+    """,
+    51: """
+    CREATE TABLE memory_entries_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'fact'
+            CHECK (category IN ('preference', 'pattern', 'fact', 'commitment', 'context')),
+        priority INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'user_stated'
+            CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO memory_entries_new (
+        id,
+        key,
+        content,
+        category,
+        priority,
+        source,
+        metadata_json,
+        created_at,
+        updated_at
+    )
+    SELECT
+        id,
+        key,
+        content,
+        category,
+        priority,
+        source,
+        metadata_json,
+        created_at,
+        updated_at
+    FROM memory_entries;
+
+    DROP TABLE memory_entries;
+    ALTER TABLE memory_entries_new RENAME TO memory_entries;
+
+    CREATE INDEX idx_memory_entries_category ON memory_entries(category);
+    CREATE INDEX idx_memory_entries_priority ON memory_entries(priority DESC);
+    CREATE INDEX idx_memory_entries_key ON memory_entries(key) WHERE key IS NOT NULL;
+    CREATE INDEX idx_memory_entries_updated ON memory_entries(updated_at DESC);
+    """,
     50: """
     UPDATE planning_session_runs
     SET result_json = json_set(
@@ -1010,7 +1106,7 @@ _CORE_MIGRATIONS: dict[int, str] = {
         key TEXT,
         content TEXT NOT NULL,
         category TEXT NOT NULL DEFAULT 'fact'
-            CHECK (category IN ('preference', 'fact', 'commitment', 'context')),
+            CHECK (category IN ('preference', 'pattern', 'fact', 'commitment', 'context')),
         priority INTEGER NOT NULL DEFAULT 0,
         source TEXT NOT NULL DEFAULT 'user_stated'
             CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),

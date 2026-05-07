@@ -110,6 +110,10 @@ class LoopCaptureRequest(BaseModel):
         le=3,
         description="Effort level 0-3 (trivial to hard)",
     )
+    urgency: float | None = Field(default=None, ge=0.0, le=1.0)
+    importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    emotional_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     project: str | None = Field(
         default=None,
         min_length=1,
@@ -174,6 +178,8 @@ class LoopUpdateRequest(BaseModel):
     activation_energy: int | None = Field(default=None, ge=0, le=3)
     urgency: float | None = Field(default=None, ge=0.0, le=1.0)
     importance: float | None = Field(default=None, ge=0.0, le=1.0)
+    emotional_weight: float | None = Field(default=None, ge=0.0, le=1.0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     project: str | None = Field(default=None, min_length=1, max_length=PROJECT_MAX)
     blocked_reason: str | None = Field(default=None, max_length=BLOCKED_REASON_MAX)
     completion_note: str | None = Field(default=None, max_length=COMPLETION_NOTE_MAX)
@@ -262,6 +268,8 @@ class LoopBase(BaseModel):
     activation_energy: int | None = None
     urgency: float | None = None
     importance: float | None = None
+    emotional_weight: float | None = None
+    confidence: float | None = None
     blocked_reason: str | None = None
     completion_note: str | None = None
     project: str | None = None

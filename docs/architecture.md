@@ -41,6 +41,7 @@ flowchart LR
 - `src/cloop/routes/*`: HTTP request/response wiring and schema mapping.
 
 ### Domain logic
+- `src/cloop/life_orchestration.py`: pi-organizer-backed Life agent orchestration for messy capture, source-evidence preservation, likely-duplicate updates, grouped resurfacing, preference/pattern-memory capture, and undoable cleanup on top of the shared loop and memory services.
 - `src/cloop/loops/service.py`: loop lifecycle operations and state transitions.
 - `src/cloop/loops/write_ops.py`: canonical write-operation helpers and mutation invariants.
 - `src/cloop/loops/repo.py`: SQL-focused persistence operations.
@@ -64,7 +65,7 @@ flowchart LR
 ### Real-time/eventing
 - `src/cloop/sse.py`: server-sent events fan-out for loop events.
 - `src/cloop/webhooks/*`: signed webhook subscriptions and delivery/retry behavior.
-- `src/cloop/scheduler.py`: dedicated-process periodic review/nudge routines.
+- `src/cloop/scheduler.py`: dedicated-process periodic review/nudge routines. Slot ownership and dedupe are deterministic; Life garden, due-soon, and stale-rescue judgment delegate to the Life organizer.
 
 ## 3) Data and control flow examples
 
@@ -74,6 +75,16 @@ flowchart LR
 3. Service layer applies lifecycle rules and writes to `core.db`.
 4. Event is emitted to SSE subscribers and webhook pipeline.
 5. API returns created loop record.
+
+### Life message (HTTP + Web)
+1. The Life feed collects typed or browser-dictated text plus lightweight external source metadata from pasted links or attached screenshots/photos/audio/files, then sends one natural-language message to `POST /life/message`.
+2. `src/cloop/life_orchestration.py` builds grounded context from current loops, recent history, durable memory, external input metadata, and raw factual Life evidence such as timestamps, next-action presence, snooze timing, deferral counts, user/agent touch timestamps, dependency IDs, resurfacing history, and recent loop events.
+3. The pi organizer returns a validated JSON Life plan that classifies the message as capture, resurfacing, cleanup, or preference memory; it owns the judgment for splitting loops, detecting and merging likely duplicates, linking related context, adding or removing blocker/dependency links, preparing next actions and draft artifacts such as scripts, shortlists, route suggestions, and appointment prep, asking optional clarifications, interpreting answers to pending clarification rows, deciding what is stale or low-risk, rescheduling or marking loops waiting/active, moving/compressing memory layers, grouping what matters, attaching useful source-evidence labels to captures/updates, and deciding whether a background digest should interrupt the user.
+4. The deterministic layer only validates loop IDs/fields and agent-returned authority/risk/source-evidence claims, writes captures and updates through shared loop services, persists agent-selected external source evidence in loop provenance, records related/duplicate context through the canonical `loop_links` table, calls canonical merge, dependency, and memory-management services when the agent chooses those actions, applies delegated internal cleanup through normal loop updates/transitions plus existing undo events, and delivers push notifications only when the agent explicitly requested one with notification copy.
+5. Background Life scheduler slots use the same contract. The scheduler does not rank due-soon loops, decide staleness, assign escalation levels, or write nudge copy; it records the agent response and sends a digest only when `notify_user` is true.
+6. Resurfacing writes lightweight `life_resurfaced` loop events, giving future Life turns a real last-seen trail without treating chat history as canonical state.
+7. Clarification questions and answers persist on the existing loop clarification rows, so a later Life message such as “actually Costco” can update the right loop without making chat history the source of truth.
+8. Preference, pattern, person, event, and context memories persist through the shared memory-management path with `life_layer` metadata (`active`, `warm`, or `cold`) so future chat and Life behavior can ground on the right level of continuity without flattening everything into one memory bucket.
 
 ### Ask with RAG (HTTP + CLI + MCP)
 1. Any transport invokes the shared RAG execution contract with ingest or ask inputs.
@@ -95,7 +106,7 @@ flowchart LR
 
 ### Direct memory management (HTTP + Web + CLI + MCP)
 1. HTTP `/memory/*`, the web memory tab, `cloop memory *`, and MCP `memory.*` all call `src/cloop/memory_management.py`.
-2. `src/cloop/memory_management.py` owns category/source/priority validation, query semantics, and explicit update-field presence rules such as clearing `key`.
+2. `src/cloop/memory_management.py` owns category/source/priority validation, query semantics, and explicit update-field presence rules such as clearing `key`; categories include preferences, patterns, people, events, generic context, commitments, and facts.
 3. `src/cloop/storage/memory_store.py` stays persistence-only, including cursor pagination and JSON metadata serialization.
 4. Chat grounding continues to read from the same durable memory substrate rather than maintaining transport-specific memory state.
 
@@ -156,11 +167,11 @@ flowchart LR
 - **Pros:** consistent behavior and reduced logic drift.
 - **Trade-offs:** clearer boundaries are required to avoid route/CLI-specific concerns leaking into shared services.
 
-### Deterministic + assisted workflow model
-**Decision:** deterministic lifecycle/prioritization with optional LLM enrichment/autopilot.
+### Life agent owns loop judgment
+**Decision:** the Life organizer owns conversational capture, lifecycle intent, resurfacing, cleanup recommendations, memory-layer choices, and notification copy. Python validates authority, IDs, schema, and persistence through shared services.
 
-- **Pros:** predictable core behavior with optional AI assistance.
-- **Trade-offs:** requires explicit confidence thresholds and robust fallbacks when providers fail.
+- **Pros:** Cloop Life behaves like an AI loop-closing product instead of a hardcoded queue dashboard, while still keeping local data and reversible mutations.
+- **Trade-offs:** organizer output requires strict schema validation, explicit authority/risk fields, and robust provider-failure handling.
 
 ## 5) Operational notes
 

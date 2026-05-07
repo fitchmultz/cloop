@@ -78,6 +78,7 @@ Cloop provides that foundation: a private local knowledge base, durable memory s
 - **Checkpointed planning workflows**: Generate durable AI-native planning sessions with explicit checkpoints, broader deterministic loop/view/template/review operations, durable execution history, rollback/provenance metadata, and refreshable grounded context across HTTP, the web Review tab, CLI, and MCP via the shared `loops/planning_workflows.py` contract.
 - **Bulk enrichment workflows**: Preview and re-run explicit enrichment across filtered loop sets from HTTP, the web Review tab, the Inbox bulk action bar, CLI, and MCP via the shared `loops/enrichment_orchestration.py` contract.
 - **Streaming (SSE)**: Stream `/chat` and `/ask` responses when enabled.
+- **Cloop Life feed**: First-screen natural-language dumping with typing, browser voice dictation, pasted links, or lightweight screenshot/photo/audio/file source evidence where the Life agent splits messy thoughts into loops, updates or merges likely duplicates, asks and records lightweight clarification answers, stores and gardens durable memory, resurfaces grouped open loops, and chooses reviewable or undoable cleanup under an explicit authority contract.
 - **Loop capture + inbox**: Guaranteed capture with a simple loop state machine (inbox → actionable/blocked/scheduled → completed).
 - **Autopilot suggestions**: Gemini-powered enrichment stored as suggestions with confidence + provenance.
 - **Next 5**: Deterministic prioritization for actionable loops.
@@ -89,7 +90,7 @@ Supported file types for ingestion: `.txt`, `.md`, `.markdown`, `.pdf`.
 
 - **Personal knowledge base**: Drop in docs, notes, PDFs; ask questions later with cited sources.
 - **Project recall**: Keep design notes, meeting notes, and decision history in a searchable store.
-- **Loop capture (lightweight)**: Use notes as a “working memory dump” so you stop rehearsing open loops.
+- **Life loop capture**: Type or dictate scattered thoughts, reminders, worries, and half-formed plans into the Life feed, with links or file evidence when useful, so Cloop can split, organize, resurface, and help close them.
 
 ## The “loops” model (how to think about it)
 
@@ -135,8 +136,8 @@ make reset-local-data
 If you want the shortest path to a running local instance, start with:
 
 ```dotenv
-CLOOP_PI_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
-CLOOP_PI_ORGANIZER_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
+CLOOP_PI_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
+CLOOP_PI_ORGANIZER_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
 CLOOP_PI_SELECTOR_MODE=fallback
 CLOOP_PI_CHAT_MAX_TOOL_ROUNDS=4
 CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2
@@ -154,8 +155,8 @@ CLOOP_SCHEDULER_ENABLED=false
 This keeps the generative path on pi while embeddings stay local on Ollama.
 `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` are ordered selector preference lists.
 In `CLOOP_PI_SELECTOR_MODE=fallback`, Cloop asks `pi` which configured selectors are available and resolves each role to the first selector that `pi --list-models` reports as available. In `exact`, each role must be set to one explicit selector and unavailable selectors fail hard.
-The default preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
-`openai-codex/gpt-5.4`, but any selector that `pi` supports is valid.
+The default preference order is `zai/glm-5.1`, then `kimi-coding/k2p6`, then
+`openai-codex/gpt-5.5`, but any selector that `pi` supports is valid.
 Read-only chat, planning, enrichment, and RAG generation paths can use one bounded
 alternate strategy after a retryable upstream failure before returning
 `readonly_generation_exhausted`; mutation flows stay single-path.
@@ -257,6 +258,7 @@ Notes:
 - `cloop chat` uses the same request/response model as the HTTP `/chat` endpoint.
 - `--format text` is the default for conversational use; `--format json` emits the full structured response payload.
 - `--tool` implies manual tool mode; otherwise CLI chat defaults to `tool_mode=none` unless you pass `--tool-mode` explicitly.
+- Memory categories include `preference`, `pattern`, `person`, `event`, `context`, `commitment`, and `fact`.
 
 ### Memory Commands
 
@@ -585,13 +587,14 @@ Start the local service:
 uv run uvicorn cloop.main:app --reload
 ```
 
-Then open `http://127.0.0.1:8000/` for the Quick Capture UI.
+Then open `http://127.0.0.1:8000/` for the Cloop Life feed.
 
 Endpoints:
 
 - `GET /docs`: interactive Swagger UI for all API operations.
 - `GET /redoc`: ReDoc-style API reference.
 - `GET /openapi.json`: machine-readable OpenAPI schema.
+- `POST /life/message`: conversational Life feed endpoint for messy capture, open-loop resurfacing, preference memory, duplicate-aware updates, and undoable cleanup plans.
 - `POST /chat`: chat completion with configurable tool/grounding options; `?stream=true` for SSE streaming.
 - `POST /ingest`: ingest local files/folders into `rag.db`.
 - `GET /ask`: RAG question answering; returns an answer plus `sources` pointing at the retrieved chunks.
@@ -652,7 +655,7 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 
 | Tab | Purpose |
 |-----|---------|
-| **Inbox** (1) | Quick capture plus DSL or semantic loop search/filtering |
+| **Life feed** (1) | Agent-organized natural-language capture, resurfacing, cleanup, and grouped open loops |
 | **Next** (2) | Prioritized "what should I do next?" buckets |
 | **Chat** (3) | LLM conversation with configurable loop, memory, document, and tool grounding |
 | **Memory** (4) | Durable memory CRUD/search powered by the shared direct-memory contract |
@@ -660,15 +663,18 @@ Open `http://127.0.0.1:8000/` after starting the server for a keyboard-driven lo
 | **Review** (6) | Checkpointed planning sessions, bulk enrichment, saved relationship/enrichment review sessions, plus daily/weekly review cohorts |
 | **Metrics** (7) | Loop health statistics |
 
-### Quick Capture
+### Life Feed
 
-The Inbox tab provides instant capture and search:
-1. Type your loop text in the textarea
-2. Optionally set status flags: Actionable, Scheduled, Blocked
-3. Press Enter or click Save
-4. Use the Inbox `mode` control to switch the query bar between DSL filtering and semantic search
+The first screen is the Life feed:
+1. Dump scattered thoughts, obligations, reminders, worries, or plans in one message.
+2. The organizer model returns a structured Life plan for captures, duplicate-aware updates, merges, split child loops, related-loop links, blocker/dependency links, prepared drafts/checklists/scripts/shortlists/appointment prep, optional contextual clarifications, clarification answers to previously pending questions, preference, pattern, person, event, or context memory, memory-layer gardening, cleanup, rescheduling, waiting/active state changes, resurfacing groups, and background digest notifications. It can carry effort, urgency, importance, emotional weight, confidence estimates, authority/risk claims, agent-authored group titles/summaries, group item rationale/state, cleanup bucket placement, resulting Life states, source-evidence labels from pasted links or attached files, and agent-authored notification copy. It receives current loops, recent history, pending and answered clarification rows, durable memory, external input metadata, and raw factual timing/deferral/user-touch/agent-touch/dependency evidence before making those decisions.
+3. Cloop validates that plan, enforces local safety boundaries for authority/risk, persists changes through shared loop/memory services, and returns undo handles for automatic cleanup.
+4. Life memories are layered as active, warm, or cold context and separated by category so preferences, patterns, people, events, generic context, commitments, and facts are not treated equally.
+5. Resurfaced loops receive lightweight history events so future Life turns know what was recently put back in front of the user.
+6. Background Life garden, due-soon, and stale-rescue passes send push digests only when the organizer explicitly sets `notify_user` and provides notification copy. Scheduler code owns slots and dedupe, not staleness, priority, escalation, or nudge wording.
+7. Use the older work surfaces below the feed when you need detailed loop search, review queues, planning sessions, or memory management.
 
-Captures are persisted immediately with offline sync support. Semantic Inbox search uses the same shared backend contract as the HTTP, CLI, and MCP surfaces, and older loops are indexed on demand when needed.
+Loop and memory mutations still go through the same shared backend contracts as the HTTP, CLI, and MCP surfaces. The agent decides what the message means; deterministic code validates and writes it.
 
 ### Review Cohorts
 
@@ -723,8 +729,8 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 
 ### Pi models
 
-- `CLOOP_PI_MODEL`: ordered chat selector preferences in `provider/model` form (default: `zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4`)
-- `CLOOP_PI_ORGANIZER_MODEL`: ordered organizer/enrichment selector preferences (default: `zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4`)
+- `CLOOP_PI_MODEL`: ordered chat selector preferences in `provider/model` form (default: `zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5`)
+- `CLOOP_PI_ORGANIZER_MODEL`: ordered organizer/enrichment selector preferences (default: `zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5`)
 - `CLOOP_PI_THINKING_LEVEL`: chat thinking level (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 - `CLOOP_PI_ORGANIZER_THINKING_LEVEL`: organizer thinking level
 - `CLOOP_PI_TIMEOUT`: chat timeout in seconds (default: `30.0`)
@@ -738,8 +744,8 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 - `CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS`: mutation/tool-writing budget (default: `2`)
 
 Cloop passes these selector strings straight through to `pi` and relies on `pi --list-models`
-for availability. The default selector preference order is `zai/glm-5`, `kimi-coding/k2p5`,
-then `openai-codex/gpt-5.4`, but any pi-supported selector is valid.
+for availability. The default selector preference order is `zai/glm-5.1`, `kimi-coding/k2p6`,
+then `openai-codex/gpt-5.5`, but any pi-supported selector is valid.
 
 `fallback` resolves each role to the first available configured selector. `exact` requires
 one explicit selector per role and fails if it is unavailable.
@@ -817,6 +823,7 @@ Both operations return:
 - `CLOOP_AUTOPILOT_ENABLED`: enable loop enrichment (default: `false`)
 - `CLOOP_AUTOPILOT_AUTOAPPLY_MIN_CONFIDENCE`: auto-apply threshold (default: `0.85`)
 - `CLOOP_SCHEDULER_ENABLED`: enable the dedicated review/nudge scheduler process (default: `false`)
+- `CLOOP_SCHEDULER_LIFE_GARDEN_INTERVAL_HOURS`: background Life organizer cleanup and memory-gardening interval (default: `24.0`)
 - `CLOOP_SCHEDULER_POLL_INTERVAL_SECONDS`: scheduler poll interval (default: `60.0`)
 - `CLOOP_SCHEDULER_LEASE_SECONDS`: scheduler lease duration (default: `180`)
 

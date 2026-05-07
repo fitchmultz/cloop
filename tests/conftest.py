@@ -150,6 +150,7 @@ def test_settings() -> Callable[..., Settings]:
             "scheduler_enabled": False,
             "scheduler_daily_review_interval_hours": 24.0,
             "scheduler_weekly_review_interval_hours": 168.0,
+            "scheduler_life_garden_interval_hours": 24.0,
             "scheduler_due_soon_nudge_interval_hours": 1.0,
             "scheduler_stale_rescue_interval_hours": 6.0,
             "scheduler_poll_interval_seconds": 60.0,

@@ -790,7 +790,7 @@ def test_enrichment_marks_failed_on_organizer_provider_misconfiguration(
 
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("CLOOP_AUTOPILOT_ENABLED", "false")
-    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "zai/glm-5")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "zai/glm-5.1")
     get_settings.cache_clear()
     settings = get_settings()
     db.init_databases(settings)

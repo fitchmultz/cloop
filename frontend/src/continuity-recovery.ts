@@ -137,9 +137,9 @@ function buildFallbackRecoveryPlan(input: {
     title: `${input.displayTitle} no longer has a surviving target`,
     summary: input.resolvedTarget.message
       ?? "Neither the landed outcome nor its launch workflow still exists, so recovery falls back to home.",
-    nextStep: "Return home, then choose a surviving queue, plan, or replacement path from the operator workspace.",
+    nextStep: "Return home, then choose a surviving queue, plan, or replacement path from Life home.",
     ctaLabel: "Return home",
-    ctaDescription: "Go back to the operator workspace and recover from a surviving path.",
+    ctaDescription: "Go back to Life home and recover from a surviving path.",
     location: input.resolvedTarget.resolvedLocation,
     acknowledged: isContinuityRecoveryAcknowledged(key),
   };

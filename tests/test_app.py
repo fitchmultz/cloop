@@ -1097,7 +1097,7 @@ def test_ui_contains_operator_workspace_and_state_navigation(
     test_client: TestClient,
     tmp_data_dir: Path,
 ) -> None:
-    """Initial HTML should expose the operator workspace and state-driven navigation shell."""
+    """Initial HTML should expose the Life-first shell and state-driven navigation."""
     response = test_client.get("/")
     assert response.status_code == 200
     html = response.text
@@ -1123,11 +1123,28 @@ def test_ui_contains_operator_workspace_and_state_navigation(
     assert 'id="operator-since-last"' in html
     assert 'id="operator-working-set"' in html
     assert 'id="operator-create-working-set-btn"' in html
-    assert 'id="working-set-focus-banner"' in html
+    assert (
+        'id="working-set-focus-banner" class="working-set-focus-banner" aria-label="Saved focus"'
+        in html
+    )
     assert 'id="working-set-focus-summary"' in html
     assert 'id="working-set-focus-items"' in html
     assert 'id="working-set-focus-toggle-btn"' in html
     assert 'id="working-set-exit-focus-btn"' in html
+    assert 'class="operator-grid life-advanced-home-surfaces" hidden' in html
+    assert 'id="inbox-main" tabindex="-1" style="display: none;"' in html
+    assert 'id="chat-main" style="display: none;"' in html
+    assert 'id="review-main" style="display: none;"' in html
+    assert "Life home" in html
+    assert "Dump a thought" in html
+    assert "Find or jump" in html
+    assert "Refresh workspace" not in html
+    assert "Operator workspace" not in html
+    assert "Decision workspace" not in html
+    assert "AI workflow guide" not in html
+    assert "Assistant only" not in html
+    assert "Active working set" not in html
+    assert "Work modes" not in html
     assert 'id="command-palette"' in html
     assert 'id="command-palette-overlay"' in html
     assert 'id="command-palette-panel"' in html
@@ -1135,7 +1152,7 @@ def test_ui_contains_operator_workspace_and_state_navigation(
     assert 'id="command-palette-results"' in html
     assert 'id="command-palette-detail"' in html
     assert 'id="command-palette-status"' in html
-    assert "Current surface" in html
+    assert "Today" in html
     assert "Decision queues with action cards" in html
     assert "Recall suggestions and context handoffs" in html
     assert 'id="review-redesign-shell"' in html
@@ -1184,7 +1201,7 @@ def test_ui_contains_planning_workspace_elements(
     assert 'id="review-shell-queue"' in html
     assert 'id="review-shell-workspace"' in html
     assert 'id="review-shell-impact"' in html
-    assert "Decision workspace" in html
+    assert "Decision detail" in html
 
 
 def test_review_support_sidebar_explains_ai_workflow_loop(
@@ -1196,8 +1213,8 @@ def test_review_support_sidebar_explains_ai_workflow_loop(
     assert response.status_code == 200
     html = response.text
 
-    assert "AI workflow guide" in html
-    assert "Plan, execute, review, then chat against the live state" in html
+    assert "Follow-through guide" in html
+    assert "Plan, review, then recall the live context" in html
     assert "Create a planning session" in html
     assert "Refresh when reality changes" in html
 

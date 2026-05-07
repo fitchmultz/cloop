@@ -2707,6 +2707,328 @@ export type IngestResponse = {
 };
 
 /**
+ * LifeClarification
+ *
+ * Optional contextual question that would materially improve a Life loop.
+ */
+export type LifeClarification = {
+    /**
+     * Assumption
+     */
+    assumption?: string | null;
+    /**
+     * Clarification Id
+     */
+    clarification_id?: number | null;
+    /**
+     * Improves
+     */
+    improves?: Array<string>;
+    /**
+     * Loop Id
+     */
+    loop_id?: number | null;
+    /**
+     * Question
+     */
+    question: string;
+    /**
+     * Rationale
+     */
+    rationale?: string | null;
+};
+
+/**
+ * LifeClarificationAnswer
+ *
+ * Answer recorded against a previously requested Life clarification.
+ */
+export type LifeClarificationAnswer = {
+    /**
+     * Answer
+     */
+    answer: string;
+    /**
+     * Clarification Id
+     */
+    clarification_id: number;
+    /**
+     * Loop Id
+     */
+    loop_id: number;
+    /**
+     * Question
+     */
+    question: string;
+    /**
+     * Rationale
+     */
+    rationale?: string | null;
+};
+
+/**
+ * LifeCleanupPlan
+ *
+ * Guided cleanup recommendation and optional applied cleanup results.
+ */
+export type LifeCleanupPlan = {
+    /**
+     * Applied Automatic Cleanup
+     */
+    applied_automatic_cleanup?: Array<LifeLoopItem>;
+    /**
+     * Archive Candidates
+     */
+    archive_candidates?: Array<LifeLoopItem>;
+    /**
+     * Close Candidates
+     */
+    close_candidates?: Array<LifeLoopItem>;
+    /**
+     * Keep Active
+     */
+    keep_active?: Array<LifeLoopItem>;
+    /**
+     * Open Count
+     */
+    open_count: number;
+    /**
+     * Recommendation
+     */
+    recommendation: string;
+    /**
+     * Review Needed
+     */
+    review_needed?: Array<LifeLoopItem>;
+    /**
+     * Undo
+     */
+    undo?: Array<LifeUndoHandle>;
+};
+
+/**
+ * LifeExternalInput
+ *
+ * Source evidence attached to one Life-feed message.
+ */
+export type LifeExternalInput = {
+    /**
+     * Kind
+     */
+    kind: 'link' | 'image' | 'audio' | 'file' | 'text';
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Media Type
+     */
+    media_type?: string | null;
+    /**
+     * Size Bytes
+     */
+    size_bytes?: number | null;
+    /**
+     * Source Url
+     */
+    source_url?: string | null;
+    /**
+     * Text
+     */
+    text?: string | null;
+};
+
+/**
+ * LifeLoopGroup
+ *
+ * A plain-language group in the open loops or history view.
+ */
+export type LifeLoopGroup = {
+    /**
+     * Items
+     */
+    items?: Array<LifeLoopItem>;
+    /**
+     * Name
+     */
+    name: 'needs_attention_today' | 'quick_wins' | 'waiting_on_someone' | 'prepared_for_review' | 'stale_needs_decision' | 'upcoming' | 'ideas_not_tasks' | 'history';
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * LifeLoopItem
+ *
+ * Product-facing loop projection for Life surfaces.
+ */
+export type LifeLoopItem = {
+    /**
+     * Life State
+     */
+    life_state: 'captured' | 'active' | 'needs_clarification' | 'prepared' | 'scheduled' | 'waiting' | 'blocked' | 'stale' | 'completed' | 'archived' | 'abandoned' | 'deleted';
+    loop: LoopResponse;
+    /**
+     * Prepared Actions
+     */
+    prepared_actions?: Array<LifePreparedAction>;
+    /**
+     * Prepared Next Action
+     */
+    prepared_next_action?: string | null;
+    /**
+     * Rationale
+     */
+    rationale?: string | null;
+};
+
+/**
+ * LifeMessageRequest
+ *
+ * One user message sent to the Life feed.
+ */
+export type LifeMessageRequest = {
+    /**
+     * Captured At
+     *
+     * Optional client ISO8601 timestamp. Defaults to server UTC time.
+     */
+    captured_at?: string | null;
+    /**
+     * Client Tz Offset Min
+     *
+     * Minutes offset from UTC at capture time.
+     */
+    client_tz_offset_min?: number;
+    /**
+     * External Inputs
+     *
+     * Lightweight source/evidence metadata attached to the message.
+     */
+    external_inputs?: Array<LifeExternalInput>;
+    /**
+     * Message
+     */
+    message: string;
+};
+
+/**
+ * LifeMessageResponse
+ *
+ * Response from the Life feed.
+ */
+export type LifeMessageResponse = {
+    /**
+     * Answered Clarifications
+     */
+    answered_clarifications?: Array<LifeClarificationAnswer>;
+    /**
+     * Captured
+     */
+    captured?: Array<LifeLoopItem>;
+    /**
+     * Clarifications
+     */
+    clarifications?: Array<LifeClarification>;
+    cleanup?: LifeCleanupPlan | null;
+    /**
+     * Evidence
+     */
+    evidence?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Groups
+     */
+    groups?: Array<LifeLoopGroup>;
+    /**
+     * Memories
+     */
+    memories?: Array<MemoryResponse>;
+    /**
+     * Mode
+     */
+    mode: 'capture' | 'cleanup' | 'resurface' | 'preference';
+    /**
+     * Notification Body
+     */
+    notification_body?: string | null;
+    /**
+     * Notification Title
+     */
+    notification_title?: string | null;
+    /**
+     * Notify User
+     */
+    notify_user?: boolean;
+    /**
+     * Reply
+     */
+    reply: string;
+    /**
+     * Updated
+     */
+    updated?: Array<LifeLoopItem>;
+};
+
+/**
+ * LifePreparedAction
+ *
+ * Draft, script, checklist, or brief prepared for review before action.
+ */
+export type LifePreparedAction = {
+    /**
+     * Body
+     */
+    body: string;
+    /**
+     * Kind
+     */
+    kind: 'email_draft' | 'text_draft' | 'call_script' | 'checklist' | 'application_checklist' | 'decision_brief' | 'decision_recommendation' | 'errand_plan' | 'appointment_prep' | 'product_shortlist' | 'route_suggestion' | 'first_10_minutes' | 'summary';
+    /**
+     * Requires Approval
+     */
+    requires_approval?: boolean;
+    /**
+     * Risk Level
+     */
+    risk_level?: 'internal' | 'external_low' | 'consequential';
+    /**
+     * Title
+     */
+    title: string;
+};
+
+/**
+ * LifeUndoHandle
+ *
+ * Undo pointer for recent automatic Life cleanup.
+ */
+export type LifeUndoHandle = {
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * Expected Event Id
+     */
+    expected_event_id: number;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Loop Id
+     */
+    loop_id: number;
+};
+
+/**
  * LoopCaptureRequest
  *
  * Request to capture a new loop/task.
@@ -2745,6 +3067,10 @@ export type LoopCaptureRequest = {
      */
     client_tz_offset_min: number;
     /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
      * Due At Utc
      *
      * ISO8601 due date timestamp
@@ -2756,6 +3082,14 @@ export type LoopCaptureRequest = {
      * ISO calendar date for date-only due values (YYYY-MM-DD)
      */
     due_date?: string | null;
+    /**
+     * Emotional Weight
+     */
+    emotional_weight?: number | null;
+    /**
+     * Importance
+     */
+    importance?: number | null;
     /**
      * Next Action
      *
@@ -2818,6 +3152,10 @@ export type LoopCaptureRequest = {
      * IANA timezone name (e.g., 'America/New_York'). Defaults to client offset.
      */
     timezone?: string | null;
+    /**
+     * Urgency
+     */
+    urgency?: number | null;
 };
 
 /**
@@ -3189,6 +3527,10 @@ export type LoopExportItem = {
      */
     completion_note?: string | null;
     /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
      * Created At Utc
      */
     created_at_utc: string;
@@ -3204,6 +3546,10 @@ export type LoopExportItem = {
      * Due Date
      */
     due_date?: string | null;
+    /**
+     * Emotional Weight
+     */
+    emotional_weight?: number | null;
     /**
      * Enrichment State
      */
@@ -3647,6 +3993,10 @@ export type LoopResponse = {
      */
     completion_note?: string | null;
     /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
      * Created At Utc
      */
     created_at_utc: string;
@@ -3662,6 +4012,10 @@ export type LoopResponse = {
      * Due Date
      */
     due_date?: string | null;
+    /**
+     * Emotional Weight
+     */
+    emotional_weight?: number | null;
     /**
      * Enrichment State
      */
@@ -4192,6 +4546,10 @@ export type LoopUpdateRequest = {
      */
     completion_note?: string | null;
     /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
      * Definition Of Done
      */
     definition_of_done?: string | null;
@@ -4203,6 +4561,10 @@ export type LoopUpdateRequest = {
      * Due Date
      */
     due_date?: string | null;
+    /**
+     * Emotional Weight
+     */
+    emotional_weight?: number | null;
     /**
      * Importance
      */
@@ -4409,7 +4771,7 @@ export type LoopWithDependenciesResponse = {
  *
  * Memory entry categories for semantic organization.
  */
-export type MemoryCategory = 'preference' | 'fact' | 'commitment' | 'context';
+export type MemoryCategory = 'preference' | 'fact' | 'commitment' | 'context' | 'pattern' | 'person' | 'event';
 
 /**
  * MemoryCreateRequest
@@ -4725,7 +5087,7 @@ export type NowFeedItemResponse = {
     /**
      * Display Kind
      */
-    display_kind?: 'handoff' | 'decision' | 'mutation' | 'context';
+    display_kind?: 'handoff' | 'decision' | 'mutation' | 'refresh' | 'context' | 'receipt';
     /**
      * Display Tone
      */
@@ -6073,6 +6435,10 @@ export type RelationshipReviewCandidateResponse = {
      */
     completion_note?: string | null;
     /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
      * Created At Utc
      */
     created_at_utc: string;
@@ -6088,6 +6454,10 @@ export type RelationshipReviewCandidateResponse = {
      * Due Date
      */
     due_date?: string | null;
+    /**
+     * Emotional Weight
+     */
+    emotional_weight?: number | null;
     /**
      * Enrichment State
      */
@@ -6484,6 +6854,10 @@ export type SemanticSearchLoopResponse = {
      */
     completion_note?: string | null;
     /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
      * Created At Utc
      */
     created_at_utc: string;
@@ -6499,6 +6873,10 @@ export type SemanticSearchLoopResponse = {
      * Due Date
      */
     due_date?: string | null;
+    /**
+     * Emotional Weight
+     */
+    emotional_weight?: number | null;
     /**
      * Enrichment State
      */
@@ -7588,6 +7966,31 @@ export type IngestEndpointIngestPostResponses = {
 };
 
 export type IngestEndpointIngestPostResponse = IngestEndpointIngestPostResponses[keyof IngestEndpointIngestPostResponses];
+
+export type LifeMessageEndpointLifeMessagePostData = {
+    body: LifeMessageRequest;
+    path?: never;
+    query?: never;
+    url: '/life/message';
+};
+
+export type LifeMessageEndpointLifeMessagePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LifeMessageEndpointLifeMessagePostError = LifeMessageEndpointLifeMessagePostErrors[keyof LifeMessageEndpointLifeMessagePostErrors];
+
+export type LifeMessageEndpointLifeMessagePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: LifeMessageResponse;
+};
+
+export type LifeMessageEndpointLifeMessagePostResponse = LifeMessageEndpointLifeMessagePostResponses[keyof LifeMessageEndpointLifeMessagePostResponses];
 
 export type LoopListEndpointLoopsGetData = {
     body?: never;

@@ -42,6 +42,8 @@ _ALLOWED_UPDATE_FIELDS = {
     "activation_energy",
     "urgency",
     "importance",
+    "emotional_weight",
+    "confidence",
     "project_id",
     "blocked_reason",
     "completion_note",
@@ -108,6 +110,16 @@ def _row_to_record(row: sqlite3.Row) -> LoopRecord:
         ),
         urgency=row["urgency"] if row["urgency"] is not None else None,
         importance=row["importance"] if row["importance"] is not None else None,
+        emotional_weight=(
+            row["emotional_weight"]
+            if "emotional_weight" in row.keys() and row["emotional_weight"] is not None
+            else None
+        ),
+        confidence=(
+            row["confidence"]
+            if "confidence" in row.keys() and row["confidence"] is not None
+            else None
+        ),
         project_id=row["project_id"] if row["project_id"] is not None else None,
         blocked_reason=row["blocked_reason"] if row["blocked_reason"] is not None else None,
         completion_note=row["completion_note"] if row["completion_note"] is not None else None,

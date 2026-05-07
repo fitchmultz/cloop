@@ -529,6 +529,157 @@ def test_migrate_core_db_backfills_planning_run_rollback_payloads() -> None:
     assert version == 50
 
 
+def test_migration_51_allows_pattern_memory_category(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migration 51 expands durable memory categories without losing rows."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO memory_entries (key, content, category, priority, source, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "life.prefers_focus_mornings",
+                "User prefers focus work in the morning.",
+                "preference",
+                20,
+                "user_stated",
+                "{}",
+            ),
+        )
+        conn.execute("PRAGMA user_version = 50")
+        conn.commit()
+
+        db.migrate_core_db(conn, from_version=50, to_version=51)
+
+        conn.execute(
+            """
+            INSERT INTO memory_entries (key, content, category, priority, source, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "life.pattern.defers_admin",
+                "User often defers admin work on Fridays.",
+                "pattern",
+                15,
+                "inferred",
+                "{}",
+            ),
+        )
+        rows = conn.execute("SELECT key, category FROM memory_entries ORDER BY id ASC").fetchall()
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    assert rows == [
+        ("life.prefers_focus_mornings", "preference"),
+        ("life.pattern.defers_admin", "pattern"),
+    ]
+    assert version == 51
+
+
+def test_migration_52_adds_life_loop_weight_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migration 52 adds Life reasoning weights to existing loop rows."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        conn.execute(
+            """
+            CREATE TABLE loops (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                raw_text TEXT NOT NULL,
+                status TEXT NOT NULL,
+                captured_at_utc TEXT NOT NULL,
+                captured_tz_offset_min INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO loops (raw_text, status, captured_at_utc, captured_tz_offset_min)
+            VALUES ('heavy loop', 'actionable', '2026-05-07T10:00:00+00:00', 0)
+            """
+        )
+        conn.execute("PRAGMA user_version = 51")
+        conn.commit()
+
+        db.migrate_core_db(conn, from_version=51, to_version=52)
+
+        conn.execute(
+            "UPDATE loops SET emotional_weight = ?, confidence = ? WHERE raw_text = ?",
+            (0.8, 0.6, "heavy loop"),
+        )
+        row = conn.execute(
+            "SELECT emotional_weight, confidence FROM loops WHERE raw_text = 'heavy loop'"
+        ).fetchone()
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    assert row == (0.8, 0.6)
+    assert version == 52
+
+
+def test_migration_53_allows_person_and_event_memory_categories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Migration 53 expands Life memory categories without losing rows."""
+    settings = _prepare_settings(tmp_path, monkeypatch)
+    db.init_databases(settings)
+
+    with closing(sqlite3.connect(settings.core_db_path)) as conn:
+        conn.execute(
+            """
+            INSERT INTO memory_entries (key, content, category, priority, source, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "life.context.job_search",
+                "Job search is active this week.",
+                "context",
+                20,
+                "user_stated",
+                "{}",
+            ),
+        )
+        conn.execute("PRAGMA user_version = 52")
+        conn.commit()
+
+        db.migrate_core_db(conn, from_version=52, to_version=53)
+
+        conn.execute(
+            """
+            INSERT INTO memory_entries (key, content, category, priority, source, metadata_json)
+            VALUES (?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "life.person.ryan",
+                "Ryan is the camping friend.",
+                "person",
+                30,
+                "inferred",
+                "{}",
+                "life.event.camping",
+                "Camping plan collects Ryan follow-up loops.",
+                "event",
+                25,
+                "inferred",
+                "{}",
+            ),
+        )
+        rows = conn.execute("SELECT key, category FROM memory_entries ORDER BY id ASC").fetchall()
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+    assert rows == [
+        ("life.context.job_search", "context"),
+        ("life.person.ryan", "person"),
+        ("life.event.camping", "event"),
+    ]
+    assert version == 53
+
+
 def test_critical_performance_indexes_exist(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

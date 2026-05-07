@@ -36,9 +36,9 @@ from pathlib import Path
 _DOTENV_LOADED = False
 
 DEFAULT_PI_MODEL_PREFERENCES = (
-    "zai/glm-5",
-    "kimi-coding/k2p5",
-    "openai-codex/gpt-5.4",
+    "zai/glm-5.1",
+    "kimi-coding/k2p6",
+    "openai-codex/gpt-5.5",
 )
 DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES = DEFAULT_PI_MODEL_PREFERENCES
 
@@ -183,6 +183,7 @@ class Settings:
     scheduler_enabled: bool
     scheduler_daily_review_interval_hours: float
     scheduler_weekly_review_interval_hours: float
+    scheduler_life_garden_interval_hours: float
     scheduler_due_soon_nudge_interval_hours: float
     scheduler_stale_rescue_interval_hours: float
     scheduler_poll_interval_seconds: float
@@ -422,6 +423,9 @@ def get_settings() -> Settings:
         scheduler_weekly_review_interval_hours=float(
             os.getenv("CLOOP_SCHEDULER_WEEKLY_REVIEW_INTERVAL_HOURS", "168.0")
         ),
+        scheduler_life_garden_interval_hours=float(
+            os.getenv("CLOOP_SCHEDULER_LIFE_GARDEN_INTERVAL_HOURS", "24.0")
+        ),
         scheduler_due_soon_nudge_interval_hours=float(
             os.getenv("CLOOP_SCHEDULER_DUE_SOON_NUDGE_INTERVAL_HOURS", "1.0")
         ),
@@ -573,6 +577,8 @@ def _validate_settings(settings: Settings) -> Settings:
         raise ValueError("CLOOP_SCHEDULER_DAILY_REVIEW_INTERVAL_HOURS must be at least 1")
     if settings.scheduler_weekly_review_interval_hours < 24:
         raise ValueError("CLOOP_SCHEDULER_WEEKLY_REVIEW_INTERVAL_HOURS must be at least 24")
+    if settings.scheduler_life_garden_interval_hours < 1:
+        raise ValueError("CLOOP_SCHEDULER_LIFE_GARDEN_INTERVAL_HOURS must be at least 1")
     if settings.scheduler_due_soon_nudge_interval_hours < 0.5:
         raise ValueError("CLOOP_SCHEDULER_DUE_SOON_NUDGE_INTERVAL_HOURS must be at least 0.5")
     if settings.scheduler_stale_rescue_interval_hours < 1:

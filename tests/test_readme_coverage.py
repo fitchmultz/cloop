@@ -51,9 +51,10 @@ class TestCLICommandsDocumented:
 class TestWebUIDocumented:
     """Verify web UI features have README documentation."""
 
-    def test_quick_capture_workflow_documented(self, readme_content: str) -> None:
-        """Quick Capture workflow must be explained."""
-        assert "Quick Capture" in readme_content, "README must explain Quick Capture workflow"
+    def test_life_feed_workflow_documented(self, readme_content: str) -> None:
+        """Life Feed workflow must be explained."""
+        assert "Life Feed" in readme_content, "README must explain Life Feed workflow"
+        assert "organizer model returns a structured Life plan" in readme_content
 
     def test_tabs_overview_documented(self, readme_content: str) -> None:
         """Web UI tabs must be listed."""

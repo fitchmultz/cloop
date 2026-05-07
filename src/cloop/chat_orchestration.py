@@ -289,7 +289,7 @@ def build_memory_context(settings: Settings, *, limit: int = 10) -> MemoryContex
     """Build compact memory context plus a summary count."""
     try:
         result = memory_management.list_memory_entries(
-            limit=limit,
+            limit=min(100, max(limit, limit * 3)),
             settings=settings,
         )
     except sqlite3.Error:
@@ -299,34 +299,66 @@ def build_memory_context(settings: Settings, *, limit: int = 10) -> MemoryContex
     if not items:
         return MemoryContextBuildResult(content="", entry_count=0)
 
-    items = sorted(items, key=lambda x: x.get("priority", 0), reverse=True)
+    layer_order = {"active": 0, "warm": 1, "cold": 2}
+    items = sorted(
+        items,
+        key=lambda x: (
+            layer_order.get(str(x.get("metadata", {}).get("life_layer") or "warm"), 1),
+            -int(x.get("priority", 0)),
+        ),
+    )[:limit]
     lines = ["## User Memory"]
 
-    by_category: dict[str, list[dict[str, Any]]] = {}
+    by_layer: dict[str, dict[str, list[dict[str, Any]]]] = {}
     for item in items:
+        metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        layer = str(metadata.get("life_layer") or "warm")
+        if layer not in layer_order:
+            layer = "warm"
         category = item.get("category", "fact")
-        by_category.setdefault(category, []).append(item)
+        by_layer.setdefault(layer, {}).setdefault(category, []).append(item)
 
     category_labels = {
         "preference": "Preferences",
         "fact": "Facts",
         "commitment": "Commitments",
         "context": "Context",
+        "pattern": "Patterns",
+        "person": "People",
+        "event": "Events",
+    }
+    layer_labels = {
+        "active": "Active Memory",
+        "warm": "Warm Memory",
+        "cold": "Cold Memory",
     }
 
     included_count = 0
-    for category in ["preference", "commitment", "fact", "context"]:
-        if category not in by_category:
+    for layer in ["active", "warm", "cold"]:
+        layer_buckets = by_layer.get(layer)
+        if not layer_buckets:
             continue
-        lines.append(f"\n### {category_labels.get(category, category)}")
-        for item in by_category[category]:
-            included_count += 1
-            key = item.get("key")
-            content = item.get("content", "")[:200]
-            if key:
-                lines.append(f"- {key}: {content}")
-            else:
-                lines.append(f"- {content}")
+        lines.append(f"\n### {layer_labels[layer]}")
+        for category in [
+            "preference",
+            "pattern",
+            "person",
+            "event",
+            "commitment",
+            "fact",
+            "context",
+        ]:
+            if category not in layer_buckets:
+                continue
+            lines.append(f"\n#### {category_labels.get(category, category)}")
+            for item in layer_buckets[category]:
+                included_count += 1
+                key = item.get("key")
+                content = item.get("content", "")[:200]
+                if key:
+                    lines.append(f"- {key}: {content}")
+                else:
+                    lines.append(f"- {content}")
 
     result_str = "\n".join(lines)
     content = result_str if result_str != "## User Memory" else ""

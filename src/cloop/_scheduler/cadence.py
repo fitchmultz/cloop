@@ -57,6 +57,8 @@ def slot_interval_seconds(task_name: str, settings: Settings) -> int:
         return int(settings.scheduler_daily_review_interval_hours * 3600)
     if task_name == "weekly_review":
         return int(settings.scheduler_weekly_review_interval_hours * 3600)
+    if task_name == "life_garden":
+        return int(settings.scheduler_life_garden_interval_hours * 3600)
     if task_name == "due_soon_nudge":
         return int(settings.scheduler_due_soon_nudge_interval_hours * 3600)
     if task_name == "stale_rescue":
@@ -73,7 +75,7 @@ def slot_key(task_name: str, now_utc: datetime, settings: Settings) -> str:
     if task_name == "weekly_review":
         week_start = (now_utc - timedelta(days=now_utc.weekday())).date()
         return week_start.isoformat()
-    if task_name in {"due_soon_nudge", "stale_rescue", "webhook_delivery"}:
+    if task_name in {"life_garden", "due_soon_nudge", "stale_rescue", "webhook_delivery"}:
         interval_seconds = slot_interval_seconds(task_name, settings)
         slot_number = int(now_utc.timestamp()) // interval_seconds
         return str(slot_number)

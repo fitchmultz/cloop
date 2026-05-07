@@ -29,6 +29,9 @@ class MemoryCategory(StrEnum):
     FACT = "fact"
     COMMITMENT = "commitment"
     CONTEXT = "context"
+    PATTERN = "pattern"
+    PERSON = "person"
+    EVENT = "event"
 
 
 class MemorySource(StrEnum):

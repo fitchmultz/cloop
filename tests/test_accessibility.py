@@ -97,6 +97,7 @@ def test_state_navigation_and_surface_roots_expose_control_relationships() -> No
         "review-main",
     ]:
         assert f'id="{panel_id}"' in html
+        assert re.search(rf'<main[^>]*id="{re.escape(panel_id)}"[^>]*style="display: none;"', html)
 
     assert 'id="do-query-filter"' in html
     assert 'id="working-set-focus-banner"' in html
@@ -113,7 +114,7 @@ def test_state_navigation_and_surface_roots_expose_control_relationships() -> No
     assert 'id="command-palette-status"' in html
     assert 'role="listbox" aria-label="Command results"' in html
     assert 'id="review-redesign-shell"' in html
-    assert 'role="tablist" aria-label="Review workspace modes"' in html
+    assert 'role="tablist" aria-label="Review modes"' in html
     assert (
         'id="review-shell-status" class="support-status" role="status" aria-live="polite"' in html
     )

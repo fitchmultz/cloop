@@ -103,6 +103,7 @@ class LoopEventType(StrEnum):
     NUDGE_STALE = "nudge_stale"
     NUDGE_BLOCKED = "nudge_blocked"
     REVIEW_GENERATED = "review_generated"
+    LIFE_GARDENED = "life_gardened"
 
 
 class EnrichmentState(StrEnum):
@@ -130,6 +131,8 @@ class LoopRecord:
     activation_energy: int | None
     urgency: float | None
     importance: float | None
+    emotional_weight: float | None
+    confidence: float | None
     project_id: int | None
     blocked_reason: str | None
     completion_note: str | None

@@ -183,6 +183,59 @@ class TestPushSender:
         assert result.push_count == 0
         assert result.delivery_status == "skipped"
 
+    def test_send_scheduler_push_life_garden_requires_agent_notification(
+        self, push_db: sqlite3.Connection
+    ) -> None:
+        settings = get_settings()
+
+        result = send_scheduler_push(
+            "life_garden",
+            {"notify_user": False, "memory_count": 1, "loop_ids": [7]},
+            settings,
+            push_db,
+        )
+
+        assert result.push_count == 0
+        assert result.delivery_status == "skipped"
+
+    def test_send_scheduler_push_life_garden_uses_agent_notification_copy(
+        self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        captured: dict[str, object] = {}
+
+        monkeypatch.setattr(
+            "cloop.push_sender.read_continuity_notification_records", lambda **kwargs: []
+        )
+
+        def _capture(payload: PushPayload, settings_arg, conn_arg) -> int:
+            _ = settings_arg, conn_arg
+            captured["payload"] = payload
+            return 1
+
+        monkeypatch.setattr("cloop.push_sender.send_push_notification", _capture)
+        result = send_scheduler_push(
+            "life_garden",
+            {
+                "notify_user": True,
+                "notification_title": "One thing needs your call",
+                "notification_body": "I moved context cold and left one decision.",
+                "memory_count": 1,
+                "loop_ids": [7],
+            },
+            settings,
+            push_db,
+        )
+
+        assert result.push_count == 1
+        p = captured["payload"]
+        assert isinstance(p, PushPayload)
+        assert p.title == "One thing needs your call"
+        assert p.body == "I moved context cold and left one decision."
+        assert p.url == "/#operator"
+        assert p.data is not None
+        assert p.data.get("event_type") == "life_garden"
+
     def test_send_scheduler_push_uses_canonical_continuity_record(
         self, push_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:

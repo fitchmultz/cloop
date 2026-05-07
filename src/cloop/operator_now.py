@@ -574,6 +574,7 @@ def read_operator_now_feed(
             review_workflows.get_relationship_review_session(
                 session_id=int(relationship_sessions[0]["id"]),
                 conn=conn,
+                settings=settings,
             )
             if relationship_sessions
             else None

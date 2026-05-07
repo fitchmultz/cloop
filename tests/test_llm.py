@@ -144,7 +144,7 @@ def test_chat_completion_uses_bridge_request(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
+        CLOOP_PI_MODEL="zai/glm-5.1,kimi-coding/k2p6",
     )
     runtime = _QueuedRuntime(
         sessions=[
@@ -153,7 +153,7 @@ def test_chat_completion_uses_bridge_request(
                     {"type": "text_delta", "delta": "hi"},
                     {
                         "type": "done",
-                        "model": "kimi-coding/k2p5",
+                        "model": "kimi-coding/k2p6",
                         "provider": "kimi-coding",
                         "api": "zai-chat",
                         "usage": {"totalTokens": 0},
@@ -164,9 +164,9 @@ def test_chat_completion_uses_bridge_request(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
-                resolved_selector="kimi-coding/k2p5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1", "kimi-coding/k2p6"),
+                resolved_selector="kimi-coding/k2p6",
                 fallback_used=True,
             )
         ],
@@ -181,9 +181,9 @@ def test_chat_completion_uses_bridge_request(
     )
 
     assert content == "hi"
-    assert metadata["model"] == "kimi-coding/k2p5"
-    assert metadata["requested_selector"] == "zai/glm-5"
-    assert metadata["resolved_selector"] == "kimi-coding/k2p5"
+    assert metadata["model"] == "kimi-coding/k2p6"
+    assert metadata["requested_selector"] == "zai/glm-5.1"
+    assert metadata["resolved_selector"] == "kimi-coding/k2p6"
     assert metadata["fallback_used"] is True
     assert metadata["generation_strategy"] == "primary"
     assert metadata["alternate_strategy_used"] is False
@@ -193,9 +193,9 @@ def test_chat_completion_uses_bridge_request(
             "strategy": "primary",
             "reason": None,
             "surface": "chat",
-            "requested_selector": "zai/glm-5",
-            "requested_selectors": ["zai/glm-5", "kimi-coding/k2p5"],
-            "resolved_selector": "kimi-coding/k2p5",
+            "requested_selector": "zai/glm-5.1",
+            "requested_selectors": ["zai/glm-5.1", "kimi-coding/k2p6"],
+            "resolved_selector": "kimi-coding/k2p6",
             "fallback_used": True,
             "selector_mode": "fallback",
             "max_tool_rounds": 4,
@@ -203,8 +203,8 @@ def test_chat_completion_uses_bridge_request(
             "success": True,
         }
     ]
-    assert runtime.resolve_requests[0]["selectors"] == ("zai/glm-5", "kimi-coding/k2p5")
-    assert runtime.requests[0].model == "kimi-coding/k2p5"
+    assert runtime.resolve_requests[0]["selectors"] == ("zai/glm-5.1", "kimi-coding/k2p6")
+    assert runtime.requests[0].model == "kimi-coding/k2p6"
     assert runtime.requests[0].messages == [{"role": "user", "content": "Hello"}]
 
 
@@ -214,7 +214,7 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
+        CLOOP_PI_MODEL="zai/glm-5.1,kimi-coding/k2p6",
     )
     runtime = _QueuedRuntime(
         sessions=[
@@ -226,7 +226,7 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
                     {"type": "text_delta", "delta": "recovered"},
                     {
                         "type": "done",
-                        "model": "kimi-coding/k2p5",
+                        "model": "kimi-coding/k2p6",
                         "provider": "kimi-coding",
                         "api": "zai-chat",
                         "usage": {},
@@ -237,14 +237,14 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1", "kimi-coding/k2p6"),
+                resolved_selector="zai/glm-5.1",
             ),
             _resolution(
-                requested_selector="kimi-coding/k2p5",
-                requested_selectors=("kimi-coding/k2p5",),
-                resolved_selector="kimi-coding/k2p5",
+                requested_selector="kimi-coding/k2p6",
+                requested_selectors=("kimi-coding/k2p6",),
+                resolved_selector="kimi-coding/k2p6",
             ),
         ],
     )
@@ -263,14 +263,14 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
     assert metadata["strategy_reason"] == "retryable upstream failure on the resolved selector"
     assert [attempt["success"] for attempt in metadata["strategy_attempts"]] == [False, True]
     assert metadata["strategy_attempts"][0]["error_code"] == "provider_timeout"
-    assert runtime.resolve_requests[1]["selectors"] == ("kimi-coding/k2p5",)
-    assert runtime.requests[1].model == "kimi-coding/k2p5"
+    assert runtime.resolve_requests[1]["selectors"] == ("kimi-coding/k2p6",)
+    assert runtime.requests[1].model == "kimi-coding/k2p6"
 
 
 def test_chat_completion_retries_same_selector_when_no_fallback_available(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5.1")
     runtime = _QueuedRuntime(
         sessions=[
             _ImmediateFailingSession(
@@ -281,7 +281,7 @@ def test_chat_completion_retries_same_selector_when_no_fallback_available(
                     {"type": "text_delta", "delta": "retry worked"},
                     {
                         "type": "done",
-                        "model": "zai/glm-5",
+                        "model": "zai/glm-5.1",
                         "provider": "zai",
                         "api": "zai-chat",
                         "usage": {},
@@ -292,14 +292,14 @@ def test_chat_completion_retries_same_selector_when_no_fallback_available(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             ),
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
                 selector_mode="exact",
             ),
         ],
@@ -315,7 +315,7 @@ def test_chat_completion_retries_same_selector_when_no_fallback_available(
 
     assert content == "retry worked"
     assert metadata["generation_strategy"] == "retry_same_selector"
-    assert runtime.resolve_requests[1]["selectors"] == ("zai/glm-5",)
+    assert runtime.resolve_requests[1]["selectors"] == ("zai/glm-5.1",)
     assert runtime.resolve_requests[1]["selector_mode"] == "exact"
 
 
@@ -325,7 +325,7 @@ def test_stream_events_does_not_retry_after_visible_output_started(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5,kimi-coding/k2p5",
+        CLOOP_PI_MODEL="zai/glm-5.1,kimi-coding/k2p6",
     )
     runtime = _QueuedRuntime(
         sessions=[
@@ -333,9 +333,9 @@ def test_stream_events_does_not_retry_after_visible_output_started(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5", "kimi-coding/k2p5"),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1", "kimi-coding/k2p6"),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )
@@ -360,7 +360,7 @@ def test_stream_events_does_not_retry_after_visible_output_started(
 def test_readonly_tool_loop_failure_deescalates_to_no_tool_retry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5.1")
     runtime = _QueuedRuntime(
         sessions=[
             _ImmediateFailingSession(
@@ -376,7 +376,7 @@ def test_readonly_tool_loop_failure_deescalates_to_no_tool_retry(
                     {"type": "text_delta", "delta": "deescalated"},
                     {
                         "type": "done",
-                        "model": "zai/glm-5",
+                        "model": "zai/glm-5.1",
                         "provider": "zai",
                         "api": "zai-chat",
                         "usage": {},
@@ -387,14 +387,14 @@ def test_readonly_tool_loop_failure_deescalates_to_no_tool_retry(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             ),
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
                 selector_mode="exact",
             ),
         ],
@@ -430,7 +430,7 @@ def test_readonly_tool_loop_failure_deescalates_to_no_tool_retry(
 def test_mutation_surface_never_uses_alternate_strategy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5.1")
     runtime = _QueuedRuntime(
         sessions=[
             _ImmediateFailingSession(
@@ -439,9 +439,9 @@ def test_mutation_surface_never_uses_alternate_strategy(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )
@@ -462,7 +462,7 @@ def test_mutation_surface_never_uses_alternate_strategy(
 def test_chat_with_tools_executes_python_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5.1")
     session = _FakeSession(
         [
             {
@@ -474,7 +474,7 @@ def test_chat_with_tools_executes_python_tools(
             {"type": "text_delta", "delta": "done"},
             {
                 "type": "done",
-                "model": "zai/glm-5",
+                "model": "zai/glm-5.1",
                 "provider": "zai",
                 "api": "zai-chat",
                 "usage": {},
@@ -486,9 +486,9 @@ def test_chat_with_tools_executes_python_tools(
         sessions=[session],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )
@@ -511,15 +511,15 @@ def test_chat_with_tools_executes_python_tools(
 def test_stream_events_aborts_unfinished_bridge_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5")
+    settings = _configure_env(monkeypatch, tmp_path, CLOOP_PI_MODEL="zai/glm-5.1")
     session = _FakeSession([{"type": "text_delta", "delta": "partial"}])
     runtime = _QueuedRuntime(
         sessions=[session],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )
@@ -558,7 +558,7 @@ def test_stream_events_uses_surface_budget_defaults(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5",
+        CLOOP_PI_MODEL="zai/glm-5.1",
         **{env_key: env_value},
     )
     runtime = _QueuedRuntime(
@@ -568,7 +568,7 @@ def test_stream_events_uses_surface_budget_defaults(
                     {"type": "text_delta", "delta": "done"},
                     {
                         "type": "done",
-                        "model": "zai/glm-5",
+                        "model": "zai/glm-5.1",
                         "provider": "zai",
                         "api": "zai-chat",
                         "usage": {},
@@ -579,9 +579,9 @@ def test_stream_events_uses_surface_budget_defaults(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )
@@ -604,7 +604,7 @@ def test_stream_events_explicit_override_wins_over_surface_budget(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5",
+        CLOOP_PI_MODEL="zai/glm-5.1",
         CLOOP_PI_RAG_MAX_TOOL_ROUNDS="6",
     )
     runtime = _QueuedRuntime(
@@ -614,7 +614,7 @@ def test_stream_events_explicit_override_wins_over_surface_budget(
                     {"type": "text_delta", "delta": "done"},
                     {
                         "type": "done",
-                        "model": "zai/glm-5",
+                        "model": "zai/glm-5.1",
                         "provider": "zai",
                         "api": "zai-chat",
                         "usage": {},
@@ -625,9 +625,9 @@ def test_stream_events_explicit_override_wins_over_surface_budget(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )
@@ -651,7 +651,7 @@ def test_tool_round_limit_error_includes_structured_metadata(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5",
+        CLOOP_PI_MODEL="zai/glm-5.1",
         CLOOP_PI_CHAT_MAX_TOOL_ROUNDS="2",
     )
     runtime = _QueuedRuntime(
@@ -666,9 +666,9 @@ def test_tool_round_limit_error_includes_structured_metadata(
         ],
         resolutions=[
             _resolution(
-                requested_selector="zai/glm-5",
-                requested_selectors=("zai/glm-5",),
-                resolved_selector="zai/glm-5",
+                requested_selector="zai/glm-5.1",
+                requested_selectors=("zai/glm-5.1",),
+                resolved_selector="zai/glm-5.1",
             )
         ],
     )

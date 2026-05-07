@@ -31,12 +31,13 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterator
+from typing import Any, Iterator, cast
 
 import pytest
 
 from cloop import db
 from cloop._scheduler.models import SchedulerPushResult
+from cloop.loops import read_service
 from cloop.loops.models import LoopEventType
 from cloop.push_sender import PushPayload, send_scheduler_push
 from cloop.scheduler import (
@@ -45,12 +46,16 @@ from cloop.scheduler import (
     _send_scheduler_push_once,
     run_daily_review,
     run_due_soon_nudge,
+    run_life_garden,
     run_scheduler_once,
     run_scheduler_task,
     run_stale_rescue,
     run_weekly_review,
     scheduler_loop,
 )
+from cloop.schemas.life import LifeLoopGroup, LifeLoopItem, LifeMessageResponse
+from cloop.schemas.loops import LoopResponse
+from cloop.schemas.memory import MemoryCategory, MemoryResponse, MemorySource
 from cloop.settings import get_settings
 from cloop.storage import scheduler_store
 from cloop.storage._scheduler_store import task_runs as scheduler_task_runs
@@ -80,6 +85,42 @@ def _notification_record(
             title="Weekly reset",
         ),
         resolved_location=resolved_location,
+    )
+
+
+def _life_response_for_first_loop(
+    kwargs: dict[str, object],
+    *,
+    reply: str = "The Life agent picked one item.",
+    notify_user: bool = False,
+) -> LifeMessageResponse:
+    conn = cast(sqlite3.Connection, kwargs["conn"])
+    row = conn.execute("SELECT id FROM loops ORDER BY id LIMIT 1").fetchone()
+    groups: list[LifeLoopGroup] = []
+    if row is not None:
+        loop = read_service.get_loop(loop_id=int(row["id"]), conn=conn)
+        groups.append(
+            LifeLoopGroup(
+                name="needs_attention_today",
+                title="Agent-picked nudge",
+                summary="The background Life agent chose this item from full context.",
+                items=[
+                    LifeLoopItem(
+                        loop=LoopResponse(**loop),
+                        life_state="prepared",
+                        rationale="The Life agent chose this; Python did not rank it.",
+                        prepared_next_action="Review the prepared next step.",
+                    )
+                ],
+            )
+        )
+    return LifeMessageResponse(
+        mode="resurface",
+        reply=reply,
+        notify_user=notify_user,
+        notification_title="Life nudge" if notify_user else None,
+        notification_body=reply if notify_user else None,
+        groups=groups,
     )
 
 
@@ -259,7 +300,7 @@ class TestSchedulerState:
     def test_same_slot_push_records_lifecycle_and_provenance(
         self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        send_calls: list[dict[str, object]] = []
+        send_calls: list[dict[str, Any]] = []
         notification = _notification_record()
 
         def _fake_send(push_kind, payload, settings, conn):  # noqa: ANN001
@@ -603,115 +644,18 @@ class TestWeeklyReview:
 
 
 class TestDueSoonNudge:
-    """Tests for due-soon nudge scheduler task."""
+    """Tests for due-soon Life-agent scheduler task."""
 
-    def test_snoozed_loops_excluded_from_due_soon_nudge(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Snoozed loops should not receive due-soon nudges."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
-        snooze_12h = (now + timedelta(hours=12)).isoformat(timespec="seconds")
-
-        # Create loop due in 1h but snoozed for 12h
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                due_at_utc, snooze_until_utc)
-               VALUES ('snoozed task', 'actionable', datetime('now'), 0, ?, ?)
-            """,
-            (due_1h, snooze_12h),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 0
-        assert result["loop_ids"] == []
-
-    def test_expired_snooze_allows_due_soon_nudge(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Loops with past snooze_until_utc should still get nudged."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
-        snooze_past = (now - timedelta(hours=1)).isoformat(timespec="seconds")
-
-        # Create loop due in 1h with expired snooze
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                due_at_utc, snooze_until_utc)
-               VALUES ('was snoozed', 'actionable', datetime('now'), 0, ?, ?)
-            """,
-            (due_1h, snooze_past),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-
-    def test_null_snooze_allows_due_soon_nudge(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Loops with NULL snooze_until_utc should get nudged (baseline)."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('unsnoozed task', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_1h,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-
-    def test_recurring_loop_with_next_due_at_only_gets_nudged(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Recurring loops with only next_due_at_utc (no due_at_utc) should be nudged."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        next_due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
-
-        # Create a spawned recurring loop with only next_due_at_utc populated
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                next_due_at_utc, recurrence_enabled, recurrence_rrule)
-               VALUES ('weekly review', 'actionable', datetime('now'), 0, ?, 1, 'FREQ=WEEKLY')
-            """,
-            (next_due_1h,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-        assert len(result["loop_ids"]) == 1
-        detail = result["details"][0]
-        assert detail["next_due_at_utc"] is not None
-        assert detail["bucket"] in {"due_soon", "quick_wins", "high_leverage", "standard"}
-
-    def test_nudges_due_soon_without_next_action(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_due_soon_nudge_delegates_judgment_to_life_agent(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         settings = get_settings()
         now = datetime.now(timezone.utc)
         due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
+        calls: list[dict[str, object]] = []
 
-        # Create loop due in 24h without next_action
         scheduler_db.execute(
-            """INSERT INTO loops 
+            """INSERT INTO loops
                (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
                VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
             """,
@@ -719,252 +663,41 @@ class TestDueSoonNudge:
         )
         scheduler_db.commit()
 
+        def fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            calls.append(kwargs)
+            return _life_response_for_first_loop(kwargs)
+
+        monkeypatch.setattr("cloop._scheduler.task_nudges.handle_life_message", fake_life_message)
+
         result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
 
-        assert result["nudged"] >= 1
-        assert "event_id" in result
-
-        # Verify event type
+        assert calls
+        assert calls[0]["settings"] is settings
+        assert calls[0]["conn"] is scheduler_db
+        assert calls[0]["interaction_source"] == "background"
+        assert "Do not use dumb reminder behavior" in str(calls[0]["message"])
+        assert result["nudged"] == 1
+        assert result["details"][0]["life_state"] == "prepared"
+        assert result["details"][0]["rationale"] == (
+            "The Life agent chose this; Python did not rank it."
+        )
         row = scheduler_db.execute(
-            "SELECT * FROM loop_events WHERE event_type = ?",
-            (LoopEventType.NUDGE_DUE_SOON.value,),
+            "SELECT event_type, payload_json FROM loop_events WHERE id = ?",
+            (result["event_id"],),
         ).fetchone()
         assert row is not None
-
-    def test_no_nudge_when_has_next_action(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        # Create loop due in 24h WITH next_action
-        scheduler_db.execute(
-            """INSERT INTO loops 
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc, next_action)
-               VALUES ('planned task', 'actionable', datetime('now'), 0, ?, 'do it')
-            """,
-            (due_soon,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 0
-
-    def test_due_soon_nudge_orders_by_priority_score(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Verify due-soon nudges are ordered by priority score, not just due date."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-
-        # Task A: due in 2h, LOW urgency/importance (should rank lower)
-        due_2h = (now + timedelta(hours=2)).isoformat(timespec="seconds")
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                due_at_utc, urgency, importance)
-               VALUES ('low priority task', 'actionable', datetime('now'), 0,
-                       ?, 0.1, 0.1)
-            """,
-            (due_2h,),
-        )
-
-        # Task B: due in 24h, HIGH urgency/importance (should rank higher despite later due)
-        due_24h = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                due_at_utc, urgency, importance)
-               VALUES ('high priority task', 'actionable', datetime('now'), 0,
-                       ?, 0.9, 0.9)
-            """,
-            (due_24h,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 2
-        # High-priority task should appear first despite later due date
-        # The one with higher score should be first
-        assert result["details"][0]["priority_score"] > result["details"][1]["priority_score"]
-
-    def test_due_soon_payload_includes_priority_score_and_bucket(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Verify payload includes priority_score and bucket fields."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                due_at_utc, urgency, importance)
-               VALUES ('test task', 'actionable', datetime('now'), 0, ?, 0.5, 0.5)
-            """,
-            (due_soon,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-        detail = result["details"][0]
-        assert "priority_score" in detail
-        assert "bucket" in detail
-        assert isinstance(detail["priority_score"], (float, int))
-        assert detail["bucket"] in {"due_soon", "quick_wins", "high_leverage", "standard"}
-
-    def test_due_soon_payload_includes_bucket_summary(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Verify payload includes bucket_summary for UI categorization."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-
-        # Create a due_soon bucket item
-        due_1h = (now + timedelta(hours=1)).isoformat(timespec="seconds")
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('due soon', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_1h,),
-        )
-
-        # Create a quick_win bucket item (short time, low activation)
-        due_24h = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                due_at_utc, time_minutes, activation_energy)
-               VALUES ('quick win', 'actionable', datetime('now'), 0, ?, 15, 1)
-            """,
-            (due_24h,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert "bucket_summary" in result
-        assert isinstance(result["bucket_summary"], dict)
-        # Should have at least one bucket with count
-        assert sum(result["bucket_summary"].values()) >= 1
-
-    def test_due_soon_nudge_caps_at_50_candidates(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Due-soon nudge must cap output at 50 candidates, sorted by priority."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        # Create 55 due-soon candidates with varying priority scores
-        for i in range(55):
-            urgency = 0.9 if i < 10 else 0.5  # First 10 have highest priority
-            importance = 0.9 if i < 10 else 0.5
-            scheduler_db.execute(
-                """INSERT INTO loops
-                   (raw_text, status, captured_at_utc, captured_tz_offset_min,
-                    due_at_utc, urgency, importance)
-                   VALUES (?, 'actionable', datetime('now'), 0, ?, ?, ?)
-                """,
-                (f"task-{i:02d}", due_soon, urgency, importance),
-            )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        # Must cap at exactly 50
-        assert result["nudged"] == 50
-        assert len(result["loop_ids"]) == 50
-
-        # Must be sorted by score (high-urgency tasks first)
-        # First item should have higher score than last
-        assert result["details"][0]["priority_score"] > result["details"][-1]["priority_score"]
+        assert row["event_type"] == LoopEventType.NUDGE_DUE_SOON.value
 
 
 class TestStaleRescue:
-    """Tests for stale loop rescue scheduler task."""
+    """Tests for stale-rescue Life-agent scheduler task."""
 
-    def test_snoozed_loops_excluded_from_stale_rescue(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Snoozed loops should not receive stale rescue nudges."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        snooze_future = (now + timedelta(hours=12)).isoformat(timespec="seconds")
-
-        # Create stale loop that is also snoozed
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at,
-                snooze_until_utc)
-               VALUES ('stale snoozed task', 'actionable', datetime('now', '-100 hours'), 0,
-                       datetime('now', '-100 hours'), ?)
-            """,
-            (snooze_future,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
-
-        assert result["rescued"] == 0
-        assert result["loop_ids"] == []
-
-    def test_expired_snooze_allows_stale_rescue(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Stale loops with past snooze_until_utc should still get rescued."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        snooze_past = (now - timedelta(hours=1)).isoformat(timespec="seconds")
-
-        # Create stale loop with expired snooze
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at,
-                snooze_until_utc)
-               VALUES ('was snoozed', 'actionable', datetime('now', '-100 hours'), 0,
-                       datetime('now', '-100 hours'), ?)
-            """,
-            (snooze_past,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
-
-        assert result["rescued"] >= 1
-
-    def test_null_snooze_allows_stale_rescue(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Stale loops with NULL snooze_until_utc should get rescued (baseline)."""
-        settings = get_settings()
-
-        # Create stale loop without snooze
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at)
-               VALUES ('stale unsnoozed task', 'actionable', datetime('now', '-100 hours'), 0,
-                       datetime('now', '-100 hours'))
-            """
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_stale_rescue(settings, scheduler_db))
-
-        assert result["rescued"] >= 1
-
-    def test_nudges_stale_loops(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    def test_stale_rescue_delegates_judgment_to_life_agent(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         settings = get_settings()
+        calls: list[dict[str, object]] = []
 
-        # Create a stale loop (updated 100 hours ago)
         scheduler_db.execute(
             """INSERT INTO loops
                (raw_text, status, captured_at_utc, captured_tz_offset_min, updated_at)
@@ -974,25 +707,33 @@ class TestStaleRescue:
         )
         scheduler_db.commit()
 
+        def fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            calls.append(kwargs)
+            return _life_response_for_first_loop(kwargs, reply="This stale loop needs review.")
+
+        monkeypatch.setattr("cloop._scheduler.task_nudges.handle_life_message", fake_life_message)
+
         result = asyncio.run(run_stale_rescue(settings, scheduler_db))
 
-        assert result["rescued"] >= 1
-
-        # Verify event type
+        assert calls
+        assert "You decide what stale means from the evidence" in str(calls[0]["message"])
+        assert result["rescued"] == 1
+        assert result["reply"] == "This stale loop needs review."
         row = scheduler_db.execute(
-            "SELECT * FROM loop_events WHERE event_type = ?",
-            (LoopEventType.NUDGE_STALE.value,),
+            "SELECT event_type FROM loop_events WHERE id = ?",
+            (result["event_id"],),
         ).fetchone()
         assert row is not None
+        assert row["event_type"] == LoopEventType.NUDGE_STALE.value
 
 
 class TestSchedulerEventPayloads:
     """Tests verifying scheduler event payloads have required notification fields."""
 
     def test_due_soon_payload_has_notification_fields(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Verify due-soon nudge payload contains fields needed for UI rendering."""
+        """Verify due-soon nudge payload contains Life-agent display fields."""
         settings = get_settings()
         now = datetime.now(timezone.utc)
         due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
@@ -1006,23 +747,25 @@ class TestSchedulerEventPayloads:
         )
         scheduler_db.commit()
 
+        def fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            return _life_response_for_first_loop(kwargs, notify_user=True)
+
+        monkeypatch.setattr("cloop._scheduler.task_nudges.handle_life_message", fake_life_message)
+
         result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
 
-        # Verify payload structure for UI
         assert "details" in result
         assert len(result["details"]) >= 1
-
         detail = result["details"][0]
-        assert "id" in detail
-        assert "title" in detail
-        assert "due_at_utc" in detail
-        assert "escalation_level" in detail
-        assert "is_overdue" in detail
+        assert detail["life_state"] == "prepared"
+        assert detail["rationale"] == "The Life agent chose this; Python did not rank it."
+        assert result["notify_user"] is True
+        assert result["notification_title"] == "Life nudge"
 
     def test_stale_payload_has_notification_fields(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Verify stale nudge payload contains fields needed for UI rendering."""
+        """Verify stale nudge payload contains Life-agent display fields."""
         settings = get_settings()
 
         scheduler_db.execute(
@@ -1034,13 +777,17 @@ class TestSchedulerEventPayloads:
         )
         scheduler_db.commit()
 
+        def fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            return _life_response_for_first_loop(kwargs)
+
+        monkeypatch.setattr("cloop._scheduler.task_nudges.handle_life_message", fake_life_message)
+
         result = asyncio.run(run_stale_rescue(settings, scheduler_db))
 
         assert "details" in result
         detail = result["details"][0]
-        assert "id" in detail
-        assert "title" in detail
-        assert "status" in detail
+        assert detail["life_state"] == "prepared"
+        assert detail["rationale"] == "The Life agent chose this; Python did not rank it."
 
     def test_review_payload_has_notification_fields(
         self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1062,6 +809,132 @@ class TestSchedulerEventPayloads:
         assert "review_type" in result
         assert "total_items" in result
         assert "cohorts" in result
+
+    def test_life_garden_delegates_to_life_agent(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        calls: list[dict[str, object]] = []
+
+        def _fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            calls.append(kwargs)
+            return LifeMessageResponse(
+                mode="cleanup",
+                reply="I cleaned up the obvious stuff. One item needs your call.",
+            )
+
+        monkeypatch.setattr("cloop._scheduler.task_life.handle_life_message", _fake_life_message)
+
+        result = asyncio.run(run_life_garden(settings, scheduler_db))
+
+        assert calls
+        assert calls[0]["settings"] is settings
+        assert calls[0]["conn"] is scheduler_db
+        assert calls[0]["interaction_source"] == "background"
+        assert "background Life garden pass" in str(calls[0]["message"])
+        assert "Life authority contract" in str(calls[0]["message"])
+        assert "user-visible digest" in str(calls[0]["message"])
+        assert result["mode"] == "cleanup"
+        assert result["captured_count"] == 0
+        assert result["updated_count"] == 0
+
+        row = scheduler_db.execute(
+            "SELECT event_type, payload_json FROM loop_events WHERE id = ?",
+            (result["event_id"],),
+        ).fetchone()
+        assert row is not None
+        assert row["event_type"] == LoopEventType.LIFE_GARDENED.value
+        payload = json.loads(row["payload_json"])
+        assert payload["reply"] == "I cleaned up the obvious stuff. One item needs your call."
+
+    def test_life_garden_sends_one_digest_when_agent_requests_notification(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        send_calls: list[dict[str, object]] = []
+
+        def _fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            _ = kwargs
+            return LifeMessageResponse(
+                mode="cleanup",
+                reply="I moved stale context cold. One thing needs your call.",
+                notify_user=True,
+                notification_title="One thing needs your call",
+                notification_body="I moved stale context cold and left one decision for you.",
+                memories=[
+                    MemoryResponse(
+                        id=42,
+                        key="life.context.stale",
+                        content="Stale context moved cold.",
+                        category=MemoryCategory.CONTEXT,
+                        priority=20,
+                        source=MemorySource.INFERRED,
+                        metadata={"life_layer": "cold"},
+                        created_at="2026-05-07T10:00:00+00:00",
+                        updated_at="2026-05-07T10:00:00+00:00",
+                    )
+                ],
+            )
+
+        def _fake_send(push_kind, payload, settings, conn):  # noqa: ANN001
+            _ = settings, conn
+            send_calls.append({"push_kind": push_kind, "payload": payload})
+            return SchedulerPushResult(push_count=2, delivery_status="sent")
+
+        monkeypatch.setattr("cloop._scheduler.task_life.handle_life_message", _fake_life_message)
+        monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _fake_send)
+
+        result = asyncio.run(run_life_garden(settings, scheduler_db))
+
+        assert result["push_count"] == 2
+        assert len(send_calls) == 1
+        assert send_calls[0]["push_kind"] == "life_garden"
+        sent_payload = cast("dict[str, Any]", send_calls[0]["payload"])
+        assert isinstance(sent_payload, dict)
+        assert sent_payload["mode"] == "cleanup"
+        assert sent_payload["memory_count"] == 1
+        assert sent_payload["notify_user"] is True
+        assert sent_payload["notification_title"] == "One thing needs your call"
+
+    def test_life_garden_does_not_digest_from_counts_without_agent_request(
+        self, scheduler_db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = get_settings()
+        send_calls: list[dict[str, object]] = []
+
+        def _fake_life_message(**kwargs: object) -> LifeMessageResponse:
+            _ = kwargs
+            return LifeMessageResponse(
+                mode="cleanup",
+                reply="I quietly moved stale context cold.",
+                notify_user=False,
+                memories=[
+                    MemoryResponse(
+                        id=42,
+                        key="life.context.stale",
+                        content="Stale context moved cold.",
+                        category=MemoryCategory.CONTEXT,
+                        priority=20,
+                        source=MemorySource.INFERRED,
+                        metadata={"life_layer": "cold"},
+                        created_at="2026-05-07T10:00:00+00:00",
+                        updated_at="2026-05-07T10:00:00+00:00",
+                    )
+                ],
+            )
+
+        def _fake_send(push_kind, payload, settings, conn):  # noqa: ANN001
+            _ = settings, conn
+            send_calls.append({"push_kind": push_kind, "payload": payload})
+            return SchedulerPushResult(push_count=2, delivery_status="sent")
+
+        monkeypatch.setattr("cloop._scheduler.task_life.handle_life_message", _fake_life_message)
+        monkeypatch.setattr("cloop.scheduler.send_scheduler_push", _fake_send)
+
+        result = asyncio.run(run_life_garden(settings, scheduler_db))
+
+        assert result["push_count"] == 0
+        assert send_calls == []
 
 
 class TestSchedulerIntegration:
@@ -1087,6 +960,12 @@ class TestSchedulerIntegration:
 
         settings = get_settings()
         db.init_databases(settings)
+
+        async def _noop_runner(settings, conn, context):  # noqa: ANN001
+            _ = settings, conn, context
+            return {"ok": True}
+
+        monkeypatch.setattr("cloop.scheduler._task_runner", lambda task_name: _noop_runner)
 
         async def run_and_cancel():
             task = asyncio.create_task(scheduler_loop(settings))
@@ -1182,241 +1061,3 @@ class TestSchedulerIntegration:
         assert row is not None
         assert row["status"] == "succeeded"
         assert row["heartbeat_at"] is not None
-
-
-class TestDueSoonNudgeEscalation:
-    """Tests for due-soon nudge escalation over repeated runs."""
-
-    def test_first_nudge_has_escalation_level_zero(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_soon,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-        assert result["details"][0]["escalation_level"] == 0
-        assert result["details"][0]["nudge_count"] == 1
-
-        # Verify state persisted
-        row = scheduler_db.execute(
-            "SELECT * FROM loop_nudges WHERE loop_id = ? AND nudge_type = 'due_soon'",
-            (result["loop_ids"][0],),
-        ).fetchone()
-        assert row is not None
-        assert row["escalation_level"] == 0
-        assert row["nudge_count"] == 1
-
-    def test_repeated_nudges_escalate_level(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_soon,),
-        )
-        scheduler_db.commit()
-
-        # Run three times
-        for i in range(3):
-            result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-            assert result["nudged"] == 1
-            assert result["details"][0]["nudge_count"] == i + 1
-
-        # Third nudge should be escalation level 1
-        assert result["details"][0]["escalation_level"] == 1
-
-    def test_overdue_loops_escalate_faster(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        # Due 1 hour ago (overdue)
-        overdue = (now - timedelta(hours=1)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('overdue task', 'actionable', datetime('now'), 0, ?)
-            """,
-            (overdue,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-        # Overdue loops should start at escalation level 2 or higher
-        assert result["details"][0]["escalation_level"] >= 2
-        assert result["details"][0]["is_overdue"] is True
-
-    def test_escalation_summary_in_payload(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        # Create two loops
-        for i in range(2):
-            scheduler_db.execute(
-                """INSERT INTO loops
-                   (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-                   VALUES (?, 'actionable', datetime('now'), 0, ?)
-                """,
-                (f"task {i}", due_soon),
-            )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert "escalation_summary" in result
-        assert result["escalation_summary"].get(0, 0) == 2  # Both at level 0
-
-    def test_nudge_state_resets_when_next_action_set(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        due_soon = (now + timedelta(hours=24)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('due soon task', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_soon,),
-        )
-        scheduler_db.commit()
-
-        # First nudge
-        asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        # Set next_action
-        scheduler_db.execute("UPDATE loops SET next_action = 'do it now' WHERE id = 1")
-        scheduler_db.commit()
-
-        # Reset nudge state (simulating what service.py would do)
-        from cloop.loops.repo import reset_nudge_state
-
-        reset_nudge_state(loop_id=1, nudge_type="due_soon", conn=scheduler_db)
-        scheduler_db.commit()
-
-        # Verify state is gone
-        row = scheduler_db.execute(
-            "SELECT * FROM loop_nudges WHERE loop_id = 1 AND nudge_type = 'due_soon'",
-        ).fetchone()
-        assert row is None
-
-        # Second nudge should not find this loop (has next_action)
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-        assert result["nudged"] == 0
-
-    def test_escalation_caps_at_level_3(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that escalation level never exceeds 3."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-        overdue = (now - timedelta(hours=1)).isoformat(timespec="seconds")
-
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('overdue task', 'actionable', datetime('now'), 0, ?)
-            """,
-            (overdue,),
-        )
-        scheduler_db.commit()
-
-        # Run many times to try to exceed max level
-        for _ in range(10):
-            result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        # Escalation level should be capped at 3
-        assert result["details"][0]["escalation_level"] == 3
-
-    def test_empty_result_returns_escalation_summary(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Test that empty results still include escalation_summary."""
-        settings = get_settings()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 0
-        assert result["loop_ids"] == []
-        assert "escalation_summary" in result
-        assert result["escalation_summary"] == {}
-
-
-class TestDueSoonThresholdAlignment:
-    """Tests verifying scheduler and bucketing use same threshold."""
-
-    def test_due_soon_nudge_bucket_alignment(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Due-soon nudged loops must appear in due_soon bucket, not standard."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-
-        # Create loop due just inside the threshold (e.g., 24h if threshold is 48h)
-        due_inside = (now + timedelta(hours=settings.due_soon_hours * 0.5)).isoformat(
-            timespec="seconds"
-        )
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('inside threshold', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_inside,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 1
-        # The loop was selected for nudge AND should be in due_soon bucket
-        assert result["details"][0]["bucket"] == "due_soon"
-        assert result["bucket_summary"].get("due_soon", 0) == 1
-
-    def test_loop_outside_threshold_not_nudged(
-        self, scheduler_db: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Loops due outside the threshold should not be nudged."""
-        settings = get_settings()
-        now = datetime.now(timezone.utc)
-
-        # Create loop due just outside the threshold (e.g., 60h if threshold is 48h)
-        due_outside = (now + timedelta(hours=settings.due_soon_hours * 1.25)).isoformat(
-            timespec="seconds"
-        )
-        scheduler_db.execute(
-            """INSERT INTO loops
-               (raw_text, status, captured_at_utc, captured_tz_offset_min, due_at_utc)
-               VALUES ('outside threshold', 'actionable', datetime('now'), 0, ?)
-            """,
-            (due_outside,),
-        )
-        scheduler_db.commit()
-
-        result = asyncio.run(run_due_soon_nudge(settings, scheduler_db))
-
-        assert result["nudged"] == 0

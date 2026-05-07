@@ -1,0 +1,417 @@
+/**
+ * life.css - Cloop Life feed surface.
+ *
+ * Purpose:
+ *   Style the first-screen Life feed for natural-language capture, cleanup,
+ *   resurfacing, and simple loop groups.
+ */
+
+.life-feed-panel {
+  gap: var(--space-5);
+}
+
+.life-advanced-home-surfaces[hidden] {
+  display: none !important;
+}
+
+.life-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.life-form textarea {
+  min-height: 128px;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card-alt);
+  color: var(--color-ink);
+  padding: var(--space-4);
+  line-height: var(--leading-relaxed);
+}
+
+.life-feed-actions,
+.life-feed-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.life-feed-presets {
+  justify-content: flex-start;
+}
+
+.life-feed-presets button[aria-pressed="true"] {
+  background: var(--color-brand);
+  color: var(--color-card);
+}
+
+.life-evidence-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+.life-evidence-chip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-card-alt);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+.life-evidence-chip span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.life-evidence-chip button {
+  min-height: 24px;
+  min-width: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-muted);
+  padding: 0;
+}
+
+.life-evidence-chip button:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.life-response {
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-brand);
+  border-radius: var(--radius-md);
+  background: var(--color-card-alt);
+  padding: var(--space-4);
+}
+
+.life-response p {
+  margin: 0;
+}
+
+.life-response p + p {
+  margin-top: var(--space-2);
+}
+
+.life-response-mode {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  text-transform: uppercase;
+}
+
+.life-results-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: var(--space-4);
+}
+
+.life-results-section {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.life-section-heading h3 {
+  margin-bottom: 0;
+}
+
+.life-loop-list,
+.life-group-list,
+.life-group-items {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.life-loop-card,
+.life-group {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card-alt);
+  padding: var(--space-4);
+}
+
+.life-loop-card-header,
+.life-group-heading,
+.life-loop-meta,
+.life-undo-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.life-loop-card h4,
+.life-group h4 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.life-loop-card p,
+.life-group p,
+.life-group-row span {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+}
+
+.life-next-action {
+  color: var(--color-ink) !important;
+  font-weight: var(--font-semibold);
+}
+
+.life-prepared-actions {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.life-clarifications,
+.life-answered-clarifications {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.life-clarification,
+.life-answered-clarification {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  padding: var(--space-3);
+}
+
+.life-clarification h4,
+.life-answered-clarification h4 {
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.life-clarification p,
+.life-answered-clarification p {
+  color: var(--color-muted);
+  margin-top: var(--space-2);
+}
+
+.life-clarification small,
+.life-answered-clarification small {
+  color: var(--color-muted);
+  display: block;
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+
+.life-cleanup-plan {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.life-cleanup-plan-heading,
+.life-cleanup-bucket-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.life-cleanup-plan-heading h3,
+.life-cleanup-bucket-heading h4 {
+  margin: 0;
+}
+
+.life-cleanup-plan-heading h3 {
+  font-size: var(--text-md);
+}
+
+.life-cleanup-plan-heading span,
+.life-cleanup-bucket-heading span {
+  border-radius: var(--radius-full);
+  background: var(--color-status-scheduled-bg);
+  color: var(--color-status-scheduled-text);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  padding: var(--space-1) var(--space-2);
+}
+
+.life-cleanup-grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.life-cleanup-bucket {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-card);
+  padding: var(--space-3);
+}
+
+.life-cleanup-bucket-heading h4 {
+  font-size: var(--text-sm);
+}
+
+.life-cleanup-items {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.life-cleanup-row {
+  border-top: 1px solid var(--color-border);
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+}
+
+.life-cleanup-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.life-cleanup-row strong,
+.life-cleanup-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.life-cleanup-row span {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.life-prepared-action {
+  border-left: 3px solid var(--color-brand);
+  padding-left: var(--space-3);
+}
+
+.life-prepared-action-heading {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.life-prepared-action h5 {
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.life-prepared-action p {
+  color: var(--color-ink);
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+}
+
+.life-prepared-action small {
+  color: var(--color-muted);
+  display: block;
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+}
+
+.life-state-badge,
+.life-group-heading span,
+.life-prepared-action-heading span {
+  border-radius: var(--radius-full);
+  background: var(--color-status-scheduled-bg);
+  color: var(--color-status-scheduled-text);
+  font-size: var(--text-xs);
+  font-weight: var(--font-semibold);
+  padding: var(--space-1) var(--space-2);
+}
+
+.life-loop-meta {
+  justify-content: flex-start;
+  margin-top: var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.life-group-row {
+  display: grid;
+  gap: var(--space-1);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.life-group-row strong,
+.life-group-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.life-undo-strip {
+  justify-content: flex-start;
+  margin-top: var(--space-3);
+}
+
+@media (max-width: 840px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .life-feed-panel {
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  .life-form,
+  .life-form textarea,
+  .life-results-section,
+  .life-loop-card,
+  .life-clarification,
+  .life-answered-clarification,
+  .life-evidence-chip,
+  .life-cleanup-bucket,
+  .life-cleanup-row,
+  .life-group,
+  .life-group-row {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .life-cleanup-grid,
+  .life-results-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .life-feed-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .life-feed-presets,
+  .life-feed-actions button {
+    width: 100%;
+  }
+
+  .life-feed-presets {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .life-feed-presets button {
+    min-width: 0;
+  }
+}
