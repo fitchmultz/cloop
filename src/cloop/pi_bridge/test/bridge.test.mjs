@@ -15,6 +15,7 @@ const {
 	parseModelSelector,
 	resolveModelSelection,
 	runSession,
+	serializeToolResultPayload,
 } = bridgeModule;
 
 function startBridge() {
@@ -310,6 +311,18 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 	assert.equal(parsed.messages[3].model, "gemini-3-flash-preview");
 	assert.equal(parsed.messages[4].role, "toolResult");
 	assert.equal(parsed.messages[4].isError, true);
+});
+
+test("serializeToolResultPayload bounds large bridge tool outputs", () => {
+	const small = serializeToolResultPayload({ ok: true });
+	assert.equal(small.text, '{"ok":true}');
+	assert.deepEqual(small.details, { ok: true });
+
+	const large = serializeToolResultPayload({ text: "x".repeat(13_000) });
+	assert.equal(large.details._cloop_truncated, true);
+	assert.equal(large.text.endsWith("\n… truncated"), true);
+	assert.equal(large.details._cloop_preview, large.text);
+	assert.ok(large.text.length <= 12_012);
 });
 
 test("buildBridgeErrorPayload returns explicit timeout and tool round limit errors", () => {

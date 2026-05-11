@@ -56,7 +56,6 @@ let queryFilter: HTMLInputElement | null = null;
 let queryModeFilter: HTMLSelectElement | null = null;
 let statusFilter: HTMLSelectElement | null = null;
 let tagFilter: HTMLSelectElement | null = null;
-let viewFilter: HTMLSelectElement | null = null;
 
 const OPEN_STATUSES = new Set(["inbox", "actionable", "blocked", "scheduled"]);
 const ALL_LOOP_STATUSES = new Set(["inbox", "actionable", "blocked", "scheduled", "completed", "dropped"]);
@@ -212,7 +211,6 @@ export function init(elements: LoopModuleElements): void {
   queryModeFilter = elements.queryModeFilter ?? null;
   statusFilter = elements.statusFilter;
   tagFilter = elements.tagFilter;
-  viewFilter = elements.viewFilter;
 }
 
 export function replaceLoop(loop: SurfaceLoop): void {

@@ -10,6 +10,8 @@ export const PROTOCOL_VERSION = 1;
 export const BRIDGE_NAME = "cloop-pi-bridge";
 export const BRIDGE_VERSION = "0.1.0";
 
+const TOOL_RESULT_TEXT_MAX_CHARS = 12_000;
+
 const authStorage = AuthStorage.create();
 const modelRegistry = new ModelRegistry(authStorage);
 const sessions = new Map();
@@ -36,6 +38,24 @@ export function defaultUsage() {
 			cacheRead: 0,
 			cacheWrite: 0,
 			total: 0,
+		},
+	};
+}
+
+export function serializeToolResultPayload(payload) {
+	const text = JSON.stringify(payload ?? {});
+	if (text.length <= TOOL_RESULT_TEXT_MAX_CHARS) {
+		return {
+			text,
+			details: payload && typeof payload === "object" && !Array.isArray(payload) ? payload : { value: payload },
+		};
+	}
+	const preview = `${text.slice(0, TOOL_RESULT_TEXT_MAX_CHARS)}\n… truncated`;
+	return {
+		text: preview,
+		details: {
+			_cloop_truncated: true,
+			_cloop_preview: preview,
 		},
 	};
 }
@@ -636,10 +656,10 @@ function handleToolResult(message) {
 	}
 	session.pendingToolResults.delete(message.tool_call_id);
 	const payload = message.payload ?? {};
-	const text = JSON.stringify(payload);
+	const serialized = serializeToolResultPayload(payload);
 	pending.resolve({
-		content: [{ type: "text", text }],
-		details: { ...payload, _cloop_is_error: Boolean(message.is_error) },
+		content: [{ type: "text", text: serialized.text }],
+		details: { ...serialized.details, _cloop_is_error: Boolean(message.is_error) },
 	});
 }
 

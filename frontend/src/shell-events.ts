@@ -35,7 +35,6 @@ import { handleOperatorActionCardClick } from "./operator-action-card-events";
 import {
   buildShellElements,
   parseOptionalInteger,
-  REVIEW_FOCUS_EVENT,
   WORKSPACE_REFRESH_EVENT,
 } from "./shell-core";
 import {

@@ -969,7 +969,7 @@ function markdownToHtml(markdown: string | null | undefined): string {
   // Code inline
   html = html.replace(/`(.+?)`/g, "<code>$1</code>");
   // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, text, url) => {
     const safeUrl = /^(https?:|mailto:)/i.test(url) ? url : '#';
     return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${text}</a>`;
   });

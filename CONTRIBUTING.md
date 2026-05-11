@@ -8,7 +8,9 @@ Thanks for contributing to Cloop.
 2. Install dependencies:
 
    ```bash
-   uv sync --all-groups --all-extras
+   uv sync --all-groups
+   pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
+   pnpm --dir frontend install --frozen-lockfile
    ```
 
 3. Create your local environment file:
@@ -25,7 +27,7 @@ Thanks for contributing to Cloop.
 make check-fast
 ```
 
-This runs all quality checks plus the fast test subset (`not slow and not performance`).
+This runs the maintained fast gate: quality checks, pi bridge tests, frontend build/test, backup safety checks, and the fast Python test subset (`not slow and not performance`).
 
 ## Full local CI gate (release-grade)
 
@@ -33,8 +35,7 @@ This runs all quality checks plus the fast test subset (`not slow and not perfor
 make ci
 ```
 
-This runs formatting, linting, env/header/secret/version/changelog checks, typing,
-non-performance tests, and packaging metadata validation (`twine check`).
+This runs the full maintained release gate: quality checks, lock/install checks, pi bridge tests, frontend build/test, backup safety checks, non-performance Python tests, distribution build, and packaging metadata validation (`twine check`).
 
 For exhaustive all-marker validation before a release cut:
 

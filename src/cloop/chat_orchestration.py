@@ -19,6 +19,7 @@ Non-scope:
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +32,8 @@ from .rag.ask_orchestration import format_sources, sanitize_chunk
 from .recall_working_sets import resolve_recall_working_set
 from .schemas.chat import ChatRequest
 from .settings import Settings, ToolMode
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
@@ -177,7 +180,8 @@ def _build_working_set_loop_context_snapshot(
     try:
         with db.core_connection(settings) as conn:
             loops = [get_loop(loop_id=loop_id, conn=conn) for loop_id in loop_ids[:5]]
-    except sqlite3.Error, CloopError:
+    except (sqlite3.Error, CloopError) as exc:
+        logger.warning("Failed to build working-set loop context snapshot: %s", type(exc).__name__)
         return ""
 
     for loop in loops:
@@ -224,7 +228,8 @@ def build_loop_context_snapshot(
                 offset=0,
                 conn=conn,
             )
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        logger.warning("Failed to build loop context snapshot: %s", type(exc).__name__)
         return ""
 
     due_soon = buckets.get("due_soon", [])
@@ -292,7 +297,8 @@ def build_memory_context(settings: Settings, *, limit: int = 10) -> MemoryContex
             limit=min(100, max(limit, limit * 3)),
             settings=settings,
         )
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        logger.warning("Failed to build memory context for chat: %s", type(exc).__name__)
         return MemoryContextBuildResult(content="", entry_count=0)
 
     items = result.get("items", [])
@@ -386,7 +392,8 @@ def build_rag_context(
             scope=request.rag_scope,
             settings=settings,
         )
-    except RuntimeError, CloopError:
+    except (RuntimeError, CloopError) as exc:
+        logger.warning("Failed to build RAG context for chat: %s", type(exc).__name__)
         return RagContextBuildResult(content="", chunks=[], sources=[])
 
     if not chunks:

@@ -36,7 +36,7 @@ from ._streaming import format_stream_error_event, prime_stream
 
 router = APIRouter(tags=["rag"])
 
-SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.post("/ingest", response_model=IngestResponse)

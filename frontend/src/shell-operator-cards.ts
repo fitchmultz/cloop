@@ -27,8 +27,6 @@ import { renderActionCardDeck } from "./operator-action-cards";
 import type {
   ClarificationResponse,
   EnrichmentReviewSessionSnapshotResponse,
-  LoopResponse,
-  LoopReviewCohortItem,
   LoopReviewCohortResponse,
   LoopReviewResponse,
   PlanningContextFreshnessTargetChangeResponse,
@@ -77,7 +75,6 @@ import {
   planningExecutionSummary,
 } from "./review-workspace-action-cards";
 import {
-  buildChangedCountPreviewItems,
   buildGroupedChangePreviewItems,
   buildPlanningResourcePreviewItems,
   buildRepeatedSnoozeSignal,
@@ -85,7 +82,7 @@ import {
   sortLoopsByMostRecentUpdate,
 } from "./continuity-card-helpers";
 import { summarizeCohortDrift } from "./continuity-drift";
-import { formatRelativeTime, formatTimestamp, loopPreview, loopTitle } from "./shell-core";
+import { formatRelativeTime, formatTimestamp, loopTitle } from "./shell-core";
 import { launchSurfaceToLocation, launchSurfaceWorkingSetId } from "./launch-surface-web";
 import { createLocation, locationsMatch } from "./shell-routing";
 import { savedQueryContextSource } from "./saved-query-copy";
@@ -264,44 +261,6 @@ export function createShellOperatorCardRenderer(
     return (data.planningSnapshot?.execution_history ?? []).filter((item) => {
       return Date.parse(item.executed_at_utc) > baselineTime;
     });
-  }
-
-  function buildPlanningReplacementCue(
-    baseline: NonNullable<ContinuityBaselineSnapshot["planningSession"]>,
-    current: PlanningSessionSnapshotResponse,
-  ): { summary: string; detail: string; overlapLabel: string } {
-    const previousName = baseline.sessionName || `Plan #${baseline.sessionId}`;
-    const baselineTargetIds = baseline.targetLoopIds ?? [];
-    const currentTargetIds = new Set((current.target_loops ?? []).map((loop) => loop.id));
-    const overlapCount = baselineTargetIds.filter((loopId) => currentTargetIds.has(loopId)).length;
-    const overlapLabel = `${overlapCount}/${Math.max(baselineTargetIds.length, current.target_loops?.length ?? 0, 1)} overlapping targets`;
-
-    if (baseline.status === "completed") {
-      return {
-        summary: `${current.session.name} replaced the completed plan you last saw.`,
-        detail: overlapLabel,
-        overlapLabel,
-      };
-    }
-    if (overlapCount === 0) {
-      return {
-        summary: `${current.session.name} targets a different slice of work than ${previousName}.`,
-        detail: "No prior target loops overlap",
-        overlapLabel,
-      };
-    }
-    if (overlapCount < baselineTargetIds.length) {
-      return {
-        summary: `${current.session.name} partially overlaps ${previousName} while refreshing the work mix.`,
-        detail: overlapLabel,
-        overlapLabel,
-      };
-    }
-    return {
-      summary: `${current.session.name} is a newer grounded version of ${previousName}.`,
-      detail: overlapLabel,
-      overlapLabel,
-    };
   }
 
   function relationCandidateLabel(candidate: RelationshipReviewCandidateResponse | null): string {
@@ -1032,15 +991,6 @@ export function createShellOperatorCardRenderer(
     cohortName: ContinuityCohortName,
   ): LoopReviewCohortResponse | null {
     return [...reviewData.daily, ...reviewData.weekly].find((item) => item.cohort === cohortName) ?? null;
-  }
-
-  function cohortCountDelta(data: WorkspaceData, cohortName: ContinuityCohortName): number {
-    const previousCount = continuityBaseline?.cohorts[cohortName].count ?? 0;
-    return (cohortByName(data.reviewData, cohortName)?.count ?? 0) - previousCount;
-  }
-
-  function previewLoopValue(loop: LoopReviewCohortItem | LoopResponse | null | undefined): string {
-    return loop ? loopTitle(loop) : "No loop preview available";
   }
 
   function planningFreshness(snapshot: PlanningSessionSnapshotResponse | null): {

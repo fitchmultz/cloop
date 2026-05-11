@@ -22,7 +22,7 @@ from ..life_orchestration import handle_life_message
 from ..schemas.life import LifeMessageRequest, LifeMessageResponse
 from ..settings import Settings, get_settings
 
-SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 router = APIRouter(prefix="/life", tags=["life"])
 

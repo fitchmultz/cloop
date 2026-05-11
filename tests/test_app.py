@@ -2368,9 +2368,12 @@ def test_chat_rag_context_with_scope(test_client: TestClient, tmp_data_dir: Path
 
 
 def test_chat_rag_context_graceful_failure(
-    test_client: TestClient, tmp_data_dir: Path, monkeypatch: pytest.MonkeyPatch
+    test_client: TestClient,
+    tmp_data_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Chat continues without error when RAG retrieval fails."""
+    """Chat continues without error and logs when RAG retrieval fails."""
     from unittest.mock import patch
 
     doc = tmp_data_dir / "test.txt"
@@ -2380,17 +2383,19 @@ def test_chat_rag_context_graceful_failure(
     def mock_retrieve_fail(*args: Any, **kwargs: Any) -> List[Dict[str, Any]]:
         raise RuntimeError("Simulated RAG failure")
 
-    with patch("cloop.chat_orchestration.retrieve_similar_chunks", mock_retrieve_fail):
-        response = test_client.post(
-            "/chat",
-            json={
-                "messages": [{"role": "user", "content": "Hello"}],
-                "tool_mode": "none",
-                "include_rag_context": True,
-            },
-        )
+    with caplog.at_level("WARNING", logger="cloop.chat_orchestration"):
+        with patch("cloop.chat_orchestration.retrieve_similar_chunks", mock_retrieve_fail):
+            response = test_client.post(
+                "/chat",
+                json={
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "tool_mode": "none",
+                    "include_rag_context": True,
+                },
+            )
 
     assert response.status_code == 200
+    assert "Failed to build RAG context for chat: RuntimeError" in caplog.text
 
 
 def test_loop_semantic_search_endpoint(

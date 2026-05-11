@@ -48,7 +48,6 @@ import type {
   LoopEnrichmentResponse,
   LoopCommentListResponse,
   LoopCommentResponse,
-  LoopResponse,
   LoopReviewResponse,
   LoopSearchResponse,
   LoopSemanticSearchResponse,
@@ -76,7 +75,6 @@ import type {
   RelationshipReviewSessionSnapshotResponse,
   RelationshipReviewSessionUpdateRequest,
   SuggestionListResponse,
-  SuggestionResponse,
   TimeSessionResponse,
   TimerStatusResponse,
 } from "../domain";
@@ -543,14 +541,6 @@ export async function dismissLoopRelationship(
     { method: "POST", ...withJsonBody({ candidate_loop_id: candidateLoopId, relationship_type: relationshipType }) },
     "Failed to dismiss relationship",
   );
-}
-
-function mergeInit(init: RequestInit, extra: RequestInit = {}): RequestInit {
-  return {
-    ...init,
-    ...extra,
-    headers: new Headers(extra.headers ?? init.headers),
-  };
 }
 
 export async function fetchPlanningSessions(): Promise<PlanningSessionResponse[]> {

@@ -36,7 +36,7 @@ from ..settings import Settings, get_settings
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
-SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.get("", response_model=MemoryListResponse)

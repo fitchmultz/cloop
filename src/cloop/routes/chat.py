@@ -30,7 +30,7 @@ from ._streaming import format_stream_error_event, prime_stream
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
-SettingsDep = Annotated[Settings, Depends(lambda: get_settings())]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @router.post("", response_model=ChatResponse)

@@ -246,14 +246,20 @@ def test_timer_for_nonexistent_loop(
     # Try to start timer on non-existent loop
     start = client.post("/loops/99999/timer/start")
     assert start.status_code == 404
+    assert start.json()["error"]["type"] == "not_found"
+    assert start.json()["error"]["code"] == "loop_not_found"
 
     # Try to stop timer on non-existent loop
     stop = client.post("/loops/99999/timer/stop")
     assert stop.status_code == 404
+    assert stop.json()["error"]["type"] == "not_found"
+    assert stop.json()["error"]["code"] == "loop_not_found"
 
     # Try to get status on non-existent loop
     status = client.get("/loops/99999/timer/status")
     assert status.status_code == 404
+    assert status.json()["error"]["type"] == "not_found"
+    assert status.json()["error"]["code"] == "loop_not_found"
 
 
 def test_timer_session_properties() -> None:

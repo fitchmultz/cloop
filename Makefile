@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help help-all lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data cleanup-runtime verify-runtime-clean sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.PHONY: help help-all lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data cleanup-runtime verify-runtime-clean sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run FORCE
 
 UV_RUN := uv run --locked --all-groups
 PNPM_BRIDGE := pnpm --dir src/cloop/pi_bridge
@@ -107,13 +107,16 @@ frontend-lock-check:
 	test -f frontend/pnpm-lock.yaml
 	$(PNPM_FRONTEND) install --frozen-lockfile
 
-# Regenerate once per `make` graph: concrete output lets Make dedupe across
-# frontend-type / frontend-build / frontend-test instead of re-running a .PHONY prerequisite.
+# Regenerate once per `make` graph: FORCE keeps generated OpenAPI contracts
+# aligned with backend route/schema changes while this concrete output still lets
+# Make dedupe frontend-type / frontend-build / frontend-test in one invocation.
 FRONTEND_CONTRACTS_GEN := $(PNPM_FRONTEND) run generate:contracts
 FRONTEND_CONTRACTS_MARKER := frontend/src/generated/types.gen.ts
 FRONTEND_OPENAPI_EXPORTER := scripts/export_frontend_openapi.py
 
-$(FRONTEND_CONTRACTS_MARKER): frontend-lock-check $(FRONTEND_OPENAPI_EXPORTER) frontend/openapi-ts.config.ts frontend/package.json frontend/pnpm-lock.yaml
+FORCE:
+
+$(FRONTEND_CONTRACTS_MARKER): FORCE frontend-lock-check $(FRONTEND_OPENAPI_EXPORTER) frontend/openapi-ts.config.ts frontend/package.json frontend/pnpm-lock.yaml
 	$(FRONTEND_CONTRACTS_GEN)
 
 .PHONY: frontend-contracts

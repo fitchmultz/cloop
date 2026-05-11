@@ -46,7 +46,6 @@ import type {
   EnrichmentReviewSessionClarificationResponse,
   EnrichmentReviewSessionResponse,
   EnrichmentReviewSessionSnapshotResponse,
-  IngestResponse,
   LoopCommentCreateRequest,
   LoopCommentListResponse,
   LoopCommentResponse,

@@ -44,7 +44,6 @@ import type {
   RelationshipReviewActionResponse,
   RelationshipReviewCandidateResponse,
   RelationshipReviewSessionSnapshotResponse,
-  WorkingSetResponse,
 } from "./domain";
 import { launchSurfaceToLocation, launchSurfaceWorkingSetId } from "./launch-surface-web";
 import {
@@ -234,32 +233,6 @@ function describeQueueProgress(currentIndex: number | null | undefined, total: n
     return `0/${total}`;
   }
   return `${Math.min(total, currentIndex + 1)}/${total}`;
-}
-
-function relationshipDecisionLabel(
-  item: RelationshipReviewSessionSnapshotResponse["current_item"] | null,
-): string {
-  const candidate = item
-    ? ((item.duplicate_candidates[0] ?? null)?.score ?? -1) >= ((item.related_candidates[0] ?? null)?.score ?? -1)
-      ? (item.duplicate_candidates[0] ?? item.related_candidates[0] ?? null)
-      : (item.related_candidates[0] ?? item.duplicate_candidates[0] ?? null)
-    : null;
-  if (!candidate) {
-    return "Refresh the saved queue, edit the session query, or move to the next loop.";
-  }
-  return candidate.relationship_type === "duplicate"
-    ? "Confirm duplicate, merge the loops, or dismiss this candidate."
-    : "Confirm related, escalate to duplicate, or dismiss this candidate.";
-}
-
-function enrichmentDecisionLabel(item: EnrichmentReviewQueueItemResponse | null): string {
-  if (!item) {
-    return "Refresh the saved queue, edit the session query, or move to the next queue.";
-  }
-  if (item.pending_clarification_count > 0) {
-    return "Answer clarifications before trusting or applying older suggestions.";
-  }
-  return "Apply the top suggestion, reject it, use a saved action, or inspect the loop in Do.";
 }
 
 export function buildPlanningExecutionSummaryCard(

@@ -42,6 +42,7 @@ from ._common import (
     SettingsDep,
     build_timer_session_response,
     build_timer_status_response,
+    map_not_found_to_404,
 )
 
 router = APIRouter()
@@ -73,8 +74,8 @@ async def start_timer_endpoint(
                     "session_id": e.session.id,
                 },
             ) from e
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None
 
 
 @router.post(
@@ -102,8 +103,8 @@ async def stop_timer_endpoint(
                     "message": str(e),
                 },
             ) from e
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None
 
 
 @router.get(
@@ -123,8 +124,8 @@ async def get_timer_status_endpoint(
         try:
             status = get_timer_status(loop_id=loop_id, conn=conn)
             return build_timer_status_response(status)
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None
 
 
 @router.get(
@@ -154,5 +155,5 @@ async def list_sessions_endpoint(
                 sessions=[build_timer_session_response(session) for session in result["sessions"]],
                 total_count=result["total_count"],
             )
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None

@@ -157,7 +157,10 @@ def test_merge_preview_same_loop_error(
 
     resp = client.get(f"/loops/{loop['id']}/merge-preview/{loop['id']}")
     assert resp.status_code == 400
-    assert "Cannot merge" in str(resp.json())
+    body = resp.json()
+    assert body["error"]["type"] == "validation_error"
+    assert body["error"]["code"] == "validation_error"
+    assert "Cannot merge" in body["error"]["message"]
 
 
 def test_merge_preview_nonexistent_loop(
@@ -173,6 +176,9 @@ def test_merge_preview_nonexistent_loop(
 
     resp = client.get(f"/loops/{loop['id']}/merge-preview/99999")
     assert resp.status_code == 404
+    body = resp.json()
+    assert body["error"]["type"] == "not_found"
+    assert body["error"]["code"] == "loop_not_found"
 
 
 def test_merge_loops_endpoint(
@@ -272,6 +278,9 @@ def test_merge_loops_nonexistent_target(
         json={"target_loop_id": 99999},
     )
     assert resp.status_code == 404
+    body = resp.json()
+    assert body["error"]["type"] == "not_found"
+    assert body["error"]["code"] == "loop_not_found"
 
 
 def test_merge_loops_idempotency(

@@ -157,6 +157,16 @@ function renderSources(sources: ChatMessage["sources"]): string {
   `;
 }
 
+const TOOL_JSON_PREVIEW_MAX_CHARS = 8_000;
+
+export function formatToolJsonPreview(value: unknown): string {
+  const serialized = JSON.stringify(value, null, 2) ?? String(value);
+  if (serialized.length <= TOOL_JSON_PREVIEW_MAX_CHARS) {
+    return serialized;
+  }
+  return `${serialized.slice(0, TOOL_JSON_PREVIEW_MAX_CHARS)}\n… truncated`;
+}
+
 function renderToolCalls(toolCalls: ChatMessage["toolCalls"], toolResults: ChatMessage["toolResults"]): string {
   if ((!Array.isArray(toolCalls) || toolCalls.length === 0) && toolResults.length === 0) {
     return "";
@@ -166,7 +176,7 @@ function renderToolCalls(toolCalls: ChatMessage["toolCalls"], toolResults: ChatM
     ? toolCalls.map((toolCall) => `
         <div class="chat-tool-call-item">
           <div class="chat-tool-call-name">${escapeHtml(toolCall.name || "tool")}</div>
-          <pre class="chat-tool-call-args">${escapeHtml(JSON.stringify(toolCall.arguments || {}, null, 2))}</pre>
+          <pre class="chat-tool-call-args">${escapeHtml(formatToolJsonPreview(toolCall.arguments || {}))}</pre>
         </div>
       `).join("")
     : "";
@@ -175,7 +185,7 @@ function renderToolCalls(toolCalls: ChatMessage["toolCalls"], toolResults: ChatM
     .map((toolResult, index) => `
       <div class="chat-tool-result">
         <div class="chat-tool-call-name">${escapeHtml(toolCalls[index]?.name || `Result ${index + 1}`)}</div>
-        <pre class="chat-tool-call-args">${escapeHtml(JSON.stringify(toolResult, null, 2))}</pre>
+        <pre class="chat-tool-call-args">${escapeHtml(formatToolJsonPreview(toolResult))}</pre>
       </div>
     `)
     .join("");

@@ -22,7 +22,7 @@ Endpoints:
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from ...loops import duplicates as loop_duplicates
@@ -34,7 +34,13 @@ from ...schemas.loops import (
     MergeRequest,
     MergeResultResponse,
 )
-from ._common import IdempotencyKeyHeader, SettingsDep, run_idempotent_loop_route
+from ._common import (
+    IdempotencyKeyHeader,
+    SettingsDep,
+    map_not_found_to_404,
+    map_validation_to_400,
+    run_idempotent_loop_route,
+)
 
 router = APIRouter()
 
@@ -63,8 +69,8 @@ def list_duplicate_candidates(
                 conn=conn,
                 settings=settings,
             )
-        except LoopNotFoundError:
-            raise HTTPException(status_code=404, detail="Loop not found") from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None
         except ValidationError:
             candidates = []
 
@@ -109,10 +115,10 @@ def get_merge_preview(
                 duplicate_loop_id=loop_id,
                 conn=conn,
             )
-        except LoopNotFoundError as e:
-            raise HTTPException(status_code=404, detail=f"Loop not found: {e.loop_id}") from None
-        except ValidationError as e:
-            raise HTTPException(status_code=400, detail={"message": e.message}) from None
+        except LoopNotFoundError as exc:
+            raise map_not_found_to_404(exc, resource_type="loop") from None
+        except ValidationError as exc:
+            raise map_validation_to_400(exc) from None
 
     return MergePreviewResponse(
         surviving_loop_id=preview.surviving_loop_id,
@@ -166,18 +172,11 @@ def merge_into_loop(
             ),
         )
     except LoopNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=f"Loop not found: {exc.loop_id}") from None
+        raise map_not_found_to_404(exc, resource_type="loop") from None
     except ValidationError as exc:
-        raise HTTPException(status_code=400, detail={"message": exc.message}) from None
-    except MergeConflictError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "merge_conflict",
-                "message": str(exc),
-                "reason": exc.reason,
-            },
-        ) from None
+        raise map_validation_to_400(exc) from None
+    except MergeConflictError:
+        raise
 
     if isinstance(result, JSONResponse):
         return result

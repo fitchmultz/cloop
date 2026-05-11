@@ -30,7 +30,6 @@
 import { createReceiptCard, withReceiptOutcome } from "./action-receipts";
 import { requestJson } from "./http";
 import type {
-  AskResponse,
   BulkCloseRequest,
   BulkCloseResponse,
   BulkEnrichRequest,
@@ -61,11 +60,8 @@ import type {
 } from "./domain";
 import type {
   ContinuityRecoveryPlan,
-  RecallTool,
   RecentShellActionKind,
-  ReviewFocus,
   ShellLocationContract,
-  ShellState,
   TrustSurfaceMetadata,
   TrustTone,
 } from "./contracts-ui";
@@ -515,15 +511,6 @@ function relationshipTargetOptions(targets: readonly RelationshipActionTarget[])
   }));
 }
 
-function resolvedRelationshipActionType(input: {
-  action: RelationshipReviewActionResponse;
-  candidate: RelationshipReviewCandidateResponse;
-}): "duplicate" | "related" {
-  return input.action.relationship_type === "suggested"
-    ? input.candidate.relationship_type
-    : input.action.relationship_type;
-}
-
 async function chooseRelationshipPaletteTarget(input: {
   action: RelationshipReviewActionResponse;
   snapshot: RelationshipReviewSessionSnapshotResponse;
@@ -802,14 +789,6 @@ function commandHistoryLabel(command: CommandPaletteCommand, location: ShellLoca
     return `Opened recall · ${location.recallTool}`;
   }
   return `Opened ${location.state}`;
-}
-
-function requestSubmit(form: HTMLFormElement): void {
-  if (typeof form.requestSubmit === "function") {
-    form.requestSubmit();
-    return;
-  }
-  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
 function defaultCommandGenerationLabel(command: CommandPaletteCommand): string {

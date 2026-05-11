@@ -24,7 +24,7 @@
  *   - Hash routes are the canonical shareable/deep-link format for shell state.
  */
 
-import type { ContinuityBaselineSnapshot, OperatorActionCard, RecallTool, ReviewFocus } from "./contracts-ui";
+import type { ContinuityBaselineSnapshot, OperatorActionCard, ReviewFocus } from "./contracts-ui";
 import {
   markContinuityNotificationSeen,
   markRerunActionUnavailable,
