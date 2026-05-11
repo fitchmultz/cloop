@@ -1029,11 +1029,19 @@ Detailed CI behavior, runtime targets, and resource controls:
 
 ## Development
 
-- `make sync` (upgrade deps)
+Start with the short command guide:
+
+```bash
+make help
+```
+
+Most day-to-day work uses:
+
+- `make run` to start the local FastAPI app
 - `make check-fast` for rapid iteration
 - `make ci` for release-grade validation
-- `make test-all` for exhaustive local verification (includes `performance` tests)
-- `make test-cov` for coverage reporting
+
+Use `make help-all` for the full target list, including release, coverage, performance, and maintenance commands.
 
 ## Project maintenance docs
 

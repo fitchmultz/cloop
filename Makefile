@@ -1,4 +1,6 @@
-.PHONY: help lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data cleanup-runtime verify-runtime-clean sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
+.DEFAULT_GOAL := help
+
+.PHONY: help help-all lock-check bridge-lock-check bridge-test frontend-lock-check frontend-contracts frontend-type frontend-test frontend-build frontend-dev reset-local-data cleanup-runtime verify-runtime-clean sync fmt fmt-check lint lint-fix env-sync header-check secrets-check version-check changelog-check smoke-public type quality test-backup-safety test test-all test-fast test-slow test-performance test-cov dist dist-check check-fast check-full check ci run
 
 UV_RUN := uv run --locked --all-groups
 PNPM_BRIDGE := pnpm --dir src/cloop/pi_bridge
@@ -9,48 +11,83 @@ RUNTIME_CLEANUP_WRAP := status=0; trap 'status=$$?; $(MAKE) cleanup-runtime >/de
 
 help:
 	@printf "%s\n" \
+		"Cloop Makefile" \
+		"" \
+		"Start here:" \
+		"  make run                 Start the FastAPI dev server" \
+		"  make check-fast          Fast local gate before pushing" \
+		"  make ci                  Full release/CI-equivalent gate" \
+		"" \
+		"Common focused checks:" \
+		"  make frontend-type       Generate contracts, then TypeScript check" \
+		"  make frontend-test       Generate contracts, then run Vitest" \
+		"  make frontend-build      Generate contracts, then build frontend" \
+		"  make bridge-test         Check pi bridge installability and tests" \
+		"  make test-fast           Fast app test suite" \
+		"" \
+		"Fixes and cleanup:" \
+		"  make fmt                 Format Python code" \
+		"  make lint-fix            Auto-fix Ruff lint issues" \
+		"  make cleanup-runtime     Stop repo-owned dev/test processes" \
+		"  make verify-runtime-clean  Check for leaked repo-owned processes" \
+		"" \
+		"Danger zone:" \
+		"  make reset-local-data    Delete and recreate ./data" \
+		"" \
+		"More:" \
+		"  make help-all            Show every maintained target"
+
+help-all:
+	@printf "%s\n" \
 		"Usage: make <target>" \
 		"" \
-		"Targets:" \
-		"  sync            Sync (upgrade) Python deps via uv; pnpm locks are managed separately" \
-		"  lock-check      Verify uv.lock matches pyproject metadata" \
-		"  bridge-lock-check Verify pi bridge pnpm lockfile + installability" \
-		"  bridge-test     Run Node bridge tests" \
-		"  frontend-lock-check Verify frontend pnpm lockfile + installability" \
-		"  frontend-contracts Generate frontend OpenAPI contracts" \
-		"  frontend-type   Run frontend TypeScript checks" \
-		"  frontend-test   Run frontend Vitest checks" \
-		"  frontend-build  Build the Vite frontend bundle" \
-		"  frontend-dev    Run the Vite frontend dev server" \
-		"  reset-local-data Delete and recreate the default repo-local data directory" \
-		"  cleanup-runtime Stop repo-owned runtime processes and remove orphaned temp browser profiles" \
-		"  verify-runtime-clean Report repo-owned runtime leaks without changing state" \
-		"  fmt             Format code with ruff" \
-		"  fmt-check       Check formatting (no changes)" \
-		"  lint            Lint with ruff" \
-		"  lint-fix        Lint + auto-fix with ruff" \
-		"  env-sync        Check .env.example sync with settings.py" \
-		"  header-check    Validate module header sections in src/cloop" \
-		"  secrets-check   Scan tracked files for likely secrets" \
-		"  version-check   Ensure pyproject version matches runtime version" \
-		"  changelog-check Ensure current version is documented in CHANGELOG.md" \
-		"  smoke-public    Smoke test lightweight package/app/backup CLI surfaces" \
-		"  type            Type check with ty" \
-		"  quality         Run all non-test quality checks" \
-		"  test-backup-safety Run focused destructive backup restore regressions" \
-		"  test            Run CI release suite (exclude performance marker)" \
-		"  test-all        Run full pytest suite (includes performance marker)" \
-		"  test-fast       Run PR-fast suite (exclude slow/performance markers)" \
-		"  test-slow       Run only slow-marker tests" \
-		"  test-performance Run only performance-marker tests" \
-		"  test-cov        Run tests with coverage report + coverage.xml" \
-		"  dist            Build sdist and wheel artifacts" \
-		"  dist-check      Build artifacts and validate metadata with twine" \
-		"  check-fast      Run quality + test-fast (recommended during development)" \
-		"  check-full      Run full release gate (quality + test + dist-check)" \
-		"  check           Alias for check-full" \
-		"  ci              Alias for check-full (local CI gate)" \
-		"  run             Run FastAPI locally (uvicorn)"
+		"Daily targets:" \
+		"  help                    Show beginner-focused command list" \
+		"  run                     Run FastAPI locally (uvicorn)" \
+		"  check-fast              Run quality + bridge-test + test-fast" \
+		"  ci                      Alias for check-full (local CI gate)" \
+		"  fmt                     Format code with ruff" \
+		"  lint-fix                Lint + auto-fix with ruff" \
+		"  cleanup-runtime         Stop repo-owned runtime processes and temp browser profiles" \
+		"  verify-runtime-clean    Report repo-owned runtime leaks without changing state" \
+		"" \
+		"Stack-specific targets:" \
+		"  frontend-contracts      Generate frontend OpenAPI contracts" \
+		"  frontend-type           Generate contracts, then run frontend TypeScript checks" \
+		"  frontend-test           Generate contracts, then run frontend Vitest checks" \
+		"  frontend-build          Generate contracts, then build the Vite frontend bundle" \
+		"  frontend-dev            Generate contracts, then run the Vite frontend dev server" \
+		"  bridge-test             Verify pi bridge pnpm lockfile, installability, and tests" \
+		"  test-fast               Frontend build/test + backup safety + pytest not slow/performance" \
+		"  test                    Frontend build/test + backup safety + pytest not performance" \
+		"  test-all                Full pytest suite, including performance marker" \
+		"  test-slow               Run only slow-marker tests" \
+		"  test-performance        Run only performance-marker tests" \
+		"  test-cov                Run tests with coverage report + coverage.xml" \
+		"" \
+		"Quality and invariant targets:" \
+		"  quality                 Run all non-test quality checks" \
+		"  lock-check              Verify uv.lock matches pyproject metadata" \
+		"  bridge-lock-check       Verify pi bridge pnpm lockfile + installability" \
+		"  frontend-lock-check     Verify frontend pnpm lockfile + installability" \
+		"  fmt-check               Check formatting without changing files" \
+		"  lint                    Lint with ruff" \
+		"  env-sync                Check .env.example sync with settings.py" \
+		"  header-check            Validate module header sections in src/cloop" \
+		"  secrets-check           Scan tracked files for likely secrets" \
+		"  version-check           Ensure pyproject version matches runtime version" \
+		"  changelog-check         Ensure current version is documented in CHANGELOG.md" \
+		"  smoke-public            Smoke test lightweight package/app/backup CLI surfaces" \
+		"  type                    Type check with ty" \
+		"  test-backup-safety      Run focused destructive backup restore regressions" \
+		"" \
+		"Release and maintenance targets:" \
+		"  sync                    Sync and upgrade Python deps via uv; pnpm locks are separate" \
+		"  dist                    Build sdist and wheel artifacts" \
+		"  dist-check              Build artifacts and validate metadata with twine" \
+		"  check-full              Run full release gate: quality + bridge-test + test + dist-check" \
+		"  check                   Alias for check-full" \
+		"  reset-local-data        Delete and recreate the default repo-local data directory"
 
 sync:
 	uv sync --all-groups --upgrade
