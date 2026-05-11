@@ -35,7 +35,7 @@ This file tells coding agents how to make safe, verifiable repo changes. Keep it
 - Keep Python responsible for loop state, storage, tools, routing, and deterministic mutations. Generative chat/organizer calls go through the pi bridge; embeddings stay on the LiteLLM-compatible embedding path.
 - Use `uv run` or existing `make` targets for Python commands. Do not introduce another Python package manager.
 - Use `pnpm --dir frontend` and `pnpm --dir src/cloop/pi_bridge` for Node work. Keep lockfile changes explicit.
-- Python runtime policy is 3.14+. Frontend runtime evidence is in `frontend/package.json` (`node >=25.8.2`, `pnpm@10.33.2`).
+- Python runtime policy is 3.14+. Frontend runtime evidence is in `frontend/package.json` (`node >=25.8.2`, `pnpm@11.0.9`).
 - Ask the user only when the next step would change product behavior materially, overwrite unknown user work, require credentials/secrets, or choose between incompatible designs. Otherwise proceed, state assumptions, and verify.
 - Stop searching when repo evidence identifies the canonical owner and the change scope is clear. Do not inventory the whole repo for a localized change.
 - Stop planning and implement when the plan has a clear owner path, validation command, and rollback boundary.

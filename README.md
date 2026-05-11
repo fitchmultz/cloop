@@ -67,7 +67,7 @@ pnpm --dir frontend install --frozen-lockfile
 cp .env.example .env
 ```
 
-Prerequisites: Python 3.14+, Node 25.8.2+, pnpm 10.33.2+, `uv`, and an authenticated `pi` installation for generative flows.
+Prerequisites: Python 3.14+, Node 25.8.2+, pnpm 11.0.9+, `uv`, and an authenticated `pi` installation for generative flows.
 
 ### 2) Use the local-first starter config
 

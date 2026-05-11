@@ -31,6 +31,12 @@ jobs:
         with:
           python-version: "3.14.3"
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.9
+          run_install: false
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -39,12 +45,6 @@ jobs:
           cache-dependency-path: |
             src/cloop/pi_bridge/pnpm-lock.yaml
             frontend/pnpm-lock.yaml
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-          run_install: false
 
       - name: Install dependencies
         run: uv sync --locked --all-groups
@@ -75,6 +75,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.9
+          run_install: false
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -83,12 +89,6 @@ jobs:
           cache-dependency-path: |
             src/cloop/pi_bridge/pnpm-lock.yaml
             frontend/pnpm-lock.yaml
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-          run_install: false
 
       - name: Install dependencies
         run: uv sync --locked --all-groups
