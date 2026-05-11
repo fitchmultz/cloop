@@ -77,13 +77,18 @@ Edit `.env`. For a first local run, keep automation off and use pi for generatio
 CLOOP_PI_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
 CLOOP_PI_ORGANIZER_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
 CLOOP_PI_SELECTOR_MODE=fallback
+CLOOP_PI_CHAT_MAX_TOOL_ROUNDS=4
+CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2
+CLOOP_PI_ENRICHMENT_MAX_TOOL_ROUNDS=2
+CLOOP_PI_RAG_MAX_TOOL_ROUNDS=2
+CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS=2
 CLOOP_EMBED_MODEL=ollama/nomic-embed-text
 CLOOP_OLLAMA_API_BASE=http://localhost:11434
 CLOOP_AUTOPILOT_ENABLED=false
 CLOOP_SCHEDULER_ENABLED=false
 ```
 
-`fallback` asks `pi --list-models` which selectors are available and picks the first configured match for each role. See [docs/ai_runtime.md](docs/ai_runtime.md) for model selector, retry, streaming, and embedding details.
+`fallback` asks `pi --list-models` which selectors are available and picks the first selector that `pi --list-models` reports as available for each role. See [docs/ai_runtime.md](docs/ai_runtime.md) for model selector, tool-budget, retry, streaming, and embedding details.
 
 ### 3) Start the app
 

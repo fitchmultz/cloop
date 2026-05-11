@@ -336,7 +336,7 @@ def get_settings() -> Settings:
             DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES,
         ),
         pi_selector_mode=_resolve_pi_selector_mode(os.getenv("CLOOP_PI_SELECTOR_MODE")),
-        pi_organizer_timeout=float(os.getenv("CLOOP_PI_ORGANIZER_TIMEOUT", "20.0")),
+        pi_organizer_timeout=float(os.getenv("CLOOP_PI_ORGANIZER_TIMEOUT", "60.0")),
         pi_organizer_thinking_level=_resolve_pi_thinking_level(
             os.getenv("CLOOP_PI_ORGANIZER_THINKING_LEVEL")
         ),

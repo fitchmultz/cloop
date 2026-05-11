@@ -95,7 +95,7 @@ def test_settings() -> Callable[..., Settings]:
             "pi_thinking_level": PiThinkingLevel.NONE,
             "pi_organizer_model_preferences": ("mock-organizer",),
             "pi_selector_mode": PiSelectorMode.FALLBACK,
-            "pi_organizer_timeout": 20.0,
+            "pi_organizer_timeout": 60.0,
             "pi_organizer_thinking_level": PiThinkingLevel.NONE,
             "pi_chat_max_tool_rounds": 4,
             "pi_planning_max_tool_rounds": 2,

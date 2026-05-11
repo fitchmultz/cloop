@@ -509,7 +509,7 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 - `CLOOP_PI_THINKING_LEVEL`: chat thinking level (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 - `CLOOP_PI_ORGANIZER_THINKING_LEVEL`: organizer thinking level
 - `CLOOP_PI_TIMEOUT`: chat timeout in seconds (default: `30.0`)
-- `CLOOP_PI_ORGANIZER_TIMEOUT`: organizer timeout in seconds (default: `20.0`)
+- `CLOOP_PI_ORGANIZER_TIMEOUT`: organizer timeout in seconds (default: `60.0`)
 - `CLOOP_PI_BRIDGE_CMD`: optional override for the Node bridge command
 - `CLOOP_PI_AGENT_DIR`: optional override for pi auth/model config (`PI_CODING_AGENT_DIR` is also honored)
 - `CLOOP_PI_CHAT_MAX_TOOL_ROUNDS`: advisory chat tool-round budget (default: `4`)

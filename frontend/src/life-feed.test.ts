@@ -1,5 +1,5 @@
 /**
- * life-feed.test.ts - Regression tests for the Cloop Life feed.
+ * life-feed.test.ts - Regression tests for the Life feed.
  *
  * Purpose:
  *   Verify Life response rendering stays aligned with the backend Life contract.

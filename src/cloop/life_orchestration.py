@@ -1,4 +1,4 @@
-"""AI-orchestrated Cloop Life product layer.
+"""AI-orchestrated Life feed layer.
 
 Purpose:
     Run the Life feed through the pi organizer as a structured loop-closing
@@ -25,7 +25,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from . import memory_management
@@ -118,6 +118,11 @@ _MUTABLE_LOOP_FIELDS = {
 }
 
 
+def _none_to_empty_list(value: Any) -> Any:
+    """Treat model-emitted null collections like omitted optional collection fields."""
+    return [] if value is None else value
+
+
 class _AgentCapture(BaseModel):
     raw_text: str = Field(..., min_length=1)
     title: str | None = None
@@ -146,6 +151,20 @@ class _AgentCapture(BaseModel):
     group_names: list[LifeGroupName] = Field(default_factory=list)
     source_evidence: list[str] = Field(default_factory=list)
 
+    _default_lists = field_validator(
+        "prepared_actions",
+        "tags",
+        "related_loop_ids",
+        "group_names",
+        "source_evidence",
+        mode="before",
+    )(_none_to_empty_list)
+
+    @field_validator("relationship_type", mode="before")
+    @classmethod
+    def default_relationship_type(cls, value: Any) -> Any:
+        return "related" if value is None else value
+
 
 class _AgentUpdate(BaseModel):
     loop_id: int = Field(..., ge=1)
@@ -160,6 +179,19 @@ class _AgentUpdate(BaseModel):
     relationship_confidence: float | None = Field(default=None, ge=0, le=1)
     group_names: list[LifeGroupName] = Field(default_factory=list)
     source_evidence: list[str] = Field(default_factory=list)
+
+    _default_lists = field_validator(
+        "prepared_actions",
+        "related_loop_ids",
+        "group_names",
+        "source_evidence",
+        mode="before",
+    )(_none_to_empty_list)
+
+    @field_validator("relationship_type", mode="before")
+    @classmethod
+    def default_relationship_type(cls, value: Any) -> Any:
+        return "related" if value is None else value
 
 
 class _AgentMemory(BaseModel):
@@ -264,11 +296,22 @@ class _AgentCleanupAction(BaseModel):
 
 
 class _AgentGroupItem(BaseModel):
-    loop_id: int = Field(..., ge=1)
+    loop_id: int | str | None = None
     life_state: LifeState
     rationale: str | None = None
     prepared_next_action: str | None = None
     prepared_actions: list[LifePreparedAction] = Field(default_factory=list)
+
+    _default_lists = field_validator("prepared_actions", mode="before")(_none_to_empty_list)
+
+    @field_validator("loop_id", mode="before")
+    @classmethod
+    def parse_numeric_loop_id(cls, value: Any) -> Any:
+        if isinstance(value, str) and value.strip().isdigit():
+            value = int(value.strip())
+        if isinstance(value, int) and value < 1:
+            raise ValueError("loop_id must be greater than or equal to 1")
+        return value
 
 
 class _AgentGroup(BaseModel):
@@ -276,6 +319,8 @@ class _AgentGroup(BaseModel):
     title: str
     summary: str
     items: list[_AgentGroupItem] = Field(default_factory=list)
+
+    _default_lists = field_validator("items", mode="before")(_none_to_empty_list)
 
 
 class _LifeAgentDecision(BaseModel):
@@ -292,6 +337,18 @@ class _LifeAgentDecision(BaseModel):
     clarification_answers: list[_AgentClarificationAnswer] = Field(default_factory=list)
     cleanup_actions: list[_AgentCleanupAction] = Field(default_factory=list)
     groups: list[_AgentGroup] = Field(default_factory=list)
+
+    _default_lists = field_validator(
+        "captures",
+        "updates",
+        "memories",
+        "memory_updates",
+        "clarifications",
+        "clarification_answers",
+        "cleanup_actions",
+        "groups",
+        mode="before",
+    )(_none_to_empty_list)
 
 
 def _parse_optional_utc(value: Any) -> datetime | None:
@@ -805,7 +862,7 @@ def _build_agent_messages(
         {
             "role": "system",
             "content": (
-                "You are Cloop Life, a local-first loop-closing agent. "
+                "You are Cloop, a local-first loop-closing agent. "
                 "Your job is to reduce mental load by interpreting messy human input into "
                 "structured loops, updates, cleanup recommendations, preference memory, and "
                 "resurfacing groups. Return only JSON. Do the human judgment here: split "
@@ -1655,6 +1712,25 @@ def _apply_cleanup_actions(
     return applied, undo
 
 
+def _resolve_group_loop_ref(
+    value: int | str | None,
+    *,
+    capture_index_to_loop_id: Mapping[int, int],
+) -> int | None:
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    for prefix in ("captured_", "capture_", "captures_", "new_capture_"):
+        if not normalized.startswith(prefix):
+            continue
+        suffix = normalized.removeprefix(prefix)
+        if suffix.isdigit():
+            return capture_index_to_loop_id.get(int(suffix))
+    return None
+
+
 def _groups_from_agent(
     *,
     decision: _LifeAgentDecision,
@@ -1662,20 +1738,30 @@ def _groups_from_agent(
     captured_group_memberships: Mapping[int, Sequence[LifeGroupName]],
     updated_group_memberships: Mapping[int, Sequence[LifeGroupName]],
     existing_items: Mapping[int, LifeLoopItem],
+    capture_index_to_loop_id: Mapping[int, int],
 ) -> list[LifeLoopGroup]:
     groups: dict[LifeGroupName, LifeLoopGroup] = {}
     for group in decision.groups:
-        items = [
-            _loop_item(
-                loop_lookup[item.loop_id],
-                rationale=item.rationale,
-                prepared_next_action=item.prepared_next_action,
-                prepared_actions=item.prepared_actions,
-                life_state=item.life_state,
+        items: list[LifeLoopItem] = []
+        for item in group.items:
+            loop_id = _resolve_group_loop_ref(
+                item.loop_id,
+                capture_index_to_loop_id=capture_index_to_loop_id,
             )
-            for item in group.items
-            if item.loop_id in loop_lookup
-        ]
+            if loop_id is None:
+                continue
+            loop = loop_lookup.get(loop_id)
+            if loop is None:
+                continue
+            items.append(
+                _loop_item(
+                    loop,
+                    rationale=item.rationale,
+                    prepared_next_action=item.prepared_next_action,
+                    prepared_actions=item.prepared_actions,
+                    life_state=item.life_state,
+                )
+            )
         groups[group.name] = LifeLoopGroup(
             name=group.name,
             title=group.title,
@@ -1709,7 +1795,7 @@ def _record_resurfacing_events(
     for group in decision.groups:
         for item in group.items:
             loop_id = item.loop_id
-            if loop_id not in known_loop_ids:
+            if not isinstance(loop_id, int) or loop_id not in known_loop_ids:
                 continue
             key = (loop_id, group.name)
             if key in seen:
@@ -1944,6 +2030,7 @@ def handle_life_message(
         captured_group_memberships=captured_group_memberships,
         updated_group_memberships=updated_group_memberships,
         existing_items={int(item.loop.id): item for item in [*captured, *updated, *applied]},
+        capture_index_to_loop_id=capture_index_to_loop_id,
     )
     cleanup = None
     if decision.mode == "cleanup" or decision.cleanup_actions:

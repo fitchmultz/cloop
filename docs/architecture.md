@@ -170,7 +170,7 @@ flowchart LR
 ### Life agent owns loop judgment
 **Decision:** the Life organizer owns conversational capture, lifecycle intent, resurfacing, cleanup recommendations, memory-layer choices, and notification copy. Python validates authority, IDs, schema, and persistence through shared services.
 
-- **Pros:** Cloop Life behaves like an AI loop-closing product instead of a hardcoded queue dashboard, while still keeping local data and reversible mutations.
+- **Pros:** Cloop behaves like an AI loop-closing product instead of a hardcoded queue dashboard, while still keeping local data and reversible mutations.
 - **Trade-offs:** organizer output requires strict schema validation, explicit authority/risk fields, and robust provider-failure handling.
 
 ## 5) Operational notes

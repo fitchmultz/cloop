@@ -1,4 +1,4 @@
-"""Cloop Life feed endpoints.
+"""Life feed endpoints.
 
 Purpose:
     Expose the simple product-facing Life conversation layer.

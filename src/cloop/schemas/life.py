@@ -1,4 +1,4 @@
-"""Cloop Life conversation schemas.
+"""Life feed conversation schemas.
 
 Purpose:
     Define the lightweight product-facing contract for the Life feed.

@@ -1,5 +1,5 @@
 /**
- * life-feed.ts - Cloop Life feed web surface.
+ * life-feed.ts - Life feed web surface.
  *
  * Purpose:
  *   Provide the first-screen Life experience for messy capture, resurfacing,

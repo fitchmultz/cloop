@@ -1,4 +1,4 @@
-"""Tests for the Cloop Life feed contract."""
+"""Tests for the Life feed contract."""
 
 from __future__ import annotations
 
@@ -103,6 +103,63 @@ def _post_life(client: TestClient, message: str, **extra: object) -> dict[str, A
     )
     assert response.status_code == 200, response.text
     return cast("dict[str, Any]", response.json())
+
+
+def test_life_agent_accepts_null_for_omittable_collection_fields(
+    make_test_client, monkeypatch
+) -> None:
+    client = make_test_client()
+
+    def fake_chat_completion(
+        messages: list[dict[str, str]], **_: object
+    ) -> tuple[str, dict[str, Any]]:
+        return json.dumps(
+            {
+                "mode": "capture",
+                "reply": "Captured the dentist appointment loop.",
+                "updates": None,
+                "memories": None,
+                "captures": [
+                    {
+                        "raw_text": "Schedule dentist appointment by Friday",
+                        "title": "Schedule dentist appointment",
+                        "life_state": "active",
+                        "loop_status": "actionable",
+                        "next_action": "Call dentist office",
+                        "prepared_actions": None,
+                        "tags": None,
+                        "related_loop_ids": None,
+                        "relationship_type": None,
+                        "group_names": None,
+                        "source_evidence": None,
+                    }
+                ],
+                "groups": [
+                    {
+                        "name": "needs_attention_today",
+                        "title": "Needs attention today",
+                        "summary": "Fresh captures that need a next action.",
+                        "items": [
+                            {
+                                "loop_id": "captured_0",
+                                "life_state": "active",
+                                "rationale": "The capture has not been persisted yet.",
+                                "prepared_actions": None,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ), {"model": "mock-organizer", "usage": {}}
+
+    monkeypatch.setattr("cloop.life_orchestration.chat_completion", fake_chat_completion)
+
+    payload = _post_life(client, "Schedule dentist appointment by Friday")
+
+    assert payload["captured"][0]["loop"]["title"] == "Schedule dentist appointment"
+    assert payload["captured"][0]["loop"]["next_action"] == "Call dentist office"
+    assert payload["captured"][0]["prepared_actions"] == []
+    assert payload["groups"][0]["items"][0]["loop"]["title"] == "Schedule dentist appointment"
 
 
 def test_life_message_splits_messy_dump_into_multiple_loops(make_test_client, monkeypatch) -> None:
