@@ -261,7 +261,7 @@ describe("command-palette notification commands", () => {
 
     controller.open();
     await settle();
-    findCommandButton("Open home workspace").click();
+    findCommandButton("Open Life home").click();
     await settle();
 
     expect(openLocation).toHaveBeenCalledWith(location({ state: "operator" }));

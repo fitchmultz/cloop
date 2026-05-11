@@ -37,6 +37,7 @@ from ..settings import Settings
 SCHEDULER_TASKS = (
     "daily_review",
     "weekly_review",
+    "life_garden",
     "due_soon_nudge",
     "stale_rescue",
     "webhook_delivery",

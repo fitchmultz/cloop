@@ -43,6 +43,7 @@ from ..webhooks.service import process_pending_deliveries
 from .cadence import next_due_at, slot_key
 from .models import SCHEDULER_TASKS, SchedulerRunContext, SchedulerTaskRunnerResolver
 from .side_effects import heartbeat_scheduler_run
+from .task_life import run_life_garden
 from .task_nudges import run_due_soon_nudge, run_stale_rescue
 from .task_reviews import run_daily_review, run_weekly_review
 
@@ -67,6 +68,8 @@ def task_runner(
         return run_daily_review
     if task_name == "weekly_review":
         return run_weekly_review
+    if task_name == "life_garden":
+        return run_life_garden
     if task_name == "due_soon_nudge":
         return run_due_soon_nudge
     if task_name == "stale_rescue":
@@ -249,5 +252,5 @@ async def scheduler_loop(
             logger.info("Scheduler stopped")
             raise
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Scheduler error: %s", exc)
+            logger.error("Scheduler error: %s", type(exc).__name__)
             await asyncio.sleep(settings.scheduler_poll_interval_seconds)

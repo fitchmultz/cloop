@@ -67,11 +67,11 @@ def handle_validation_exception(_: Request, exc: RequestValidationError) -> JSON
 def handle_generic_exception(_: Request, exc: Exception) -> JSONResponse:
     """Handle unexpected exceptions with sanitized response.
 
-    Full exception details are logged server-side with a unique error_id
-    for correlation. Clients receive only the error_id, not internal details.
+    The log keeps a unique error_id and exception type for correlation without
+    reflecting potentially sensitive exception messages or stack frames.
     """
     error_id = str(uuid.uuid4())
-    logger.exception("Unhandled exception [%s]: %s", error_id, exc)
+    logger.error("Unhandled exception [%s]: %s", error_id, type(exc).__name__)
     return error_response(internal_error_view(error_id=error_id))
 
 

@@ -23,6 +23,7 @@ Invariants/Assumptions:
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 from fastapi import HTTPException
@@ -32,9 +33,12 @@ from cloop.error_contract import error_response, error_view_from_exception
 from cloop.loops.errors import (
     CloopError,
     LoopClaimedError,
+    LoopCreateError,
+    LoopImportError,
     ResourceNotFoundError,
     WorkingSetUndoNotPossibleError,
 )
+from cloop.routes._streaming import format_stream_error_event
 
 
 class TestErrorViewFromException:
@@ -156,6 +160,23 @@ class TestErrorViewFromException:
         assert view.details == {"detail": "extra=1"}
         assert view.status_code == 400
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            LoopCreateError("call Alice about token=secret"),
+            LoopImportError({"raw_text": "call Alice about token=secret"}),
+        ],
+    )
+    def test_persistence_errors_do_not_expose_user_payloads(self, exc: Exception) -> None:
+        """Persistence failures should not reflect raw loop text or import payloads."""
+        view = error_view_from_exception(exc)
+
+        assert view.error_type == "persistence_error"
+        assert view.code == "persistence_error"
+        assert view.details == {}
+        assert view.status_code == 500
+        assert "token=secret" not in str(view)
+
     def test_rejects_unsupported_exception_types(self) -> None:
         """Unsupported exceptions should fail fast instead of guessing a contract."""
         with pytest.raises(TypeError, match="unsupported_error_view:ValueError"):
@@ -185,3 +206,16 @@ class TestErrorResponse:
             }
         }
         assert response.status_code == 502
+
+    def test_streaming_internal_error_log_omits_exception_details(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """SSE fallback errors should not log raw exception messages."""
+        caplog.set_level(logging.ERROR, logger="cloop.routes._streaming")
+
+        event = format_stream_error_event(RuntimeError("stream leaked token=secret"))
+
+        assert "event: error" in event
+        assert "internal_server_error" in event
+        assert "RuntimeError" in caplog.text
+        assert "token=secret" not in caplog.text

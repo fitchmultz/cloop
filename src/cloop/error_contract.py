@@ -299,7 +299,7 @@ def _map_persistence_error(exc: CloopError) -> AppErrorView | None:
             error_type="persistence_error",
             code="persistence_error",
             message=exc.message,
-            details=_detail_dict(exc),
+            details={},
             status_code=HTTP_INTERNAL_SERVER_ERROR,
         )
     return None

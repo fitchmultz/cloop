@@ -197,6 +197,8 @@ def loop_record_to_dict(
         "activation_energy": record.activation_energy,
         "urgency": record.urgency,
         "importance": record.importance,
+        "emotional_weight": record.emotional_weight,
+        "confidence": record.confidence,
         "project_id": record.project_id,
         "blocked_reason": record.blocked_reason,
         "completion_note": record.completion_note,

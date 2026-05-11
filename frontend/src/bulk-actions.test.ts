@@ -74,6 +74,7 @@ describe("selection-state + bulk-actions", () => {
     const unselectedCard = document.querySelector<HTMLElement>('.loop-card[data-loop-id="11"]');
 
     expect(bulkBar?.classList.contains("visible")).toBe(true);
+    expect(bulkBar?.hidden).toBe(false);
     expect(count?.textContent).toBe("2 loops selected");
     expect(selectedCard?.classList.contains("selected")).toBe(true);
     expect(selectedCheckbox?.checked).toBe(true);
@@ -83,6 +84,7 @@ describe("selection-state + bulk-actions", () => {
     updateBulkActionBar();
 
     expect(bulkBar?.classList.contains("visible")).toBe(false);
+    expect(bulkBar?.hidden).toBe(true);
     expect(selectedCheckbox?.checked).toBe(false);
   });
 });

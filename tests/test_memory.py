@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from cloop import db
+from cloop import db, memory_management
+from cloop.chat_orchestration import build_memory_context
 from cloop.settings import get_settings
 
 
@@ -140,6 +141,81 @@ class TestMemoryCRUD:
 
         get_resp = test_client.get(f"/memory/{entry_id}")
         assert get_resp.status_code == 404
+
+    def test_memory_context_groups_life_layers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chat memory context is layered into active, warm, and cold sections."""
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        memory_management.create_memory_entry(
+            payload={
+                "key": "life.context.old",
+                "content": "Old context should stay cold.",
+                "category": "context",
+                "priority": 90,
+                "metadata": {"life_layer": "cold"},
+            },
+            settings=settings,
+        )
+        memory_management.create_memory_entry(
+            payload={
+                "key": "life.context.current",
+                "content": "Current context is active.",
+                "category": "context",
+                "priority": 10,
+                "metadata": {"life_layer": "active"},
+            },
+            settings=settings,
+        )
+
+        result = build_memory_context(settings, limit=2)
+
+        assert "### Active Memory" in result.content
+        assert "### Cold Memory" in result.content
+        assert result.content.index("### Active Memory") < result.content.index("### Cold Memory")
+        assert "life.context.current" in result.content
+        assert "life.context.old" in result.content
+
+    def test_memory_context_groups_person_and_event_categories(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Chat memory context keeps people and events separate from generic context."""
+        monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))
+        get_settings.cache_clear()
+        settings = get_settings()
+        db.init_databases(settings)
+
+        memory_management.create_memory_entry(
+            payload={
+                "key": "life.person.ryan",
+                "content": "Ryan is tied to camping follow-ups.",
+                "category": "person",
+                "priority": 90,
+                "metadata": {"life_layer": "warm"},
+            },
+            settings=settings,
+        )
+        memory_management.create_memory_entry(
+            payload={
+                "key": "life.event.camping",
+                "content": "Camping weekend collects related logistics.",
+                "category": "event",
+                "priority": 80,
+                "metadata": {"life_layer": "warm"},
+            },
+            settings=settings,
+        )
+
+        result = build_memory_context(settings, limit=2)
+
+        assert "#### People" in result.content
+        assert "#### Events" in result.content
+        assert "life.person.ryan" in result.content
+        assert "life.event.camping" in result.content
 
     def test_get_nonexistent_memory(self, test_client: TestClient) -> None:
         """Getting nonexistent memory returns 404."""

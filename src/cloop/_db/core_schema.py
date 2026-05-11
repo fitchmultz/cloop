@@ -83,6 +83,8 @@ CREATE TABLE loops (
     activation_energy INTEGER,
     urgency REAL,
     importance REAL,
+    emotional_weight REAL,
+    confidence REAL,
     project_id INTEGER,
     blocked_reason TEXT,
     completion_note TEXT,
@@ -591,7 +593,7 @@ CREATE TABLE memory_entries (
     key TEXT,
     content TEXT NOT NULL,
     category TEXT NOT NULL DEFAULT 'fact'
-        CHECK (category IN ('preference', 'fact', 'commitment', 'context')),
+        CHECK (category IN ('preference', 'pattern', 'fact', 'commitment', 'context', 'person', 'event')),
     priority INTEGER NOT NULL DEFAULT 0,
     source TEXT NOT NULL DEFAULT 'user_stated'
         CHECK (source IN ('user_stated', 'inferred', 'imported', 'system')),

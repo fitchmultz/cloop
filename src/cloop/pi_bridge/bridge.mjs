@@ -2,9 +2,9 @@ import process from "node:process";
 import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
-import { Agent } from "@mariozechner/pi-agent-core";
-import { StringEnum, Type } from "@mariozechner/pi-ai";
-import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 export const PROTOCOL_VERSION = 1;
 export const BRIDGE_NAME = "cloop-pi-bridge";
@@ -478,14 +478,18 @@ export async function runSession(
 			createTool(session, spec, emitEvent),
 		);
 
-		const agent = new AgentClass();
-		agent.setModel(model);
-		agent.setSystemPrompt(normalized.systemPrompt);
-		agent.setThinkingLevel(
-			session.request.thinking_level === "none" ? "off" : session.request.thinking_level,
-		);
-		agent.setTools(tools);
-		agent.replaceMessages(normalized.messages);
+		const agent = new AgentClass({
+			initialState: {
+				model,
+				systemPrompt: normalized.systemPrompt,
+				thinkingLevel:
+					session.request.thinking_level === "none"
+						? "off"
+						: session.request.thinking_level,
+				tools,
+				messages: normalized.messages,
+			},
+		});
 		session.agent = agent;
 
 		timeoutHandle =

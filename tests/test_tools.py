@@ -1,3 +1,6 @@
+import logging
+import sqlite3
+
 import pytest
 
 from cloop.loops import read_service
@@ -222,6 +225,30 @@ class TestLoopList:
         assert len(result["items"]) == 2
         assert "next_cursor" in result
         assert "limit" in result
+
+    def test_database_errors_do_not_expose_exception_details(self, monkeypatch, caplog):
+        class _FailingConnection:
+            def __enter__(self):
+                raise sqlite3.OperationalError("unable to open /Users/secret/cloop.db")
+
+            def __exit__(self, exc_type, exc, traceback):
+                _ = exc_type, exc, traceback
+                return False
+
+        monkeypatch.setattr(
+            "cloop._tools.loops.db.core_connection",
+            lambda settings: _FailingConnection(),
+        )
+        caplog.set_level(logging.ERROR, logger="cloop._tools.loops")
+
+        with pytest.raises(ValidationError) as exc_info:
+            execute_loop_list()
+
+        error_text = str(exc_info.value)
+        assert "database error during loop_list" in error_text
+        assert "/Users/secret" not in error_text
+        assert "OperationalError" in caplog.text
+        assert "/Users/secret" not in caplog.text
 
     def test_filters_by_status(self, tmp_path, monkeypatch):
         monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path))

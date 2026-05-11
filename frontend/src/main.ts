@@ -26,6 +26,7 @@ import "./styles/layout.css";
 import "./styles/components.css";
 import "./styles/trust-surfaces.css";
 import "./styles/operator.css";
+import "./styles/life.css";
 import "./styles/loop.css";
 import "./styles/review.css";
 import "./styles/chat-rag.css";
@@ -34,12 +35,14 @@ import "./styles/comments.css";
 import "./styles/modals.css";
 
 import { bootstrapPwaRuntime } from "./pwa";
+import { bootstrapLifeFeed } from "./life-feed";
 import { bootstrapReviewWorkspace } from "./review-workspace";
 import { bootstrapShell } from "./shell";
 import { bootstrapFrontendSurfaceRegistry } from "./surface-runtime";
 
 function bootstrapFrontend(): void {
   bootstrapPwaRuntime();
+  bootstrapLifeFeed();
   const surfaces = bootstrapFrontendSurfaceRegistry();
   bootstrapShell({ surfaces });
   bootstrapReviewWorkspace();

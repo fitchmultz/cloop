@@ -1035,8 +1035,8 @@ function planningTrustMetadata(snapshot: PlanningSessionSnapshotResponse | null)
       : "Execution history carries rollback cues when available",
     rollbackTone: currentCheckpoint ? "progress" : "neutral",
     impactSummary: currentCheckpoint
-      ? `Executing ${currentCheckpoint.title || `checkpoint ${snapshot?.session.current_checkpoint_index != null ? snapshot.session.current_checkpoint_index + 1 : ""}`.trim()} will run ${operationCount} deterministic operation${operationCount === 1 ? "" : "s"}.`
-      : "Select or refresh a planning session to inspect the next deterministic checkpoint.",
+      ? `Executing ${currentCheckpoint.title || `checkpoint ${snapshot?.session.current_checkpoint_index != null ? snapshot.session.current_checkpoint_index + 1 : ""}`.trim()} will run ${operationCount} planned operation${operationCount === 1 ? "" : "s"}.`
+      : "Select or refresh a planning session to inspect the next checkpoint.",
     impactTone: currentCheckpoint ? "attention" : "neutral",
   };
 }
@@ -1828,8 +1828,8 @@ function renderWorkspace(): void {
       ? `
         <section class="review-shell-section">
           <div class="review-shell-section-header">
-            <h3>Decision workspace</h3>
-            <p>Review one checkpoint at a time, then execute only when the deterministic payload looks right.</p>
+            <h3>Decision detail</h3>
+            <p>Review one checkpoint at a time, then execute only when the proposed changes look right.</p>
           </div>
           <div class="review-shell-focus-card">
             <div class="review-shell-focus-card-header">
@@ -1899,7 +1899,7 @@ function renderWorkspace(): void {
         ? `
           <section class="review-shell-section">
             <div class="review-shell-section-header">
-              <h3>Decision workspace</h3>
+              <h3>Decision detail</h3>
               <p>Make one relationship decision at a time with queue context preserved.</p>
             </div>
             <div class="review-shell-comparison-grid">
@@ -1956,7 +1956,7 @@ function renderWorkspace(): void {
         ? `
           <section class="review-shell-section">
             <div class="review-shell-section-header">
-              <h3>Decision workspace</h3>
+              <h3>Decision detail</h3>
               <p>Resolve one loop's pending suggestions or clarifications without losing your place.</p>
             </div>
             <div class="review-shell-comparison-grid">
@@ -2019,7 +2019,7 @@ function renderWorkspace(): void {
     ? `
       <section class="review-shell-section">
         <div class="review-shell-section-header">
-          <h3>Decision workspace</h3>
+          <h3>Decision detail</h3>
           <p>${escapeHtml(cohortDescriptor(cohort).decision)}</p>
         </div>
         <div class="review-shell-focus-card">
@@ -2083,8 +2083,8 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
       tone: "neutral",
       eyebrow: "Impact preview",
       title: "Nothing executed yet",
-      summary: "Review the current checkpoint and its deterministic operations before executing the first step.",
-      rationale: "Planning impact stays action-first by surfacing the next deterministic checkpoint even before any execution history exists.",
+      summary: "Review the current checkpoint and its planned operations before executing the first step.",
+      rationale: "Planning impact stays action-first by surfacing the next checkpoint even before any execution history exists.",
       preview: [
         { label: "Status", value: snapshot.session.status.replaceAll("_", " ") },
         { label: "Assumptions", value: `${snapshot.assumptions?.length ?? 0}` },
@@ -2094,7 +2094,7 @@ function renderPlanningImpact(snapshot: PlanningSessionSnapshotResponse | null):
       handoff: {
         changeSummary: "No execution history exists yet for this plan.",
         createdResources: [],
-        nextStep: "Inspect the checkpoint payload, then execute when the deterministic operations look right.",
+        nextStep: "Inspect the checkpoint payload, then execute when the planned operations look right.",
         breadcrumbs: ["Home", "Plan", snapshot.session.name],
       },
       actions: [

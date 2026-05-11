@@ -819,6 +819,44 @@ body.shell-focus-mode .operator-grid {
     justify-items: start;
   }
 
+  .app-header,
+  .shell-status-bar,
+  .state-nav,
+  .state-subnav,
+  .operator-main {
+    box-sizing: border-box;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  .shell-header-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .shell-header-actions button {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .app-header > *,
+  .shell-status-copy,
+  .shell-status-meta,
+  .operator-zone,
+  .operator-zone-heading > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .app-header p,
+  .shell-status-bar p,
+  .operator-zone-heading p {
+    overflow-wrap: anywhere;
+  }
+
   .shell-status-meta {
     justify-items: start;
     text-align: left;

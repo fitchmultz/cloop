@@ -70,13 +70,13 @@ def _safe_enrich_loop(*, loop_id: int, settings: Settings) -> None:
         _logger.warning(
             "Background enrichment configuration error for loop %s (error persisted to DB): %s",
             loop_id,
-            exc,
+            type(exc).__name__,
         )
     except Exception as exc:  # noqa: BLE001
-        _logger.exception(
+        _logger.error(
             "Background enrichment failed for loop %s (error persisted to DB): %s",
             loop_id,
-            exc,
+            type(exc).__name__,
         )
 
 
@@ -107,8 +107,12 @@ def loop_capture_endpoint(
         field_inputs=CaptureFieldInputs(
             activation_energy=request.activation_energy,
             blocked_reason=request.blocked_reason,
+            confidence=request.confidence,
             due_date=request.due_date,
             due_at_utc=request.due_at_utc,
+            emotional_weight=request.emotional_weight,
+            urgency=request.urgency,
+            importance=request.importance,
             next_action=request.next_action,
             project=request.project,
             tags=request.tags,

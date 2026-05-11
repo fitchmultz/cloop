@@ -1,52 +1,133 @@
-"""Scheduler nudge-task implementations.
+"""Scheduler nudge tasks delegated to the Life agent.
 
 Purpose:
-    Implement scheduler-owned due-soon and stale-rescue nudges behind the public
-    `cloop.scheduler` facade.
+    Keep scheduler slots deterministic while giving due-soon and stale-rescue
+    judgment to the Life organizer.
 
 Responsibilities:
-    - Select candidate loops for due-soon and stale-rescue nudges
-    - Compute due-soon escalation state, ranking, and bucket summaries
-    - Emit one deduped event/push per slot and persist nudge state updates
-
-Scope:
-    - Due-soon and stale-rescue task logic only
+    - Run background Life-agent passes for due-soon and stale-rescue slots
+    - Persist compact scheduler events from the agent response
+    - Send a digest only when the agent explicitly requests notification
 
 Non-scope:
-    - Scheduler slot claiming or runtime orchestration
-    - Review-task or webhook-delivery behavior
-
-Usage:
-    - Imported by the scheduler facade and runtime dispatch helpers
-
-Invariants/Assumptions:
-    - Push failures are logged but do not fail successful nudge computation
-    - Due-soon nudges persist state at most once per loop per scheduler slot
-    - Stale-rescue tasks return an empty result when no stale loops qualify
+    - Ranking loops, assigning escalation levels, deciding staleness, or writing
+      notification copy in deterministic Python
 """
 
 from __future__ import annotations
 
 import logging
 import sqlite3
-from collections import Counter
-from datetime import timedelta
 from typing import Any
 
-from ..constants import MAX_ESCALATION_LEVEL, NUDGE_THRESHOLD_HIGH, NUDGE_THRESHOLD_LOW
-from ..loops.due import effective_due_iso, effective_due_sql
-from ..loops.models import LoopEventType, utc_now
+from ..life_orchestration import handle_life_message
+from ..loops.models import LoopEventType, format_utc_datetime, utc_now
 from ..push_sender import send_scheduler_push
+from ..schemas.life import LifeMessageResponse
 from ..settings import Settings
 from .cadence import resolved_context
 from .models import SchedulerPushSender, SchedulerRunContext
-from .side_effects import (
-    emit_scheduler_event,
-    send_scheduler_push_once,
-    upsert_nudge_state_for_slot,
-)
+from .side_effects import emit_scheduler_event, send_scheduler_push_once
 
 logger = logging.getLogger(__name__)
+
+_DUE_SOON_MESSAGE = (
+    "Run a background Life due-soon pass. Review the full Life context and decide "
+    "whether anything due, overdue, vague, blocked, emotionally heavy, or easily prepared "
+    "deserves attention now. Do not use dumb reminder behavior. If a digest is worth "
+    "interrupting for, set notify_user true and write the notification copy yourself. "
+    "If nothing is worth interrupting for, quietly return no notification."
+)
+
+_STALE_RESCUE_MESSAGE = (
+    "Run a background Life stale-rescue pass. Review the full Life context and decide "
+    "which old, avoided, vague, repeatedly deferred, blocked, or no-longer-relevant loops "
+    "need cleanup, preparation, grouping, or quiet reversible action under the Life "
+    "authority contract. You decide what stale means from the evidence. If a digest is "
+    "worth interrupting for, set notify_user true and write the notification copy yourself."
+)
+
+
+def _life_nudge_loop_ids(response: LifeMessageResponse) -> list[int]:
+    return sorted(
+        {item.loop.id for group in response.groups for item in group.items}
+        | {item.loop.id for item in response.captured}
+        | {item.loop.id for item in response.updated}
+    )
+
+
+def _life_nudge_payload(*, response: LifeMessageResponse, nudge_type: str) -> dict[str, Any]:
+    cleanup = response.cleanup
+    loop_ids = _life_nudge_loop_ids(response)
+    return {
+        "nudge_type": nudge_type,
+        "mode": response.mode,
+        "reply": response.reply,
+        "notify_user": response.notify_user,
+        "notification_title": response.notification_title,
+        "notification_body": response.notification_body,
+        "loop_ids": loop_ids,
+        "details": [
+            {
+                "id": item.loop.id,
+                "title": item.loop.title,
+                "life_state": item.life_state,
+                "rationale": item.rationale,
+            }
+            for group in response.groups
+            for item in group.items
+        ],
+        "group_counts": {group.name: len(group.items) for group in response.groups},
+        "cleanup": None
+        if cleanup is None
+        else {
+            "open_count": cleanup.open_count,
+            "recommendation": cleanup.recommendation,
+            "close_candidate_count": len(cleanup.close_candidates),
+            "archive_candidate_count": len(cleanup.archive_candidates),
+            "keep_active_count": len(cleanup.keep_active),
+            "review_needed_count": len(cleanup.review_needed),
+            "applied_automatic_cleanup_count": len(cleanup.applied_automatic_cleanup),
+            "undo_count": len(cleanup.undo),
+        },
+        "generated_at_utc": format_utc_datetime(utc_now()),
+    }
+
+
+async def _run_life_nudge_pass(
+    *,
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None,
+    task_name: str,
+    event_type: LoopEventType,
+    push_kind: str,
+    message: str,
+    send_push_fn: SchedulerPushSender,
+) -> dict[str, Any]:
+    resolved = resolved_context(context, task_name=task_name, settings=settings)
+    resolved.assert_active()
+    response = handle_life_message(
+        message=message,
+        settings=settings,
+        conn=conn,
+        interaction_source="background",
+    )
+    payload = _life_nudge_payload(response=response, nudge_type=push_kind.removeprefix("nudge_"))
+    event_id = emit_scheduler_event(event_type, payload, context=resolved, conn=conn)
+    push_count = 0
+    if payload.get("notify_user") is True:
+        try:
+            push_count = send_scheduler_push_once(
+                push_kind=push_kind,
+                payload=payload,
+                context=resolved,
+                conn=conn,
+                send_push_fn=send_push_fn,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Life nudge push notification failed: %s", type(exc).__name__)
+    return {"event_id": event_id, "push_count": push_count, **payload}
 
 
 async def run_due_soon_nudge(
@@ -56,151 +137,23 @@ async def run_due_soon_nudge(
     *,
     send_push_fn: SchedulerPushSender = send_scheduler_push,
 ) -> dict[str, Any]:
-    """Emit and persist one deduped due-soon nudge slot."""
-    from ..loops import repo as loop_repo
-    from ..loops.models import format_utc_datetime, parse_utc_datetime
-    from ..loops.prioritization import PriorityWeights, bucketize, compute_priority_score
-    from ..loops.repo import get_nudge_states_batch
-
-    resolved = resolved_context(context, task_name="due_soon_nudge", settings=settings)
-    now = utc_now()
-    due_soon_cutoff = format_utc_datetime(now + timedelta(hours=settings.due_soon_hours))
-    now_str = format_utc_datetime(now)
-    effective_due_expr = effective_due_sql(table_alias="")
-    rows = conn.execute(
-        f"""SELECT id, title, due_at_utc, next_due_at_utc, urgency, importance,
-                  time_minutes, activation_energy
-           FROM loops
-           WHERE {effective_due_expr} IS NOT NULL
-             AND {effective_due_expr} <= ?
-             AND next_action IS NULL
-             AND status IN ('inbox', 'actionable', 'scheduled')
-             AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)""",
-        (due_soon_cutoff, now_str),
-    ).fetchall()
-    if not rows:
-        return {"nudged": 0, "loop_ids": [], "escalation_summary": {}, "bucket_summary": {}}
-
-    weights = PriorityWeights(
-        due_weight=settings.priority_weight_due,
-        urgency_weight=settings.priority_weight_urgency,
-        importance_weight=settings.priority_weight_importance,
-        time_penalty=settings.priority_weight_time_penalty,
-        activation_penalty=settings.priority_weight_activation_penalty,
-        blocked_penalty=settings.priority_weight_blocked_penalty,
-    )
-    scored_candidates = []
-    for row in rows:
-        loop_dict = dict(row)
-        effective_due = effective_due_iso(row)
-        loop_dict["due_at_utc"] = effective_due
-        has_open_deps = loop_repo.has_open_dependencies(loop_id=row["id"], conn=conn)
-        score = compute_priority_score(
-            loop_dict,
-            now_utc=now,
-            w=weights,
-            settings=settings,
-            has_open_dependencies=has_open_deps,
-        )
-        bucket = bucketize(
-            loop_dict,
-            now_utc=now,
-            settings=settings,
-            has_open_dependencies=has_open_deps,
-        )
-        scored_candidates.append(
-            {
-                "row": row,
-                "effective_due": effective_due,
-                "score": score,
-                "bucket": bucket,
-            }
-        )
-
-    scored_candidates.sort(key=lambda item: item["score"], reverse=True)
-    scored_candidates = scored_candidates[:50]
-    loop_ids = [candidate["row"]["id"] for candidate in scored_candidates]
-    existing_states = get_nudge_states_batch(loop_ids=loop_ids, nudge_type="due_soon", conn=conn)
-
-    details = []
-    escalation_summary: dict[int, int] = {}
-    for candidate in scored_candidates:
-        row = candidate["row"]
-        loop_id = row["id"]
-        state = existing_states.get(loop_id)
-        effective_due = candidate["effective_due"]
-        due_at = parse_utc_datetime(effective_due) if effective_due else now
-        hours_until_due = (due_at - now).total_seconds() / 3600
-        is_overdue = hours_until_due < 0
-        if state is None:
-            nudge_count = 1
-            escalation_level = MAX_ESCALATION_LEVEL if is_overdue else 0
-        else:
-            nudge_count = state.nudge_count + 1
-            if is_overdue:
-                escalation_level = min(
-                    MAX_ESCALATION_LEVEL + 1,
-                    max(state.escalation_level, MAX_ESCALATION_LEVEL) + (nudge_count // 2),
-                )
-            elif nudge_count >= NUDGE_THRESHOLD_HIGH:
-                escalation_level = min(MAX_ESCALATION_LEVEL + 1, MAX_ESCALATION_LEVEL)
-            elif nudge_count >= NUDGE_THRESHOLD_LOW:
-                escalation_level = min(MAX_ESCALATION_LEVEL + 1, 1)
-            else:
-                escalation_level = state.escalation_level
-        escalation_summary[escalation_level] = escalation_summary.get(escalation_level, 0) + 1
-        details.append(
-            {
-                "id": loop_id,
-                "title": row["title"],
-                "due_at_utc": row["due_at_utc"],
-                "next_due_at_utc": row["next_due_at_utc"],
-                "escalation_level": escalation_level,
-                "nudge_count": nudge_count,
-                "is_overdue": is_overdue,
-                "priority_score": round(candidate["score"], 3),
-                "bucket": candidate["bucket"],
-            }
-        )
-
-    payload = {
-        "nudge_type": "due_soon",
-        "loop_ids": loop_ids,
-        "details": details,
-        "escalation_summary": escalation_summary,
-        "bucket_summary": dict(Counter(candidate["bucket"] for candidate in scored_candidates)),
-        "generated_at_utc": format_utc_datetime(now),
-    }
-
-    resolved.assert_active()
-    event_id = emit_scheduler_event(
-        LoopEventType.NUDGE_DUE_SOON,
-        payload,
-        context=resolved,
+    """Run one due-soon nudge slot through the Life agent."""
+    result = await _run_life_nudge_pass(
+        settings=settings,
         conn=conn,
+        context=context,
+        task_name="due_soon_nudge",
+        event_type=LoopEventType.NUDGE_DUE_SOON,
+        push_kind="nudge_due_soon",
+        message=_DUE_SOON_MESSAGE,
+        send_push_fn=send_push_fn,
     )
-    try:
-        send_scheduler_push_once(
-            push_kind="nudge_due_soon",
-            payload=payload,
-            context=resolved,
-            conn=conn,
-            send_push_fn=send_push_fn,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Push notification failed: %s", exc)
-    for detail in details:
-        upsert_nudge_state_for_slot(
-            loop_id=detail["id"],
-            nudge_type="due_soon",
-            escalation_level=detail["escalation_level"],
-            nudge_count=detail["nudge_count"],
-            last_nudge_event_id=event_id,
-            slot_key=resolved.slot_key,
-            conn=conn,
-        )
-    conn.commit()
-    return {"event_id": event_id, "nudged": len(loop_ids), **payload}
+    return {
+        "nudged": len(result["loop_ids"]),
+        "escalation_summary": {},
+        "bucket_summary": {},
+        **result,
+    }
 
 
 async def run_stale_rescue(
@@ -210,54 +163,15 @@ async def run_stale_rescue(
     *,
     send_push_fn: SchedulerPushSender = send_scheduler_push,
 ) -> dict[str, Any]:
-    """Emit one deduped stale-rescue scheduler slot."""
-    from ..loops.models import format_utc_datetime
-
-    resolved = resolved_context(context, task_name="stale_rescue", settings=settings)
-    now = utc_now()
-    stale_cutoff = format_utc_datetime(now - timedelta(hours=settings.review_stale_hours))
-    now_str = format_utc_datetime(now)
-    rows = conn.execute(
-        """SELECT id, title, status, updated_at FROM loops
-           WHERE status IN ('inbox', 'actionable', 'blocked', 'scheduled')
-             AND updated_at < ?
-             AND (snooze_until_utc IS NULL OR snooze_until_utc <= ?)
-           ORDER BY updated_at ASC
-           LIMIT 100""",
-        (stale_cutoff, now_str),
-    ).fetchall()
-    loop_ids = [row["id"] for row in rows]
-    if not loop_ids:
-        return {"rescued": 0, "loop_ids": []}
-
-    payload = {
-        "nudge_type": "stale",
-        "loop_ids": loop_ids,
-        "details": [
-            {
-                "id": row["id"],
-                "title": row["title"],
-                "status": row["status"],
-                "updated_at": row["updated_at"],
-            }
-            for row in rows
-        ],
-        "generated_at_utc": format_utc_datetime(now),
-    }
-    event_id = emit_scheduler_event(
-        LoopEventType.NUDGE_STALE,
-        payload,
-        context=resolved,
+    """Run one stale-rescue slot through the Life agent."""
+    result = await _run_life_nudge_pass(
+        settings=settings,
         conn=conn,
+        context=context,
+        task_name="stale_rescue",
+        event_type=LoopEventType.NUDGE_STALE,
+        push_kind="nudge_stale",
+        message=_STALE_RESCUE_MESSAGE,
+        send_push_fn=send_push_fn,
     )
-    try:
-        send_scheduler_push_once(
-            push_kind="nudge_stale",
-            payload=payload,
-            context=resolved,
-            conn=conn,
-            send_push_fn=send_push_fn,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Push notification failed: %s", exc)
-    return {"event_id": event_id, "rescued": len(loop_ids), **payload}
+    return {"rescued": len(result["loop_ids"]), **result}

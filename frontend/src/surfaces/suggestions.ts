@@ -383,8 +383,8 @@ async function submitClarificationAnswers(
     await modals.alertDialog({
       title: "Add At Least One Answer",
       description: options.mode === "direct"
-        ? "The assistant needs at least one clarification response before it can save answer-only clarification work."
-        : "The assistant needs at least one clarification response before it can re-enrich this loop.",
+        ? "Cloop needs at least one clarification response before it can save answer-only clarification work."
+        : "Cloop needs at least one clarification response before it can re-enrich this loop.",
       eyebrow: "Suggestions",
     });
     return;

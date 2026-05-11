@@ -16,8 +16,8 @@ cp .env.example .env
 For a minimal local-only run, set these in `.env`:
 
 ```dotenv
-CLOOP_PI_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
-CLOOP_PI_ORGANIZER_MODEL=zai/glm-5,kimi-coding/k2p5,openai-codex/gpt-5.4
+CLOOP_PI_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
+CLOOP_PI_ORGANIZER_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
 CLOOP_PI_SELECTOR_MODE=fallback
 CLOOP_PI_CHAT_MAX_TOOL_ROUNDS=4
 CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2
@@ -32,8 +32,8 @@ CLOOP_OLLAMA_API_BASE=http://localhost:11434
 
 Cloop treats `CLOOP_PI_MODEL` and `CLOOP_PI_ORGANIZER_MODEL` as ordered selector preferences.
 In `fallback` mode it asks pi which selectors are available and uses the first match.
-The project preference order is `zai/glm-5`, then `kimi-coding/k2p5`, then
-`openai-codex/gpt-5.4`, but any selector available from `pi --list-models` is valid.
+The project preference order is `zai/glm-5.1`, then `kimi-coding/k2p6`, then
+`openai-codex/gpt-5.5`, but any selector available from `pi --list-models` is valid.
 If you need strict pinning, set `CLOOP_PI_SELECTOR_MODE=exact` and configure exactly one
 selector per env var.
 

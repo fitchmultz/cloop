@@ -27,7 +27,7 @@ Invariants/Assumptions:
 
 from __future__ import annotations
 
-SCHEMA_VERSION: int = 50
+SCHEMA_VERSION: int = 53
 RAG_SCHEMA_VERSION: int = 1
 
 PRAGMAS = [

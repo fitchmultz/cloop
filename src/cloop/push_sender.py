@@ -182,6 +182,27 @@ def _scheduler_fallback_push_payload(
             },
         )
 
+    if event_type == "life_garden":
+        if event_payload.get("notify_user") is not True:
+            return None
+        loop_ids = event_payload.get("loop_ids")
+        title = str(event_payload.get("notification_title") or "Life update").strip()
+        body = str(
+            event_payload.get("notification_body")
+            or event_payload.get("reply")
+            or "Life has an update ready."
+        ).strip()[:140]
+        return PushPayload(
+            title=title,
+            body=body,
+            url="/#operator",
+            data={
+                "source": "scheduler_fallback",
+                "loop_ids": loop_ids if isinstance(loop_ids, list) else [],
+                "memory_count": event_payload.get("memory_count", 0),
+            },
+        )
+
     return None
 
 
@@ -260,7 +281,8 @@ def send_push_notification(
             )
             success_count += 1
         except WebPushException as e:
-            logger.warning(f"Push failed for {sub['endpoint'][:50]}...: {e}")
+            status_code = e.response.status_code if e.response is not None else None
+            logger.warning("Push delivery failed with status_code=%s", status_code)
             # Remove invalid subscription
             if e.response and e.response.status_code in (404, 410):
                 conn.execute(
@@ -269,7 +291,7 @@ def send_push_notification(
                 )
                 conn.commit()
         except (ValueError, TypeError, ConnectionError, TimeoutError) as e:
-            logger.error(f"Push delivery error: {e}")
+            logger.error("Push delivery error: %s", type(e).__name__)
 
     return success_count
 
@@ -286,12 +308,14 @@ def send_scheduler_push(
     directly so browser delivery matches the same backend-authored notification
     record used by in-app banners and operator digests.
     """
-    if event_type not in {"nudge_due_soon", "nudge_stale", "review_generated"}:
+    if event_type not in {"nudge_due_soon", "nudge_stale", "review_generated", "life_garden"}:
         return SchedulerPushResult(push_count=0, delivery_status="skipped")
 
     if event_type == "review_generated" and event_payload.get("total_items", 0) == 0:
         return SchedulerPushResult(push_count=0, delivery_status="skipped")
     if event_type in {"nudge_due_soon", "nudge_stale"} and not event_payload.get("details"):
+        return SchedulerPushResult(push_count=0, delivery_status="skipped")
+    if event_type == "life_garden" and event_payload.get("notify_user") is not True:
         return SchedulerPushResult(push_count=0, delivery_status="skipped")
 
     selected_id = event_payload.get("notification_id")

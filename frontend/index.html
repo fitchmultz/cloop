@@ -12,7 +12,7 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-    <title>Cloop Loops</title>
+    <title>Cloop</title>
 
     <!-- Styles are imported via frontend/src/main.ts -->
   </head>
@@ -21,17 +21,17 @@
 
     <header class="app-header">
       <div>
-        <p class="shell-kicker">Cloop operator system</p>
-        <h1>Cloop Loops <span id="sse-status" class="sse-status reconnecting" title="Connecting..."></span></h1>
-        <p id="shell-description">Open to one calm workspace, then move through capture, work, and recall without translating subsystem names.</p>
+        <p class="shell-kicker">For the stuff you keep meaning to do</p>
+        <h1>Cloop <span id="sse-status" class="sse-status reconnecting" title="Connecting..."></span></h1>
+        <p id="shell-description">Put it here so you can stop carrying it in your head.</p>
       </div>
       <div class="shell-header-actions">
-        <button type="button" id="shell-primary-action" data-shell-primary-action>Capture something</button>
+        <button type="button" id="shell-primary-action" data-shell-primary-action>Dump a thought</button>
         <button class="secondary shell-command-palette-btn" type="button" id="shell-command-palette-btn" aria-haspopup="dialog" aria-controls="command-palette">
-          Command palette
+          Find or jump
           <span class="shortcut-hint">⌘K</span>
         </button>
-        <button class="secondary" type="button" id="shell-refresh-workspace-btn">Refresh workspace</button>
+        <button class="secondary" type="button" id="shell-refresh-workspace-btn">Refresh</button>
       </div>
     </header>
 
@@ -44,13 +44,13 @@
 
     <section class="shell-status-bar" aria-label="Current work state">
       <div class="shell-status-copy">
-        <p class="support-eyebrow">Current surface</p>
-        <h2 id="shell-title">Operator workspace</h2>
-        <p id="shell-context">Start from what deserves attention now, then launch directly into the next relevant queue or work mode.</p>
+        <p class="support-eyebrow">Today</p>
+        <h2 id="shell-title">Life home</h2>
+        <p id="shell-context">Start with the stuff you are carrying, then let Cloop pull forward what deserves attention.</p>
       </div>
       <div class="shell-status-meta">
         <span id="shell-route-pill" class="review-session-chip">Home</span>
-        <span id="shell-last-visit" class="support-status" role="status" aria-live="polite">Preparing your operator workspace…</span>
+        <span id="shell-last-visit" class="support-status" role="status" aria-live="polite">Checking what changed…</span>
       </div>
     </section>
 
@@ -62,20 +62,20 @@
       aria-label="Latest action receipt"
     ></section>
 
-    <nav class="state-nav" aria-label="Work states">
+    <nav class="state-nav" aria-label="Life sections">
       <button class="state-nav-btn active" type="button" data-shell-state="operator" aria-current="page">Home<span class="shortcut-hint">1</span></button>
-      <button class="state-nav-btn" type="button" data-shell-state="capture">Capture<span class="shortcut-hint">2</span></button>
+      <button class="state-nav-btn" type="button" data-shell-state="capture">Dump<span class="shortcut-hint">2</span></button>
       <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="do">Do<span class="shortcut-hint">3</span></button>
       <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="decide">Decide<span class="shortcut-hint">4</span></button>
       <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="plan">Plan<span class="shortcut-hint">5</span></button>
       <button class="state-nav-btn state-nav-btn--desktop-work" type="button" data-shell-state="review">Review<span class="shortcut-hint">6</span></button>
-      <button class="state-nav-btn state-nav-btn--mobile-work" type="button" id="shell-mobile-work-btn" data-shell-state="do" data-shell-mobile-work="true">Work<span class="shortcut-hint">3–6</span></button>
+      <button class="state-nav-btn state-nav-btn--mobile-work" type="button" id="shell-mobile-work-btn" data-shell-state="do" data-shell-mobile-work="true">More<span class="shortcut-hint">3–6</span></button>
       <button class="state-nav-btn" type="button" data-shell-state="recall">Recall<span class="shortcut-hint">7</span></button>
     </nav>
 
     <div id="work-subnav" class="state-subnav state-subnav--work" hidden>
-      <p class="support-eyebrow">Work modes</p>
-      <div class="state-subnav-actions" role="group" aria-label="Work modes">
+      <p class="support-eyebrow">More ways through</p>
+      <div class="state-subnav-actions" role="group" aria-label="More Life sections">
         <button class="secondary state-subnav-btn" type="button" data-work-state="do">Do</button>
         <button class="secondary state-subnav-btn" type="button" data-work-state="decide">Decide</button>
         <button class="secondary state-subnav-btn" type="button" data-work-state="plan">Plan</button>
@@ -92,31 +92,79 @@
       </div>
     </div>
 
-    <section id="working-set-focus-banner" class="working-set-focus-banner" aria-label="Active working set" hidden>
+    <section id="working-set-focus-banner" class="working-set-focus-banner" aria-label="Saved focus" hidden>
       <div id="working-set-focus-summary" class="working-set-focus-summary"></div>
       <div class="working-set-focus-actions">
-        <button type="button" id="working-set-focus-toggle-btn">Enter focus mode</button>
-        <button class="secondary" type="button" id="working-set-exit-focus-btn">Exit set</button>
+        <button type="button" id="working-set-focus-toggle-btn">Focus</button>
+        <button class="secondary" type="button" id="working-set-exit-focus-btn">Clear focus</button>
       </div>
       <div id="working-set-focus-items" class="working-set-focus-items"></div>
     </section>
 
     <main class="operator-main" id="operator-main" tabindex="-1">
-      <section class="operator-zone operator-zone-hero panel">
+      <section class="operator-zone operator-zone-hero panel life-feed-panel" aria-labelledby="life-feed-title">
         <div class="operator-zone-heading">
           <div>
-            <p class="support-eyebrow">Default landing workspace</p>
-            <h2>See the day as decisions, execution, and resume points</h2>
-            <p class="support-copy">The operator workspace aggregates deterministic queues, saved sessions, plan handoffs, and recent changes so you can launch the next useful surface without tab hunting.</p>
+            <p class="support-eyebrow">Life feed</p>
+            <h2 id="life-feed-title">Dump it once. Cloop turns it into loops.</h2>
+            <p class="support-copy">Type the messy version. No project, tag, priority, or date picking required.</p>
           </div>
-          <div class="operator-zone-actions">
-            <button type="button" data-shell-state="capture">Capture new work</button>
-            <button class="secondary" type="button" data-shell-state="do">Open ready work</button>
+        </div>
+        <form id="life-form" class="life-form" aria-busy="false">
+          <label class="sr-only" for="life-input">Dump thoughts, obligations, ideas, reminders, or worries</label>
+          <textarea
+            id="life-input"
+            placeholder="Need to send availability to the recruiter, pick up medicine, update the DOE CR, and look into the golf shaft."
+            required
+            aria-describedby="life-status"
+          ></textarea>
+          <div class="life-feed-actions">
+            <div class="life-feed-presets" aria-label="Life prompts">
+              <button class="secondary" type="button" id="life-quick-dump-btn">Use sample dump</button>
+              <button class="secondary" type="button" id="life-missing-btn">What am I missing?</button>
+              <button class="secondary" type="button" id="life-matters-btn">What matters today?</button>
+              <button class="secondary" type="button" id="life-quiz-btn">Quiz me</button>
+              <button class="secondary" type="button" id="life-history-btn">Show archive</button>
+              <button class="secondary" type="button" id="life-cleanup-btn">Review cleanup</button>
+              <button class="secondary" type="button" id="life-voice-btn" aria-pressed="false">Voice</button>
+              <button class="secondary" type="button" id="life-evidence-btn">Attach</button>
+            </div>
+            <button type="submit" id="life-submit-btn">Send</button>
           </div>
+          <input
+            id="life-evidence-input"
+            class="sr-only"
+            type="file"
+            accept="image/*,audio/*,text/plain,text/markdown,application/pdf"
+            multiple
+          >
+          <div id="life-evidence-list" class="life-evidence-list" aria-live="polite"></div>
+          <p id="life-status" class="support-status" role="status" aria-live="polite">Ready for a messy dump.</p>
+        </form>
+        <div id="life-response" class="life-response" hidden></div>
+        <div class="life-results-grid">
+          <section class="life-results-section" aria-labelledby="life-captured-title">
+            <div class="life-section-heading">
+              <p class="support-eyebrow">Captured</p>
+              <h3 id="life-captured-title">New and updated loops</h3>
+            </div>
+            <div id="life-captured-list" class="life-loop-list">
+              <p class="operator-empty">Send a message to see what Cloop pulled out.</p>
+            </div>
+          </section>
+          <section class="life-results-section" aria-labelledby="life-groups-title">
+            <div class="life-section-heading">
+              <p class="support-eyebrow">What matters</p>
+              <h3 id="life-groups-title">Open loop groups</h3>
+            </div>
+            <div id="life-groups-list" class="life-group-list">
+              <p class="operator-empty">Groups refresh after capture, cleanup, or review.</p>
+            </div>
+          </section>
         </div>
       </section>
 
-      <div class="operator-grid">
+      <div class="operator-grid life-advanced-home-surfaces" hidden>
         <section class="operator-zone panel" aria-labelledby="operator-now-title">
           <div class="operator-zone-heading">
             <div>
@@ -191,7 +239,7 @@
             <button class="secondary" type="button" id="operator-create-working-set-btn">New working set</button>
           </div>
           <div id="operator-working-set" class="operator-zone-body">
-            <p class="operator-empty">Save a bounded slice of loops, sessions, and saved items so you can resume the exact operational context later.</p>
+            <p class="operator-empty">Save a bounded slice of loops, sessions, and saved items so you can resume the exact context later.</p>
           </div>
         </section>
       </div>
@@ -200,7 +248,7 @@
     <main class="operator-main" id="working-set-main" tabindex="-1" style="display: none;" aria-label="Working-set session"></main>
 
     <!-- Inbox Tab -->
-    <main id="inbox-main" tabindex="-1">
+    <main id="inbox-main" tabindex="-1" style="display: none;">
       <section class="panel quick-capture-card" aria-labelledby="quick-capture-title">
         <div class="quick-capture-heading">
           <div>
@@ -341,7 +389,7 @@
     </main>
 
     <!-- Chat Tab -->
-    <main class="workspace-main chat-main" id="chat-main">
+    <main class="workspace-main chat-main" id="chat-main" style="display: none;">
       <div class="workspace-primary">
         <section class="panel chat-panel">
           <div class="chat-header">
@@ -375,13 +423,13 @@
         <section class="panel support-panel support-panel-feature chat-controls-panel">
           <p class="support-eyebrow">Conversation controls</p>
           <h3>Choose how grounded and how tool-capable this thread should be</h3>
-          <p class="support-copy">Loop and memory grounding stay on by default. Enable document grounding when you want knowledge-base evidence in the same thread, or let the assistant use tools when you want it to act instead of only advise.</p>
+          <p class="support-copy">Loop and memory context stay on by default. Add document context when you want answers grounded in local files, or allow tools when you want Cloop to act instead of only explain.</p>
           <div class="chat-controls-grid">
             <label class="chat-control chat-control-block" for="chat-tool-mode">
               <span class="chat-control-label">Tool mode</span>
               <select id="chat-tool-mode">
-                <option value="none">Assistant only</option>
-                <option value="llm">Assistant + tools</option>
+                <option value="none">Recall only</option>
+                <option value="llm">Recall + tools</option>
               </select>
             </label>
             <label class="chat-control toggle" for="chat-loop-context">
@@ -409,7 +457,7 @@
               <input type="text" id="chat-rag-scope" placeholder="Optional path filter or doc:ID">
             </label>
           </div>
-          <p id="chat-controls-status" class="support-status" role="status" aria-live="polite">Assistant only · loops · memory (10)</p>
+          <p id="chat-controls-status" class="support-status" role="status" aria-live="polite">Recall only · loops · memory (10)</p>
           <p id="chat-runtime-status" class="support-status">Loading backend defaults…</p>
         </section>
         <section class="panel support-panel data-management-panel">
@@ -426,7 +474,7 @@
     </main>
 
     <!-- Memory Tab -->
-    <main class="workspace-main memory-main" id="memory-main">
+    <main class="workspace-main memory-main" id="memory-main" style="display: none;">
       <div class="workspace-primary">
         <section class="panel memory-panel">
           <div class="memory-header">
@@ -534,7 +582,7 @@
     </main>
 
     <!-- Next Tab -->
-    <main class="workspace-main next-main" id="next-main">
+    <main class="workspace-main next-main" id="next-main" style="display: none;">
       <div class="workspace-primary">
         <section class="panel">
           <div class="next-header">
@@ -573,7 +621,7 @@
     </main>
 
     <!-- RAG Tab -->
-    <main class="workspace-main rag-main" id="rag-main">
+    <main class="workspace-main rag-main" id="rag-main" style="display: none;">
       <div class="workspace-primary">
         <section class="panel rag-panel">
           <div class="rag-header">
@@ -659,23 +707,23 @@
     </main>
 
     <!-- Review Tab -->
-    <main class="workspace-main review-main" id="review-main">
+    <main class="workspace-main review-main" id="review-main" style="display: none;">
       <div class="workspace-primary review-workspace-primary">
         <section class="panel review-shell-panel" id="review-redesign-shell">
           <div class="review-shell-header">
             <div>
-              <p class="support-eyebrow">Decision workspace</p>
+              <p class="support-eyebrow">Decision review</p>
               <h2 id="review-shell-title">Relationship review</h2>
               <p id="review-shell-description" class="support-copy">Duplicate and related-loop decisions with confidence, queue health, and impact previews.</p>
             </div>
-            <div class="review-shell-mode-tabs" role="tablist" aria-label="Review workspace modes">
+            <div class="review-shell-mode-tabs" role="tablist" aria-label="Review modes">
               <button class="secondary active" type="button" data-review-shell-mode="planning">Plan</button>
               <button class="secondary" type="button" data-review-shell-mode="relationship">Relationship</button>
               <button class="secondary" type="button" data-review-shell-mode="enrichment">Enrichment</button>
               <button class="secondary" type="button" data-review-shell-mode="cohorts">Hygiene</button>
             </div>
           </div>
-          <p id="review-shell-status" class="support-status" role="status" aria-live="polite">Preparing the review workspace…</p>
+          <p id="review-shell-status" class="support-status" role="status" aria-live="polite">Preparing review…</p>
           <div id="review-shell-controls" class="review-shell-toolbar"></div>
           <div id="review-shell-overview" class="review-shell-overview"></div>
           <div class="review-shell-layout">
@@ -687,7 +735,7 @@
             </aside>
             <section class="review-shell-pane review-shell-pane-workspace" aria-labelledby="review-shell-workspace-title">
               <div class="review-shell-pane-header">
-                <h3 id="review-shell-workspace-title">Decision workspace</h3>
+                <h3 id="review-shell-workspace-title">Decision detail</h3>
               </div>
               <div id="review-shell-workspace"></div>
             </section>
@@ -701,12 +749,12 @@
         </section>
       <aside class="workspace-support" aria-label="Review support">
         <section class="panel support-panel support-panel-feature review-guide-panel">
-          <p class="support-eyebrow">AI workflow guide</p>
-          <h3>Plan, execute, review, then chat against the live state</h3>
-          <p class="support-copy">Use the shared planning, review, and grounded-chat contracts as one operator loop instead of treating them as isolated surfaces.</p>
+          <p class="support-eyebrow">Follow-through guide</p>
+          <h3>Plan, review, then recall the live context</h3>
+          <p class="support-copy">Use planning, review, and recall together when one loop needs a decision, a prepared next step, and enough context to act.</p>
           <ol class="review-guide-list">
             <li><strong>Create a planning session</strong><span>Start with a query-scoped checkpointed plan when you need a structured multi-step pass.</span></li>
-            <li><strong>Execute one deterministic checkpoint at a time</strong><span>Review focus loops, success criteria, and operation payloads before committing the next step.</span></li>
+            <li><strong>Handle one checkpoint at a time</strong><span>Review focus loops, success criteria, and the proposed changes before committing the next step.</span></li>
             <li><strong>Follow the generated review outputs</strong><span>If a checkpoint creates relationship or enrichment sessions, move directly into those saved queues instead of open-coding follow-up work.</span></li>
             <li><strong>Refresh when reality changes</strong><span>Regenerate the plan after major loop edits so the checkpoint list stays grounded in the current state.</span></li>
           </ol>
@@ -743,9 +791,9 @@
       <div id="command-palette-panel" class="command-palette-panel" tabindex="-1">
         <div class="command-palette-header">
           <div>
-            <p class="support-eyebrow">Keyboard-first control</p>
-            <h2 id="command-palette-title">Command palette</h2>
-            <p class="support-copy">Jump to states, sessions, working sets, searches, and quick actions without leaving the keyboard.</p>
+            <p class="support-eyebrow">Find or jump</p>
+            <h2 id="command-palette-title">Find anything</h2>
+            <p class="support-copy">Search loops, memory, saved views, and review sessions without hunting through the app.</p>
           </div>
           <button class="secondary" type="button" data-command-palette-close>Close</button>
         </div>
@@ -754,7 +802,7 @@
           <input
             type="text"
             id="command-palette-input"
-            placeholder="Jump to a state, loop, working set, session, or quick action…"
+            placeholder="Search loops, memory, saved views, sessions, or quick actions…"
             autocomplete="off"
             spellcheck="false"
           >
@@ -779,7 +827,7 @@
     <input type="file" id="import-file" accept="application/json" hidden>
 
     <!-- Bulk Action Bar -->
-    <div class="bulk-action-bar" id="bulk-action-bar">
+    <div class="bulk-action-bar" id="bulk-action-bar" hidden>
       <span class="bulk-count">0 loops selected</span>
       <div class="bulk-actions">
         <button class="bulk-btn" data-bulk-action="complete" title="Complete selected">Complete</button>

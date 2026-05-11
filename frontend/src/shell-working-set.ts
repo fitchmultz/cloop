@@ -443,10 +443,10 @@ export function createShellWorkingSetController(
       elements.workingSetFocusItems.innerHTML = "";
       return;
     }
-    elements.workingSetFocusToggleButton.textContent = focusEnabled ? "Pause focus mode" : "Enter focus mode";
+    elements.workingSetFocusToggleButton.textContent = focusEnabled ? "Pause focus" : "Focus";
     elements.workingSetFocusSummary.innerHTML = `
       <div>
-        <p class="support-eyebrow">${focusEnabled ? "Focus mode" : "Active working set"}</p>
+        <p class="support-eyebrow">${focusEnabled ? "Focused" : "Saved focus"}</p>
         <h2>${escapeHtml(activeSet.name)}</h2>
         <p>${escapeHtml(activeSet.description ?? "A saved bounded slice of loops, sessions, and saved items.")}</p>
       </div>
@@ -475,7 +475,7 @@ export function createShellWorkingSetController(
 
     if (!latestWorkingSets.length) {
       elements.operatorWorkingSet.innerHTML = `
-        <p class="operator-empty">Save a bounded slice of loops, sessions, and saved items so you can resume the exact operational context later.</p>
+        <p class="operator-empty">Save a bounded slice of loops, sessions, and saved items so you can resume the exact context later.</p>
         <div class="operator-inline-actions">
           <button type="button" id="operator-working-set-empty-create" data-working-set-create>Build your first working set</button>
         </div>
@@ -494,7 +494,7 @@ export function createShellWorkingSetController(
             <div class="working-set-card-header">
               <div>
                 <h3>${escapeHtml(set.name)}</h3>
-                <p>${escapeHtml(set.description ?? "Saved cross-surface operator context.")}</p>
+                <p>${escapeHtml(set.description ?? "Saved focus context.")}</p>
               </div>
               <div class="operator-chip-row">
                 <span class="operator-chip">${set.item_count} item${set.item_count === 1 ? "" : "s"}</span>
@@ -505,7 +505,7 @@ export function createShellWorkingSetController(
             <div class="working-set-item-grid">
               ${setItems.length
                 ? setItems.slice(0, 3).map((item) => renderWorkingSetItemCard(set.id, item)).join("")
-                : '<p class="operator-empty">This set is empty. Add a loop, session, or location from the operator workspace.</p>'}
+                : '<p class="operator-empty">This set is empty. Add a loop, session, or location from Life home.</p>'}
             </div>
             <div class="operator-card-actions">
               <button type="button" ${openLocationAttributes(workingSetSessionLocation(set.id))}>${isActive ? "Resume set" : "Open session"}</button>
@@ -572,7 +572,7 @@ export function createShellWorkingSetController(
       title:
         activeSet != null
           ? `${focusModeEnabled ? "Focus mode updated" : "Working set activated"} · ${activeSet.name}`
-          : "Returned to unscoped operator context",
+          : "Returned to Life home",
       summary:
         activeSet != null
           ? `${activeSet.name} is now the live bounded context for the shell.`
@@ -741,7 +741,7 @@ export function createShellWorkingSetController(
       location: createLocation({ state: "operator" }),
       workingSet: null,
       rollbackLabel: "Recreate the working set manually if you still need this bounded context.",
-      nextStep: "Open another working set or continue from the unscoped operator workspace.",
+      nextStep: "Open another working set or continue from Life home.",
       preview: existing
         ? [
             { label: "Removed set", value: existing.name },

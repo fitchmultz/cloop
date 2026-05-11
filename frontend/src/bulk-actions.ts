@@ -33,7 +33,9 @@ export function updateBulkActionBar(): void {
   const count = selectedLoopIds.size;
 
   if (bulkActionBar) {
-    bulkActionBar.classList.toggle("visible", count > 0);
+    const hasSelection = count > 0;
+    bulkActionBar.hidden = !hasSelection;
+    bulkActionBar.classList.toggle("visible", hasSelection);
     const countElement = bulkActionBar.querySelector<HTMLElement>(".bulk-count");
     if (countElement) {
       countElement.textContent = `${count} loop${count === 1 ? "" : "s"} selected`;

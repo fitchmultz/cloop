@@ -508,8 +508,8 @@ function buildWorkingSetUndoReceipt(response: WorkingSetUndoResponse): ExecutedU
       createdResources: primaryWorkingSetName ? [primaryWorkingSetName] : [],
       nextStep: primaryWorkingSetId != null
         ? "Open the restored working set and continue from the recovered bounded context."
-        : "Continue from the unscoped operator workspace or reopen another working set.",
-      breadcrumbs: ["Home", "Working set undo", primaryWorkingSetName ?? "Operator"],
+        : "Continue from Life home or reopen another working set.",
+      breadcrumbs: ["Home", "Working set undo", primaryWorkingSetName ?? "Life"],
       workingSet: primaryWorkingSet != null
         ? {
             workingSetId: primaryWorkingSet.id,

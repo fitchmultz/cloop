@@ -52,6 +52,9 @@ from ._scheduler.side_effects import (
 from ._scheduler.side_effects import (
     send_scheduler_push_once as _send_scheduler_push_once_impl,
 )
+from ._scheduler.task_life import (
+    run_life_garden as _run_life_garden,
+)
 from ._scheduler.task_nudges import (
     run_due_soon_nudge as _run_due_soon_nudge,
 )
@@ -130,6 +133,20 @@ async def run_weekly_review(
     )
 
 
+async def run_life_garden(
+    settings: Settings,
+    conn: sqlite3.Connection,
+    context: SchedulerRunContext | None = None,
+) -> dict[str, Any]:
+    """Run one background Life organizer cleanup and memory-gardening pass."""
+    return await _run_life_garden(
+        settings,
+        conn,
+        context,
+        send_push_fn=send_scheduler_push,
+    )
+
+
 async def run_due_soon_nudge(
     settings: Settings,
     conn: sqlite3.Connection,
@@ -164,6 +181,8 @@ def _task_runner(task_name: str):
         return run_daily_review
     if task_name == "weekly_review":
         return run_weekly_review
+    if task_name == "life_garden":
+        return run_life_garden
     if task_name == "due_soon_nudge":
         return run_due_soon_nudge
     if task_name == "stale_rescue":
@@ -225,6 +244,7 @@ __all__ = [
     "main",
     "run_daily_review",
     "run_due_soon_nudge",
+    "run_life_garden",
     "run_scheduler_once",
     "run_scheduler_task",
     "run_stale_rescue",

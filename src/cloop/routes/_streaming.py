@@ -56,7 +56,7 @@ def format_stream_error_event(exc: Exception) -> str:
         view = error_view_from_exception(exc)
     except TypeError:
         error_id = str(uuid4())
-        logger.exception("Unhandled streaming exception [%s]: %s", error_id, exc)
+        logger.error("Unhandled streaming exception [%s]: %s", error_id, type(exc).__name__)
         view = internal_error_view(error_id=error_id)
     return format_sse_event(
         "error",

@@ -55,13 +55,13 @@ export const DEFAULT_LOCATION: ShellLocation = {
 
 export const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
   operator: {
-    title: "Operator workspace",
+    title: "Life feed",
     description:
-      "See the highest-signal work, active sessions, and recent changes in one calm home surface.",
+      "Dump scattered thoughts, see what Cloop organized, and act on what matters.",
     context:
-      "Start from what deserves attention now, then launch straight into the next queue or work mode.",
+      "Start with natural-language capture, then use the grouped loops when you need a next move.",
     pill: "Home",
-    primaryActionLabel: "Capture something",
+    primaryActionLabel: "Dump a thought",
     primaryActionLocation: {
       state: "capture",
       recallTool: "chat",
@@ -73,9 +73,9 @@ export const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
   capture: {
     title: "Capture",
     description:
-      "Collect new loops and context without friction, then decide later what deserves deeper structure.",
+      "Collect new loops and context without choosing a project, tag, priority, or deadline first.",
     context:
-      "Keep raw capture visible, then use filters and saved views to clarify what just arrived.",
+      "The Life feed is the low-friction path; this view remains for precise loop edits.",
     pill: "Capture",
     primaryActionLabel: "Return home",
     primaryActionLocation: DEFAULT_LOCATION,
@@ -99,7 +99,7 @@ export const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
     description:
       "Step through saved review queues, clarifications, and ambiguous relationship decisions with context preserved.",
     context:
-      "Relationship and enrichment sessions should feel like one judgment workspace, not multiple disconnected tabs.",
+      "Relationship and enrichment sessions should feel like one guided decision flow, not multiple disconnected tabs.",
     pill: "Decide",
     primaryActionLabel: "Open decision queues",
     primaryActionLocation: {
@@ -112,7 +112,7 @@ export const STATE_DESCRIPTORS: Record<ShellState, StateDescriptor> = {
   },
   plan: {
     title: "Plan",
-    description: "Resume checkpointed planning sessions and execute deterministic next steps with handoff cues visible.",
+    description: "Resume checkpointed planning sessions and handle the next step with handoff cues visible.",
     context:
       "This surface keeps plan status, the current checkpoint, and the downstream queue together.",
     pill: "Plan",

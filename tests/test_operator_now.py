@@ -137,6 +137,52 @@ def test_read_operator_now_feed_prefers_continuity_and_dedupes_sessions(
     assert feed.items[1].launch_location.loop_id == 17
 
 
+def test_read_operator_now_feed_accepts_receipt_continuity_cards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live continuity can rank receipt cards without breaking the Now-feed schema."""
+    summary = _continuity_summary()
+    summary.display_card.kind = "receipt"
+
+    monkeypatch.setattr(
+        "cloop.operator_now.db.core_connection",
+        lambda _settings: nullcontext(object()),
+    )
+    monkeypatch.setattr(
+        "cloop.operator_now.read_continuity_snapshot",
+        lambda **_kwargs: SimpleNamespace(workflow_summaries=[summary]),
+    )
+    monkeypatch.setattr(
+        "cloop.operator_now.working_sets.get_working_set_context",
+        lambda **_kwargs: {"active_working_set_id": 7},
+    )
+    monkeypatch.setattr(
+        "cloop.operator_now.loop_read_service.next_loops",
+        lambda **_kwargs: {
+            "due_soon": [],
+            "quick_wins": [],
+            "high_leverage": [],
+            "standard": [],
+        },
+    )
+    monkeypatch.setattr(
+        "cloop.operator_now.planning_workflows.list_planning_sessions",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cloop.operator_now.review_workflows.list_relationship_review_sessions",
+        lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cloop.operator_now.review_workflows.list_enrichment_review_sessions",
+        lambda **_kwargs: [],
+    )
+
+    feed = read_operator_now_feed(limit=5)
+
+    assert feed.items[0].display_kind == "receipt"
+
+
 def test_loops_now_endpoint_returns_launch_ready_items(make_test_client) -> None:
     """The HTTP route should expose the canonical Now-feed contract end to end."""
     client = make_test_client()

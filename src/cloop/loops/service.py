@@ -355,6 +355,8 @@ def import_loops(
                 "activation_energy": item_map.get("activation_energy"),
                 "urgency": item_map.get("urgency"),
                 "importance": item_map.get("importance"),
+                "emotional_weight": item_map.get("emotional_weight"),
+                "confidence": item_map.get("confidence"),
                 "blocked_reason": item_map.get("blocked_reason"),
                 "completion_note": item_map.get("completion_note"),
                 "user_locks_json": json.dumps(item_map.get("user_locks") or []),
@@ -392,6 +394,8 @@ def import_loops(
                 "activation_energy",
                 "urgency",
                 "importance",
+                "emotional_weight",
+                "confidence",
                 "blocked_reason",
                 "completion_note",
             ]:

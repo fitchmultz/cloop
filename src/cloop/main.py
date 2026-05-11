@@ -37,7 +37,7 @@ from ._version import __version__
 from .ai_bridge import bridge_health, shutdown_bridge_runtime
 from .handlers import register_exception_handlers
 from .rag import _SQL_PY_METRIC, _VECLIKE_METRIC, _select_retrieval_order
-from .routes import chat_router, loops_router, memory_router, rag_router
+from .routes import chat_router, life_router, loops_router, memory_router, rag_router
 from .schemas.health import DependencyStatus, HealthResponse, SelectorResolutionResponse
 from .settings import Settings, get_settings
 
@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
 
     app.include_router(web.router)
     app.include_router(chat_router)
+    app.include_router(life_router)
     app.include_router(loops_router)
     app.include_router(memory_router)
     app.include_router(rag_router)

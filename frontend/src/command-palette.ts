@@ -543,7 +543,7 @@ async function chooseRelationshipPaletteTarget(input: {
     searchHelpText: "Filter by loop title, candidate title, or relationship type.",
     optionLabel: "Queue target",
     optionHelpText: targets.length
-      ? "Pick the exact loop/candidate pair without opening the review workspace."
+      ? "Pick the exact loop/candidate pair without opening review first."
       : "No saved candidates are available yet. Refresh the queue to pull the latest session state.",
     emptyStateLabel: "No relationship targets match the current search.",
     options: relationshipTargetOptions(targets),
@@ -880,7 +880,7 @@ function defaultCommandContextSources(command: CommandPaletteCommand, selectedCo
 
 function defaultCommandAssumptions(command: CommandPaletteCommand, selectedCount: number): string[] {
   if (command.detail.recovery) {
-    return ["Recovery commands stay deterministic and only open the surviving destination."];
+    return ["Recovery commands only open the surviving destination."];
   }
   if (command.disabled && command.group === "act") {
     return ["Select one or more loops before this command can run."];
@@ -1694,15 +1694,15 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       {
         id: "nav-home",
         group: "navigate",
-        title: "Open home workspace",
-        subtitle: "Return to the operator workspace overview",
-        keywords: ["home", "operator", "workspace"],
+        title: "Open Life home",
+        subtitle: "Return to the Life feed",
+        keywords: ["home", "life", "feed"],
         badge: "Home",
         location: createLocation({ state: "operator" }),
         detail: {
           eyebrow: "Navigate",
-          description: "Return to the operator workspace and resume from the highest-signal home surface.",
-          meta: ["Best for: broad orientation", "Scope: whole system"],
+          description: "Return to the Life feed and resume from the clearest next thing.",
+          meta: ["Best for: broad orientation", "Scope: open loops"],
         },
         recentAction: { kind: "open-location", location: createLocation({ state: "operator" }) },
         execute: () => bindings.openLocation(createLocation({ state: "operator" })),
@@ -1749,7 +1749,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         location: createLocation({ state: "decide", reviewFocus: "relationship" }),
         detail: {
           eyebrow: "Review",
-          description: "Enter the relationship queue when duplicate or related-loop judgment is the next operator task.",
+          description: "Enter the relationship queue when duplicate or related-loop judgment is the next useful step.",
           meta: ["Best for: ambiguity and cleanup", "Keyboard hint: 4"],
         },
         recentAction: {
@@ -1761,7 +1761,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       {
         id: "nav-plan",
         group: "review",
-        title: "Open planning workspace",
+        title: "Open planning",
         subtitle: "Resume checkpointed planning sessions",
         keywords: ["plan", "planning", "checkpoint"],
         badge: "Plan",
@@ -1800,8 +1800,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         id: "nav-chat",
         group: "recall",
         title: "Open grounded chat",
-        subtitle: "Ask grounded chat from the current operator context",
-        keywords: ["chat", "assistant", "recall"],
+        subtitle: "Ask from the current Life context",
+        keywords: ["chat", "recall", "context"],
         badge: "Recall",
         location: createLocation({ state: "recall", recallTool: "chat" }),
         detail: {
@@ -1989,7 +1989,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         badge: "Capture",
         detail: {
           eyebrow: "Capture",
-          description: "Create a new checkpointed planning session without manually navigating into the review workspace first.",
+          description: "Create a new checkpointed planning session without manually opening review first.",
           meta: ["Uses: /loops/planning/sessions", "Outcome: saved planning session"],
         },
         recentAction: { kind: "create-planning-session" },
@@ -2240,12 +2240,12 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       detail: {
         eyebrow: "Act",
         description: input.includeSessionNameInTitle
-          ? "Execute this saved planning checkpoint directly from the palette without opening the planning workspace first."
-          : "Execute the current planning checkpoint through the same stored mutation contract the planning workspace uses.",
+          ? "Execute this saved planning checkpoint directly from the palette without opening planning first."
+          : "Execute the current planning checkpoint through the same stored mutation contract planning uses.",
         meta: [
           `Session: ${snapshot.session.name}`,
           `Success criteria: ${checkpoint.success_criteria}`,
-          `${checkpoint.operations?.length ?? 0} deterministic operation${checkpoint.operations?.length === 1 ? "" : "s"}`,
+          `${checkpoint.operations?.length ?? 0} planned operation${checkpoint.operations?.length === 1 ? "" : "s"}`,
           input.sessionLocation.workingSetId != null ? `Working set: ${input.sessionLocation.workingSetId}` : null,
         ].filter((value): value is string => Boolean(value)),
       },
@@ -2315,13 +2315,13 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         detail: {
           eyebrow: "Act",
           description: !targets.length
-            ? "This saved queue currently has no eligible relationship target in the cached snapshot. Refresh it in-place, search, and pick the exact candidate without opening the relationship workspace."
+            ? "This saved queue currently has no eligible relationship target in the cached snapshot. Refresh it in-place, search, and pick the exact candidate without opening relationship review."
             : exactTargetSelection
               ? (input.includeSessionNameInTitle
-                ? "Pick the exact saved relationship candidate from the queue, then apply the preset without opening the relationship workspace first."
+                ? "Pick the exact saved relationship candidate from the queue, then apply the preset without opening relationship review first."
                 : "Pick the exact relationship candidate from the queue and keep the saved-review action fully keyboard-first.")
               : (input.includeSessionNameInTitle
-                ? "Apply this saved relationship-review action to the preserved queue item without opening the relationship workspace first."
+                ? "Apply this saved relationship-review action to the preserved queue item without opening relationship review first."
                 : "Apply this saved relationship-review action to the current queue item without leaving the keyboard-first palette."),
           meta: [
             `Session: ${snapshot.session.name}`,
@@ -2429,14 +2429,14 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         detail: {
           eyebrow: "Act",
           description: !targets.length
-            ? "This saved queue currently has no eligible enrichment target in the cached snapshot. Refresh it in-place, search, and pick the exact suggestion without opening the enrichment workspace."
+            ? "This saved queue currently has no eligible enrichment target in the cached snapshot. Refresh it in-place, search, and pick the exact suggestion without opening enrichment review."
             : exactTargetSelection
               ? (input.includeSessionNameInTitle
-                ? "Pick the exact saved enrichment suggestion from the queue, then apply the preset without opening the enrichment workspace first."
+                ? "Pick the exact saved enrichment suggestion from the queue, then apply the preset without opening enrichment review first."
                 : "Pick the exact enrichment suggestion from the queue and keep the saved-review action fully keyboard-first.")
               : (input.includeSessionNameInTitle
-                ? "Apply this saved enrichment action to the preserved suggestion queue without opening the enrichment workspace first."
-                : "Apply this saved enrichment action to the current top suggestion through the same review-session contract the workspace uses."),
+                ? "Apply this saved enrichment action to the preserved suggestion queue without opening enrichment review first."
+                : "Apply this saved enrichment action to the current top suggestion through the same review-session contract."),
           meta: [
             `Session: ${snapshot.session.name}`,
             currentTarget ? `Current loop: ${loopTitle(currentTarget.loop)}` : null,
@@ -2945,7 +2945,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
         location,
         detail: {
           eyebrow: "Search",
-          description: "Open this exact memory entry inside the Memory workspace.",
+          description: "Open this exact memory entry.",
           meta: [
             `Category: ${item.category}`,
             `Priority: ${item.priority}`,
@@ -2960,15 +2960,15 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
   function continuityLocationLabel(location: ShellLocationContract): string {
     switch (location.state) {
       case "plan":
-        return location.sessionId != null ? `Plan #${location.sessionId}` : "Planning workspace";
+        return location.sessionId != null ? `Plan #${location.sessionId}` : "Planning";
       case "decide":
         return location.sessionId != null
           ? `${location.reviewFocus ?? "review"} queue #${location.sessionId}`
-          : "Decision workspace";
+          : "Decision review";
       case "working_set":
-        return location.workingSetId != null ? `Working set #${location.workingSetId}` : "Working-set workspace";
+        return location.workingSetId != null ? `Working set #${location.workingSetId}` : "Saved focus";
       case "do":
-        return location.loopId != null ? `Loop #${location.loopId}` : "Do workspace";
+        return location.loopId != null ? `Loop #${location.loopId}` : "Do";
       case "recall":
         return location.recallTool === "chat"
           ? "Grounded chat"
@@ -2976,7 +2976,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             ? "Memory"
             : "Documents";
       default:
-        return "Operator workspace";
+        return "Life home";
     }
   }
 
@@ -3040,7 +3040,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           id: `notification-acknowledge-${notification.id}`,
           group: "act",
           title: `Acknowledge notification · ${notification.title}`,
-          subtitle: "Remove this continuity notification from operator surfaces.",
+          subtitle: "Remove this continuity notification from Life surfaces.",
           keywords: [
             "notification",
             "acknowledge",
@@ -3055,11 +3055,11 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           continuitySignals,
           detail: {
             eyebrow: "Continuity notification control",
-            description: "Persist acknowledgement so this notification stops driving operator surfaces.",
+            description: "Persist acknowledgement so this notification stops driving Life surfaces.",
             meta: [
               `Workflow: ${workflowTitle}`,
               `Destination: ${destination}`,
-              "Effect: removes this notification from operator home, recommendations, and banners.",
+              "Effect: removes this notification from Life home, recommendations, and banners.",
             ],
             trust: {
               generationLabel: "Durable continuity notification-state write",
@@ -3067,7 +3067,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
               assumptions: ["Acknowledgement only affects this canonical notification record and leaves the underlying workflow untouched."],
               rollbackLabel: "Use a future continuity event to resurface the workflow; acknowledgement itself is not auto-reversed.",
               rollbackTone: "caution",
-              impactSummary: "Acknowledges the active notification and removes it from shared operator surfaces.",
+              impactSummary: "Acknowledges the active notification and removes it from shared Life surfaces.",
             },
           },
           skipAutomaticReceipt: true,
@@ -3080,7 +3080,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
           id: `notification-suppress-${notification.id}`,
           group: "act",
           title: `Hide notification for 1 day · ${notification.title}`,
-          subtitle: "Suppress this continuity notification across operator surfaces for one day.",
+          subtitle: "Suppress this continuity notification across Life surfaces for one day.",
           keywords: [
             "notification",
             "hide",
@@ -3100,7 +3100,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
             meta: [
               `Workflow: ${workflowTitle}`,
               `Destination: ${destination}`,
-              "Effect: hides this notification for 24 hours across operator home, recommendations, and banners.",
+              "Effect: hides this notification for 24 hours across Life home, recommendations, and banners.",
             ],
             trust: {
               generationLabel: "Durable continuity notification-state write",
@@ -3108,7 +3108,7 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
               assumptions: ["Suppression only affects this canonical notification record and expires after the configured window."],
               rollbackLabel: "Suppression expires automatically after one day unless a later write extends it.",
               rollbackTone: "progress",
-              impactSummary: "Suppresses the active notification across shared operator surfaces for 24 hours.",
+              impactSummary: "Suppresses the active notification across shared Life surfaces for 24 hours.",
             },
           },
           skipAutomaticReceipt: true,
@@ -3515,8 +3515,8 @@ export function bootstrapCommandPalette(bindings: CommandPaletteBindings): Comma
       }
       visibleCommands = [];
       activeCommandId = null;
-      elements.results.innerHTML = '<div class="command-palette-empty-state"><p>Commands are temporarily unavailable.</p><p>Try again in a moment or refresh the workspace.</p></div>';
-      elements.detail.innerHTML = '<p class="command-palette-empty-detail">The palette could not load its current context. Deterministic shell navigation should return after a refresh.</p>';
+      elements.results.innerHTML = '<div class="command-palette-empty-state"><p>Commands are temporarily unavailable.</p><p>Try again in a moment or refresh.</p></div>';
+      elements.detail.innerHTML = '<p class="command-palette-empty-detail">The palette could not load its current context. Navigation should return after a refresh.</p>';
       elements.status.textContent = error instanceof Error ? error.message : "Failed to load commands.";
       return;
     }

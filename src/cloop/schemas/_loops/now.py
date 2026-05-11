@@ -30,7 +30,7 @@ NowFeedItemSource = Literal[
     "enrichment_review_session",
     "loop",
 ]
-NowFeedDisplayKind = Literal["handoff", "decision", "mutation", "context"]
+NowFeedDisplayKind = Literal["handoff", "decision", "mutation", "refresh", "context", "receipt"]
 NowFeedDisplayTone = Literal["neutral", "progress", "attention", "caution"]
 
 

@@ -1,9 +1,9 @@
-import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import readline from "node:readline";
+import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bridgePath = path.resolve(testDir, "..", "bridge.mjs");
@@ -14,13 +14,17 @@ const {
 	parseConversationMessages,
 	parseModelSelector,
 	resolveModelSelection,
+	runSession,
 } = bridgeModule;
 
 function startBridge() {
 	const child = spawn(process.execPath, [bridgePath], {
 		stdio: ["pipe", "pipe", "pipe"],
 	});
-	const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+	const rl = readline.createInterface({
+		input: child.stdout,
+		crlfDelay: Infinity,
+	});
 	const stderr = [];
 	const lines = [];
 	const waiters = [];
@@ -44,7 +48,9 @@ function startBridge() {
 		}
 	});
 	child.once("exit", (code, signal) => {
-		exitError = new Error(`bridge exited before emitting a line (code=${code}, signal=${signal})`);
+		exitError = new Error(
+			`bridge exited before emitting a line (code=${code}, signal=${signal})`,
+		);
 		const waiter = waiters.shift();
 		if (waiter) {
 			waiter.reject(exitError);
@@ -153,6 +159,106 @@ test("bridge reports invalid start requests as protocol errors", async () => {
 	}
 });
 
+test("runSession initializes Agent state through constructor options", async () => {
+	const model = {
+		provider: "test-provider",
+		id: "test-model",
+		api: "test-api",
+		name: "Test model",
+		baseUrl: "",
+		reasoning: false,
+		input: [],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1000,
+		maxTokens: 1000,
+	};
+	const registry = {
+		find(provider, id) {
+			return provider === model.provider && id === model.id ? model : null;
+		},
+		getAll() {
+			return [model];
+		},
+		async getAvailable() {
+			return [model];
+		},
+	};
+	const observed = {};
+	class ConstructorOnlyAgent {
+		constructor(options) {
+			observed.options = options;
+			this.state = {
+				...options.initialState,
+				messages: [...options.initialState.messages],
+			};
+		}
+
+		subscribe(listener) {
+			observed.listener = listener;
+			return () => {
+				observed.unsubscribed = true;
+			};
+		}
+
+		abort() {
+			observed.aborted = true;
+		}
+
+		async continue() {
+			this.state.messages.push({
+				role: "assistant",
+				content: [{ type: "text", text: "hello from fake agent" }],
+				provider: this.state.model.provider,
+				api: this.state.model.api,
+				model: this.state.model.id,
+				usage: {
+					input: 1,
+					output: 2,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 3,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			});
+		}
+	}
+	const events = [];
+	const session = {
+		requestId: "good-start",
+		request: {
+			model: "test-provider/test-model",
+			messages: [
+				{ role: "system", content: "system guidance" },
+				{ role: "user", content: "hello" },
+			],
+			thinking_level: "none",
+			timeout_ms: 1000,
+			max_tool_rounds: 1,
+			tools: [],
+		},
+		pendingToolResults: new Map(),
+	};
+
+	await runSession(session, {
+		AgentClass: ConstructorOnlyAgent,
+		emitEvent: (event) => events.push(event),
+		log: () => {},
+		registry,
+	});
+
+	assert.equal(observed.options.initialState.model, model);
+	assert.equal(observed.options.initialState.systemPrompt, "system guidance");
+	assert.equal(observed.options.initialState.thinkingLevel, "off");
+	assert.equal(observed.options.initialState.messages.length, 1);
+	assert.equal(observed.options.initialState.messages[0].role, "user");
+	assert.deepEqual(observed.options.initialState.tools, []);
+	assert.equal(events.at(-1).type, "done");
+	assert.equal(events.at(-1).text, "hello from fake agent");
+	assert.equal(session.agent.state.model, model);
+});
+
 test("parseConversationMessages preserves assistant metadata and defaults replay metadata", () => {
 	const parsed = parseConversationMessages(
 		[
@@ -170,7 +276,7 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 			{
 				role: "assistant",
 				content: "selector fallback",
-				model: "zai/glm-5",
+				model: "zai/glm-5.1",
 			},
 			{
 				role: "assistant",
@@ -198,7 +304,7 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 	assert.deepEqual(parsed.messages[1].usage, { input: 11, output: 7 });
 	assert.equal(parsed.messages[2].provider, "zai");
 	assert.equal(parsed.messages[2].api, "google-genai");
-	assert.equal(parsed.messages[2].model, "glm-5");
+	assert.equal(parsed.messages[2].model, "glm-5.1");
 	assert.equal(parsed.messages[3].provider, "google");
 	assert.equal(parsed.messages[3].api, "google-genai");
 	assert.equal(parsed.messages[3].model, "gemini-3-flash-preview");
@@ -232,7 +338,8 @@ test("buildBridgeErrorPayload returns explicit timeout and tool round limit erro
 			type: "error",
 			request_id: "req-round-limit",
 			code: "tool_round_limit",
-			message: "Pi bridge tool round limit exceeded before the model produced a terminal response.",
+			message:
+				"Pi bridge tool round limit exceeded before the model produced a terminal response.",
 			retryable: false,
 			tool_rounds_used: 3,
 			max_tool_rounds: 2,
@@ -249,24 +356,27 @@ test("resolveModelSelection falls back to the first available selector", async (
 		},
 		getAll() {
 			return [
-				{ provider: "zai", id: "glm-5", api: "test-api" },
-				{ provider: "kimi-coding", id: "k2p5", api: "test-api" },
+				{ provider: "zai", id: "glm-5.1", api: "test-api" },
+				{ provider: "kimi-coding", id: "k2p6", api: "test-api" },
 			];
 		},
 		async getAvailable() {
-			return [{ provider: "kimi-coding", id: "k2p5", api: "test-api" }];
+			return [{ provider: "kimi-coding", id: "k2p6", api: "test-api" }];
 		},
 	};
 
 	const resolution = await resolveModelSelection(
-		["zai/glm-5", "kimi-coding/k2p5"],
+		["zai/glm-5.1", "kimi-coding/k2p6"],
 		"fallback",
 		registry,
 	);
 
-	assert.equal(resolution.requestedSelector, "zai/glm-5");
-	assert.deepEqual(resolution.requestedSelectors, ["zai/glm-5", "kimi-coding/k2p5"]);
-	assert.equal(resolution.resolvedSelector, "kimi-coding/k2p5");
+	assert.equal(resolution.requestedSelector, "zai/glm-5.1");
+	assert.deepEqual(resolution.requestedSelectors, [
+		"zai/glm-5.1",
+		"kimi-coding/k2p6",
+	]);
+	assert.equal(resolution.resolvedSelector, "kimi-coding/k2p6");
 	assert.equal(resolution.fallbackUsed, true);
 });
 
@@ -276,7 +386,7 @@ test("resolveModelSelection fails fast in exact mode", async () => {
 			return { provider, id: model, api: "test-api" };
 		},
 		getAll() {
-			return [{ provider: "zai", id: "glm-5", api: "test-api" }];
+			return [{ provider: "zai", id: "glm-5.1", api: "test-api" }];
 		},
 		async getAvailable() {
 			return [];
@@ -284,20 +394,20 @@ test("resolveModelSelection fails fast in exact mode", async () => {
 	};
 
 	await assert.rejects(
-		resolveModelSelection(["zai/glm-5"], "exact", registry),
-		/not currently available|tried: zai\/glm-5/i,
+		resolveModelSelection(["zai/glm-5.1"], "exact", registry),
+		/not currently available|tried: zai\/glm-5\.1/i,
 	);
 });
 
 test("parseModelSelector rejects unavailable models with pi guidance", async () => {
 	const registry = {
 		find(provider, model) {
-			return provider === "zai" && model === "glm-5"
+			return provider === "zai" && model === "glm-5.1"
 				? { provider, id: model, api: "zai-chat" }
 				: null;
 		},
 		getAll() {
-			return [{ provider: "zai", id: "glm-5", api: "zai-chat" }];
+			return [{ provider: "zai", id: "glm-5.1", api: "zai-chat" }];
 		},
 		async getAvailable() {
 			return [];
@@ -305,7 +415,7 @@ test("parseModelSelector rejects unavailable models with pi guidance", async () 
 	};
 
 	await assert.rejects(
-		parseModelSelector("zai/glm-5", registry),
+		parseModelSelector("zai/glm-5.1", registry),
 		/not currently available|pi --list-models/i,
 	);
 });

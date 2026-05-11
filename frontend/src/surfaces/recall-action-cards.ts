@@ -238,7 +238,7 @@ export function buildRecallResultActionCards(
         eyebrow: "From this answer",
         title: "Stage this grounded brief for execution",
         summary: "Make the answer durable immediately, refine the question, or defer the handoff without losing the brief.",
-        rationale: "In-thread action cards should carry a grounded answer into a durable next step instead of forcing the operator to reconstruct the follow-through by hand.",
+        rationale: "In-thread action cards should carry a grounded answer into a durable next step instead of making you reconstruct the follow-through by hand.",
         preview: [
           { label: "Answer", value: summary },
           { label: "Grounding", value: groundingLabel },
@@ -249,7 +249,7 @@ export function buildRecallResultActionCards(
           generationLabel: "Grounded recall result",
           generationTone: "attention",
           contextSources: evidenceSources,
-          assumptions: ["The next action still needs explicit operator confirmation once you leave recall."],
+          assumptions: ["The next action still needs your explicit confirmation once you leave recall."],
           confidenceLabel: context.sourceCount
             ? `${context.sourceCount} supporting source${context.sourceCount === 1 ? "" : "s"}`
             : `${groundingLabel} applied`,
@@ -417,7 +417,7 @@ export function buildRecallResultActionCards(
       eyebrow: "From this answer",
       title: "Stage a grounded follow-up from this evidence",
       summary: "Turn the retrieved evidence into a durable next-step conversation, refine the document question, or defer the evidence for later.",
-      rationale: "Document answers are most valuable when the operator can preserve the evidence, refine the question, and reopen the next grounded conversation without rebuilding context by hand.",
+      rationale: "Document answers are most valuable when you can preserve the evidence, refine the question, and reopen the next grounded conversation without rebuilding context by hand.",
       preview: [
         { label: "Answer", value: summary },
         { label: "Sources", value: context.sourceCount ? `${context.sourceCount} source${context.sourceCount === 1 ? "" : "s"}` : "Document-backed answer" },
@@ -474,7 +474,7 @@ export function buildRecallResultActionCards(
       eyebrow: "Act from evidence",
       title: "Stage this evidence-backed handoff in Do",
       summary: "Carry the answer into execution now or save the brief for later without losing the source trail.",
-      rationale: "Evidence-backed answers are most useful when the operator can keep the brief durable and still move into execution immediately.",
+      rationale: "Evidence-backed answers are most useful when you can keep the brief durable and still move into action immediately.",
       preview: [
         { label: "Evidence", value: context.sourceLabels.slice(0, 2).join(" · ") || `${context.sourceCount} source${context.sourceCount === 1 ? "" : "s"}` },
         { label: "Context", value: workingSetLabel },
@@ -559,7 +559,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
           impactSummary: "Use one prompt to turn current system state into an explicit recommendation.",
         },
         handoff: {
-          changeSummary: "This keeps recall aligned with the current operational context instead of starting from a blank assistant thread.",
+          changeSummary: "This keeps recall aligned with the current Life context instead of starting from a blank thread.",
           createdResources: [],
           nextStep: "Ask for a prioritized brief or a recommended next move.",
           breadcrumbs: ["Home", "Recall", "Grounded chat"],
@@ -609,7 +609,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
         summary: context.hasKnowledge === false
           ? "The document recall surface is the next step when you need local evidence but have not indexed the relevant files yet."
           : "Open Documents when the next answer should be grounded in indexed local notes, playbooks, or reference material.",
-        rationale: "Document recall works best when the operator can move into evidence-backed recall without losing the current work-state context.",
+        rationale: "Document recall works best when you can move into evidence-backed recall without losing the current Life context.",
         preview: [
           { label: "Best use", value: "Policies, notes, manuals, and other local references" },
           { label: "Prompt idea", value: context.ragQuestion || "What local docs should shape this decision?" },
@@ -645,7 +645,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
         eyebrow: "Memory search",
         title: "Search durable context before reopening workflow state",
         summary: "Use Memory to confirm facts, preferences, or commitments before you jump back into plan, review, or chat.",
-        rationale: "This keeps durable context review explicit instead of forcing the operator to remember what should already be stored.",
+        rationale: "This keeps durable context review explicit instead of making you remember what should already be stored.",
         preview: [
           { label: "Search", value: context.memoryQuery || "Try a person, project, preference, or commitment" },
           { label: "Context", value: workingSetLabel },
@@ -659,7 +659,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
           impactSummary: "Search memory before acting on stale assumptions.",
         },
         handoff: {
-          changeSummary: "This makes durable context a first-class step in the operator loop.",
+          changeSummary: "This makes durable context a first-class step in the Life loop.",
           createdResources: [],
           nextStep: "Search memory, then reopen the next workflow with the right context in mind.",
           breadcrumbs: ["Home", "Recall", "Memory"],
@@ -676,7 +676,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
         eyebrow: "Grounded synthesis",
         title: "Carry memory back into grounded chat",
         summary: "After checking durable context, reopen grounded chat to turn those facts into a recommendation or summary.",
-        rationale: "Memory becomes more useful when the operator can immediately put it back into a grounded decision conversation.",
+        rationale: "Memory becomes more useful when you can immediately put it back into a grounded decision conversation.",
         preview: [
           { label: "Best prompt", value: "Use the current memory context to recommend the next move." },
         ],
@@ -689,7 +689,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
           impactSummary: "Move from stored facts back into a grounded recommendation.",
         },
         handoff: {
-          changeSummary: "This keeps memory review connected to the broader operator loop.",
+          changeSummary: "This keeps memory review connected to the broader Life loop.",
           createdResources: [],
           nextStep: "Reopen grounded chat and ask for the next move using the durable context you just checked.",
           breadcrumbs: ["Home", "Recall", "Grounded chat"],
@@ -712,7 +712,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
       summary: context.hasKnowledge === false
         ? "Document recall is empty until the relevant local files are indexed."
         : "Use Documents when the next move should be grounded in retrieved local sources instead of memory or narrative alone.",
-      rationale: "This keeps document recall aligned with the same action-first shell contract used by operator and review surfaces.",
+      rationale: "This keeps document recall aligned with the same action-first flow used by Life and review surfaces.",
       preview: [
         { label: "Question", value: context.ragQuestion || "What local docs should shape this decision?" },
         { label: "Context", value: workingSetLabel },
@@ -773,7 +773,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
       eyebrow: "Synthesis",
       title: "Carry retrieved evidence back into grounded chat",
       summary: "After reading the sources, reopen grounded chat to synthesize what the evidence means for the next action.",
-      rationale: "Document recall is most useful when the operator can immediately turn evidence into a concrete recommendation.",
+      rationale: "Document recall is most useful when you can immediately turn evidence into a concrete recommendation.",
       preview: [
         { label: "Best prompt", value: "Use these documents to recommend the next move." },
       ],
@@ -786,7 +786,7 @@ export function buildRecallActionCards(context: RecallActionCardContext): Operat
         impactSummary: "Move from evidence collection into a grounded next-step recommendation.",
       },
       handoff: {
-        changeSummary: "This keeps document recall connected to the operator’s grounded decision loop.",
+        changeSummary: "This keeps document recall connected to the grounded decision loop.",
         createdResources: [],
         nextStep: "Reopen grounded chat and ask what the retrieved evidence changes.",
         breadcrumbs: ["Home", "Recall", "Grounded chat"],

@@ -35,7 +35,7 @@ This file tells coding agents how to make safe, verifiable repo changes. Keep it
 - Keep Python responsible for loop state, storage, tools, routing, and deterministic mutations. Generative chat/organizer calls go through the pi bridge; embeddings stay on the LiteLLM-compatible embedding path.
 - Use `uv run` or existing `make` targets for Python commands. Do not introduce another Python package manager.
 - Use `pnpm --dir frontend` and `pnpm --dir src/cloop/pi_bridge` for Node work. Keep lockfile changes explicit.
-- Python runtime policy is 3.14+. Frontend runtime evidence is in `frontend/package.json` (`node >=25.8.2`, `pnpm@10.33.2`).
+- Python runtime policy is 3.14+. Frontend runtime evidence is in `frontend/package.json` (`node >=25.8.2`, `pnpm@11.0.9`).
 - Ask the user only when the next step would change product behavior materially, overwrite unknown user work, require credentials/secrets, or choose between incompatible designs. Otherwise proceed, state assumptions, and verify.
 - Stop searching when repo evidence identifies the canonical owner and the change scope is clear. Do not inventory the whole repo for a localized change.
 - Stop planning and implement when the plan has a clear owner path, validation command, and rollback boundary.
@@ -51,26 +51,24 @@ pnpm --dir src/cloop/pi_bridge install --frozen-lockfile
 pnpm --dir frontend install --frozen-lockfile
 ```
 
-Common commands:
+Start with the maintained command guide:
 
 ```bash
-make help                 # list maintained targets
-make check-fast           # fast development gate: quality + bridge tests + fast tests
-make ci                   # full local CI gate: quality + bridge tests + tests + dist-check
-make quality              # lock, frontend type, format, lint, env/header/secret/version/changelog, smoke, type
-make test-fast            # frontend build/test + backup safety + pytest not slow/performance
-make test                 # frontend build/test + backup safety + pytest not performance
-make test-all             # all pytest markers
-make frontend-type        # generate frontend contracts, then TypeScript check
-make frontend-test        # generate frontend contracts, then Vitest
-make frontend-build       # generate frontend contracts, then Vite build
-make bridge-test          # pi bridge installability + tests
-make cleanup-runtime      # stop repo-owned long-running runtime processes
-make verify-runtime-clean # report runtime leaks
-make run                  # uvicorn local app
+make help                 # beginner-focused start-here list
+make help-all             # complete maintained target list
 ```
 
-Use narrower checks while iterating, then run the broadest practical gate before done.
+Most work uses these gates:
+
+```bash
+make run                  # uvicorn local app
+make check-fast           # fast development gate: quality + bridge tests + fast tests
+make ci                   # full local release gate: quality + bridge tests + tests + dist-check
+make cleanup-runtime      # stop repo-owned long-running runtime processes
+make verify-runtime-clean # report runtime leaks
+```
+
+Use narrower stack-specific targets from `make help-all` while iterating, then run the broadest practical gate before done.
 
 ## Coding conventions
 

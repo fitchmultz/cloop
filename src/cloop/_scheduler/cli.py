@@ -90,7 +90,7 @@ def main(
             asyncio.run(scheduler_loop_fn(settings))
     except KeyboardInterrupt:
         return 0
-    except Exception:  # noqa: BLE001
-        logger.exception("Scheduler execution failed")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Scheduler execution failed: %s", type(exc).__name__)
         return 1
     return 0

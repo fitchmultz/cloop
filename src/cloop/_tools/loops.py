@@ -51,12 +51,12 @@ def _handle_tool_error(operation: str, exc: Exception) -> None:
     if isinstance(exc, CloopError):
         raise
     if isinstance(exc, (ValueError, TypeError, KeyError, AttributeError)):
-        raise ValidationError(operation, f"failed to {operation.replace('_', ' ')}: {exc}") from exc
+        raise ValidationError(operation, f"failed to {operation.replace('_', ' ')}") from exc
     if isinstance(exc, sqlite3.Error):
-        logger.error("Database error in %s: %s", operation, exc)
-        raise ValidationError(operation, f"database error during {operation}: {exc}") from exc
-    logger.exception("Unexpected error in %s: %s", operation, exc)
-    raise ValidationError(operation, f"unexpected error during {operation}: {exc}") from exc
+        logger.error("Database error in %s: %s", operation, type(exc).__name__)
+        raise ValidationError(operation, f"database error during {operation}") from exc
+    logger.error("Unexpected error in %s: %s", operation, type(exc).__name__)
+    raise ValidationError(operation, f"unexpected error during {operation}") from exc
 
 
 def _run_loop_db_action(
