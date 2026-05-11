@@ -16,7 +16,7 @@ help:
 		"Start here:" \
 		"  make run                 Start the FastAPI dev server" \
 		"  make check-fast          Fast local gate before pushing" \
-		"  make ci                  Full release/CI-equivalent gate" \
+		"  make ci                  Full local release gate" \
 		"" \
 		"Common focused checks:" \
 		"  make frontend-type       Generate contracts, then TypeScript check" \
@@ -45,7 +45,7 @@ help-all:
 		"  help                    Show beginner-focused command list" \
 		"  run                     Run FastAPI locally (uvicorn)" \
 		"  check-fast              Run quality + bridge-test + test-fast" \
-		"  ci                      Alias for check-full (local CI gate)" \
+		"  ci                      Alias for check-full (full local gate)" \
 		"  fmt                     Format code with ruff" \
 		"  lint-fix                Lint + auto-fix with ruff" \
 		"  cleanup-runtime         Stop repo-owned runtime processes and temp browser profiles" \

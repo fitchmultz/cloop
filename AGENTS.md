@@ -63,7 +63,7 @@ Most work uses these gates:
 ```bash
 make run                  # uvicorn local app
 make check-fast           # fast development gate: quality + bridge tests + fast tests
-make ci                   # full local CI gate: quality + bridge tests + tests + dist-check
+make ci                   # full local release gate: quality + bridge tests + tests + dist-check
 make cleanup-runtime      # stop repo-owned long-running runtime processes
 make verify-runtime-clean # report runtime leaks
 ```
