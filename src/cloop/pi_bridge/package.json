@@ -9,16 +9,9 @@
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@google/genai",
-      "koffi",
-      "protobufjs"
-    ]
-  },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.74.0",
-    "@earendil-works/pi-ai": "0.74.0",
-    "@earendil-works/pi-coding-agent": "0.74.0"
+    "@earendil-works/pi-agent-core": "0.75.4",
+    "@earendil-works/pi-ai": "0.75.4",
+    "@earendil-works/pi-coding-agent": "0.75.4"
   }
 }
