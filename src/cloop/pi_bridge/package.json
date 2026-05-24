@@ -2,9 +2,10 @@
   "name": "cloop-pi-bridge",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.0.9",
+  "packageManager": "pnpm@11.0.0",
   "engines": {
-    "node": ">=25.8.2"
+    "node": ">=22 <25",
+    "pnpm": ">=11 <12"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs"
