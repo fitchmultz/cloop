@@ -2,7 +2,7 @@
   "name": "cloop-frontend",
   "private": true,
   "version": "0.0.0",
-  "packageManager": "pnpm@11.0.9",
+  "packageManager": "pnpm@11.5.1",
   "type": "module",
   "engines": {
     "node": ">=25.8.2"

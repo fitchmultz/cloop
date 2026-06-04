@@ -3,17 +3,18 @@ import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
 import { Agent } from "@earendil-works/pi-agent-core";
-import { StringEnum, Type } from "@earendil-works/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 export const PROTOCOL_VERSION = 1;
 export const BRIDGE_NAME = "cloop-pi-bridge";
-export const BRIDGE_VERSION = "0.1.0";
+export const BRIDGE_VERSION = "0.1.1";
 
 const TOOL_RESULT_TEXT_MAX_CHARS = 12_000;
 
 const authStorage = AuthStorage.create();
-const modelRegistry = new ModelRegistry(authStorage);
+const modelRegistry = ModelRegistry.create(authStorage);
 const sessions = new Map();
 
 export function emit(output, payload) {
