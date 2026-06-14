@@ -132,7 +132,7 @@ def test_chat_readonly_exhausted_failure_maps_to_explicit_contract(
                     "attempt": 1,
                     "strategy": "primary",
                     "success": False,
-                    "resolved_selector": "zai/glm-5.1",
+                    "resolved_selector": "zai/glm-5.2",
                     "error_code": "provider_timeout",
                     "retryable": True,
                 },

@@ -504,8 +504,8 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 
 ### Pi models
 
-- `CLOOP_PI_MODEL`: ordered chat selector preferences in `provider/model` form (default: `zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5`)
-- `CLOOP_PI_ORGANIZER_MODEL`: ordered organizer/enrichment selector preferences (default: `zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5`)
+- `CLOOP_PI_MODEL`: ordered chat selector preferences in `provider/model` form (default: `zai/glm-5.2,kimi-coding/k2p6,openai-codex/gpt-5.5`)
+- `CLOOP_PI_ORGANIZER_MODEL`: ordered organizer/enrichment selector preferences (default: `zai/glm-5.2,kimi-coding/k2p6,openai-codex/gpt-5.5`)
 - `CLOOP_PI_THINKING_LEVEL`: chat thinking level (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`)
 - `CLOOP_PI_ORGANIZER_THINKING_LEVEL`: organizer thinking level
 - `CLOOP_PI_TIMEOUT`: chat timeout in seconds (default: `30.0`)
@@ -519,7 +519,7 @@ Cloop reads configuration from environment variables (a `.env` file works well).
 - `CLOOP_PI_MUTATION_MAX_TOOL_ROUNDS`: mutation/tool-writing budget (default: `2`)
 
 Cloop passes these selector strings straight through to `pi` and relies on `pi --list-models`
-for availability. The default selector preference order is `zai/glm-5.1`, `kimi-coding/k2p6`,
+for availability. The default selector preference order is `zai/glm-5.2`, `kimi-coding/k2p6`,
 then `openai-codex/gpt-5.5`, but any pi-supported selector is valid.
 
 `fallback` resolves each role to the first available configured selector. `exact` requires

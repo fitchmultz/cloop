@@ -22,7 +22,7 @@ def _write_bridge_script(tmp_path: Path, body: str) -> Path:
 def _start_request() -> BridgeStartRequest:
     return BridgeStartRequest(
         request_id="req-1",
-        model="zai/glm-5.1",
+        model="zai/glm-5.2",
         messages=[{"role": "user", "content": "hello"}],
         thinking_level="none",
         timeout_ms=1_000,
@@ -107,14 +107,14 @@ def test_bridge_runtime_resolves_model_metadata(tmp_path: Path) -> None:
     runtime = BridgeRuntime(command=[sys.executable, "-u", str(script)], agent_dir=None)
     try:
         resolution = runtime.resolve_model(
-            selectors=("zai/glm-5.1", "kimi-coding/k2p6"),
+            selectors=("zai/glm-5.2", "kimi-coding/k2p6"),
             selector_mode="fallback",
         )
     finally:
         runtime.shutdown()
 
-    assert resolution.requested_selector == "zai/glm-5.1"
-    assert resolution.requested_selectors == ("zai/glm-5.1", "kimi-coding/k2p6")
+    assert resolution.requested_selector == "zai/glm-5.2"
+    assert resolution.requested_selectors == ("zai/glm-5.2", "kimi-coding/k2p6")
     assert resolution.resolved_selector == "kimi-coding/k2p6"
     assert resolution.fallback_used is True
     assert resolution.selector_mode == "fallback"

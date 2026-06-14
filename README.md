@@ -74,8 +74,8 @@ Prerequisites: Python 3.14+, Node 25.8.2+, pnpm 11.0.9+, `uv`, and an authentica
 Edit `.env`. For a first local run, keep automation off and use pi for generation plus Ollama-compatible local embeddings:
 
 ```dotenv
-CLOOP_PI_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
-CLOOP_PI_ORGANIZER_MODEL=zai/glm-5.1,kimi-coding/k2p6,openai-codex/gpt-5.5
+CLOOP_PI_MODEL=zai/glm-5.2,kimi-coding/k2p6,openai-codex/gpt-5.5
+CLOOP_PI_ORGANIZER_MODEL=zai/glm-5.2,kimi-coding/k2p6,openai-codex/gpt-5.5
 CLOOP_PI_SELECTOR_MODE=fallback
 CLOOP_PI_CHAT_MAX_TOOL_ROUNDS=4
 CLOOP_PI_PLANNING_MAX_TOOL_ROUNDS=2

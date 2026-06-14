@@ -36,7 +36,7 @@ from pathlib import Path
 _DOTENV_LOADED = False
 
 DEFAULT_PI_MODEL_PREFERENCES = (
-    "zai/glm-5.1",
+    "zai/glm-5.2",
     "kimi-coding/k2p6",
     "openai-codex/gpt-5.5",
 )

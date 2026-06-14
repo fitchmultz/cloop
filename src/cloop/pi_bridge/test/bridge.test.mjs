@@ -277,7 +277,7 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 			{
 				role: "assistant",
 				content: "selector fallback",
-				model: "zai/glm-5.1",
+				model: "zai/glm-5.2",
 			},
 			{
 				role: "assistant",
@@ -305,7 +305,7 @@ test("parseConversationMessages preserves assistant metadata and defaults replay
 	assert.deepEqual(parsed.messages[1].usage, { input: 11, output: 7 });
 	assert.equal(parsed.messages[2].provider, "zai");
 	assert.equal(parsed.messages[2].api, "google-genai");
-	assert.equal(parsed.messages[2].model, "glm-5.1");
+	assert.equal(parsed.messages[2].model, "glm-5.2");
 	assert.equal(parsed.messages[3].provider, "google");
 	assert.equal(parsed.messages[3].api, "google-genai");
 	assert.equal(parsed.messages[3].model, "gemini-3-flash-preview");
@@ -369,7 +369,7 @@ test("resolveModelSelection falls back to the first available selector", async (
 		},
 		getAll() {
 			return [
-				{ provider: "zai", id: "glm-5.1", api: "test-api" },
+				{ provider: "zai", id: "glm-5.2", api: "test-api" },
 				{ provider: "kimi-coding", id: "k2p6", api: "test-api" },
 			];
 		},
@@ -379,14 +379,14 @@ test("resolveModelSelection falls back to the first available selector", async (
 	};
 
 	const resolution = await resolveModelSelection(
-		["zai/glm-5.1", "kimi-coding/k2p6"],
+		["zai/glm-5.2", "kimi-coding/k2p6"],
 		"fallback",
 		registry,
 	);
 
-	assert.equal(resolution.requestedSelector, "zai/glm-5.1");
+	assert.equal(resolution.requestedSelector, "zai/glm-5.2");
 	assert.deepEqual(resolution.requestedSelectors, [
-		"zai/glm-5.1",
+		"zai/glm-5.2",
 		"kimi-coding/k2p6",
 	]);
 	assert.equal(resolution.resolvedSelector, "kimi-coding/k2p6");
@@ -399,7 +399,7 @@ test("resolveModelSelection fails fast in exact mode", async () => {
 			return { provider, id: model, api: "test-api" };
 		},
 		getAll() {
-			return [{ provider: "zai", id: "glm-5.1", api: "test-api" }];
+			return [{ provider: "zai", id: "glm-5.2", api: "test-api" }];
 		},
 		async getAvailable() {
 			return [];
@@ -407,7 +407,7 @@ test("resolveModelSelection fails fast in exact mode", async () => {
 	};
 
 	await assert.rejects(
-		resolveModelSelection(["zai/glm-5.1"], "exact", registry),
+		resolveModelSelection(["zai/glm-5.2"], "exact", registry),
 		/not currently available|tried: zai\/glm-5\.1/i,
 	);
 });
@@ -415,12 +415,12 @@ test("resolveModelSelection fails fast in exact mode", async () => {
 test("parseModelSelector rejects unavailable models with pi guidance", async () => {
 	const registry = {
 		find(provider, model) {
-			return provider === "zai" && model === "glm-5.1"
+			return provider === "zai" && model === "glm-5.2"
 				? { provider, id: model, api: "zai-chat" }
 				: null;
 		},
 		getAll() {
-			return [{ provider: "zai", id: "glm-5.1", api: "zai-chat" }];
+			return [{ provider: "zai", id: "glm-5.2", api: "zai-chat" }];
 		},
 		async getAvailable() {
 			return [];
@@ -428,7 +428,7 @@ test("parseModelSelector rejects unavailable models with pi guidance", async () 
 	};
 
 	await assert.rejects(
-		parseModelSelector("zai/glm-5.1", registry),
+		parseModelSelector("zai/glm-5.2", registry),
 		/not currently available|pi --list-models/i,
 	);
 });
