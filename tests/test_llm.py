@@ -144,7 +144,7 @@ def test_chat_completion_uses_bridge_request(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5.2,kimi-coding/k2p6",
+        CLOOP_PI_MODEL="zai/glm-5.2,kimi-coding/kimi-for-coding",
     )
     runtime = _QueuedRuntime(
         sessions=[
@@ -153,7 +153,7 @@ def test_chat_completion_uses_bridge_request(
                     {"type": "text_delta", "delta": "hi"},
                     {
                         "type": "done",
-                        "model": "kimi-coding/k2p6",
+                        "model": "kimi-coding/kimi-for-coding",
                         "provider": "kimi-coding",
                         "api": "zai-chat",
                         "usage": {"totalTokens": 0},
@@ -165,8 +165,8 @@ def test_chat_completion_uses_bridge_request(
         resolutions=[
             _resolution(
                 requested_selector="zai/glm-5.2",
-                requested_selectors=("zai/glm-5.2", "kimi-coding/k2p6"),
-                resolved_selector="kimi-coding/k2p6",
+                requested_selectors=("zai/glm-5.2", "kimi-coding/kimi-for-coding"),
+                resolved_selector="kimi-coding/kimi-for-coding",
                 fallback_used=True,
             )
         ],
@@ -181,9 +181,9 @@ def test_chat_completion_uses_bridge_request(
     )
 
     assert content == "hi"
-    assert metadata["model"] == "kimi-coding/k2p6"
+    assert metadata["model"] == "kimi-coding/kimi-for-coding"
     assert metadata["requested_selector"] == "zai/glm-5.2"
-    assert metadata["resolved_selector"] == "kimi-coding/k2p6"
+    assert metadata["resolved_selector"] == "kimi-coding/kimi-for-coding"
     assert metadata["fallback_used"] is True
     assert metadata["generation_strategy"] == "primary"
     assert metadata["alternate_strategy_used"] is False
@@ -194,8 +194,8 @@ def test_chat_completion_uses_bridge_request(
             "reason": None,
             "surface": "chat",
             "requested_selector": "zai/glm-5.2",
-            "requested_selectors": ["zai/glm-5.2", "kimi-coding/k2p6"],
-            "resolved_selector": "kimi-coding/k2p6",
+            "requested_selectors": ["zai/glm-5.2", "kimi-coding/kimi-for-coding"],
+            "resolved_selector": "kimi-coding/kimi-for-coding",
             "fallback_used": True,
             "selector_mode": "fallback",
             "max_tool_rounds": 4,
@@ -203,8 +203,11 @@ def test_chat_completion_uses_bridge_request(
             "success": True,
         }
     ]
-    assert runtime.resolve_requests[0]["selectors"] == ("zai/glm-5.2", "kimi-coding/k2p6")
-    assert runtime.requests[0].model == "kimi-coding/k2p6"
+    assert runtime.resolve_requests[0]["selectors"] == (
+        "zai/glm-5.2",
+        "kimi-coding/kimi-for-coding",
+    )
+    assert runtime.requests[0].model == "kimi-coding/kimi-for-coding"
     assert runtime.requests[0].messages == [{"role": "user", "content": "Hello"}]
 
 
@@ -214,7 +217,7 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5.2,kimi-coding/k2p6",
+        CLOOP_PI_MODEL="zai/glm-5.2,kimi-coding/kimi-for-coding",
     )
     runtime = _QueuedRuntime(
         sessions=[
@@ -226,7 +229,7 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
                     {"type": "text_delta", "delta": "recovered"},
                     {
                         "type": "done",
-                        "model": "kimi-coding/k2p6",
+                        "model": "kimi-coding/kimi-for-coding",
                         "provider": "kimi-coding",
                         "api": "zai-chat",
                         "usage": {},
@@ -238,13 +241,13 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
         resolutions=[
             _resolution(
                 requested_selector="zai/glm-5.2",
-                requested_selectors=("zai/glm-5.2", "kimi-coding/k2p6"),
+                requested_selectors=("zai/glm-5.2", "kimi-coding/kimi-for-coding"),
                 resolved_selector="zai/glm-5.2",
             ),
             _resolution(
-                requested_selector="kimi-coding/k2p6",
-                requested_selectors=("kimi-coding/k2p6",),
-                resolved_selector="kimi-coding/k2p6",
+                requested_selector="kimi-coding/kimi-for-coding",
+                requested_selectors=("kimi-coding/kimi-for-coding",),
+                resolved_selector="kimi-coding/kimi-for-coding",
             ),
         ],
     )
@@ -263,8 +266,8 @@ def test_chat_completion_falls_back_to_next_selector_on_retryable_failure(
     assert metadata["strategy_reason"] == "retryable upstream failure on the resolved selector"
     assert [attempt["success"] for attempt in metadata["strategy_attempts"]] == [False, True]
     assert metadata["strategy_attempts"][0]["error_code"] == "provider_timeout"
-    assert runtime.resolve_requests[1]["selectors"] == ("kimi-coding/k2p6",)
-    assert runtime.requests[1].model == "kimi-coding/k2p6"
+    assert runtime.resolve_requests[1]["selectors"] == ("kimi-coding/kimi-for-coding",)
+    assert runtime.requests[1].model == "kimi-coding/kimi-for-coding"
 
 
 def test_chat_completion_retries_same_selector_when_no_fallback_available(
@@ -325,7 +328,7 @@ def test_stream_events_does_not_retry_after_visible_output_started(
     settings = _configure_env(
         monkeypatch,
         tmp_path,
-        CLOOP_PI_MODEL="zai/glm-5.2,kimi-coding/k2p6",
+        CLOOP_PI_MODEL="zai/glm-5.2,kimi-coding/kimi-for-coding",
     )
     runtime = _QueuedRuntime(
         sessions=[
@@ -334,7 +337,7 @@ def test_stream_events_does_not_retry_after_visible_output_started(
         resolutions=[
             _resolution(
                 requested_selector="zai/glm-5.2",
-                requested_selectors=("zai/glm-5.2", "kimi-coding/k2p6"),
+                requested_selectors=("zai/glm-5.2", "kimi-coding/kimi-for-coding"),
                 resolved_selector="zai/glm-5.2",
             )
         ],

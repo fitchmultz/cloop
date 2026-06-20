@@ -59,7 +59,7 @@ Primary env vars:
 Default preference order:
 
 1. `zai/glm-5.2`
-2. `kimi-coding/k2p6`
+2. `kimi-coding/kimi-for-coding`
 3. `openai-codex/gpt-5.5`
 
 Selector modes:

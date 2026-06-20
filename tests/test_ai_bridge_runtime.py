@@ -107,15 +107,15 @@ def test_bridge_runtime_resolves_model_metadata(tmp_path: Path) -> None:
     runtime = BridgeRuntime(command=[sys.executable, "-u", str(script)], agent_dir=None)
     try:
         resolution = runtime.resolve_model(
-            selectors=("zai/glm-5.2", "kimi-coding/k2p6"),
+            selectors=("zai/glm-5.2", "kimi-coding/kimi-for-coding"),
             selector_mode="fallback",
         )
     finally:
         runtime.shutdown()
 
     assert resolution.requested_selector == "zai/glm-5.2"
-    assert resolution.requested_selectors == ("zai/glm-5.2", "kimi-coding/k2p6")
-    assert resolution.resolved_selector == "kimi-coding/k2p6"
+    assert resolution.requested_selectors == ("zai/glm-5.2", "kimi-coding/kimi-for-coding")
+    assert resolution.resolved_selector == "kimi-coding/kimi-for-coding"
     assert resolution.fallback_used is True
     assert resolution.selector_mode == "fallback"
 

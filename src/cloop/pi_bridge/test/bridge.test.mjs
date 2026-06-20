@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const bridgePath = path.resolve(testDir, "..", "bridge.mjs");
+const settingsPath = path.resolve(testDir, "..", "..", "settings.py");
 const bridgeModule = await import(pathToFileURL(bridgePath).href);
 
 const {
@@ -362,6 +365,18 @@ test("buildBridgeErrorPayload returns explicit timeout and tool round limit erro
 	);
 });
 
+test("default Cloop pi selectors resolve against current Pi registry", async () => {
+	const settings = await readFile(settingsPath, "utf8");
+	const tuple = settings.match(/DEFAULT_PI_MODEL_PREFERENCES = \((?<body>[\s\S]*?)\)/)?.groups?.body;
+	assert.ok(tuple);
+	const selectors = [...tuple.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+	const registry = ModelRegistry.create(AuthStorage.inMemory());
+	for (const selector of selectors) {
+		const [provider, model] = selector.split("/", 2);
+		assert.ok(registry.find(provider, model), `missing Pi model selector: ${selector}`);
+	}
+});
+
 test("resolveModelSelection falls back to the first available selector", async () => {
 	const registry = {
 		find(provider, model) {
@@ -370,16 +385,16 @@ test("resolveModelSelection falls back to the first available selector", async (
 		getAll() {
 			return [
 				{ provider: "zai", id: "glm-5.2", api: "test-api" },
-				{ provider: "kimi-coding", id: "k2p6", api: "test-api" },
+				{ provider: "kimi-coding", id: "kimi-for-coding", api: "test-api" },
 			];
 		},
 		async getAvailable() {
-			return [{ provider: "kimi-coding", id: "k2p6", api: "test-api" }];
+			return [{ provider: "kimi-coding", id: "kimi-for-coding", api: "test-api" }];
 		},
 	};
 
 	const resolution = await resolveModelSelection(
-		["zai/glm-5.2", "kimi-coding/k2p6"],
+		["zai/glm-5.2", "kimi-coding/kimi-for-coding"],
 		"fallback",
 		registry,
 	);
@@ -387,9 +402,9 @@ test("resolveModelSelection falls back to the first available selector", async (
 	assert.equal(resolution.requestedSelector, "zai/glm-5.2");
 	assert.deepEqual(resolution.requestedSelectors, [
 		"zai/glm-5.2",
-		"kimi-coding/k2p6",
+		"kimi-coding/kimi-for-coding",
 	]);
-	assert.equal(resolution.resolvedSelector, "kimi-coding/k2p6");
+	assert.equal(resolution.resolvedSelector, "kimi-coding/kimi-for-coding");
 	assert.equal(resolution.fallbackUsed, true);
 });
 
@@ -408,7 +423,7 @@ test("resolveModelSelection fails fast in exact mode", async () => {
 
 	await assert.rejects(
 		resolveModelSelection(["zai/glm-5.2"], "exact", registry),
-		/not currently available|tried: zai\/glm-5\.1/i,
+		/not currently available|tried: zai\/glm-5\.2/i,
 	);
 });
 

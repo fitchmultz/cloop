@@ -140,7 +140,7 @@ def test_chat_readonly_exhausted_failure_maps_to_explicit_contract(
                     "attempt": 2,
                     "strategy": "fallback_selector",
                     "success": False,
-                    "resolved_selector": "kimi-coding/k2p6",
+                    "resolved_selector": "kimi-coding/kimi-for-coding",
                     "error_code": "provider_timeout",
                     "retryable": True,
                 },

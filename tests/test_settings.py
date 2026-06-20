@@ -121,9 +121,9 @@ def test_selector_preferences_parse_csv_and_dedupe(
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv(
         "CLOOP_PI_MODEL",
-        " zai/glm-5.2 , kimi-coding/k2p6, zai/glm-5.2 , openai-codex/gpt-5.5 ",
+        " zai/glm-5.2 , kimi-coding/kimi-for-coding, zai/glm-5.2 , openai-codex/gpt-5.5 ",
     )
-    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "kimi-coding/k2p6, zai/glm-5.2")
+    monkeypatch.setenv("CLOOP_PI_ORGANIZER_MODEL", "kimi-coding/kimi-for-coding, zai/glm-5.2")
     monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
     settings_module.get_settings.cache_clear()
 
@@ -131,11 +131,11 @@ def test_selector_preferences_parse_csv_and_dedupe(
 
     assert settings.pi_model_preferences == (
         "zai/glm-5.2",
-        "kimi-coding/k2p6",
+        "kimi-coding/kimi-for-coding",
         "openai-codex/gpt-5.5",
     )
     assert settings.pi_organizer_model_preferences == (
-        "kimi-coding/k2p6",
+        "kimi-coding/kimi-for-coding",
         "zai/glm-5.2",
     )
 
@@ -148,7 +148,7 @@ def test_exact_selector_mode_requires_single_selector(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("CLOOP_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("CLOOP_PI_SELECTOR_MODE", "exact")
-    monkeypatch.setenv("CLOOP_PI_MODEL", "zai/glm-5.2,kimi-coding/k2p6")
+    monkeypatch.setenv("CLOOP_PI_MODEL", "zai/glm-5.2,kimi-coding/kimi-for-coding")
     monkeypatch.setattr(settings_module, "_DOTENV_LOADED", False)
     settings_module.get_settings.cache_clear()
 

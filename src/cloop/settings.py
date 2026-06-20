@@ -37,7 +37,7 @@ _DOTENV_LOADED = False
 
 DEFAULT_PI_MODEL_PREFERENCES = (
     "zai/glm-5.2",
-    "kimi-coding/k2p6",
+    "kimi-coding/kimi-for-coding",
     "openai-codex/gpt-5.5",
 )
 DEFAULT_PI_ORGANIZER_MODEL_PREFERENCES = DEFAULT_PI_MODEL_PREFERENCES
