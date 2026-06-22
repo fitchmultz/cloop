@@ -1,10 +1,10 @@
 # Pi bridge tracks audited Pi releases promptly; keep same-day supply-chain
 # exceptions exact and scoped so pnpm's default minimum release age still applies broadly.
 minimumReleaseAgeExclude:
-  - '@earendil-works/pi-agent-core@0.79.8'
-  - '@earendil-works/pi-ai@0.79.8'
-  - '@earendil-works/pi-coding-agent@0.79.8'
-  - '@earendil-works/pi-tui@0.79.8'
+  - '@earendil-works/pi-agent-core@0.79.10'
+  - '@earendil-works/pi-ai@0.79.10'
+  - '@earendil-works/pi-coding-agent@0.79.10'
+  - '@earendil-works/pi-tui@0.79.10'
 
 allowBuilds:
   '@google/genai': true
