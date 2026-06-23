@@ -3,7 +3,7 @@ import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
 import { Agent } from "@earendil-works/pi-agent-core";
-import { StringEnum } from "@earendil-works/pi-ai";
+import { StringEnum } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 
